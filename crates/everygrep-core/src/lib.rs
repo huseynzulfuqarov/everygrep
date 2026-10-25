@@ -2,6 +2,7 @@
 
 pub mod fold;
 pub mod index;
+pub mod inotify;
 pub mod matcher;
 pub mod order;
 pub mod persist;
