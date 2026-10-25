@@ -126,11 +126,11 @@ impl Index {
         }
     }
 
-    /// Removes a node and, for a folder, all nodes below it. Returns how many
-    /// nodes were removed.
-    pub fn remove(&mut self, id: NodeId) -> usize {
+    /// Removes a node and, for a folder, all nodes below it. Returns the ids of
+    /// the removed nodes.
+    pub fn remove(&mut self, id: NodeId) -> Vec<NodeId> {
         if !self.store.is_live(id) {
-            return 0;
+            return Vec::new();
         }
         let doomed = if self.store.is_dir(id) {
             self.subtree(id)
@@ -146,7 +146,7 @@ impl Index {
         for &node in &doomed {
             self.store.remove(node);
         }
-        doomed.len()
+        doomed
     }
 
     /// Moves and/or renames a node. A node already at the target is removed
@@ -339,7 +339,7 @@ mod tests {
             Err(RenameError::IntoOwnSubtree)
         );
 
-        assert_eq!(index.remove(docs), 1);
+        assert_eq!(index.remove(docs), vec![docs]);
         assert_eq!(index.len(), 2);
         assert_eq!(index.find_child(Some(root), b"Docs"), None);
     }
@@ -352,7 +352,7 @@ mod tests {
         let mid = index.insert(Some(top), b"mid", true, Meta::default());
         index.insert(Some(mid), b"deep.txt", false, Meta::default());
         index.insert(Some(root), b"keep.txt", false, Meta::default());
-        assert_eq!(index.remove(top), 3);
+        assert_eq!(index.remove(top).len(), 3);
         assert_eq!(names(&index), vec![b"/r".to_vec(), b"keep.txt".to_vec()]);
     }
 

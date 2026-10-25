@@ -9,6 +9,7 @@ pub mod persist;
 pub mod scan;
 pub mod search;
 pub mod store;
+pub mod watch;
 
 /// Version of the engine, taken from the crate manifest.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
