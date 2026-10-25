@@ -14,6 +14,8 @@ use crate::store::{Meta, NodeId, NodeStore};
 pub struct Index {
     store: NodeStore,
     by_name: SortedIds,
+    /// Ids removed since the last [`take_removed`](Index::take_removed).
+    removed_log: Vec<NodeId>,
 }
 
 /// Why a rename was refused.
@@ -23,6 +25,9 @@ pub enum RenameError {
     Removed,
     /// The new parent is the node itself or one of its descendants.
     IntoOwnSubtree,
+    /// The node at the target is the node's own ancestor; replacing it would
+    /// remove the node itself.
+    OntoAncestor,
 }
 
 impl Index {
@@ -37,6 +42,7 @@ impl Index {
         Self {
             store,
             by_name: SortedIds::from_sorted(ids),
+            removed_log: Vec::new(),
         }
     }
 
@@ -62,6 +68,7 @@ impl Index {
         Ok(Self {
             store,
             by_name: SortedIds::from_sorted(by_name),
+            removed_log: Vec::new(),
         })
     }
 
@@ -146,7 +153,16 @@ impl Index {
         for &node in &doomed {
             self.store.remove(node);
         }
+        self.removed_log.extend_from_slice(&doomed);
         doomed
+    }
+
+    /// Returns and clears the ids of all nodes removed since the last call,
+    /// including nodes replaced by [`insert`](Self::insert) or
+    /// [`rename`](Self::rename). Owners of per-node state (such as watches) use it
+    /// to drop that state.
+    pub fn take_removed(&mut self) -> Vec<NodeId> {
+        std::mem::take(&mut self.removed_log)
     }
 
     /// Moves and/or renames a node. A node already at the target is removed
@@ -170,6 +186,13 @@ impl Index {
         if let Some(target) = self.find_child(new_parent, new_name) {
             if target == id {
                 return Ok(());
+            }
+            let mut up = self.store.parent(id);
+            while let Some(a) = up {
+                if a == target {
+                    return Err(RenameError::OntoAncestor);
+                }
+                up = self.store.parent(a);
             }
             self.remove(target);
         }
@@ -204,6 +227,7 @@ impl Index {
         let index = Index {
             store,
             by_name: SortedIds::from_sorted(ids),
+            removed_log: Vec::new(),
         };
         (index, remap)
     }
@@ -350,6 +374,31 @@ mod tests {
         assert_eq!(index.remove(docs), vec![docs]);
         assert_eq!(index.len(), 2);
         assert_eq!(index.find_child(Some(root), b"Docs"), None);
+    }
+
+    #[test]
+    fn rename_onto_own_ancestor_is_refused_and_removals_are_logged() {
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        let a = index.insert(Some(root), b"a", true, Meta::default());
+        let x = index.insert(Some(a), b"x", false, Meta::default());
+        index.take_removed();
+        assert_eq!(
+            index.rename(x, Some(root), b"a"),
+            Err(RenameError::OntoAncestor)
+        );
+        assert!(index.store().is_live(x) && index.store().is_live(a));
+
+        // A file replaced by a folder of the same name is logged as removed.
+        let f = index.insert(Some(root), b"f", false, Meta::default());
+        let d = index.insert(Some(root), b"f", true, Meta::default());
+        assert_ne!(f, d);
+        assert_eq!(index.take_removed(), vec![f]);
+        // Renaming over an existing node logs the replaced node.
+        let y = index.insert(Some(root), b"y", false, Meta::default());
+        index.rename(x, Some(root), b"y").unwrap();
+        assert_eq!(index.take_removed(), vec![y]);
+        assert!(index.take_removed().is_empty());
     }
 
     #[test]
