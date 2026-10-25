@@ -177,6 +177,121 @@ impl NodeStore {
     }
 }
 
+/// Raw columns of a [`NodeStore`], used to save and load an index.
+pub(crate) struct Columns {
+    pub parent_kind: Vec<u32>,
+    pub name_start: Vec<u32>,
+    pub name_len: Vec<u16>,
+    pub folded_start: Vec<u32>,
+    pub folded_len: Vec<u16>,
+    pub meta: Vec<Meta>,
+    pub name_pool: Vec<u8>,
+    pub folded_pool: Vec<u8>,
+}
+
+impl NodeStore {
+    /// Borrows the raw columns for saving.
+    pub(crate) fn columns(&self) -> ColumnsRef<'_> {
+        ColumnsRef {
+            parent_kind: &self.parent_kind,
+            name_start: &self.name_start,
+            name_len: &self.name_len,
+            folded_start: &self.folded_start,
+            folded_len: &self.folded_len,
+            meta: &self.meta,
+            name_pool: &self.name_pool,
+            folded_pool: &self.folded_pool,
+        }
+    }
+
+    /// Rebuilds a store from loaded columns after checking every length, range and
+    /// parent link, so a damaged file can never cause an out-of-bounds access.
+    pub(crate) fn from_columns(c: Columns) -> Result<Self, &'static str> {
+        let n = c.parent_kind.len();
+        if [
+            c.name_start.len(),
+            c.name_len.len(),
+            c.folded_start.len(),
+            c.folded_len.len(),
+            c.meta.len(),
+        ]
+        .iter()
+        .any(|&l| l != n)
+        {
+            return Err("column lengths differ");
+        }
+        if n >= (DIR_BIT - 1) as usize {
+            return Err("too many nodes");
+        }
+        let in_pool = |start: u32, len: u16, pool: &[u8]| {
+            (start as usize)
+                .checked_add(len as usize)
+                .is_some_and(|end| end <= pool.len())
+        };
+        for i in 0..n {
+            let parent = c.parent_kind[i] & !DIR_BIT;
+            if parent as usize > n || parent as usize == i + 1 {
+                return Err("bad parent link");
+            }
+            if !in_pool(c.name_start[i], c.name_len[i], &c.name_pool) {
+                return Err("name out of range");
+            }
+            let folded_ok = if c.folded_start[i] == SAME_AS_RAW {
+                c.folded_len[i] == c.name_len[i]
+            } else {
+                in_pool(c.folded_start[i], c.folded_len[i], &c.folded_pool)
+            };
+            if !folded_ok {
+                return Err("folded name out of range");
+            }
+        }
+        // A parent chain must end at a root; walking it must not loop.
+        let mut state = vec![0u8; n]; // 0 = unknown, 1 = on current walk, 2 = reaches a root
+        let mut walk = Vec::new();
+        for start in 0..n {
+            let mut cur = start;
+            while state[cur] == 0 {
+                state[cur] = 1;
+                walk.push(cur);
+                match c.parent_kind[cur] & !DIR_BIT {
+                    0 => break,
+                    p => cur = p as usize - 1,
+                }
+            }
+            if state[cur] == 1 && c.parent_kind[cur] & !DIR_BIT != 0 {
+                return Err("parent cycle");
+            }
+            for &w in &walk {
+                state[w] = 2;
+            }
+            walk.clear();
+        }
+        Ok(Self {
+            parent_kind: c.parent_kind,
+            name_start: c.name_start,
+            name_len: c.name_len,
+            folded_start: c.folded_start,
+            folded_len: c.folded_len,
+            meta: c.meta,
+            name_pool: c.name_pool,
+            folded_pool: c.folded_pool,
+            scratch: Vec::new(),
+        })
+    }
+}
+
+/// Borrowed view of the raw columns of a [`NodeStore`].
+pub(crate) struct ColumnsRef<'a> {
+    pub parent_kind: &'a [u32],
+    pub name_start: &'a [u32],
+    pub name_len: &'a [u16],
+    pub folded_start: &'a [u32],
+    pub folded_len: &'a [u16],
+    pub meta: &'a [Meta],
+    pub name_pool: &'a [u8],
+    pub folded_pool: &'a [u8],
+}
+
 fn push(pool: &mut Vec<u8>, bytes: &[u8]) -> (u32, u16) {
     let start = u32::try_from(pool.len()).expect("name pool exceeds 4 GiB");
     let len = u16::try_from(bytes.len()).expect("name longer than 65535 bytes");
@@ -233,6 +348,32 @@ mod tests {
         assert_eq!(s.folded_pool.len(), b"readme.txt".len());
         assert_eq!(s.parent(lower), Some(root));
         assert!(s.is_dir(root) && !s.is_dir(lower));
+    }
+
+    fn columns_with_parents(parent_kind: Vec<u32>) -> Columns {
+        let n = parent_kind.len();
+        Columns {
+            parent_kind,
+            name_start: vec![0; n],
+            name_len: vec![1; n],
+            folded_start: vec![SAME_AS_RAW; n],
+            folded_len: vec![1; n],
+            meta: vec![Meta::default(); n],
+            name_pool: b"x".to_vec(),
+            folded_pool: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn from_columns_accepts_valid_tree_and_rejects_cycles() {
+        // 0 is a root, 1 -> 0, 2 -> 1
+        assert!(
+            NodeStore::from_columns(columns_with_parents(vec![DIR_BIT, 1 | DIR_BIT, 2])).is_ok()
+        );
+        // 0 -> 1 -> 0 has no root
+        assert!(NodeStore::from_columns(columns_with_parents(vec![2, 1])).is_err());
+        // parent id out of range
+        assert!(NodeStore::from_columns(columns_with_parents(vec![0, 9])).is_err());
     }
 
     #[test]

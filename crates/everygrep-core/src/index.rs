@@ -28,6 +28,22 @@ impl Index {
         Self { store, by_name }
     }
 
+    /// Reassembles an index from a loaded store and name order. The order must be a
+    /// permutation of all node ids.
+    pub(crate) fn from_parts(store: NodeStore, by_name: Vec<NodeId>) -> Result<Self, &'static str> {
+        if by_name.len() != store.len() {
+            return Err("name order has wrong length");
+        }
+        let mut seen = vec![false; store.len()];
+        for id in &by_name {
+            match seen.get_mut(id.index()) {
+                Some(s) if !*s => *s = true,
+                _ => return Err("name order is not a permutation"),
+            }
+        }
+        Ok(Self { store, by_name })
+    }
+
     /// The underlying node storage.
     pub fn store(&self) -> &NodeStore {
         &self.store
