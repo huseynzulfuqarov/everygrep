@@ -2,7 +2,11 @@ import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export struct ResultRow {
-    name: string,
+    // The name, split around the highlighted match; without a match all of it
+    // is in name-before.
+    name-before: string,
+    name-match: string,
+    name-after: string,
     folder: string,
     size: string,
     modified: string,
@@ -141,15 +145,47 @@ component Row inherits Rectangle {
         height: Theme.icon;
         y: (parent.height - self.height) / 2;
     }
-    Text {
+    // The name as up to three pieces: before, match (bold) and after. Each
+    // piece takes its natural width while there is room; the piece that runs
+    // out of room is elided, and the cell clips the rest.
+    name-cell := Rectangle {
         x: Theme.s3 + Theme.icon + Theme.s2;
-        width: root.name-width - self.x - Theme.s2;
+        width: max(0px, root.name-width - self.x - Theme.s2);
         height: parent.height;
-        text: root.data.name;
-        color: root.selected ? Theme.selection-text : Theme.text;
-        font-size: Theme.body;
-        vertical-alignment: center;
-        overflow: elide;
+        clip: true;
+        before := Text {
+            x: 0;
+            width: min(self.preferred-width, parent.width);
+            height: parent.height;
+            text: root.data.name-before;
+            color: root.selected ? Theme.selection-text : Theme.text;
+            font-size: Theme.body;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        matched := Text {
+            x: before.width;
+            width: min(self.preferred-width, parent.width - self.x);
+            height: parent.height;
+            visible: self.text != "";
+            text: root.data.name-match;
+            color: root.selected ? Theme.selection-text : Theme.text;
+            font-size: Theme.body;
+            font-weight: 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            x: matched.x + matched.width;
+            width: max(0px, parent.width - self.x);
+            height: parent.height;
+            visible: self.text != "";
+            text: root.data.name-after;
+            color: root.selected ? Theme.selection-text : Theme.text;
+            font-size: Theme.body;
+            vertical-alignment: center;
+            overflow: elide;
+        }
     }
     Text {
         x: root.name-width + Theme.s2;

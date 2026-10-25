@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use everygrep_core::localtime::Zone;
+use everygrep_core::query::{NameTerm, match_span};
 use everygrep_core::store::NodeId;
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
@@ -20,6 +21,7 @@ use crate::format;
 pub struct ResultsModel {
     engine: Arc<Engine>,
     ids: RefCell<Arc<Vec<NodeId>>>,
+    terms: RefCell<Arc<Vec<NameTerm>>>,
     zone: Zone,
     home: Option<Vec<u8>>,
     now_ns: Cell<i64>,
@@ -34,6 +36,7 @@ impl ResultsModel {
         Self {
             engine,
             ids: RefCell::new(Arc::new(Vec::new())),
+            terms: RefCell::new(Arc::new(Vec::new())),
             zone: Zone::local(),
             home: std::env::var_os("HOME").map(|h| h.as_bytes().to_vec()),
             now_ns: Cell::new(0),
@@ -44,8 +47,9 @@ impl ResultsModel {
         }
     }
 
-    /// Replaces the rows.
-    pub fn set_ids(&self, ids: Arc<Vec<NodeId>>, took: Duration) {
+    /// Replaces the rows and the query terms highlighted in their names.
+    pub fn set_ids(&self, ids: Arc<Vec<NodeId>>, terms: Arc<Vec<NameTerm>>, took: Duration) {
+        *self.terms.borrow_mut() = terms;
         self.now_ns.set(now_ns());
         self.took.set(took);
         self.engine.set_shown(Arc::clone(&ids));
@@ -133,8 +137,12 @@ impl Model for ResultsModel {
             .map(|p| self.folder_text(store.path(p).as_os_str().as_bytes()))
             .unwrap_or_default();
         let now = self.now_ns.get();
+        let name = String::from_utf8_lossy(store.name(id));
+        let (before, matched, after) = split_name(&name, &self.terms.borrow());
         Some(ResultRow {
-            name: String::from_utf8_lossy(store.name(id)).as_ref().into(),
+            name_before: before.into(),
+            name_match: matched.into(),
+            name_after: after.into(),
             folder,
             size: if is_dir {
                 SharedString::new()
@@ -156,8 +164,53 @@ impl Model for ResultsModel {
     }
 }
 
+/// Splits a name into the text before the highlighted match, the match and the
+/// text after it. Without a match, the whole name is "before".
+fn split_name<'a>(name: &'a str, terms: &[NameTerm]) -> (&'a str, &'a str, &'a str) {
+    match match_span(name, terms) {
+        Some(r) => (&name[..r.start], &name[r.start..r.end], &name[r.end..]),
+        None => (name, "", ""),
+    }
+}
+
 fn now_ns() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use everygrep_core::query::{Query, QueryOptions};
+
+    fn split(name: &str, q: &str) -> (String, String, String) {
+        let terms = Query::parse(q, QueryOptions::default())
+            .unwrap()
+            .name_terms();
+        let (a, b, c) = split_name(name, &terms);
+        (a.into(), b.into(), c.into())
+    }
+
+    #[test]
+    fn names_split_around_the_first_match() {
+        assert_eq!(
+            split("Report-2026.pdf", "2026"),
+            ("Report-".into(), "2026".into(), ".pdf".into())
+        );
+        assert_eq!(
+            split("Report.pdf", "rep"),
+            ("".into(), "Rep".into(), "ort.pdf".into())
+        );
+        assert_eq!(
+            split("Report.pdf", "!rep"),
+            ("Report.pdf".into(), "".into(), "".into())
+        );
+        // Replacement characters for invalid bytes keep offsets valid.
+        let lossy = String::from_utf8_lossy(b"a\xffb.txt");
+        assert_eq!(
+            split(&lossy, "b.t"),
+            ("a\u{fffd}".into(), "b.t".into(), "xt".into())
+        );
+    }
 }

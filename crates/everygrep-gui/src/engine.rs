@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use everygrep_core::index::Index;
 use everygrep_core::persist;
-use everygrep_core::query::{Query, QueryOptions};
+use everygrep_core::query::{NameTerm, Query, QueryOptions};
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan};
 use everygrep_core::search::search;
 use everygrep_core::sort::{Sort, sort};
@@ -35,6 +35,8 @@ pub enum IndexState {
 /// The finished result of one search.
 pub struct SearchResult {
     pub ids: Arc<Vec<NodeId>>,
+    /// Text terms of the query, for highlighting matches in names.
+    pub terms: Arc<Vec<NameTerm>>,
     pub took: Duration,
     pub error: Option<String>,
 }
@@ -158,8 +160,10 @@ impl Engine {
             }
             let state = self.query.lock().expect("lock").clone();
             let started = Instant::now();
+            let mut terms = Vec::new();
             let (ids, error) = match Query::parse(&state.text, state.options) {
                 Ok(query) => {
+                    terms = query.name_terms();
                     let index = self.index.read().expect("index lock");
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
                     let mut ids = search(&index, &query, threads);
@@ -173,6 +177,7 @@ impl Engine {
             if self.is_current(generation) {
                 (self.hooks.on_results)(SearchResult {
                     ids: Arc::new(ids),
+                    terms: Arc::new(terms),
                     took: started.elapsed(),
                     error,
                 });

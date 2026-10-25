@@ -123,7 +123,7 @@ fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
 
 fn show_results(w: &AppWindow, result: SearchResult) {
     let count = result.ids.len();
-    with_model(w, |m| m.set_ids(result.ids, result.took));
+    with_model(w, |m| m.set_ids(result.ids, result.terms, result.took));
     if count == 0 {
         w.set_current(-1);
     } else if w.get_current() < 0 || w.get_current() as usize >= count {
