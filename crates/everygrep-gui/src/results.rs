@@ -14,14 +14,20 @@ use everygrep_core::store::NodeId;
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
 use crate::ResultRow;
-use crate::engine::{Engine, IndexState};
+use crate::engine::{Engine, IndexState, SearchResult};
 use crate::filetype;
 use crate::format;
+use crate::selection::{Changed, Selection};
 
 /// Rows of the result table, backed by a list of node ids.
 pub struct ResultsModel {
     engine: Arc<Engine>,
     ids: RefCell<Arc<Vec<NodeId>>>,
+    /// Engine epoch of `ids`; when the engine moves on, the ids are stale.
+    epoch: Cell<u64>,
+    /// Query text of `ids`; a new query starts with an empty selection.
+    query: RefCell<String>,
+    selection: RefCell<Selection>,
     terms: RefCell<Arc<Vec<NameTerm>>>,
     zone: Zone,
     home: Option<Vec<u8>>,
@@ -37,6 +43,9 @@ impl ResultsModel {
         Self {
             engine,
             ids: RefCell::new(Arc::new(Vec::new())),
+            epoch: Cell::new(u64::MAX),
+            query: RefCell::new(String::new()),
+            selection: RefCell::new(Selection::default()),
             terms: RefCell::new(Arc::new(Vec::new())),
             zone: Zone::local(),
             home: std::env::var_os("HOME").map(|h| h.as_bytes().to_vec()),
@@ -48,14 +57,73 @@ impl ResultsModel {
         }
     }
 
-    /// Replaces the rows and the query terms highlighted in their names.
-    pub fn set_ids(&self, ids: Arc<Vec<NodeId>>, terms: Arc<Vec<NameTerm>>, took: Duration) {
-        *self.terms.borrow_mut() = terms;
+    /// Replaces the rows with a search result. The selection stays on the
+    /// nodes still in the list when the query is the same (a new sort order or
+    /// a refresh after file changes); a new query clears it.
+    pub fn set_result(&self, result: &SearchResult) {
+        *self.terms.borrow_mut() = Arc::clone(&result.terms);
         self.now_ns.set(now_ns());
-        self.took.set(took);
-        self.engine.set_shown(Arc::clone(&ids));
-        *self.ids.borrow_mut() = ids;
+        self.took.set(result.took);
+        self.engine.set_shown(Arc::clone(&result.ids));
+        {
+            let mut selection = self.selection.borrow_mut();
+            let mut query = self.query.borrow_mut();
+            if self.epoch.get() != result.epoch || *query != result.query {
+                selection.reset();
+            } else {
+                selection.retain(&result.ids);
+            }
+            query.clone_from(&result.query);
+        }
+        self.epoch.set(result.epoch);
+        *self.ids.borrow_mut() = Arc::clone(&result.ids);
         self.notify.reset();
+    }
+
+    /// Changes the selection with `f` and refreshes the rows that changed.
+    fn change_selection(&self, f: impl FnOnce(&mut Selection, &[NodeId]) -> Changed) {
+        let ids = Arc::clone(&self.ids.borrow());
+        let changed = f(&mut self.selection.borrow_mut(), &ids);
+        match changed {
+            Changed::None => {}
+            Changed::Rows(rows) => rows.into_iter().for_each(|r| self.notify.row_changed(r)),
+            // Each call only touches the rows on screen, so this stays cheap.
+            Changed::All => (0..ids.len()).for_each(|r| self.notify.row_changed(r)),
+        }
+    }
+
+    pub fn select_only(&self, row: usize) {
+        self.change_selection(|s, ids| s.select_only(ids, row));
+    }
+
+    pub fn toggle(&self, row: usize) {
+        self.change_selection(|s, ids| s.toggle(ids, row));
+    }
+
+    pub fn extend_to(&self, row: usize) {
+        self.change_selection(|s, ids| s.extend_to(ids, row));
+    }
+
+    pub fn select_all(&self) {
+        self.change_selection(Selection::select_all);
+    }
+
+    /// Clears the selection; returns whether anything was selected.
+    pub fn clear_selection(&self) -> bool {
+        let had = self.selected_count() > 0;
+        self.change_selection(Selection::clear);
+        had
+    }
+
+    pub fn is_selected(&self, row: usize) -> bool {
+        self.ids
+            .borrow()
+            .get(row)
+            .is_some_and(|&id| self.selection.borrow().contains(id))
+    }
+
+    pub fn selected_count(&self) -> usize {
+        self.selection.borrow().count(self.ids.borrow().len())
     }
 
     pub fn set_state(&self, state: IndexState, indexed: usize) {
@@ -72,7 +140,8 @@ impl ResultsModel {
         let id = *self.ids.borrow().get(row)?;
         let index = self.engine.index.read().ok()?;
         let store = index.store();
-        (id.index() < store.len() && store.is_live(id)).then(|| store.path(id))
+        (self.engine.epoch() == self.epoch.get() && id.index() < store.len() && store.is_live(id))
+            .then(|| store.path(id))
     }
 
     /// Text for the left and right side of the status line.
@@ -86,11 +155,16 @@ impl ResultsModel {
             IndexState::Watching => "watching for changes",
             IndexState::Static => "not watching changes",
         };
-        let left = format!(
-            "{} {}  ·  {indexed} indexed  ·  {state}",
+        let mut left = format!(
+            "{} {}",
             format::count(results),
             if results == 1 { "result" } else { "results" },
         );
+        let selected = self.selected_count();
+        if selected > 1 {
+            left.push_str(&format!("  ·  {} selected", format::count(selected)));
+        }
+        left.push_str(&format!("  ·  {indexed} indexed  ·  {state}"));
         let ms = self.took.get().as_secs_f64() * 1e3;
         let right = if ms < 10.0 {
             format!("{ms:.1} ms")
@@ -127,7 +201,10 @@ impl Model for ResultsModel {
         let id = *self.ids.borrow().get(row)?;
         let index = self.engine.index.read().ok()?;
         let store = index.store();
-        if id.index() >= store.len() || !store.is_live(id) {
+        if self.engine.epoch() != self.epoch.get()
+            || id.index() >= store.len()
+            || !store.is_live(id)
+        {
             // The index changed since this list was made; a fresh one is on its way.
             return Some(ResultRow::default());
         }
@@ -156,6 +233,7 @@ impl Model for ResultsModel {
             modified_full: format::timestamp(meta.mtime_ns, &self.zone).into(),
             is_dir,
             kind,
+            selected: self.selection.borrow().contains(id),
         })
     }
 

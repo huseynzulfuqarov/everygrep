@@ -5,6 +5,7 @@ mod filetype;
 mod format;
 mod open;
 mod results;
+mod selection;
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -17,6 +18,10 @@ use engine::{Engine, Hooks, IndexState, SearchResult};
 use results::ResultsModel;
 
 slint::include_modules!();
+
+/// Selection modes of the window's `select` callback.
+const SELECT_TOGGLE: i32 = 1;
+const SELECT_EXTEND: i32 = 2;
 
 /// Wayland app id; equals the desktop entry and icon file names.
 const APP_ID: &str = "az.huseynz.EveryGrep";
@@ -76,6 +81,48 @@ fn main() -> Result<(), slint::PlatformError> {
         move |column, descending| {
             engine.set_sort(sort_for_column(column, descending));
         }
+    });
+    window.on_select({
+        let weak = weak.clone();
+        let model = model.clone();
+        move |row, mode| {
+            let Ok(row) = usize::try_from(row) else {
+                return;
+            };
+            match mode {
+                SELECT_TOGGLE => model.toggle(row),
+                SELECT_EXTEND => model.extend_to(row),
+                _ => model.select_only(row),
+            }
+            if let Some(w) = weak.upgrade() {
+                refresh_status(&w);
+            }
+        }
+    });
+    window.on_select_all({
+        let weak = weak.clone();
+        let model = model.clone();
+        move || {
+            model.select_all();
+            if let Some(w) = weak.upgrade() {
+                refresh_status(&w);
+            }
+        }
+    });
+    window.on_clear_selection({
+        let weak = weak.clone();
+        let model = model.clone();
+        move || {
+            let had = model.clear_selection();
+            if let Some(w) = weak.upgrade() {
+                refresh_status(&w);
+            }
+            had
+        }
+    });
+    window.on_is_selected({
+        let model = model.clone();
+        move |row| usize::try_from(row).is_ok_and(|r| model.is_selected(r))
     });
     window.on_activate({
         let model = model.clone();
@@ -149,7 +196,7 @@ fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
 
 fn show_results(w: &AppWindow, result: SearchResult) {
     let count = result.ids.len();
-    with_model(w, |m| m.set_ids(result.ids, result.terms, result.took));
+    with_model(w, |m| m.set_result(&result));
     if count == 0 {
         w.set_current(-1);
     } else if w.get_current() < 0 || w.get_current() as usize >= count {

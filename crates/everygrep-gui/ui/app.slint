@@ -14,6 +14,7 @@ export struct ResultRow {
     is-dir: bool,
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
+    selected: bool,
 }
 
 // File-type icons, in the order of FileKind. They carry their own colours and
@@ -145,20 +146,38 @@ component HeaderCell inherits Rectangle {
 
 component Row inherits Rectangle {
     in property <ResultRow> data;
-    in property <bool> selected;
+    // The keyboard cursor is on this row and the list has focus.
+    in property <bool> current;
     in property <length> name-width;
     in property <length> folder-width;
     in property <length> size-width;
     in property <length> date-width;
-    callback clicked();
+    callback pressed(KeyboardModifiers);
+    callback right-pressed(length, length);
     callback double-clicked();
+
+    property <bool> selected: root.data.selected;
 
     height: Theme.row-height;
     background: selected ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
 
     touch := TouchArea {
-        clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                if (event.button == PointerEventButton.left) {
+                    root.pressed(event.modifiers);
+                } else if (event.button == PointerEventButton.right) {
+                    root.right-pressed(self.mouse-x, self.mouse-y);
+                }
+            }
+        }
         double-clicked => { root.double-clicked(); }
+    }
+    // Focus ring of the keyboard cursor.
+    Rectangle {
+        visible: root.current;
+        border-width: 1px;
+        border-color: Theme.accent;
     }
 
     // Cells are positioned directly to keep the columns aligned with the header.
@@ -288,6 +307,13 @@ export component AppWindow inherits Window {
     callback sort-changed(int, bool);
     callback activate(int);
     callback open-folder(int);
+    // Selection: mode 0 selects only the row, 1 toggles it, 2 extends the
+    // range from the anchor to it.
+    callback select(int, int);
+    callback select-all();
+    // Returns whether anything was selected.
+    callback clear-selection() -> bool;
+    pure callback is-selected(int) -> bool;
 
     // Column widths. Size and Modified keep the width the user gave them; Name
     // and Folder share the rest of the window, so the columns always end at the
@@ -327,11 +353,16 @@ export component AppWindow inherits Window {
         search.focus-and-select();
     }
 
-    function move-to(row: int) {
+    // Moves the cursor; mode as for select(), or -1 to move without changing
+    // the selection.
+    function move-to(row: int, mode: int) {
         if (root.results.length == 0) {
             return;
         }
         root.current = max(0, min(root.results.length - 1, row));
+        if (mode >= 0) {
+            root.select(root.current, mode);
+        }
         // Keep the current row inside the visible part of the list.
         let top = root.current * Theme.row-height;
         if (top < -list.content-y) {
@@ -380,7 +411,7 @@ export component AppWindow inherits Window {
                     }
                     down-pressed => {
                         keys.focus();
-                        root.move-to(root.current < 0 ? 0 : root.current + 1);
+                        root.move-to(root.current < 0 ? 0 : root.current + 1, 0);
                     }
                     escape-pressed => {
                         self.text = "";
@@ -455,23 +486,38 @@ export component AppWindow inherits Window {
         // Results
         keys := FocusScope {
             vertical-stretch: 1;
+            // Shift extends the selection, Ctrl moves the cursor alone.
+            property <int> move-mode: 0;
             key-pressed(event) => {
-                if (event.text == Key.DownArrow) { root.move-to(root.current + 1); return accept; }
+                self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
+                if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
                 if (event.text == Key.UpArrow) {
-                    if (root.current <= 0) { search.focus-and-select(); } else { root.move-to(root.current - 1); }
+                    if (root.current <= 0 && !event.modifiers.shift) { search.focus-and-select(); } else { root.move-to(root.current - 1, self.move-mode); }
                     return accept;
                 }
-                if (event.text == Key.PageDown) { root.move-to(root.current + root.page); return accept; }
-                if (event.text == Key.PageUp) { root.move-to(root.current - root.page); return accept; }
-                if (event.text == Key.Home) { root.move-to(0); return accept; }
-                if (event.text == Key.End) { root.move-to(root.results.length - 1); return accept; }
+                if (event.text == Key.PageDown) { root.move-to(root.current + root.page, self.move-mode); return accept; }
+                if (event.text == Key.PageUp) { root.move-to(root.current - root.page, self.move-mode); return accept; }
+                if (event.text == Key.Home) { root.move-to(0, self.move-mode); return accept; }
+                if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
+                if (event.text == " " && event.modifiers.control) {
+                    if (root.current >= 0) { root.select(root.current, 1); }
+                    return accept;
+                }
+                if (event.modifiers.control && (event.text == "a" || event.text == "A")) {
+                    root.select-all();
+                    return accept;
+                }
                 if (event.text == Key.Return) {
                     if (root.current >= 0) {
                         if (event.modifiers.control) { root.open-folder(root.current); } else { root.activate(root.current); }
                     }
                     return accept;
                 }
-                if (event.text == Key.Escape) { search.focus-and-select(); return accept; }
+                // Esc clears the selection first, then goes back to the search.
+                if (event.text == Key.Escape) {
+                    if (!root.clear-selection()) { search.focus-and-select(); }
+                    return accept;
+                }
                 if (event.modifiers.control && (event.text == "f" || event.text == "l")) {
                     search.focus-and-select();
                     return accept;
@@ -482,14 +528,20 @@ export component AppWindow inherits Window {
             list := ListView {
                 for row[i] in root.results: Row {
                     data: row;
-                    selected: i == root.current;
+                    current: i == root.current && keys.has-focus;
                     name-width: root.name-width;
                     folder-width: root.folder-width;
                     size-width: root.size-width;
                     date-width: root.date-width;
-                    clicked => {
+                    pressed(mods) => {
                         root.current = i;
                         keys.focus();
+                        root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
+                    }
+                    right-pressed(x, y) => {
+                        root.current = i;
+                        keys.focus();
+                        if (!root.is-selected(i)) { root.select(i, 0); }
                     }
                     double-clicked => { root.activate(i); }
                 }

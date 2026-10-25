@@ -39,6 +39,11 @@ pub struct SearchResult {
     pub terms: Arc<Vec<NameTerm>>,
     pub took: Duration,
     pub error: Option<String>,
+    /// The query text that produced the ids.
+    pub query: String,
+    /// [`Engine::epoch`] when the ids were taken; they are valid only while
+    /// it is unchanged.
+    pub epoch: u64,
 }
 
 /// Callbacks into the UI. They are called from engine threads and must hand
@@ -59,6 +64,9 @@ pub struct Engine {
     query: Mutex<QueryState>,
     /// Ids currently shown, so they can be translated after a compaction.
     shown: Mutex<Arc<Vec<NodeId>>>,
+    /// Bumped, under the index write lock, whenever node ids change meaning
+    /// (compaction, a new scan). Ids taken in an older epoch must not be used.
+    epoch: AtomicU64,
     dirty: AtomicBool,
     stop: AtomicBool,
     searches: Mutex<Option<mpsc::Sender<u64>>>,
@@ -88,6 +96,7 @@ impl Engine {
             generation: AtomicU64::new(0),
             query: Mutex::new(QueryState::default()),
             shown: Mutex::new(Arc::new(Vec::new())),
+            epoch: AtomicU64::new(0),
             dirty: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             searches: Mutex::new(None),
@@ -136,6 +145,11 @@ impl Engine {
         *self.shown.lock().expect("lock") = ids;
     }
 
+    /// The current id epoch. Read it under an index lock to pair it with ids.
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
     /// Whether `generation` is still the newest request.
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
@@ -161,10 +175,12 @@ impl Engine {
             let state = self.query.lock().expect("lock").clone();
             let started = Instant::now();
             let mut terms = Vec::new();
+            let mut epoch = self.epoch();
             let (ids, error) = match Query::parse(&state.text, state.options) {
                 Ok(query) => {
                     terms = query.name_terms();
                     let index = self.index.read().expect("index lock");
+                    epoch = self.epoch();
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
                     let mut ids = search(&index, &query, threads);
                     if self.is_current(generation) {
@@ -180,9 +196,18 @@ impl Engine {
                     terms: Arc::new(terms),
                     took: started.elapsed(),
                     error,
+                    query: state.text,
+                    epoch,
                 });
             }
         }
+    }
+
+    /// Swaps in a new index; ids of the old one become invalid.
+    fn replace_index(&self, new: Index) {
+        let mut index = self.index.write().expect("index lock");
+        *index = new;
+        self.epoch.fetch_add(1, Ordering::SeqCst);
     }
 
     fn report(&self, state: IndexState) {
@@ -198,7 +223,7 @@ impl Engine {
                 let mut roots = self.roots.lock().expect("lock");
                 if roots.is_empty() || *roots == saved.roots {
                     *roots = saved.roots;
-                    *self.index.write().expect("index lock") = saved.index;
+                    self.replace_index(saved.index);
                     loaded = true;
                 }
             }
@@ -217,7 +242,7 @@ impl Engine {
             };
             let mut store = NodeStore::new();
             scan(&mut store, &roots, &self.options);
-            *self.index.write().expect("index lock") = Index::new(store);
+            self.replace_index(Index::new(store));
             self.dirty.store(true, Ordering::SeqCst);
         }
         self.request_search();
@@ -250,6 +275,7 @@ impl Engine {
                     let stats = watcher.apply(&mut index, &events);
                     if index.should_compact() {
                         let remap = watcher.compact(&mut index);
+                        self.epoch.fetch_add(1, Ordering::SeqCst);
                         let mut shown = self.shown.lock().expect("lock");
                         *shown =
                             Arc::new(shown.iter().filter_map(|id| remap[id.index()]).collect());
@@ -289,6 +315,7 @@ impl Engine {
         scan(&mut store, &roots, &self.options);
         let mut index = self.index.write().expect("index lock");
         *index = Index::new(store);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut fresh) = Watcher::new(&index, &self.options) {
             fresh.catch_up(&mut index);
             *watcher = fresh;
