@@ -22,7 +22,7 @@ slint::include_modules!();
 const APP_ID: &str = "az.huseynz.EveryGrep";
 
 fn main() -> Result<(), slint::PlatformError> {
-    let (roots, index_file) = parse_args();
+    let args = parse_args(std::env::args().skip(1));
     let window = AppWindow::new()?;
     // Read when the native window is created on first show, so it must be set
     // before `run()`. Matches the desktop entry, so the shell shows our icon.
@@ -54,10 +54,16 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }),
     };
-    let engine = Engine::start(roots, index_file, hooks);
+    let engine = Engine::start(args.roots, args.index_file, hooks);
     let model = Rc::new(ResultsModel::new(engine.clone()));
     window.set_results(ModelRc::from(model.clone()));
     refresh_status(&window);
+    // The search thread runs the query now and again once the index is
+    // loaded, so the first results appear as soon as they can.
+    if !args.query.is_empty() {
+        window.set_query(args.query.as_str().into());
+        engine.set_query(&args.query, QueryOptions::default());
+    }
 
     window.on_query_edited({
         let engine = engine.clone();
@@ -93,20 +99,33 @@ fn main() -> Result<(), slint::PlatformError> {
     Ok(())
 }
 
-/// `--root <path>` (repeatable) and `--index-file <path>`. Without roots the
-/// saved roots, or the home folder, are used.
-fn parse_args() -> (Vec<PathBuf>, Option<PathBuf>) {
-    let mut roots = Vec::new();
-    let mut index_file = None;
-    let mut args = std::env::args().skip(1);
+/// Command line of the window.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Args {
+    roots: Vec<PathBuf>,
+    index_file: Option<PathBuf>,
+    /// Words that are not options, joined by spaces: the initial query.
+    query: String,
+}
+
+/// `everygrep-gui [--root <path>]... [--index-file <path>] [query words...]`.
+/// Without roots the saved roots, or the home folder, are used. Unknown
+/// options are ignored; after `--` every argument is a query word.
+fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
+    let mut out = Args::default();
+    let mut words: Vec<String> = Vec::new();
+    let mut args = args.into_iter();
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--root" => roots.extend(args.next().map(PathBuf::from)),
-            "--index-file" => index_file = args.next().map(PathBuf::from),
-            _ => {}
+            "--root" => out.roots.extend(args.next().map(PathBuf::from)),
+            "--index-file" => out.index_file = args.next().map(PathBuf::from),
+            "--" => words.extend(args.by_ref()),
+            _ if a.starts_with("--") => {}
+            _ => words.push(a),
         }
     }
-    (roots, index_file)
+    out.query = words.join(" ");
+    out
 }
 
 /// The sort for a header column of the window (0 name, 1 folder, 2 size,
@@ -167,6 +186,34 @@ fn refresh_status(w: &AppWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn args(list: &[&str]) -> Args {
+        parse_args(list.iter().map(|s| (*s).to_owned()))
+    }
+
+    #[test]
+    fn positional_words_form_the_initial_query() {
+        let a = args(&[
+            "--root",
+            "/tmp/a",
+            "report",
+            "--index-file",
+            "/tmp/i",
+            "pdf",
+        ]);
+        assert_eq!(a.roots, [PathBuf::from("/tmp/a")]);
+        assert_eq!(a.index_file, Some(PathBuf::from("/tmp/i")));
+        assert_eq!(a.query, "report pdf");
+        assert_eq!(args(&[]), Args::default());
+        // Unknown options are skipped; after `--` options are words too.
+        assert_eq!(
+            args(&["--fast", "a", "--", "--root", "b"]).query,
+            "a --root b"
+        );
+        assert!(args(&["--", "--root", "b"]).roots.is_empty());
+        // Single-dash words such as `-draft` are query words.
+        assert_eq!(args(&["-x", "ext:pdf"]).query, "-x ext:pdf");
+    }
 
     #[test]
     fn header_columns_map_to_sort_keys() {

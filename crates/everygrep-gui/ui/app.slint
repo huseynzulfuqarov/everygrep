@@ -277,6 +277,8 @@ export component AppWindow inherits Window {
     in property <string> status-right;
     in property <string> message;
     in-out property <int> current: -1;
+    // Text of the search field.
+    in-out property <string> query <=> search.text;
 
     // Sort column (0 name, 1 folder, 2 size, 3 modified) and direction.
     in-out property <int> sort-column: 0;
