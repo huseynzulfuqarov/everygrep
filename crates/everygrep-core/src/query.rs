@@ -238,27 +238,101 @@ fn folded_path_bytes<'a>(store: &NodeStore, id: NodeId, scratch: &'a mut EvalScr
 
 /// Returns whether `needle` occurs in `haystack`.
 pub fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    find(haystack, needle).is_some()
+}
+
+/// Returns the start of the first occurrence of `needle` in `haystack`.
+pub fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     let Some((&first, rest)) = needle.split_first() else {
-        return true;
+        return Some(0);
     };
     if haystack.len() < needle.len() {
-        return false;
+        return None;
     }
     let last_start = haystack.len() - needle.len();
     let mut i = 0;
     while i <= last_start {
-        match haystack[i..=last_start].iter().position(|&b| b == first) {
-            None => return false,
-            Some(off) => {
-                let at = i + off;
-                if haystack[at + 1..at + needle.len()] == *rest {
-                    return true;
-                }
-                i = at + 1;
+        let at = i + haystack[i..=last_start].iter().position(|&b| b == first)?;
+        if haystack[at + 1..at + needle.len()] == *rest {
+            return Some(at);
+        }
+        i = at + 1;
+    }
+    None
+}
+
+/// A plain text term that a matching name contains, used to highlight the
+/// match. Only terms that are not negated, have no wildcards and match the name
+/// (not the path) count.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NameTerm {
+    /// The text, folded unless `case` is set.
+    pub pattern: Vec<u8>,
+    /// Whether the term matches case exactly.
+    pub case: bool,
+}
+
+impl Query {
+    /// The plain text terms that are not negated, in query order.
+    pub fn name_terms(&self) -> Vec<NameTerm> {
+        let mut out = Vec::new();
+        collect_name_terms(&self.root, &mut out);
+        out
+    }
+}
+
+fn collect_name_terms(node: &Node, out: &mut Vec<NameTerm>) {
+    match node {
+        Node::And(items) | Node::Or(items) => {
+            for item in items {
+                collect_name_terms(item, out);
             }
         }
+        Node::Leaf(Pred::Text(t)) if !t.glob && !t.on_path => out.push(NameTerm {
+            pattern: t.pattern.clone(),
+            case: t.case,
+        }),
+        Node::All | Node::Not(_) | Node::Leaf(_) => {}
     }
-    false
+}
+
+/// Byte range in `name` of the first occurrence of the first term that occurs
+/// in it. Ignoring case, offsets in the folded name are used for `name`, so if
+/// folding changes the byte length of any character of `name` (such as `İ`)
+/// there is no highlight rather than a wrong one.
+pub fn match_span(name: &str, terms: &[NameTerm]) -> Option<std::ops::Range<usize>> {
+    let mut folded: Option<Option<Vec<u8>>> = None;
+    for term in terms {
+        let subject: &[u8] = if term.case {
+            name.as_bytes()
+        } else {
+            match folded.get_or_insert_with(|| fold_same_length(name)) {
+                Some(f) => f,
+                None => continue,
+            }
+        };
+        if let Some(start) = find(subject, &term.pattern) {
+            return Some(start..start + term.pattern.len());
+        }
+    }
+    None
+}
+
+/// The folded form of `name` if every character keeps its byte length.
+fn fold_same_length(name: &str) -> Option<Vec<u8>> {
+    if name.is_ascii() {
+        return Some(name.as_bytes().to_ascii_lowercase());
+    }
+    let mut out = Vec::with_capacity(name.len());
+    let mut buf = [0u8; 4];
+    for c in name.chars() {
+        let before = out.len();
+        crate::fold::fold_into(c.encode_utf8(&mut buf).as_bytes(), &mut out);
+        if out.len() - before != c.len_utf8() {
+            return None;
+        }
+    }
+    Some(out)
 }
 
 /// Matches a whole subject against a pattern where `*` is any run of characters
@@ -1144,5 +1218,57 @@ mod tests {
         assert!(glob_match(b"*", b""));
         assert!(glob_match(b"a*b*c", b"axxbyyc"));
         assert!(!glob_match(b"a*b", b"ac"));
+    }
+
+    fn span(name: &str, q: &str) -> Option<(usize, usize)> {
+        let query = Query::parse(q, QueryOptions::default()).unwrap();
+        match_span(name, &query.name_terms()).map(|r| (r.start, r.end))
+    }
+
+    #[test]
+    fn name_terms_skip_negated_glob_and_path_terms() {
+        let q = Query::parse(
+            "Rep !draft *.pdf path:src a/b case:Main <x|y> ext:pdf",
+            QueryOptions::default(),
+        )
+        .unwrap();
+        let terms: Vec<(String, bool)> = q
+            .name_terms()
+            .into_iter()
+            .map(|t| (String::from_utf8(t.pattern).unwrap(), t.case))
+            .collect();
+        assert_eq!(
+            terms,
+            [
+                ("rep".into(), false),
+                ("Main".into(), true),
+                ("x".into(), false),
+                ("y".into(), false)
+            ]
+        );
+    }
+
+    #[test]
+    fn match_span_finds_the_first_matching_term() {
+        assert_eq!(span("Report-2026.PDF", "pdf"), Some((12, 15)));
+        assert_eq!(span("Report-2026.PDF", "zzz rep"), Some((0, 3)));
+        assert_eq!(span("a-b-a", "a"), Some((0, 1)));
+        assert_eq!(span("readme", "case:READ"), None);
+        assert_eq!(span("README", "case:READ"), Some((0, 4)));
+        assert_eq!(span("draft", "!draft"), None);
+        assert_eq!(span("x.pdf", "*.pdf"), None);
+        assert_eq!(span("x.pdf", ""), None);
+    }
+
+    #[test]
+    fn match_span_handles_multibyte_names() {
+        // "Ş" and "Ə" fold to "ş" and "ə" with the same byte length; "İ"
+        // anywhere in the name turns highlighting off for the whole name.
+        assert_eq!(span("ŞƏKİL.png", "png"), None);
+        assert_eq!(span("ŞƏKIL.png", "əkil"), Some((2, 7)));
+        // "İ" folds to three bytes: no highlight instead of shifted offsets.
+        assert_eq!(span("İzmir", "zmir"), None);
+        // A case-sensitive term does not need folding.
+        assert_eq!(span("İzmir", "case:zmir"), Some((2, 6)));
     }
 }
