@@ -28,6 +28,33 @@ matches anywhere in a name (not only at word starts) as you type.
 
 Case is ignored unless `case:` or `--case` is used.
 
+## Using the window
+
+```sh
+everygrep-gui [--root <folder>]... [--index-file <file>] [query words...]
+```
+
+Words after the options become the first query; it runs as soon as the index is
+loaded. Type to search; `↓` moves into the results.
+
+| Keys | Action |
+|---|---|
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | move and select |
+| `Shift` + movement, `Shift`+click | extend the selection |
+| `Ctrl+Space`, `Ctrl`+click | add or remove one row |
+| `Ctrl+A` | select all |
+| `Enter`, double-click | open |
+| `Ctrl+Enter` | open the containing folder |
+| `Ctrl+C` / `Ctrl+Shift+C` | copy the name / the full path (one per line) |
+| `F2` | rename in place (`Enter` renames, `Esc` cancels) |
+| `Delete` | move to the trash (`gio trash`) |
+| `Shift+Delete` | delete permanently, after a confirmation |
+| `Esc` | clear the selection, then back to the search |
+| `Ctrl+F`, `Ctrl+L` | focus the search field |
+
+Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
+same actions. The index follows these changes by itself.
+
 ## Building
 
 ```sh

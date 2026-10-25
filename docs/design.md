@@ -80,19 +80,32 @@ words.
 
 | Action | Keys | Mouse |
 |---|---|---|
-| Focus the search field | `Ctrl+F`, `Ctrl+L`, or start typing | click |
-| Move in results | `↑` `↓` `PgUp` `PgDn` `Home` `End` | scroll |
-| Extend the selection | `Shift` + movement | `Shift`/`Ctrl` + click |
-| Open | `Enter` | double-click |
+| Focus the search field | `Ctrl+F`, `Ctrl+L`, `↑` on the first row | click |
+| Move in results (selects the row) | `↓` from the search field, `↑` `↓` `PgUp` `PgDn` `Home` `End` | scroll, click |
+| Move without changing the selection | `Ctrl` + movement | — |
+| Add or remove one row | `Ctrl+Space` | `Ctrl` + click |
+| Extend the selection | `Shift` + movement | `Shift` + click |
+| Select all | `Ctrl+A` | — |
+| Open | `Enter` | double-click, context menu |
 | Open the containing folder | `Ctrl+Enter` | context menu |
 | Copy the full path / the name | `Ctrl+Shift+C` / `Ctrl+C` | context menu |
-| Rename | `F2` | context menu |
+| Rename | `F2`; `Enter` renames, `Esc` or a click elsewhere cancels | context menu |
 | Move to trash | `Delete` | context menu |
+| Delete permanently | `Shift+Delete` | context menu |
 | Context menu | `Menu`, `Shift+F10` | right-click |
-| Clear the search / hide the window | `Esc` | — |
+| Clear the selection, then back to the search | `Esc` in the list | — |
+| Clear the search | `Esc` in the search field | — |
 
-Destructive actions (trash, rename over an existing file) ask for confirmation
-only when they cannot be undone.
+Actions apply to the selected rows when the row they start from is selected,
+otherwise to that row alone. Several selected items give one path or name per
+line on the clipboard. Opening is limited to 20 items at once. The selection
+follows the files, not the row numbers: it stays when the list is sorted again
+or refreshed after file changes, and a new query clears it.
+
+Rename refuses a name that already exists in the folder and shows the reason in
+the status line. Moving to the trash asks first only for more than 50 items;
+deleting permanently always asks, because it cannot be undone. Hiding the
+window with `Esc` is planned.
 
 ## Writing
 
