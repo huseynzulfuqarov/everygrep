@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use everygrep_core::query::QueryOptions;
+use everygrep_core::sort::{Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc};
 
 use engine::{Engine, Hooks, IndexState, SearchResult};
@@ -57,6 +58,12 @@ fn main() -> Result<(), slint::PlatformError> {
             engine.set_query(&text, QueryOptions::default());
         }
     });
+    window.on_sort_changed({
+        let engine = engine.clone();
+        move |column, descending| {
+            engine.set_sort(sort_for_column(column, descending));
+        }
+    });
     window.on_activate({
         let model = model.clone();
         move |row| {
@@ -93,6 +100,18 @@ fn parse_args() -> (Vec<PathBuf>, Option<PathBuf>) {
         }
     }
     (roots, index_file)
+}
+
+/// The sort for a header column of the window (0 name, 1 folder, 2 size,
+/// 3 modified). The folder column sorts by folder, then name.
+fn sort_for_column(column: i32, descending: bool) -> Sort {
+    let key = match column {
+        1 => SortKey::Path,
+        2 => SortKey::Size,
+        3 => SortKey::Modified,
+        _ => SortKey::Name,
+    };
+    Sort { key, descending }
 }
 
 fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
@@ -135,5 +154,26 @@ fn refresh_status(w: &AppWindow) {
         w.set_message(text.into());
     } else if w.get_message().starts_with("Loading") || w.get_message().starts_with("Indexing") {
         w.set_message("".into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn header_columns_map_to_sort_keys() {
+        let keys: Vec<SortKey> = (0..4).map(|c| sort_for_column(c, false).key).collect();
+        assert_eq!(
+            keys,
+            [
+                SortKey::Name,
+                SortKey::Path,
+                SortKey::Size,
+                SortKey::Modified
+            ]
+        );
+        assert!(sort_for_column(2, true).descending);
+        assert_eq!(sort_for_column(9, false).key, SortKey::Name);
     }
 }

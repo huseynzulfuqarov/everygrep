@@ -17,6 +17,7 @@ use everygrep_core::persist;
 use everygrep_core::query::{Query, QueryOptions};
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan};
 use everygrep_core::search::search;
+use everygrep_core::sort::{Sort, sort};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::watch::Watcher;
 
@@ -53,7 +54,7 @@ pub struct Engine {
     index_file: Option<PathBuf>,
     /// Bumped for every new query; older results are dropped.
     generation: AtomicU64,
-    query: Mutex<(String, QueryOptions)>,
+    query: Mutex<QueryState>,
     /// Ids currently shown, so they can be translated after a compaction.
     shown: Mutex<Arc<Vec<NodeId>>>,
     dirty: AtomicBool,
@@ -61,6 +62,14 @@ pub struct Engine {
     searches: Mutex<Option<mpsc::Sender<u64>>>,
     hooks: Hooks,
     threads: Mutex<Vec<JoinHandle<()>>>,
+}
+
+/// What the search thread runs: the query text, its options and the result order.
+#[derive(Clone, Default)]
+struct QueryState {
+    text: String,
+    options: QueryOptions,
+    sort: Sort,
 }
 
 const REFRESH_EVERY: Duration = Duration::from_millis(500);
@@ -75,7 +84,7 @@ impl Engine {
             options: ScanOptions::default(),
             index_file: index_file.or_else(persist::default_path),
             generation: AtomicU64::new(0),
-            query: Mutex::new((String::new(), QueryOptions::default())),
+            query: Mutex::new(QueryState::default()),
             shown: Mutex::new(Arc::new(Vec::new())),
             dirty: AtomicBool::new(false),
             stop: AtomicBool::new(false),
@@ -105,7 +114,18 @@ impl Engine {
 
     /// Runs `text` as the current query. Returns the generation of the request.
     pub fn set_query(&self, text: &str, options: QueryOptions) -> u64 {
-        *self.query.lock().expect("lock") = (text.to_owned(), options);
+        {
+            let mut q = self.query.lock().expect("lock");
+            q.text = text.to_owned();
+            q.options = options;
+        }
+        self.request_search()
+    }
+
+    /// Changes the result order and runs the current query again. The order
+    /// stays for later queries. Returns the generation of the request.
+    pub fn set_sort(&self, sort: Sort) -> u64 {
+        self.query.lock().expect("lock").sort = sort;
         self.request_search()
     }
 
@@ -136,13 +156,17 @@ impl Engine {
             if self.stop.load(Ordering::SeqCst) {
                 break;
             }
-            let (text, options) = self.query.lock().expect("lock").clone();
+            let state = self.query.lock().expect("lock").clone();
             let started = Instant::now();
-            let (ids, error) = match Query::parse(&text, options) {
+            let (ids, error) = match Query::parse(&state.text, state.options) {
                 Ok(query) => {
                     let index = self.index.read().expect("index lock");
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-                    (search(&index, &query, threads), None)
+                    let mut ids = search(&index, &query, threads);
+                    if self.is_current(generation) {
+                        sort(&index, &mut ids, state.sort, threads);
+                    }
+                    (ids, None)
                 }
                 Err(e) => (Vec::new(), Some(e.to_string())),
             };

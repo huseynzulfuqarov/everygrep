@@ -74,17 +74,43 @@ component SearchField inherits Rectangle {
 component HeaderCell inherits Rectangle {
     in property <string> label;
     in property <TextHorizontalAlignment> align: left;
-    Text {
-        x: Theme.s2;
-        width: parent.width - 2 * Theme.s2;
+    // Whether the results are sorted by this column, and in which direction.
+    in property <bool> sorted;
+    in property <bool> descending;
+    callback clicked();
+
+    property <bool> right: root.align == TextHorizontalAlignment.right;
+    property <length> arrow-space: root.sorted ? Theme.icon : 0px;
+    property <length> label-width: min(label-text.preferred-width, label-text.width);
+
+    background: touch.has-hover ? Theme.hover : transparent;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    label-text := Text {
+        x: root.right ? Theme.s2 + root.arrow-space : Theme.s2;
+        width: parent.width - 2 * Theme.s2 - root.arrow-space;
         height: parent.height;
         text: root.label;
         font-size: Theme.small;
         font-weight: 600;
-        color: Theme.text-muted;
+        color: root.sorted ? Theme.text : Theme.text-muted;
         vertical-alignment: center;
         horizontal-alignment: root.align;
         overflow: elide;
+    }
+    // The arrow sits next to the label, on the side away from the alignment.
+    Image {
+        visible: root.sorted;
+        x: root.right
+            ? parent.width - Theme.s2 - root.label-width - self.width
+            : Theme.s2 + root.label-width;
+        y: (parent.height - self.height) / 2;
+        width: Theme.icon;
+        height: Theme.icon;
+        source: root.descending ? @image-url("icons/sort-down.svg") : @image-url("icons/sort-up.svg");
+        colorize: Theme.accent;
     }
 }
 
@@ -172,7 +198,12 @@ export component AppWindow inherits Window {
     in property <string> message;
     in-out property <int> current: -1;
 
+    // Sort column (0 name, 1 folder, 2 size, 3 modified) and direction.
+    in-out property <int> sort-column: 0;
+    in-out property <bool> sort-descending: false;
+
     callback query-edited(string);
+    callback sort-changed(int, bool);
     callback activate(int);
     callback open-folder(int);
 
@@ -199,6 +230,20 @@ export component AppWindow inherits Window {
         } else if (top + Theme.row-height > -list.content-y + list.visible-height) {
             list.content-y = -(top + Theme.row-height - list.visible-height);
         }
+    }
+
+    // A click on the sorted column flips the direction; another column starts
+    // ascending.
+    function sort-by(column: int) {
+        if (root.sort-column == column) {
+            root.sort-descending = !root.sort-descending;
+        } else {
+            root.sort-column = column;
+            root.sort-descending = false;
+        }
+        root.current = root.results.length > 0 ? 0 : -1;
+        list.content-y = 0;
+        root.sort-changed(root.sort-column, root.sort-descending);
     }
 
     property <int> page: max(1, floor(list.visible-height / Theme.row-height) - 1);
@@ -242,10 +287,43 @@ export component AppWindow inherits Window {
         Rectangle {
             height: Theme.header-height;
             background: Theme.surface-alt;
-            HeaderCell { x: Theme.s1; width: root.name-width - Theme.s1; height: parent.height; label: "Name"; }
-            HeaderCell { x: root.name-width; width: root.folder-width; height: parent.height; label: "Folder"; }
-            HeaderCell { x: root.name-width + root.folder-width; width: root.size-width; height: parent.height; label: "Size"; align: right; }
-            HeaderCell { x: root.name-width + root.folder-width + root.size-width; width: root.date-width; height: parent.height; label: "Modified"; }
+            HeaderCell {
+                x: Theme.s1;
+                width: root.name-width - Theme.s1;
+                height: parent.height;
+                label: "Name";
+                sorted: root.sort-column == 0;
+                descending: root.sort-descending;
+                clicked => { root.sort-by(0); }
+            }
+            HeaderCell {
+                x: root.name-width;
+                width: root.folder-width;
+                height: parent.height;
+                label: "Folder";
+                sorted: root.sort-column == 1;
+                descending: root.sort-descending;
+                clicked => { root.sort-by(1); }
+            }
+            HeaderCell {
+                x: root.name-width + root.folder-width;
+                width: root.size-width;
+                height: parent.height;
+                label: "Size";
+                align: right;
+                sorted: root.sort-column == 2;
+                descending: root.sort-descending;
+                clicked => { root.sort-by(2); }
+            }
+            HeaderCell {
+                x: root.name-width + root.folder-width + root.size-width;
+                width: root.date-width;
+                height: parent.height;
+                label: "Modified";
+                sorted: root.sort-column == 3;
+                descending: root.sort-descending;
+                clicked => { root.sort-by(3); }
+            }
         }
         Rectangle { height: 1px; background: Theme.line; }
 
