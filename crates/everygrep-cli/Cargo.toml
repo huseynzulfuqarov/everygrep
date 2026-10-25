@@ -1,0 +1,16 @@
+[package]
+name = "everygrep-cli"
+description = "Command line interface for EveryGrep"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "everygrep"
+path = "src/main.rs"
+
+[dependencies]
+everygrep-core = { path = "../everygrep-core" }
+
+[lints]
+workspace = true
