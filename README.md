@@ -23,6 +23,8 @@ matches anywhere in a name (not only at word starts) as you type.
 | `ext:pdf;jpg` | extensions |
 | `size:>10mb`, `size:1kb..2mb`, `size:0` | file size (1 kb = 1024 bytes) |
 | `modified:<7d`, `modified:>30d` | changed within / not within a time (`s`, `m`, `h`, `d`, `w`) |
+| `modified:2026-10-25`, `modified:2026-10`, `modified:today`, `modified:yesterday` | changed on that local day, month or year |
+| `modified:>2026-10-25`, `modified:<=2026-10`, `modified:2026-10-01..2026-10-25` | after / up to a whole day, month or year; `..` is inclusive |
 
 Case is ignored unless `case:` or `--case` is used.
 

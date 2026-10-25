@@ -14,7 +14,13 @@
 //! size:>10mb  size:1kb..2mb  size:0
 //! modified:<7d        changed within the last 7 days (also h, m, s);
 //!                     modified:>30d = not changed for 30 days
+//! modified:2026-10-25 changed on that local day (also 2026-10, 2026,
+//!                     today, yesterday); >, >=, <, <= compare whole days,
+//!                     months or years; 2026-10-01..2026-10-25 is inclusive
 //! ```
+//!
+//! Dates use the local time zone (see [`crate::localtime`]); a day starts at
+//! local midnight, so days with a daylight saving change are 23 or 25 hours long.
 //!
 //! Terms without wildcards match anywhere in the name. Matching ignores case
 //! unless `case:` or the case-sensitive option is used.
@@ -23,6 +29,7 @@ use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::fold::fold;
+use crate::localtime::{Zone, civil_from_days, days_from_civil, days_in_month};
 use crate::store::{NodeId, NodeStore};
 
 /// Options that change how a query matches names.
@@ -102,13 +109,25 @@ pub struct EvalScratch {
 impl Query {
     /// Parses `text`. An empty query matches every node.
     pub fn parse(text: &str, options: QueryOptions) -> Result<Self, ParseError> {
+        Self::parse_with(text, options, now_ns(), None)
+    }
+
+    /// Parses `text` at the time `now_ns`. Without a `zone`, the local zone is
+    /// loaded once, when the first date term needs it.
+    fn parse_with(
+        text: &str,
+        options: QueryOptions,
+        now_ns: i64,
+        zone: Option<Zone>,
+    ) -> Result<Self, ParseError> {
         let tokens = lex(text)?;
         let mut p = Parser {
             tokens,
             pos: 0,
             options,
             uses_path: false,
-            now_ns: now_ns(),
+            now_ns,
+            zone,
         };
         let root = p.parse_and(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
@@ -353,6 +372,7 @@ struct Parser {
     options: QueryOptions,
     uses_path: bool,
     now_ns: i64,
+    zone: Option<Zone>,
 }
 
 impl Parser {
@@ -451,7 +471,7 @@ impl Parser {
                 "ext" => return Ok(Some(Node::Leaf(parse_ext(&value)))),
                 "size" => return parse_size(&value).map(|p| Some(Node::Leaf(p))),
                 "modified" => {
-                    return parse_modified(&value, self.now_ns).map(|p| Some(Node::Leaf(p)));
+                    return self.parse_modified(&value).map(|p| Some(Node::Leaf(p)));
                 }
                 _ => break,
             }
@@ -476,6 +496,16 @@ impl Parser {
             on_path,
             glob,
         }))))
+    }
+
+    /// `modified:<7d` (an age) or `modified:2026-10-25` (calendar dates).
+    fn parse_modified(&mut self, spec: &str) -> Result<Pred, ParseError> {
+        if let Some(pred) = parse_age(spec, self.now_ns) {
+            return Ok(pred);
+        }
+        let now_ns = self.now_ns;
+        let zone = self.zone.get_or_insert_with(Zone::local);
+        parse_dates(spec, now_ns, zone)
     }
 
     /// `file:foo` means "a file whose name contains foo".
@@ -593,20 +623,21 @@ impl Bounded for u64 {
 }
 
 /// `modified:<7d` means newer than 7 days ago; `modified:>7d` means older.
-fn parse_modified(spec: &str, now_ns: i64) -> Result<Pred, ParseError> {
-    let bad = || ParseError(format!("bad time: {spec} (use for example <7d, >2h, <30m)"));
+/// Returns `None` when `spec` is not an age.
+fn parse_age(spec: &str, now_ns: i64) -> Option<Pred> {
     let spec = spec.trim();
     let (newer, rest) = if let Some(r) = spec.strip_prefix("<=").or_else(|| spec.strip_prefix('<'))
     {
         (true, r)
-    } else if let Some(r) = spec.strip_prefix(">=").or_else(|| spec.strip_prefix('>')) {
-        (false, r)
     } else {
-        return Err(bad());
+        (
+            false,
+            spec.strip_prefix(">=").or_else(|| spec.strip_prefix('>'))?,
+        )
     };
-    let age = parse_age_ns(rest).ok_or_else(bad)?;
+    let age = parse_age_ns(rest)?;
     let edge = now_ns.saturating_sub(age);
-    Ok(if newer {
+    Some(if newer {
         Pred::Modified {
             min: edge,
             max: i64::MAX,
@@ -633,6 +664,130 @@ fn parse_age_ns(s: &str) -> Option<i64> {
         _ => return None,
     };
     n.checked_mul(secs)?.checked_mul(1_000_000_000)
+}
+
+/// A calendar day, month or year in the local zone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Period {
+    year: i64,
+    month: u32,
+    day: u32,
+    unit: Unit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Unit {
+    Day,
+    Month,
+    Year,
+}
+
+impl Period {
+    /// First day of the following period.
+    fn next(self) -> Self {
+        let (year, month, day) = match self.unit {
+            Unit::Day => civil_from_days(days_from_civil(self.year, self.month, self.day) + 1),
+            Unit::Month if self.month == 12 => (self.year + 1, 1, 1),
+            Unit::Month => (self.year, self.month + 1, 1),
+            Unit::Year => (self.year + 1, 1, 1),
+        };
+        Self {
+            year,
+            month,
+            day,
+            ..self
+        }
+    }
+
+    /// Local midnight at the start of the period, in nanoseconds.
+    fn start_ns(self, zone: &Zone) -> i64 {
+        let secs = zone.local_midnight_to_unix(self.year, self.month, self.day);
+        secs.saturating_mul(1_000_000_000)
+    }
+
+    /// Last nanosecond of the period.
+    fn end_ns(self, zone: &Zone) -> i64 {
+        self.next().start_ns(zone).saturating_sub(1)
+    }
+}
+
+/// `2026-10-25`, `2026-10`, `2026`, `today`, `yesterday`, with `>`, `>=`, `<`,
+/// `<=` or as an inclusive range `a..b`.
+fn parse_dates(spec: &str, now_ns: i64, zone: &Zone) -> Result<Pred, ParseError> {
+    let spec = spec.trim();
+    let today = zone
+        .to_local(now_ns.div_euclid(1_000_000_000))
+        .div_euclid(86_400);
+    let period = |s: &str| parse_period(s, today, spec);
+    let (min, max) = if let Some((a, b)) = spec.split_once("..") {
+        (period(a)?.start_ns(zone), period(b)?.end_ns(zone))
+    } else if let Some(v) = spec.strip_prefix(">=") {
+        (period(v)?.start_ns(zone), i64::MAX)
+    } else if let Some(v) = spec.strip_prefix("<=") {
+        (i64::MIN, period(v)?.end_ns(zone))
+    } else if let Some(v) = spec.strip_prefix('>') {
+        (period(v)?.next().start_ns(zone), i64::MAX)
+    } else if let Some(v) = spec.strip_prefix('<') {
+        // An empty range is (MAX, MIN), which matches nothing.
+        match period(v)?.start_ns(zone).checked_sub(1) {
+            Some(max) => (i64::MIN, max),
+            None => (i64::MAX, i64::MIN),
+        }
+    } else {
+        let p = period(spec.strip_prefix('=').unwrap_or(spec))?;
+        (p.start_ns(zone), p.end_ns(zone))
+    };
+    Ok(Pred::Modified { min, max })
+}
+
+/// One date of a `modified:` value; `today` is the current local day number.
+fn parse_period(s: &str, today: i64, spec: &str) -> Result<Period, ParseError> {
+    let s = s.trim().to_ascii_lowercase();
+    let day = |days: i64| {
+        let (year, month, day) = civil_from_days(days);
+        Period {
+            year,
+            month,
+            day,
+            unit: Unit::Day,
+        }
+    };
+    match s.as_str() {
+        "today" => return Ok(day(today)),
+        "yesterday" => return Ok(day(today - 1)),
+        _ => {}
+    }
+    let looks_like_date = !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b'-');
+    if !looks_like_date {
+        return Err(ParseError(format!(
+            "bad time: {spec} (use for example <7d, >2h, 2026-10-25, 2026-10, today)"
+        )));
+    }
+    let bad = || ParseError(format!("bad date: {s} (use YYYY, YYYY-MM or YYYY-MM-DD)"));
+    let parts: Vec<&str> = s.split('-').collect();
+    let num = |i: usize, len: std::ops::RangeInclusive<usize>| -> Result<u32, ParseError> {
+        let p = parts[i];
+        if !len.contains(&p.len()) {
+            return Err(bad());
+        }
+        p.parse().map_err(|_| bad())
+    };
+    let year = i64::from(num(0, 4..=4)?);
+    let (month, day, unit) = match parts.len() {
+        1 => (1, 1, Unit::Year),
+        2 => (num(1, 1..=2)?, 1, Unit::Month),
+        3 => (num(1, 1..=2)?, num(2, 1..=2)?, Unit::Day),
+        _ => return Err(bad()),
+    };
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+        return Err(bad());
+    }
+    Ok(Period {
+        year,
+        month,
+        day,
+        unit,
+    })
 }
 
 fn now_ns() -> i64 {
@@ -809,7 +964,7 @@ mod tests {
         assert!(Query::parse("<a b", QueryOptions::default()).is_err());
         assert!(Query::parse("a>", QueryOptions::default()).is_err());
         assert!(Query::parse("size:>lots", QueryOptions::default()).is_err());
-        assert!(Query::parse("modified:yesterday", QueryOptions::default()).is_err());
+        assert!(Query::parse("modified:soon", QueryOptions::default()).is_err());
     }
 
     #[test]
@@ -854,6 +1009,133 @@ mod tests {
         assert_eq!(t.find("ext:gz"), [".tar.gz", "archive.tar.gz", "x.gz"]);
         assert_eq!(t.find("ext:"), [".bashrc", "notes"]);
         assert!(t.find("ext:bashrc").is_empty());
+    }
+
+    /// Nanoseconds of a local time with a known UTC offset in hours.
+    fn at(y: i64, m: u32, d: u32, h: i64, min: i64, offset_h: i64) -> i64 {
+        let secs = days_from_civil(y, m, d) * 86_400 + h * 3600 + min * 60 - offset_h * 3600;
+        secs * 1_000_000_000
+    }
+
+    /// A Berlin-like zone and files around its 2026 daylight saving changes;
+    /// "now" is 2026-10-25 12:00 local, after the autumn change.
+    fn dated() -> (Tree, i64, Zone) {
+        let zone = Zone::from_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/d", true, Meta::default());
+        for (name, mtime_ns) in [
+            ("a-dst-day", at(2026, 3, 29, 23, 30, 2)),
+            ("b-after-dst", at(2026, 3, 30, 0, 10, 2)),
+            ("c-oct-first", at(2026, 10, 1, 0, 0, 2)),
+            ("d-sep-last", at(2026, 10, 1, 0, 0, 2) - 1),
+            ("e-today", at(2026, 10, 25, 9, 0, 1)),
+            ("f-yesterday", at(2026, 10, 24, 23, 59, 2)),
+            ("g-2025", at(2025, 12, 31, 23, 59, 1)),
+            ("h-1960", at(1960, 1, 15, 12, 0, 1)),
+        ] {
+            store.add(
+                Some(root),
+                name.as_bytes(),
+                false,
+                Meta { size: 1, mtime_ns },
+            );
+        }
+        (Tree { store }, at(2026, 10, 25, 12, 0, 1), zone)
+    }
+
+    fn find_dated(q: &str) -> Vec<String> {
+        let (t, now, zone) = dated();
+        let query = Query::parse_with(q, QueryOptions::default(), now, Some(zone)).unwrap();
+        let mut scratch = EvalScratch::default();
+        let mut out: Vec<String> = (1..t.store.len())
+            .map(|i| NodeId(i as u32))
+            .filter(|&id| query.matches(&t.store, id, &mut scratch))
+            .map(|id| String::from_utf8_lossy(t.store.name(id)).into_owned())
+            .collect();
+        out.sort();
+        out
+    }
+
+    fn dated_error(q: &str) -> bool {
+        let (_, now, zone) = dated();
+        Query::parse_with(q, QueryOptions::default(), now, Some(zone)).is_err()
+    }
+
+    #[test]
+    fn absolute_days_months_and_years() {
+        assert_eq!(find_dated("modified:2026-03-29"), ["a-dst-day"]);
+        assert_eq!(find_dated("modified:2026-3-30"), ["b-after-dst"]);
+        assert_eq!(find_dated("modified:2026-03"), ["a-dst-day", "b-after-dst"]);
+        assert_eq!(
+            find_dated("modified:2026-10"),
+            ["c-oct-first", "e-today", "f-yesterday"]
+        );
+        assert_eq!(find_dated("modified:2026-09-30"), ["d-sep-last"]);
+        assert_eq!(find_dated("modified:=2025"), ["g-2025"]);
+        assert_eq!(find_dated("modified:1960-01-15"), ["h-1960"]);
+        assert_eq!(find_dated("modified:2026").len(), 6);
+    }
+
+    #[test]
+    fn date_comparisons_use_whole_units() {
+        assert_eq!(find_dated("modified:>2026-10-24"), ["e-today"]);
+        assert_eq!(
+            find_dated("modified:>=2026-10-24"),
+            ["e-today", "f-yesterday"]
+        );
+        let before_october = ["a-dst-day", "b-after-dst", "d-sep-last", "g-2025", "h-1960"];
+        assert_eq!(find_dated("modified:<2026-10-01"), before_october);
+        assert_eq!(find_dated("modified:<=2026-09-30"), before_october);
+        assert_eq!(find_dated("modified:<=2026-09"), before_october);
+        assert_eq!(find_dated("modified:>2025"), find_dated("modified:2026"));
+        assert_eq!(find_dated("modified:<1970"), ["h-1960"]);
+        assert_eq!(
+            find_dated("modified:2026-09-30..2026-10-01"),
+            ["c-oct-first", "d-sep-last"]
+        );
+        assert_eq!(
+            find_dated("modified:2025..2026-03"),
+            ["a-dst-day", "b-after-dst", "g-2025"]
+        );
+        assert!(find_dated("modified:2026-10-02..2026-10-01").is_empty());
+    }
+
+    #[test]
+    fn today_yesterday_and_relative_ages() {
+        assert_eq!(find_dated("modified:today"), ["e-today"]);
+        // The real local zone loads without a fixed one.
+        assert!(Query::parse("modified:today", QueryOptions::default()).is_ok());
+        assert_eq!(find_dated("modified:Yesterday"), ["f-yesterday"]);
+        assert_eq!(
+            find_dated("modified:>=yesterday"),
+            ["e-today", "f-yesterday"]
+        );
+        assert_eq!(find_dated("modified:<1d"), ["e-today", "f-yesterday"]);
+        assert_eq!(
+            find_dated("modified:>30d"),
+            ["a-dst-day", "b-after-dst", "g-2025", "h-1960"]
+        );
+    }
+
+    #[test]
+    fn invalid_dates_are_errors() {
+        for q in [
+            "modified:2026-13-01",
+            "modified:2026-02-30",
+            "modified:2026-02-29",
+            "modified:2026-00",
+            "modified:26-10-01",
+            "modified:2026-10-01-02",
+            "modified:2026-10-001",
+            "modified:2026-10-01..",
+            "modified:..2026",
+            "modified:>",
+            "modified:tomorrow",
+            "modified:7d..3d",
+        ] {
+            assert!(dated_error(q), "{q}");
+        }
+        assert!(!dated_error("modified:2024-02-29"));
     }
 
     #[test]

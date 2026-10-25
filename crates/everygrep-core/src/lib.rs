@@ -3,6 +3,7 @@
 pub mod fold;
 pub mod index;
 pub mod inotify;
+pub mod localtime;
 pub mod order;
 pub mod persist;
 pub mod query;
