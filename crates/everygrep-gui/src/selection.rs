@@ -67,7 +67,6 @@ impl Selection {
     }
 
     /// Selected ids in list order.
-    #[allow(dead_code)] // Used by the file actions.
     pub fn selected(&self, ids: &[NodeId]) -> Vec<NodeId> {
         match &self.set {
             Set::Only(s) if s.is_empty() => Vec::new(),

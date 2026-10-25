@@ -1,5 +1,6 @@
 //! EveryGrep desktop window.
 
+mod actions;
 mod engine;
 mod filetype;
 mod format;
@@ -7,6 +8,7 @@ mod open;
 mod results;
 mod selection;
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -72,8 +74,12 @@ fn main() -> Result<(), slint::PlatformError> {
 
     window.on_query_edited({
         let engine = engine.clone();
+        let weak = weak.clone();
         move |text| {
             engine.set_query(&text, QueryOptions::default());
+            if let Some(w) = weak.upgrade() {
+                w.set_notice("".into());
+            }
         }
     });
     window.on_sort_changed({
@@ -124,26 +130,245 @@ fn main() -> Result<(), slint::PlatformError> {
         let model = model.clone();
         move |row| usize::try_from(row).is_ok_and(|r| model.is_selected(r))
     });
-    window.on_activate({
-        let model = model.clone();
-        move |row| {
-            if let Some(path) = usize::try_from(row).ok().and_then(|r| model.path(r)) {
-                open::open(&path);
-            }
-        }
-    });
-    window.on_open_folder({
-        let model = model.clone();
-        move |row| {
-            if let Some(path) = usize::try_from(row).ok().and_then(|r| model.path(r)) {
-                open::show_in_folder(&path);
-            }
-        }
-    });
+    connect_actions(&window, &model);
 
     window.run()?;
     engine.shutdown();
     Ok(())
+}
+
+/// More items than this are not opened at once; it is almost always a slip.
+const MAX_OPEN: usize = 20;
+/// Moving more items than this to the trash asks first.
+const TRASH_CONFIRM: usize = 50;
+
+/// What the confirmation dialog will do when accepted.
+enum Pending {
+    Trash(Vec<PathBuf>),
+    Delete(Vec<PathBuf>),
+}
+
+/// Open, copy, rename, trash and delete.
+fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
+    let pending: Rc<RefCell<Option<Pending>>> = Rc::default();
+    let weak = window.as_weak();
+    let row = |r: i32| usize::try_from(r).ok();
+
+    window.on_activate({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            let paths = model.targets(row(r));
+            if paths.len() > MAX_OPEN {
+                if let Some(w) = weak.upgrade() {
+                    error(
+                        &w,
+                        format!("Select at most {MAX_OPEN} items to open them at once."),
+                    );
+                }
+                return;
+            }
+            paths.iter().for_each(|p| open::open(p));
+        }
+    });
+    window.on_open_folder({
+        let model = model.clone();
+        move |r| {
+            let paths = model.targets(row(r));
+            open::show_in_folder(&paths[..paths.len().min(MAX_OPEN)]);
+        }
+    });
+    window.on_copy_names({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            let paths = model.targets(row(r));
+            if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
+                w.invoke_copy_text(actions::names_text(&paths).into());
+                info(&w, copied(paths.len(), "name", "names"));
+            }
+        }
+    });
+    window.on_copy_paths({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            let paths = model.targets(row(r));
+            if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
+                w.invoke_copy_text(actions::paths_text(&paths).into());
+                info(&w, copied(paths.len(), "path", "paths"));
+            }
+        }
+    });
+
+    window.on_rename_start({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            let (Some(w), Some(r)) = (weak.upgrade(), row(r)) else {
+                return;
+            };
+            if model.is_selected(r) && model.selected_count() > 1 {
+                error(&w, "Select one item to rename it.".into());
+                return;
+            }
+            let Some((name, is_dir)) = model.name(r) else {
+                return;
+            };
+            model.set_renaming(model.id(r));
+            w.set_rename_stem(actions::stem_len(&name, is_dir) as i32);
+            w.set_rename_text(name.into());
+            w.set_rename_row(r as i32);
+            w.set_notice("".into());
+        }
+    });
+    window.on_rename_commit({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |text| {
+            let Some(w) = weak.upgrade() else { return };
+            let Some(old) = model.renaming_row().and_then(|r| model.path(r)) else {
+                stop_renaming(&w, &model);
+                return;
+            };
+            match actions::rename(&old, &text) {
+                Ok(_) => {
+                    stop_renaming(&w, &model);
+                    w.set_notice("".into());
+                }
+                Err(e) => error(&w, e.to_string()),
+            }
+        }
+    });
+    window.on_rename_cancel({
+        let (weak, model) = (weak.clone(), model.clone());
+        move || {
+            if let Some(w) = weak.upgrade() {
+                stop_renaming(&w, &model);
+            }
+        }
+    });
+
+    window.on_trash({
+        let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
+        move |r| {
+            let paths = model.targets(row(r));
+            let Some(w) = weak.upgrade() else { return };
+            if paths.len() > TRASH_CONFIRM {
+                ask(
+                    &w,
+                    format!("Move {} to the trash?", actions::describe(&paths)),
+                    "You can restore them from the trash.",
+                    "Move to trash",
+                );
+                *pending.borrow_mut() = Some(Pending::Trash(paths));
+            } else if !paths.is_empty() {
+                run_trash(&w, paths);
+            }
+        }
+    });
+    window.on_delete_request({
+        let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
+        move |r| {
+            let paths = model.targets(row(r));
+            let Some(w) = weak.upgrade() else { return };
+            if paths.is_empty() {
+                return;
+            }
+            ask(
+                &w,
+                format!("Delete {} permanently?", actions::describe(&paths)),
+                "This cannot be undone. Folders are deleted with all their contents.",
+                "Delete",
+            );
+            *pending.borrow_mut() = Some(Pending::Delete(paths));
+        }
+    });
+    window.on_confirm_accepted({
+        let (weak, pending) = (weak.clone(), pending.clone());
+        move || {
+            let Some(w) = weak.upgrade() else { return };
+            w.set_confirm_open(false);
+            match pending.borrow_mut().take() {
+                Some(Pending::Trash(paths)) => run_trash(&w, paths),
+                Some(Pending::Delete(paths)) => run_delete(&w, paths),
+                None => {}
+            }
+            w.invoke_focus_list();
+        }
+    });
+    window.on_confirm_cancelled({
+        let weak = weak.clone();
+        move || {
+            pending.borrow_mut().take();
+            if let Some(w) = weak.upgrade() {
+                w.set_confirm_open(false);
+                w.invoke_focus_list();
+            }
+        }
+    });
+}
+
+fn copied(n: usize, one: &str, many: &str) -> String {
+    if n == 1 {
+        format!("Copied the {one}.")
+    } else {
+        format!("Copied {} {many}.", format::count(n))
+    }
+}
+
+fn info(w: &AppWindow, text: String) {
+    w.set_notice_error(false);
+    w.set_notice(text.into());
+}
+
+fn error(w: &AppWindow, text: String) {
+    w.set_notice_error(true);
+    w.set_notice(text.into());
+}
+
+fn ask(w: &AppWindow, title: String, text: &str, action: &str) {
+    w.set_confirm_title(title.into());
+    w.set_confirm_text(text.into());
+    w.set_confirm_action(action.into());
+    w.set_confirm_open(true);
+}
+
+fn stop_renaming(w: &AppWindow, model: &ResultsModel) {
+    model.set_renaming(None);
+    w.set_rename_row(-1);
+    w.invoke_focus_list();
+}
+
+/// Moves items to the trash on a helper thread and reports the outcome.
+fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
+    let what = actions::describe(&paths);
+    info(w, format!("Moving {what} to the trash…"));
+    let weak = w.as_weak();
+    std::thread::spawn(move || {
+        let result = actions::trash(&paths);
+        let _ = weak.upgrade_in_event_loop(move |w| match result {
+            Ok(()) => info(&w, format!("Moved {what} to the trash.")),
+            Err(e) => error(&w, e),
+        });
+    });
+}
+
+/// Deletes items on a helper thread and reports the outcome.
+fn run_delete(w: &AppWindow, paths: Vec<PathBuf>) {
+    let what = actions::describe(&paths);
+    info(w, format!("Deleting {what}…"));
+    let weak = w.as_weak();
+    std::thread::spawn(move || {
+        let failed = actions::delete_permanently(&paths);
+        let _ = weak.upgrade_in_event_loop(move |w| match failed.as_slice() {
+            [] => info(&w, format!("Deleted {what}.")),
+            [(path, e), ..] => error(
+                &w,
+                format!(
+                    "Could not delete {} of {}: {}: {e}.",
+                    format::count(failed.len()),
+                    format::count(paths.len()),
+                    path.display()
+                ),
+            ),
+        });
+    });
 }
 
 /// Command line of the window.
@@ -196,7 +421,15 @@ fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
 
 fn show_results(w: &AppWindow, result: SearchResult) {
     let count = result.ids.len();
-    with_model(w, |m| m.set_result(&result));
+    with_model(w, |m| {
+        m.set_result(&result);
+        // An item being renamed may have moved in the list, or be gone.
+        let row = m.renaming_row();
+        if row.is_none() {
+            m.set_renaming(None);
+        }
+        w.set_rename_row(row.map_or(-1, |r| r as i32));
+    });
     if count == 0 {
         w.set_current(-1);
     } else if w.get_current() < 0 || w.get_current() as usize >= count {

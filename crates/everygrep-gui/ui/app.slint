@@ -1,4 +1,4 @@
-import { ListView } from "std-widgets.slint";
+import { Button, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export struct ResultRow {
@@ -152,9 +152,17 @@ component Row inherits Rectangle {
     in property <length> folder-width;
     in property <length> size-width;
     in property <length> date-width;
+    // The name is being edited in place.
+    in property <bool> editing;
+    in-out property <string> edit-text;
+    // Bytes of the name selected when editing starts (the part before the
+    // extension).
+    in property <int> edit-stem;
     callback pressed(KeyboardModifiers);
     callback right-pressed(length, length);
     callback double-clicked();
+    callback edit-commit(string);
+    callback edit-cancel();
 
     property <bool> selected: root.data.selected;
 
@@ -228,6 +236,48 @@ component Row inherits Rectangle {
             font-size: Theme.body;
             vertical-alignment: center;
             overflow: elide;
+        }
+    }
+    if root.editing: Rectangle {
+        x: name-cell.x - Theme.s1;
+        width: name-cell.width + Theme.s1;
+        y: 2px;
+        height: parent.height - 4px;
+        background: Theme.field;
+        border-width: 1px;
+        border-color: Theme.accent;
+        border-radius: 3px;
+        edit := TextInput {
+            x: Theme.s1;
+            width: parent.width - 2 * Theme.s1;
+            text <=> root.edit-text;
+            single-line: true;
+            vertical-alignment: center;
+            color: Theme.text;
+            font-size: Theme.body;
+            selection-background-color: Theme.selection;
+            selection-foreground-color: Theme.selection-text;
+            init => {
+                self.focus();
+                self.set-selection-offsets(0, root.edit-stem);
+            }
+            accepted => { root.edit-commit(self.text); }
+            // Leaving the field (a click elsewhere) cancels; only Enter renames.
+            changed has-focus => {
+                if (!self.has-focus) { root.edit-cancel(); }
+            }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.edit-cancel();
+                    return accept;
+                }
+                // Keep list keys from moving the selection while editing.
+                if (event.text == Key.UpArrow || event.text == Key.DownArrow
+                    || event.text == Key.PageUp || event.text == Key.PageDown || event.text == Key.F2) {
+                    return accept;
+                }
+                reject
+            }
         }
     }
     Text {
@@ -310,6 +360,32 @@ export component AppWindow inherits Window {
     // Selection: mode 0 selects only the row, 1 toggles it, 2 extends the
     // range from the anchor to it.
     callback select(int, int);
+    // Actions on the selection, or on the given row when it is not selected.
+    callback copy-names(int);
+    callback copy-paths(int);
+    callback rename-start(int);
+    callback rename-commit(string);
+    callback rename-cancel();
+    callback trash(int);
+    callback delete-request(int);
+    callback confirm-accepted();
+    callback confirm-cancelled();
+
+    // A short note in the status line, e.g. "Copied 3 paths." or an error.
+    in property <string> notice;
+    in property <bool> notice-error;
+
+    // In-place rename: the row being edited (-1 for none), its text and the
+    // part selected at the start.
+    in property <int> rename-row: -1;
+    in-out property <string> rename-text;
+    in property <int> rename-stem;
+
+    // Confirmation dialog.
+    in property <bool> confirm-open;
+    in property <string> confirm-title;
+    in property <string> confirm-text;
+    in property <string> confirm-action;
     callback select-all();
     // Returns whether anything was selected.
     callback clear-selection() -> bool;
@@ -351,6 +427,29 @@ export component AppWindow inherits Window {
 
     public function focus-search() {
         search.focus-and-select();
+    }
+
+    public function focus-list() {
+        keys.focus();
+    }
+
+    // Puts text on the clipboard through a hidden text field; Slint has no
+    // clipboard API of its own.
+    public function copy-text(text: string) {
+        clip.text = text;
+        clip.select-all();
+        clip.copy();
+        clip.text = "";
+    }
+
+    // Opens the context menu next to the current row.
+    function show-menu-at-current() {
+        if (root.current >= 0) {
+            menu-area.show({
+                x: Theme.s3 + Theme.icon,
+                y: (root.current + 1) * Theme.row-height + list.content-y,
+            });
+        }
     }
 
     // Moves the cursor; mode as for select(), or -1 to move without changing
@@ -513,6 +612,26 @@ export component AppWindow inherits Window {
                     }
                     return accept;
                 }
+                if (event.text == Key.F2) {
+                    if (root.current >= 0) { root.rename-start(root.current); }
+                    return accept;
+                }
+                if (event.text == Key.Delete) {
+                    if (root.current >= 0) {
+                        if (event.modifiers.shift) { root.delete-request(root.current); } else { root.trash(root.current); }
+                    }
+                    return accept;
+                }
+                if (event.modifiers.control && (event.text == "c" || event.text == "C")) {
+                    if (root.current >= 0) {
+                        if (event.modifiers.shift) { root.copy-paths(root.current); } else { root.copy-names(root.current); }
+                    }
+                    return accept;
+                }
+                if (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift)) {
+                    root.show-menu-at-current();
+                    return accept;
+                }
                 // Esc clears the selection first, then goes back to the search.
                 if (event.text == Key.Escape) {
                     if (!root.clear-selection()) { search.focus-and-select(); }
@@ -524,6 +643,41 @@ export component AppWindow inherits Window {
                 }
                 reject
             }
+
+            menu-area := ContextMenuArea {
+                enabled: root.current >= 0;
+                Menu {
+                    MenuItem {
+                        title: "Open";
+                        activated => { root.activate(root.current); }
+                    }
+                    MenuItem {
+                        title: "Open containing folder";
+                        activated => { root.open-folder(root.current); }
+                    }
+                    MenuSeparator { }
+                    MenuItem {
+                        title: "Copy name";
+                        activated => { root.copy-names(root.current); }
+                    }
+                    MenuItem {
+                        title: "Copy full path";
+                        activated => { root.copy-paths(root.current); }
+                    }
+                    MenuSeparator { }
+                    MenuItem {
+                        title: "Rename";
+                        activated => { root.rename-start(root.current); }
+                    }
+                    MenuItem {
+                        title: "Move to trash";
+                        activated => { root.trash(root.current); }
+                    }
+                    MenuItem {
+                        title: "Delete permanently…";
+                        activated => { root.delete-request(root.current); }
+                    }
+                }
 
             list := ListView {
                 for row[i] in root.results: Row {
@@ -542,9 +696,16 @@ export component AppWindow inherits Window {
                         root.current = i;
                         keys.focus();
                         if (!root.is-selected(i)) { root.select(i, 0); }
+                        menu-area.show({ x: x, y: i * Theme.row-height + list.content-y + y });
                     }
                     double-clicked => { root.activate(i); }
+                    editing: i == root.rename-row;
+                    edit-text <=> root.rename-text;
+                    edit-stem: root.rename-stem;
+                    edit-commit(text) => { root.rename-commit(text); }
+                    edit-cancel => { root.rename-cancel(); }
                 }
+            }
             }
 
             Text {
@@ -566,6 +727,7 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 padding-left: Theme.s3;
                 padding-right: Theme.s3;
+                spacing: Theme.s4;
                 Text {
                     text: root.status-left;
                     font-size: Theme.small;
@@ -574,11 +736,87 @@ export component AppWindow inherits Window {
                     overflow: elide;
                 }
                 Text {
+                    text: root.notice;
+                    font-size: Theme.small;
+                    color: root.notice-error ? Theme.danger : Theme.text;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
                     text: root.status-right;
                     font-size: Theme.small;
                     color: Theme.text-muted;
                     vertical-alignment: center;
                     horizontal-alignment: right;
+                }
+            }
+        }
+    }
+
+    // Hidden text field used by copy-text().
+    clip := TextInput {
+        x: 0;
+        y: 0;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        single-line: false;
+        read-only: true;
+        enabled: false;
+    }
+
+    // Confirmation dialog, above all other content. The backdrop takes all
+    // clicks so the window behind cannot be used meanwhile.
+    if root.confirm-open: Rectangle {
+        background: #00000060;
+        TouchArea { }
+        dialog-keys := FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) { root.confirm-cancelled(); return accept; }
+                if (event.text == Key.Return) { root.confirm-accepted(); return accept; }
+                accept
+            }
+        }
+        Rectangle {
+            width: min(420px, root.width - 2 * Theme.s5);
+            height: dialog-layout.preferred-height;
+            background: Theme.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000040;
+            dialog-layout := VerticalLayout {
+                padding: Theme.s5;
+                spacing: Theme.s3;
+                Text {
+                    text: root.confirm-title;
+                    font-size: Theme.body + 2px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.confirm-text;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: Theme.s2;
+                    padding-top: Theme.s2;
+                    Button {
+                        text: "Cancel";
+                        clicked => { root.confirm-cancelled(); }
+                    }
+                    Button {
+                        text: root.confirm-action;
+                        primary: true;
+                        clicked => { root.confirm-accepted(); }
+                    }
                 }
             }
         }

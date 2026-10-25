@@ -2,7 +2,7 @@
 //! manager. Both run detached so the window never waits for another program.
 
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Opens a file or folder with its default application.
@@ -10,11 +10,11 @@ pub fn open(path: &Path) {
     spawn(Command::new("xdg-open").arg(path));
 }
 
-/// Opens the containing folder in the file manager with the item selected,
+/// Opens the containing folders in the file manager with the items selected,
 /// using the freedesktop `FileManager1` interface. Falls back to opening the
-/// parent folder.
-pub fn show_in_folder(path: &Path) {
-    let uri = file_uri(path);
+/// parent folder of the first item.
+pub fn show_in_folder(paths: &[PathBuf]) {
+    let Some(first) = paths.first() else { return };
     let status = Command::new("gdbus")
         .args([
             "call",
@@ -25,17 +25,24 @@ pub fn show_in_folder(path: &Path) {
             "/org/freedesktop/FileManager1",
             "--method",
             "org.freedesktop.FileManager1.ShowItems",
-            &format!("['{uri}']"),
+            &uri_list(paths),
             "",
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
     if !status.is_ok_and(|s| s.success()) {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = first.parent() {
             open(parent);
         }
     }
+}
+
+/// A GVariant string array of `file://` URIs. URIs hold no quotes or
+/// backslashes, so no escaping is needed.
+fn uri_list(paths: &[PathBuf]) -> String {
+    let uris: Vec<String> = paths.iter().map(|p| format!("'{}'", file_uri(p))).collect();
+    format!("[{}]", uris.join(", "))
 }
 
 fn spawn(cmd: &mut Command) {
@@ -70,6 +77,12 @@ pub fn file_uri(path: &Path) -> String {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn uri_lists_are_gvariant_arrays() {
+        let paths = [PathBuf::from("/a b"), PathBuf::from("/c'd")];
+        assert_eq!(uri_list(&paths), "['file:///a%20b', 'file:///c%27d']");
+    }
 
     #[test]
     fn uris_escape_spaces_quotes_and_non_ascii() {

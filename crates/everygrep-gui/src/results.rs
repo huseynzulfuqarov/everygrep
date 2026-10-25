@@ -28,6 +28,8 @@ pub struct ResultsModel {
     /// Query text of `ids`; a new query starts with an empty selection.
     query: RefCell<String>,
     selection: RefCell<Selection>,
+    /// The node whose name is being edited.
+    renaming: Cell<Option<NodeId>>,
     terms: RefCell<Arc<Vec<NameTerm>>>,
     zone: Zone,
     home: Option<Vec<u8>>,
@@ -46,6 +48,7 @@ impl ResultsModel {
             epoch: Cell::new(u64::MAX),
             query: RefCell::new(String::new()),
             selection: RefCell::new(Selection::default()),
+            renaming: Cell::new(None),
             terms: RefCell::new(Arc::new(Vec::new())),
             zone: Zone::local(),
             home: std::env::var_os("HOME").map(|h| h.as_bytes().to_vec()),
@@ -68,7 +71,10 @@ impl ResultsModel {
         {
             let mut selection = self.selection.borrow_mut();
             let mut query = self.query.borrow_mut();
-            if self.epoch.get() != result.epoch || *query != result.query {
+            if self.epoch.get() != result.epoch {
+                selection.reset();
+                self.renaming.set(None);
+            } else if *query != result.query {
                 selection.reset();
             } else {
                 selection.retain(&result.ids);
@@ -124,6 +130,69 @@ impl ResultsModel {
 
     pub fn selected_count(&self) -> usize {
         self.selection.borrow().count(self.ids.borrow().len())
+    }
+
+    pub fn set_renaming(&self, id: Option<NodeId>) {
+        self.renaming.set(id);
+    }
+
+    /// Current row of the node being renamed, if it is still listed.
+    pub fn renaming_row(&self) -> Option<usize> {
+        self.renaming.get().and_then(|id| self.row_of(id))
+    }
+
+    /// Node id of a row.
+    pub fn id(&self, row: usize) -> Option<NodeId> {
+        self.ids.borrow().get(row).copied()
+    }
+
+    /// Row of a node id in the current list.
+    pub fn row_of(&self, id: NodeId) -> Option<usize> {
+        self.ids.borrow().iter().position(|&i| i == id)
+    }
+
+    /// The rows an action applies to: the selection when `row` is part of it
+    /// (or no row is given), otherwise `row` alone. Paths of nodes that no
+    /// longer exist are left out.
+    pub fn targets(&self, row: Option<usize>) -> Vec<PathBuf> {
+        let ids = Arc::clone(&self.ids.borrow());
+        let use_selection = row.is_none_or(|r| self.is_selected(r));
+        let picked: Vec<NodeId> = if use_selection {
+            self.selection.borrow().selected(&ids)
+        } else {
+            Vec::new()
+        };
+        let picked = if picked.is_empty() {
+            row.and_then(|r| ids.get(r).copied()).into_iter().collect()
+        } else {
+            picked
+        };
+        let Ok(index) = self.engine.index.read() else {
+            return Vec::new();
+        };
+        if self.engine.epoch() != self.epoch.get() {
+            return Vec::new();
+        }
+        let store = index.store();
+        picked
+            .into_iter()
+            .filter(|id| id.index() < store.len() && store.is_live(*id))
+            .map(|id| store.path(id))
+            .collect()
+    }
+
+    /// Name of a row and whether it is a folder.
+    pub fn name(&self, row: usize) -> Option<(String, bool)> {
+        let id = self.id(row)?;
+        let index = self.engine.index.read().ok()?;
+        let store = index.store();
+        (self.engine.epoch() == self.epoch.get() && id.index() < store.len() && store.is_live(id))
+            .then(|| {
+                (
+                    String::from_utf8_lossy(store.name(id)).into_owned(),
+                    store.is_dir(id),
+                )
+            })
     }
 
     pub fn set_state(&self, state: IndexState, indexed: usize) {
