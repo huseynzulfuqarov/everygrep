@@ -238,6 +238,11 @@ impl NodeStore {
         self.garbage
     }
 
+    /// Bytes held by both name pools, used and unused.
+    pub fn name_bytes(&self) -> usize {
+        self.name_pool.len() + self.folded_pool.len()
+    }
+
     fn stored_folded_len(&self, i: usize) -> usize {
         if self.folded_start[i] == SAME_AS_RAW {
             0

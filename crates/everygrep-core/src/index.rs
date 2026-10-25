@@ -213,6 +213,31 @@ impl Index {
         dead > 0 || self.store.garbage_bytes() > 0
     }
 
+    /// Whether removed slots or unused name bytes make up more than a quarter of
+    /// the store, and are enough to matter. A long-running watcher calls this
+    /// after applying changes and then [`compact_in_place`](Self::compact_in_place).
+    pub fn should_compact(&self) -> bool {
+        const MIN_DEAD: usize = 10_000;
+        const MIN_GARBAGE: usize = 1 << 20;
+        let dead = self.store.len() - self.store.live_count();
+        let garbage = self.store.garbage_bytes();
+        (dead >= MIN_DEAD && dead * 4 > self.store.len())
+            || (garbage >= MIN_GARBAGE && garbage * 4 > self.store.name_bytes())
+    }
+
+    /// Replaces the index with its compacted form and returns the map from old to
+    /// new ids (`None` for removed nodes). Every id held outside the index must be
+    /// translated with it. The removal log must have been taken before.
+    pub fn compact_in_place(&mut self) -> Vec<Option<NodeId>> {
+        debug_assert!(
+            self.removed_log.is_empty(),
+            "take_removed before compacting"
+        );
+        let (compact, remap) = self.compacted();
+        *self = compact;
+        remap
+    }
+
     /// Returns a copy without removed nodes and unused name bytes, plus the map
     /// from old to new ids.
     pub fn compacted(&self) -> (Index, Vec<Option<NodeId>>) {
@@ -390,6 +415,50 @@ mod tests {
         index.insert(Some(root), b"keep.txt", false, Meta::default());
         assert_eq!(index.remove(top).len(), 3);
         assert_eq!(names(&index), vec![b"/r".to_vec(), b"keep.txt".to_vec()]);
+    }
+
+    #[test]
+    fn compacting_in_place_keeps_content_and_maps_ids() {
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        let mut files = Vec::new();
+        for i in 0..30_000 {
+            files.push(index.insert(
+                Some(root),
+                format!("f{i}.txt").as_bytes(),
+                false,
+                Meta::default(),
+            ));
+        }
+        assert!(!index.should_compact());
+        for &f in files
+            .iter()
+            .step_by(3)
+            .chain(files.iter().skip(1).step_by(3))
+        {
+            index.remove(f);
+        }
+        index.take_removed();
+        assert!(index.should_compact());
+        let kept = files[2];
+        let before: Vec<std::path::PathBuf> = index
+            .order()
+            .iter()
+            .map(|id| index.store().path(id))
+            .collect();
+        let remap = index.compact_in_place();
+        let after: Vec<std::path::PathBuf> = index
+            .order()
+            .iter()
+            .map(|id| index.store().path(id))
+            .collect();
+        assert_eq!(before, after);
+        assert_eq!(index.store().len(), index.len());
+        assert!(!index.should_compact());
+        assert_eq!(remap[files[0].index()], None);
+        let new_kept = remap[kept.index()].unwrap();
+        assert_eq!(index.store().name(new_kept), b"f2.txt");
+        check_consistent(&index);
     }
 
     /// Small deterministic generator so the random test is reproducible.

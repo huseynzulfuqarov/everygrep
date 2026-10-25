@@ -35,6 +35,8 @@ pub struct ApplyStats {
     pub updated: usize,
     /// The kernel dropped events; the index may be stale and needs a rescan.
     pub overflow: bool,
+    /// The index was compacted: node ids held outside it are no longer valid.
+    pub compacted: bool,
 }
 
 /// The inotify instance and the mapping between watches and folder nodes.
@@ -60,6 +62,23 @@ impl Watches {
                 self.watch_of.insert(dir, wd);
             }
             Err(_) => self.failed += 1,
+        }
+    }
+
+    /// Translates node ids after the index was compacted.
+    fn remap(&mut self, remap: &[Option<NodeId>]) {
+        let old = std::mem::take(&mut self.dir_of);
+        self.watch_of.clear();
+        for (wd, dir) in old {
+            match remap.get(dir.index()).copied().flatten() {
+                Some(new) => {
+                    self.dir_of.insert(wd, new);
+                    self.watch_of.insert(new, wd);
+                }
+                None => {
+                    let _ = self.inotify.remove_watch(wd);
+                }
+            }
         }
     }
 
@@ -130,10 +149,24 @@ impl Watcher {
         self.watches.failed
     }
 
-    /// Waits up to `timeout` for events and applies them to `index`.
+    /// Waits up to `timeout` for events and applies them to `index`. When enough
+    /// removed slots have piled up, the index is also compacted (see
+    /// [`ApplyStats::compacted`]).
     pub fn poll(&mut self, index: &mut Index, timeout: Option<Duration>) -> io::Result<ApplyStats> {
         let events = self.watches.inotify.read_events(&mut self.buf, timeout)?;
-        Ok(self.apply(index, &events))
+        let mut stats = self.apply(index, &events);
+        if index.should_compact() {
+            self.compact(index);
+            stats.compacted = true;
+        }
+        Ok(stats)
+    }
+
+    /// Compacts `index` in place and moves the watches to the new node ids.
+    pub fn compact(&mut self, index: &mut Index) {
+        self.watches.forget(&index.take_removed());
+        let remap = index.compact_in_place();
+        self.watches.remap(&remap);
     }
 
     /// Applies a batch of events to `index`.
@@ -461,6 +494,31 @@ mod tests {
         // The re-created folder is watched.
         fs::write(dir.join("later.txt"), b"l").unwrap();
         assert!(f.settle(|i| has(i, &dir.join("later.txt"))));
+    }
+
+    #[test]
+    fn watches_keep_working_after_compaction() {
+        let mut f = Fixture::new("compact");
+        let docs = f.root().join("docs");
+        for i in 0..20 {
+            fs::create_dir(f.root().join(format!("tmp{i}"))).unwrap();
+        }
+        assert!(f.settle(|i| i.len() == 23));
+        for i in 0..20 {
+            fs::remove_dir(f.root().join(format!("tmp{i}"))).unwrap();
+        }
+        assert!(f.settle(|i| i.len() == 3));
+        let watches_before = f.watcher.watch_count();
+        f.watcher.compact(&mut f.index);
+        assert_eq!(f.index.store().len(), 3, "removed slots are gone");
+        assert_eq!(f.watcher.watch_count(), watches_before);
+        // Events in folders that survived still reach the right nodes.
+        fs::write(docs.join("after.txt"), b"x").unwrap();
+        assert!(f.settle(|i| has(i, &docs.join("after.txt"))));
+        fs::create_dir(f.root().join("newdir")).unwrap();
+        fs::write(f.root().join("newdir/n.txt"), b"n").unwrap();
+        let n = f.root().join("newdir/n.txt");
+        assert!(f.settle(|i| has(i, &n)));
     }
 
     #[test]
