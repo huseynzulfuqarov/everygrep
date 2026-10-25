@@ -7,11 +7,9 @@
 //! version  u32
 //! nodes    u64      number of nodes
 //! names    u64      bytes in the raw name pool
-//! folded   u64      bytes in the folded name pool
 //! roots    u32      number of root paths, then for each: u32 length + bytes
-//! columns  parent_kind[u32], name_start[u32], name_len[u16], folded_start[u32],
-//!          folded_len[u16], size[u64], mtime_ns[i64], name pool, folded pool,
-//!          name order[u32]
+//! columns  parent_kind[u32], name_start[u32], name_len[u16], size[u64],
+//!          mtime_ns[i64], name pool, name order[u32]
 //! checksum u64      over all preceding bytes
 //! ```
 //!
@@ -27,7 +25,7 @@ use crate::index::Index;
 use crate::store::{Columns, Meta, NodeId, NodeStore};
 
 const MAGIC: &[u8; 8] = b"EGRPIDX\0";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// An index loaded from disk together with the roots it was built from.
 pub struct Saved {
@@ -62,7 +60,6 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
     put_u32(&mut buf, VERSION);
     put_u64(&mut buf, c.parent_kind.len() as u64);
     put_u64(&mut buf, c.name_pool.len() as u64);
-    put_u64(&mut buf, c.folded_pool.len() as u64);
     put_u32(
         &mut buf,
         u32::try_from(roots.len()).map_err(|_| invalid("too many roots"))?,
@@ -80,16 +77,11 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
     c.name_len
         .iter()
         .for_each(|&v| buf.extend_from_slice(&v.to_le_bytes()));
-    c.folded_start.iter().for_each(|&v| put_u32(&mut buf, v));
-    c.folded_len
-        .iter()
-        .for_each(|&v| buf.extend_from_slice(&v.to_le_bytes()));
     c.meta.iter().for_each(|m| put_u64(&mut buf, m.size));
     c.meta
         .iter()
         .for_each(|m| buf.extend_from_slice(&m.mtime_ns.to_le_bytes()));
     buf.extend_from_slice(c.name_pool);
-    buf.extend_from_slice(c.folded_pool);
     index.order().iter().for_each(|id| put_u32(&mut buf, id.0));
     let sum = checksum(&buf);
     put_u64(&mut buf, sum);
@@ -97,7 +89,10 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("tmp");
+    // A per-process temporary name: two savers never share one temp file.
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".tmp-{}", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
     {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(&buf)?;
@@ -119,7 +114,7 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     let file_len = file.metadata()?.len();
     let body_len = file_len
         .checked_sub(8)
-        .filter(|&l| l >= (MAGIC.len() + 4 + 8 * 3 + 4) as u64)
+        .filter(|&l| l >= (MAGIC.len() + 4 + 8 * 2 + 4) as u64)
         .ok_or_else(|| invalid("not an index file"))?;
     let mut r = StreamReader {
         inner: io::BufReader::with_capacity(1 << 20, file),
@@ -135,18 +130,16 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     }
     let nodes = r.len()?;
     let names = r.len()?;
-    let folded = r.len()?;
     let root_count = r.u32()? as usize;
     let mut roots = Vec::new();
     for _ in 0..root_count {
         let len = r.u32()? as usize;
         roots.push(PathBuf::from(std::ffi::OsStr::from_bytes(&r.bytes(len)?)));
     }
-    // 4+4+2+4+2+8+8 bytes of columns and 4 of name order per node.
+    // 4+4+2+8+8 bytes of columns and 4 of name order per node.
     let expected = (nodes as u64)
-        .checked_mul(36)
-        .and_then(|v| v.checked_add(names as u64))
-        .and_then(|v| v.checked_add(folded as u64));
+        .checked_mul(30)
+        .and_then(|v| v.checked_add(names as u64));
     if expected != Some(r.left) {
         return Err(invalid("sizes in header do not match file size"));
     }
@@ -154,8 +147,6 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     let parent_kind = r.vec(nodes, u32::from_le_bytes)?;
     let name_start = r.vec(nodes, u32::from_le_bytes)?;
     let name_len = r.vec(nodes, u16::from_le_bytes)?;
-    let folded_start = r.vec(nodes, u32::from_le_bytes)?;
-    let folded_len = r.vec(nodes, u16::from_le_bytes)?;
     let mut meta: Vec<Meta> = r
         .vec(nodes, u64::from_le_bytes)?
         .into_iter()
@@ -163,7 +154,6 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         .collect();
     r.each(nodes, i64::from_le_bytes, |i, t| meta[i].mtime_ns = t)?;
     let name_pool = r.bytes(names)?;
-    let folded_pool = r.bytes(folded)?;
     let by_name = r.vec(nodes, |b: [u8; 4]| NodeId(u32::from_le_bytes(b)))?;
 
     let mut tail = [0u8; 8];
@@ -175,11 +165,8 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         parent_kind,
         name_start,
         name_len,
-        folded_start,
-        folded_len,
         meta,
         name_pool,
-        folded_pool,
     })
     .map_err(invalid)?;
     let index = Index::from_parts(store, by_name).map_err(invalid)?;

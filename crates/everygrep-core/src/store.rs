@@ -378,11 +378,8 @@ pub(crate) struct Columns {
     pub parent_kind: Vec<u32>,
     pub name_start: Vec<u32>,
     pub name_len: Vec<u16>,
-    pub folded_start: Vec<u32>,
-    pub folded_len: Vec<u16>,
     pub meta: Vec<Meta>,
     pub name_pool: Vec<u8>,
-    pub folded_pool: Vec<u8>,
 }
 
 impl NodeStore {
@@ -392,56 +389,40 @@ impl NodeStore {
             parent_kind: &self.parent_kind,
             name_start: &self.name_start,
             name_len: &self.name_len,
-            folded_start: &self.folded_start,
-            folded_len: &self.folded_len,
             meta: &self.meta,
             name_pool: &self.name_pool,
-            folded_pool: &self.folded_pool,
         }
     }
 
     /// Rebuilds a store from loaded columns after checking every length, range and
-    /// parent link, so a damaged file can never cause an out-of-bounds access.
+    /// parent link, so a damaged file can never cause an out-of-bounds access or
+    /// an inconsistent index. Folded names are recomputed rather than trusted.
     pub(crate) fn from_columns(c: Columns) -> Result<Self, &'static str> {
         let n = c.parent_kind.len();
-        if [
-            c.name_start.len(),
-            c.name_len.len(),
-            c.folded_start.len(),
-            c.folded_len.len(),
-            c.meta.len(),
-        ]
-        .iter()
-        .any(|&l| l != n)
+        if [c.name_start.len(), c.name_len.len(), c.meta.len()]
+            .iter()
+            .any(|&l| l != n)
         {
             return Err("column lengths differ");
         }
         if n >= PARENT_MASK as usize {
             return Err("too many nodes");
         }
-        let in_pool = |start: u32, len: u16, pool: &[u8]| {
-            (start as usize)
-                .checked_add(len as usize)
-                .is_some_and(|end| end <= pool.len())
-        };
         for i in 0..n {
-            if c.parent_kind[i] & DEAD_BIT != 0 {
+            let word = c.parent_kind[i];
+            if word & DEAD_BIT != 0 {
                 return Err("removed node in saved index");
             }
-            let parent = c.parent_kind[i] & PARENT_MASK;
-            if parent as usize > n || parent as usize == i + 1 {
+            let parent = (word & PARENT_MASK) as usize;
+            if parent > n || parent == i + 1 {
                 return Err("bad parent link");
             }
-            if !in_pool(c.name_start[i], c.name_len[i], &c.name_pool) {
-                return Err("name out of range");
+            if parent != 0 && c.parent_kind[parent - 1] & DIR_BIT == 0 {
+                return Err("parent is not a folder");
             }
-            let folded_ok = if c.folded_start[i] == SAME_AS_RAW {
-                c.folded_len[i] == c.name_len[i]
-            } else {
-                in_pool(c.folded_start[i], c.folded_len[i], &c.folded_pool)
-            };
-            if !folded_ok {
-                return Err("folded name out of range");
+            let end = (c.name_start[i] as usize).checked_add(c.name_len[i] as usize);
+            if !end.is_some_and(|e| e <= c.name_pool.len()) {
+                return Err("name out of range");
             }
         }
         // A parent chain must end at a root; walking it must not loop.
@@ -465,15 +446,16 @@ impl NodeStore {
             }
             walk.clear();
         }
+
         let mut store = Self {
             parent_kind: c.parent_kind,
             name_start: c.name_start,
             name_len: c.name_len,
-            folded_start: c.folded_start,
-            folded_len: c.folded_len,
+            folded_start: Vec::with_capacity(n),
+            folded_len: Vec::with_capacity(n),
             meta: c.meta,
             name_pool: c.name_pool,
-            folded_pool: c.folded_pool,
+            folded_pool: Vec::new(),
             first_child: vec![NONE; n],
             next_sibling: vec![NONE; n],
             prev_sibling: vec![NONE; n],
@@ -482,11 +464,25 @@ impl NodeStore {
             garbage: 0,
         };
         for i in 0..n {
+            let name = slice(&store.name_pool, store.name_start[i], store.name_len[i]);
+            store.scratch.clear();
+            fold_into(name, &mut store.scratch);
+            let (fs, fl) = if store.scratch == name {
+                (SAME_AS_RAW, store.name_len[i])
+            } else {
+                let (fs, fl) = push(&mut store.folded_pool, &store.scratch);
+                (fs, fl)
+            };
+            store.folded_start.push(fs);
+            store.folded_len.push(fl);
+        }
+        for i in 0..n {
             let id = NodeId(i as u32);
             if let Some(p) = store.parent(id) {
                 store.link(id, p);
             }
         }
+        store.shrink_to_fit();
         Ok(store)
     }
 }
@@ -496,11 +492,8 @@ pub(crate) struct ColumnsRef<'a> {
     pub parent_kind: &'a [u32],
     pub name_start: &'a [u32],
     pub name_len: &'a [u16],
-    pub folded_start: &'a [u32],
-    pub folded_len: &'a [u16],
     pub meta: &'a [Meta],
     pub name_pool: &'a [u8],
-    pub folded_pool: &'a [u8],
 }
 
 fn push(pool: &mut Vec<u8>, bytes: &[u8]) -> (u32, u16) {
@@ -576,11 +569,8 @@ mod tests {
             parent_kind,
             name_start: vec![0; n],
             name_len: vec![1; n],
-            folded_start: vec![SAME_AS_RAW; n],
-            folded_len: vec![1; n],
             meta: vec![Meta::default(); n],
             name_pool: b"x".to_vec(),
-            folded_pool: Vec::new(),
         }
     }
 
@@ -594,6 +584,8 @@ mod tests {
         assert!(NodeStore::from_columns(columns_with_parents(vec![2, 1])).is_err());
         // parent id out of range
         assert!(NodeStore::from_columns(columns_with_parents(vec![0, 9])).is_err());
+        // a file cannot be a parent
+        assert!(NodeStore::from_columns(columns_with_parents(vec![0, 1])).is_err());
     }
 
     #[test]
