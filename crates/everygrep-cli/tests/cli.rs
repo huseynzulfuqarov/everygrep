@@ -144,3 +144,45 @@ fn watching_shell_sees_new_files_and_saves_them() {
             .contains("fresh-report.md")
     );
 }
+
+#[test]
+fn duplicate_and_relative_roots_still_load() {
+    let dir = temp_dir("roots");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+
+    assert!(
+        run(&[
+            "index",
+            "--root",
+            tree_s,
+            "--root",
+            tree_s,
+            "--index-file",
+            index_s
+        ])
+        .status
+        .success()
+    );
+    // The same folder given as a relative path from its parent.
+    let out = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .current_dir(&dir)
+        .args([
+            "search",
+            "--root",
+            "tree",
+            "--root",
+            "./tree/sub",
+            "--index-file",
+            index_s,
+            "notes",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(stderr.contains("loaded"), "stderr: {stderr}");
+    assert_eq!(stdout.trim(), tree.join("notes.txt").to_str().unwrap());
+}

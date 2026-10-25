@@ -142,6 +142,29 @@ fn walk(
     }
 }
 
+/// Turns root paths into absolute, symlink-free paths, drops duplicates and drops
+/// roots that lie inside another root (they would be indexed twice). Paths that
+/// cannot be resolved are made absolute and kept, so the scan can report them.
+pub fn normalize_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut resolved: Vec<PathBuf> = roots
+        .iter()
+        .map(|r| {
+            fs::canonicalize(r)
+                .or_else(|_| std::path::absolute(r))
+                .unwrap_or_else(|_| r.clone())
+        })
+        .collect();
+    resolved.sort();
+    resolved.dedup();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for root in resolved {
+        if !out.iter().any(|kept| root.starts_with(kept)) {
+            out.push(root);
+        }
+    }
+    out
+}
+
 /// Folders that are indexed but not entered: virtual file system mount points and
 /// the configured excludes.
 pub(crate) fn skip_set(options: &ScanOptions) -> HashSet<PathBuf> {
@@ -202,8 +225,9 @@ fn unescape_mount_path(s: &str) -> String {
 mod tests {
     use super::*;
 
-    fn temp_tree() -> PathBuf {
-        let base = std::env::temp_dir().join(format!("everygrep-scan-test-{}", std::process::id()));
+    fn temp_tree(tag: &str) -> PathBuf {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-scan-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(base.join("a/b")).unwrap();
         fs::create_dir_all(base.join("skip/inner")).unwrap();
@@ -216,7 +240,7 @@ mod tests {
 
     #[test]
     fn scans_tree_without_following_links_and_honours_excludes() {
-        let base = temp_tree();
+        let base = temp_tree("walk");
         let mut store = NodeStore::new();
         let options = ScanOptions {
             exclude: vec![base.join("skip")],
@@ -246,6 +270,22 @@ mod tests {
             .find(|&id| store.name(id) == b"two.TXT")
             .unwrap();
         assert_eq!(store.meta(two).size, 2);
+    }
+
+    #[test]
+    fn roots_are_resolved_deduplicated_and_not_nested() {
+        let base = temp_tree("roots");
+        let link = base.join("link-to-a");
+        std::os::unix::fs::symlink(base.join("a"), &link).unwrap();
+        let roots = normalize_roots(&[
+            base.join("a/b"),
+            link.clone(),
+            base.join("a"),
+            base.join("skip"),
+            base.join("skip"),
+        ]);
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(roots, vec![base.join("a"), base.join("skip")]);
     }
 
     #[test]

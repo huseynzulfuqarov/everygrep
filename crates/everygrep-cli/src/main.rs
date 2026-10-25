@@ -9,7 +9,7 @@ use std::time::Instant;
 use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::query::{Query, QueryOptions};
-use everygrep_core::scan::{ScanOptions, scan};
+use everygrep_core::scan::{ScanOptions, normalize_roots, scan};
 use everygrep_core::search::search;
 use everygrep_core::store::NodeStore;
 use everygrep_core::sync::{CatchUpStats, catch_up};
@@ -86,6 +86,7 @@ fn parse_args() -> Result<Args, String> {
         }
     }
     args.query = query.join(" ");
+    args.roots = normalize_roots(&args.roots);
     Ok(args)
 }
 
@@ -304,6 +305,10 @@ fn main() -> ExitCode {
                                     break;
                                 }
                             };
+                            // Changes made while rescanning were not watched yet.
+                            let started = Instant::now();
+                            let stats = w.catch_up(&mut index);
+                            report_catch_up(&stats, started.elapsed());
                             changed = true;
                         }
                         Ok(st) if st != Default::default() => {
