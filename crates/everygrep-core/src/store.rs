@@ -50,6 +50,8 @@ const DIR_BIT: u32 = 1 << 31;
 const DEAD_BIT: u32 = 1 << 30;
 /// Bits of the packed parent column that hold the parent id + 1.
 const PARENT_MASK: u32 = DEAD_BIT - 1;
+/// "No node" in the child and sibling link columns.
+const NONE: u32 = u32::MAX;
 /// Marks a folded name that is identical to the raw name and therefore not stored.
 const SAME_AS_RAW: u32 = u32::MAX;
 
@@ -69,6 +71,12 @@ pub struct NodeStore {
     meta: Vec<Meta>,
     name_pool: Vec<u8>,
     folded_pool: Vec<u8>,
+    /// Children of each node as a doubly linked list, so a subtree can be walked
+    /// and a node unlinked without scanning the whole store. Not saved; rebuilt
+    /// on load.
+    first_child: Vec<u32>,
+    next_sibling: Vec<u32>,
+    prev_sibling: Vec<u32>,
     scratch: Vec<u8>,
     dead: usize,
     garbage: usize,
@@ -122,7 +130,58 @@ impl NodeStore {
         self.folded_start.push(folded_start);
         self.folded_len.push(folded_len);
         self.meta.push(meta);
+        self.first_child.push(NONE);
+        self.next_sibling.push(NONE);
+        self.prev_sibling.push(NONE);
+        if let Some(p) = parent {
+            self.link(NodeId(id), p);
+        }
         NodeId(id)
+    }
+
+    /// Puts `id` at the front of `parent`'s child list.
+    fn link(&mut self, id: NodeId, parent: NodeId) {
+        let (i, p) = (id.index(), parent.index());
+        let next = self.first_child[p];
+        self.next_sibling[i] = next;
+        self.prev_sibling[i] = NONE;
+        if next != NONE {
+            self.prev_sibling[next as usize] = id.0;
+        }
+        self.first_child[p] = id.0;
+    }
+
+    /// Takes `id` out of its parent's child list.
+    fn unlink(&mut self, id: NodeId) {
+        let Some(parent) = self.parent(id) else {
+            return;
+        };
+        let i = id.index();
+        let (prev, next) = (self.prev_sibling[i], self.next_sibling[i]);
+        if prev == NONE {
+            if self.first_child[parent.index()] == id.0 {
+                self.first_child[parent.index()] = next;
+            }
+        } else {
+            self.next_sibling[prev as usize] = next;
+        }
+        if next != NONE {
+            self.prev_sibling[next as usize] = prev;
+        }
+        self.next_sibling[i] = NONE;
+        self.prev_sibling[i] = NONE;
+    }
+
+    /// Live children of a node, in no particular order.
+    pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        let mut cur = self.first_child[id.index()];
+        std::iter::from_fn(move || {
+            (cur != NONE).then(|| {
+                let id = NodeId(cur);
+                cur = self.next_sibling[cur as usize];
+                id
+            })
+        })
     }
 
     fn push_names(&mut self, name: &[u8]) -> (u32, u16, u32, u16) {
@@ -141,6 +200,7 @@ impl NodeStore {
     pub fn remove(&mut self, id: NodeId) {
         let i = id.index();
         if self.parent_kind[i] & DEAD_BIT == 0 {
+            self.unlink(id);
             self.parent_kind[i] |= DEAD_BIT;
             self.dead += 1;
             self.garbage += self.name_len[i] as usize + self.stored_folded_len(i);
@@ -160,8 +220,12 @@ impl NodeStore {
 
     /// Moves a node under a new parent.
     pub fn set_parent(&mut self, id: NodeId, parent: Option<NodeId>) {
+        self.unlink(id);
         let word = &mut self.parent_kind[id.index()];
         *word = (*word & !PARENT_MASK) | parent.map_or(0, |p| p.0 + 1);
+        if let Some(p) = parent {
+            self.link(id, p);
+        }
     }
 
     /// Replaces the metadata of a node.
@@ -205,16 +269,23 @@ impl NodeStore {
                 remap.push(None);
             }
         }
+        // A parent can have a higher id than its child (after moves), so add all
+        // nodes first and link parents in a second pass.
         let mut out = NodeStore::new();
         for i in 0..self.len() {
             let id = NodeId(i as u32);
-            if !self.is_live(id) {
-                continue;
+            if self.is_live(id) {
+                out.add(None, self.name(id), self.is_dir(id), self.meta(id));
             }
-            let parent = self
-                .parent(id)
-                .map(|p| remap[p.index()].expect("live node with removed parent"));
-            out.add(parent, self.name(id), self.is_dir(id), self.meta(id));
+        }
+        for i in 0..self.len() {
+            let id = NodeId(i as u32);
+            if let (Some(new_id), Some(parent)) =
+                (remap[i], self.parent(id).filter(|_| self.is_live(id)))
+            {
+                let new_parent = remap[parent.index()].expect("live node with removed parent");
+                out.set_parent(new_id, Some(new_parent));
+            }
         }
         out.shrink_to_fit();
         (out, remap)
@@ -230,6 +301,9 @@ impl NodeStore {
         self.meta.shrink_to_fit();
         self.name_pool.shrink_to_fit();
         self.folded_pool.shrink_to_fit();
+        self.first_child.shrink_to_fit();
+        self.next_sibling.shrink_to_fit();
+        self.prev_sibling.shrink_to_fit();
         self.scratch = Vec::new();
     }
 
@@ -284,7 +358,12 @@ impl NodeStore {
     /// Approximate heap memory used by the store, in bytes.
     pub fn heap_bytes(&self) -> usize {
         use std::mem::size_of;
-        (self.parent_kind.capacity() + self.name_start.capacity() + self.folded_start.capacity())
+        (self.parent_kind.capacity()
+            + self.name_start.capacity()
+            + self.folded_start.capacity()
+            + self.first_child.capacity()
+            + self.next_sibling.capacity()
+            + self.prev_sibling.capacity())
             * size_of::<u32>()
             + (self.name_len.capacity() + self.folded_len.capacity()) * size_of::<u16>()
             + self.meta.capacity() * size_of::<Meta>()
@@ -386,7 +465,7 @@ impl NodeStore {
             }
             walk.clear();
         }
-        Ok(Self {
+        let mut store = Self {
             parent_kind: c.parent_kind,
             name_start: c.name_start,
             name_len: c.name_len,
@@ -395,10 +474,20 @@ impl NodeStore {
             meta: c.meta,
             name_pool: c.name_pool,
             folded_pool: c.folded_pool,
+            first_child: vec![NONE; n],
+            next_sibling: vec![NONE; n],
+            prev_sibling: vec![NONE; n],
             scratch: Vec::new(),
             dead: 0,
             garbage: 0,
-        })
+        };
+        for i in 0..n {
+            let id = NodeId(i as u32);
+            if let Some(p) = store.parent(id) {
+                store.link(id, p);
+            }
+        }
+        Ok(store)
     }
 }
 

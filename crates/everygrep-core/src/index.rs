@@ -267,35 +267,14 @@ impl Index {
         })
     }
 
-    /// The live folder `root` and every live node below it.
+    /// The live folder `root` and every live node below it, found through the
+    /// child lists in time proportional to the subtree.
     fn subtree(&self, root: NodeId) -> Vec<NodeId> {
-        // 0 = not decided yet, 1 = inside the subtree, 2 = outside.
-        let mut state = vec![0u8; self.store.len()];
-        state[root.index()] = 1;
-        let mut path = Vec::new();
         let mut out = Vec::new();
-        for i in 0..self.store.len() {
-            let id = NodeId(i as u32);
-            if !self.store.is_live(id) {
-                continue;
-            }
-            let mut cur = Some(id);
-            let verdict = loop {
-                match cur {
-                    None => break 2,
-                    Some(c) if state[c.index()] != 0 => break state[c.index()],
-                    Some(c) => {
-                        path.push(c);
-                        cur = self.store.parent(c);
-                    }
-                }
-            };
-            for p in path.drain(..) {
-                state[p.index()] = verdict;
-            }
-            if state[i] == 1 {
-                out.push(id);
-            }
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            out.push(node);
+            stack.extend(self.store.children(node));
         }
         out
     }
@@ -489,7 +468,17 @@ mod tests {
         for &id in &live {
             if let Some(p) = store.parent(id) {
                 assert!(store.is_live(p), "live node under removed parent");
+                assert_eq!(
+                    store.children(p).filter(|&c| c == id).count(),
+                    1,
+                    "child list"
+                );
             }
+            assert!(
+                store
+                    .children(id)
+                    .all(|c| store.is_live(c) && store.parent(c) == Some(id))
+            );
             assert_eq!(index.find_child(store.parent(id), store.name(id)), Some(id));
         }
         let m = Query::parse("a", QueryOptions::default()).unwrap();

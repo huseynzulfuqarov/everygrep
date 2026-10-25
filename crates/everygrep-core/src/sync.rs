@@ -54,15 +54,11 @@ pub(crate) fn catch_up_with(
     let mut stats = CatchUpStats::default();
 
     let store = index.store();
-    let mut children: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
-    let mut queue = VecDeque::new();
-    for id in index.order().iter() {
-        match store.parent(id) {
-            Some(p) => children.entry(p).or_default().push(id),
-            None if store.is_dir(id) => queue.push_back(id),
-            None => {}
-        }
-    }
+    let mut queue: VecDeque<NodeId> = index
+        .order()
+        .iter()
+        .filter(|&id| store.parent(id).is_none() && store.is_dir(id))
+        .collect();
 
     while let Some(dir) = queue.pop_front() {
         if !index.store().is_live(dir) {
@@ -78,7 +74,7 @@ pub(crate) fn catch_up_with(
             }
         };
         let meta = Meta::from_metadata(&m);
-        let kids = children.remove(&dir).unwrap_or_default();
+        let kids: Vec<NodeId> = index.store().children(dir).collect();
         if skip.contains(&path) {
             index.set_meta(dir, meta);
             continue;
