@@ -3,6 +3,7 @@
 pub mod fold;
 pub mod index;
 pub mod matcher;
+pub mod scan;
 pub mod search;
 pub mod store;
 
