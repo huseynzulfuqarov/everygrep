@@ -1,0 +1,39 @@
+// Design tokens (see docs/design.md). Components use only these values.
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+
+    // Colors
+    out property <color> surface: dark ? #1c1d20 : #ffffff;
+    out property <color> surface-alt: dark ? #232428 : #f6f7f9;
+    out property <color> field: dark ? #2a2b30 : #f1f2f5;
+    out property <color> text: dark ? #ecedf0 : #16171a;
+    out property <color> text-muted: dark ? #a3a6ad : #5c606a;
+    out property <color> line: dark ? #33353b : #e3e5e9;
+    out property <color> accent: dark ? #6aa1ff : #2563eb;
+    out property <color> accent-text: #ffffff;
+    out property <color> selection: dark ? #2b4a80 : #dbe7ff;
+    out property <color> selection-text: dark ? #ffffff : #0b1b3d;
+    out property <color> hover: dark ? #26282d : #f3f5f8;
+    out property <color> danger: dark ? #ff8080 : #c42b2b;
+
+    // Spacing
+    out property <length> s1: 4px;
+    out property <length> s2: 8px;
+    out property <length> s3: 12px;
+    out property <length> s4: 16px;
+    out property <length> s5: 24px;
+
+    // Shapes and sizes
+    out property <length> radius: 6px;
+    out property <length> row-height: 28px;
+    out property <length> header-height: 30px;
+    out property <length> top-bar-height: 48px;
+    out property <length> status-height: 26px;
+    out property <length> icon: 16px;
+
+    // Type
+    out property <length> body: 13px;
+    out property <length> small: 12px;
+}

@@ -1,0 +1,333 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct ResultRow {
+    name: string,
+    folder: string,
+    size: string,
+    modified: string,
+    modified-full: string,
+    is-dir: bool,
+}
+
+component SearchField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    callback edited(string);
+    callback accepted();
+    callback down-pressed();
+    callback escape-pressed();
+    public function focus-and-select() {
+        input.focus();
+        input.select-all();
+    }
+
+    height: 34px;
+    border-radius: Theme.radius;
+    background: Theme.field;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.line;
+
+    HorizontalLayout {
+        padding-left: Theme.s3;
+        padding-right: Theme.s3;
+        spacing: Theme.s2;
+        Image {
+            source: @image-url("icons/search.svg");
+            colorize: Theme.text-muted;
+            width: Theme.icon;
+            height: Theme.icon;
+            y: (parent.height - self.height) / 2;
+        }
+        input := TextInput {
+            vertical-alignment: center;
+            font-size: Theme.body + 1px;
+            color: Theme.text;
+            selection-background-color: Theme.selection;
+            selection-foreground-color: Theme.selection-text;
+            single-line: true;
+            edited => { root.edited(self.text); }
+            accepted => { root.accepted(); }
+            key-pressed(event) => {
+                if (event.text == Key.DownArrow) {
+                    root.down-pressed();
+                    return accept;
+                }
+                if (event.text == Key.Escape) {
+                    root.escape-pressed();
+                    return accept;
+                }
+                reject
+            }
+        }
+    }
+    placeholder := Text {
+        x: Theme.s3 + Theme.icon + Theme.s2;
+        visible: input.text == "";
+        text: "Search files and folders";
+        color: Theme.text-muted;
+        font-size: Theme.body + 1px;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+}
+
+component HeaderCell inherits Rectangle {
+    in property <string> label;
+    in property <TextHorizontalAlignment> align: left;
+    Text {
+        x: Theme.s2;
+        width: parent.width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.label;
+        font-size: Theme.small;
+        font-weight: 600;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+        horizontal-alignment: root.align;
+        overflow: elide;
+    }
+}
+
+component Row inherits Rectangle {
+    in property <ResultRow> data;
+    in property <bool> selected;
+    in property <length> name-width;
+    in property <length> folder-width;
+    in property <length> size-width;
+    in property <length> date-width;
+    callback clicked();
+    callback double-clicked();
+
+    height: Theme.row-height;
+    background: selected ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.double-clicked(); }
+    }
+
+    // Cells are positioned directly to keep the columns aligned with the header.
+    Image {
+        x: Theme.s3;
+        source: root.data.is-dir ? @image-url("icons/folder.svg") : @image-url("icons/file.svg");
+        colorize: root.selected ? Theme.selection-text : Theme.text-muted;
+        width: Theme.icon;
+        height: Theme.icon;
+        y: (parent.height - self.height) / 2;
+    }
+    Text {
+        x: Theme.s3 + Theme.icon + Theme.s2;
+        width: root.name-width - self.x - Theme.s2;
+        height: parent.height;
+        text: root.data.name;
+        color: root.selected ? Theme.selection-text : Theme.text;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Text {
+        x: root.name-width + Theme.s2;
+        width: root.folder-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.folder;
+        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Text {
+        x: root.name-width + root.folder-width;
+        width: root.size-width - Theme.s2;
+        height: parent.height;
+        text: root.data.size;
+        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+    }
+    Text {
+        x: root.name-width + root.folder-width + root.size-width + Theme.s2;
+        width: root.date-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.modified;
+        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "EveryGrep";
+    preferred-width: 1040px;
+    preferred-height: 660px;
+    min-width: 560px;
+    min-height: 320px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+
+    in property <[ResultRow]> results;
+    in property <string> status-left;
+    in property <string> status-right;
+    in property <string> message;
+    in-out property <int> current: -1;
+
+    callback query-edited(string);
+    callback activate(int);
+    callback open-folder(int);
+
+    // Column widths; the name and folder share the space left by the fixed ones.
+    property <length> size-width: 96px;
+    property <length> date-width: 120px;
+    property <length> flex-width: max(200px, self.width - self.size-width - self.date-width);
+    property <length> name-width: self.flex-width * 0.48;
+    property <length> folder-width: self.flex-width - self.name-width;
+
+    public function focus-search() {
+        search.focus-and-select();
+    }
+
+    function move-to(row: int) {
+        if (root.results.length == 0) {
+            return;
+        }
+        root.current = max(0, min(root.results.length - 1, row));
+        // Keep the current row inside the visible part of the list.
+        let top = root.current * Theme.row-height;
+        if (top < -list.content-y) {
+            list.content-y = -top;
+        } else if (top + Theme.row-height > -list.content-y + list.visible-height) {
+            list.content-y = -(top + Theme.row-height - list.visible-height);
+        }
+    }
+
+    property <int> page: max(1, floor(list.visible-height / Theme.row-height) - 1);
+
+    VerticalLayout {
+        // Top bar
+        Rectangle {
+            height: Theme.top-bar-height;
+            background: Theme.surface;
+            HorizontalLayout {
+                padding-left: Theme.s3;
+                padding-right: Theme.s3;
+                padding-top: (Theme.top-bar-height - 34px) / 2;
+                padding-bottom: (Theme.top-bar-height - 34px) / 2;
+                search := SearchField {
+                    edited(text) => {
+                        root.current = root.results.length > 0 ? 0 : -1;
+                        list.content-y = 0;
+                        root.query-edited(text);
+                    }
+                    accepted => {
+                        if (root.current >= 0) {
+                            root.activate(root.current);
+                        }
+                    }
+                    down-pressed => {
+                        keys.focus();
+                        root.move-to(root.current < 0 ? 0 : root.current + 1);
+                    }
+                    escape-pressed => {
+                        self.text = "";
+                        root.query-edited("");
+                    }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+
+        // Column headers (positioned directly, so they never feed back into
+        // the window's layout)
+        Rectangle {
+            height: Theme.header-height;
+            background: Theme.surface-alt;
+            HeaderCell { x: Theme.s1; width: root.name-width - Theme.s1; height: parent.height; label: "Name"; }
+            HeaderCell { x: root.name-width; width: root.folder-width; height: parent.height; label: "Folder"; }
+            HeaderCell { x: root.name-width + root.folder-width; width: root.size-width; height: parent.height; label: "Size"; align: right; }
+            HeaderCell { x: root.name-width + root.folder-width + root.size-width; width: root.date-width; height: parent.height; label: "Modified"; }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+
+        // Results
+        keys := FocusScope {
+            vertical-stretch: 1;
+            key-pressed(event) => {
+                if (event.text == Key.DownArrow) { root.move-to(root.current + 1); return accept; }
+                if (event.text == Key.UpArrow) {
+                    if (root.current <= 0) { search.focus-and-select(); } else { root.move-to(root.current - 1); }
+                    return accept;
+                }
+                if (event.text == Key.PageDown) { root.move-to(root.current + root.page); return accept; }
+                if (event.text == Key.PageUp) { root.move-to(root.current - root.page); return accept; }
+                if (event.text == Key.Home) { root.move-to(0); return accept; }
+                if (event.text == Key.End) { root.move-to(root.results.length - 1); return accept; }
+                if (event.text == Key.Return) {
+                    if (root.current >= 0) {
+                        if (event.modifiers.control) { root.open-folder(root.current); } else { root.activate(root.current); }
+                    }
+                    return accept;
+                }
+                if (event.text == Key.Escape) { search.focus-and-select(); return accept; }
+                if (event.modifiers.control && (event.text == "f" || event.text == "l")) {
+                    search.focus-and-select();
+                    return accept;
+                }
+                reject
+            }
+
+            list := ListView {
+                for row[i] in root.results: Row {
+                    data: row;
+                    selected: i == root.current;
+                    name-width: root.name-width;
+                    folder-width: root.folder-width;
+                    size-width: root.size-width;
+                    date-width: root.date-width;
+                    clicked => {
+                        root.current = i;
+                        keys.focus();
+                    }
+                    double-clicked => { root.activate(i); }
+                }
+            }
+
+            Text {
+                visible: root.message != "";
+                text: root.message;
+                color: Theme.text-muted;
+                font-size: Theme.body;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        // Status line
+        Rectangle { height: 1px; background: Theme.line; }
+        Rectangle {
+            height: Theme.status-height;
+            background: Theme.surface-alt;
+            HorizontalLayout {
+                padding-left: Theme.s3;
+                padding-right: Theme.s3;
+                Text {
+                    text: root.status-left;
+                    font-size: Theme.small;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.status-right;
+                    font-size: Theme.small;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                }
+            }
+        }
+    }
+
+    init => { search.focus-and-select(); }
+}
