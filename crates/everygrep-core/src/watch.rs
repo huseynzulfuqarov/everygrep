@@ -176,10 +176,13 @@ impl Watcher {
     }
 
     /// Compacts `index` in place and moves the watches to the new node ids.
-    pub fn compact(&mut self, index: &mut Index) {
+    /// Returns the map from old to new ids, for translating ids held elsewhere
+    /// (such as a list of search results).
+    pub fn compact(&mut self, index: &mut Index) -> Vec<Option<NodeId>> {
         self.watches.forget(&index.take_removed());
         let remap = index.compact_in_place();
         self.watches.remap(&remap);
+        remap
     }
 
     /// Applies a batch of events to `index`.
