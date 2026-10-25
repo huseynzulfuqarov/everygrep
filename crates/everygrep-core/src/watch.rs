@@ -153,13 +153,26 @@ impl Watcher {
     /// removed slots have piled up, the index is also compacted (see
     /// [`ApplyStats::compacted`]).
     pub fn poll(&mut self, index: &mut Index, timeout: Option<Duration>) -> io::Result<ApplyStats> {
-        let events = self.watches.inotify.read_events(&mut self.buf, timeout)?;
-        let mut stats = self.apply(index, &events);
+        let events = self.wait(timeout)?;
+        Ok(self.apply_batch(index, &events))
+    }
+
+    /// Waits up to `timeout` for events without touching the index. Together
+    /// with [`apply_batch`](Self::apply_batch) this lets a caller that shares the
+    /// index between threads hold its lock only while changes are applied.
+    pub fn wait(&mut self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
+        self.watches.inotify.read_events(&mut self.buf, timeout)
+    }
+
+    /// Applies events read by [`wait`](Self::wait) and compacts the index when
+    /// enough removed slots have piled up.
+    pub fn apply_batch(&mut self, index: &mut Index, events: &[Event]) -> ApplyStats {
+        let mut stats = self.apply(index, events);
         if index.should_compact() {
             self.compact(index);
             stats.compacted = true;
         }
-        Ok(stats)
+        stats
     }
 
     /// Compacts `index` in place and moves the watches to the new node ids.
