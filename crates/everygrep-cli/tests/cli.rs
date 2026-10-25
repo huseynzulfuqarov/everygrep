@@ -84,3 +84,57 @@ fn unknown_command_fails_with_usage() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8(out.stderr).unwrap().contains("usage:"));
 }
+
+#[test]
+fn watching_shell_sees_new_files_and_saves_them() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = temp_dir("watch");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .args([
+            "shell",
+            "--watch",
+            "--root",
+            tree_s,
+            "--index-file",
+            index_s,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "notes").unwrap();
+    stdin.flush().unwrap();
+    // Give the shell time to scan and set up its watches before the change.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    fs::write(tree.join("sub/fresh-report.md"), b"new").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    writeln!(stdin, "fresh").unwrap();
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+
+    let saved = run(&["search", "--index-file", index_s, "fresh"]);
+    fs::remove_dir_all(&dir).unwrap();
+
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stdout.contains("notes.txt"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("fresh-report.md"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stderr.contains("applied changes"), "stderr: {stderr}");
+    assert!(
+        String::from_utf8(saved.stdout)
+            .unwrap()
+            .contains("fresh-report.md")
+    );
+}

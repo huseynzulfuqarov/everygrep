@@ -12,6 +12,7 @@ use everygrep_core::persist;
 use everygrep_core::scan::{ScanOptions, scan};
 use everygrep_core::search::search;
 use everygrep_core::store::NodeStore;
+use everygrep_core::watch::Watcher;
 
 const USAGE: &str = "\
 usage:
@@ -27,6 +28,8 @@ options:
   --root <path>      folder to index (repeatable, default: saved roots or $HOME)
   --index-file <p>   index location (default: ~/.cache/everygrep/index.bin)
   --rescan           scan even if a saved index exists
+  --watch            shell only: apply file changes before every query and save
+                     the index on exit
   --exclude <path>   folder not to enter (repeatable)
   --case             match case exactly
   --threads <n>      search threads (default: number of CPUs)
@@ -39,6 +42,7 @@ struct Args {
     roots: Vec<PathBuf>,
     index_file: Option<PathBuf>,
     rescan: bool,
+    watch: bool,
     scan: ScanOptions,
     matching: MatchOptions,
     threads: usize,
@@ -54,6 +58,7 @@ fn parse_args() -> Result<Args, String> {
         roots: Vec::new(),
         index_file: persist::default_path(),
         rescan: false,
+        watch: false,
         scan: ScanOptions::default(),
         matching: MatchOptions::default(),
         threads: std::thread::available_parallelism().map_or(1, |n| n.get()),
@@ -66,6 +71,7 @@ fn parse_args() -> Result<Args, String> {
             "--root" => args.roots.push(PathBuf::from(value("--root")?)),
             "--index-file" => args.index_file = Some(PathBuf::from(value("--index-file")?)),
             "--rescan" => args.rescan = true,
+            "--watch" => args.watch = true,
             "--exclude" => args.scan.exclude.push(PathBuf::from(value("--exclude")?)),
             "--case" => args.matching.case_sensitive = true,
             "--threads" => args.threads = parse_num(&value("--threads")?)?,
@@ -91,7 +97,8 @@ fn home_root() -> Vec<PathBuf> {
 }
 
 /// Loads the saved index if it fits the request, otherwise scans and saves.
-fn open_index(args: &Args, force_scan: bool) -> Index {
+/// Returns the index and the roots it covers.
+fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>) {
     if !force_scan && !args.rescan {
         if let Some(path) = &args.index_file {
             let started = Instant::now();
@@ -104,7 +111,7 @@ fn open_index(args: &Args, force_scan: bool) -> Index {
                         started.elapsed().as_secs_f64() * 1e3,
                         saved.index.heap_bytes() as f64 / 1048576.0,
                     );
-                    return saved.index;
+                    return (saved.index, saved.roots);
                 }
                 Ok(_) => eprintln!("saved index has other roots, scanning"),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -118,9 +125,14 @@ fn open_index(args: &Args, force_scan: bool) -> Index {
         args.roots.clone()
     };
     let index = scan_roots(&roots, &args.scan);
+    save_index(args, &index, &roots);
+    (index, roots)
+}
+
+fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) {
     if let Some(path) = &args.index_file {
         let started = Instant::now();
-        match persist::save(&index, &roots, path) {
+        match persist::save(index, roots, path) {
             Ok(()) => eprintln!(
                 "saved index to {} in {:.0} ms",
                 path.display(),
@@ -129,7 +141,25 @@ fn open_index(args: &Args, force_scan: bool) -> Index {
             Err(e) => eprintln!("could not save index to {}: {e}", path.display()),
         }
     }
-    index
+}
+
+fn start_watcher(index: &Index) -> Option<Watcher> {
+    let started = Instant::now();
+    match Watcher::new(index) {
+        Ok(w) => {
+            eprintln!(
+                "watching {} folders ({} could not be watched) after {:.0} ms",
+                w.watch_count(),
+                w.failed_watches,
+                started.elapsed().as_secs_f64() * 1e3
+            );
+            Some(w)
+        }
+        Err(e) => {
+            eprintln!("cannot watch for changes: {e}");
+            None
+        }
+    }
 }
 
 fn scan_roots(roots: &[PathBuf], options: &ScanOptions) -> Index {
@@ -195,20 +225,58 @@ fn main() -> ExitCode {
             Ok(())
         }
         "search" => {
-            let index = open_index(&args, false);
+            let (index, _) = open_index(&args, false);
             run_query(&index, &args, &args.query, &mut out)
         }
         "shell" => {
-            let index = open_index(&args, false);
+            let (mut index, roots) = open_index(&args, false);
+            let mut watcher = if args.watch {
+                start_watcher(&index)
+            } else {
+                None
+            };
+            let mut changed = false;
             let mut status = Ok(());
             for line in io::stdin().lock().lines() {
-                match line {
-                    Ok(q) => status = run_query(&index, &args, &q, &mut out),
-                    Err(e) => status = Err(e),
+                let q = match line {
+                    Ok(q) => q,
+                    Err(e) => {
+                        status = Err(e);
+                        break;
+                    }
+                };
+                if let Some(w) = watcher.as_mut() {
+                    match w.poll(&mut index, Some(std::time::Duration::ZERO)) {
+                        Ok(st) if st.overflow => {
+                            eprintln!("change queue overflowed, rescanning");
+                            index = scan_roots(&roots, &args.scan);
+                            *w = match Watcher::new(&index) {
+                                Ok(nw) => nw,
+                                Err(e) => {
+                                    eprintln!("cannot watch for changes: {e}");
+                                    break;
+                                }
+                            };
+                            changed = true;
+                        }
+                        Ok(st) if st != Default::default() => {
+                            eprintln!(
+                                "applied changes: +{} -{} moved {} updated {}",
+                                st.added, st.removed, st.moved, st.updated
+                            );
+                            changed = true;
+                        }
+                        Ok(_) => {}
+                        Err(e) => eprintln!("reading changes failed: {e}"),
+                    }
                 }
+                status = run_query(&index, &args, &q, &mut out);
                 if status.is_err() {
                     break;
                 }
+            }
+            if changed {
+                save_index(&args, &index, &roots);
             }
             status
         }
