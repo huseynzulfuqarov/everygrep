@@ -12,6 +12,7 @@ use everygrep_core::persist;
 use everygrep_core::scan::{ScanOptions, scan};
 use everygrep_core::search::search;
 use everygrep_core::store::NodeStore;
+use everygrep_core::sync::{CatchUpStats, catch_up};
 use everygrep_core::watch::Watcher;
 
 const USAGE: &str = "\
@@ -96,9 +97,16 @@ fn home_root() -> Vec<PathBuf> {
         .collect()
 }
 
+/// How an index was obtained.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Loaded,
+    Scanned,
+}
+
 /// Loads the saved index if it fits the request, otherwise scans and saves.
-/// Returns the index and the roots it covers.
-fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>) {
+/// Returns the index, the roots it covers and where it came from.
+fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>, Source) {
     if !force_scan && !args.rescan {
         if let Some(path) = &args.index_file {
             let started = Instant::now();
@@ -111,7 +119,7 @@ fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>) {
                         started.elapsed().as_secs_f64() * 1e3,
                         saved.index.heap_bytes() as f64 / 1048576.0,
                     );
-                    return (saved.index, saved.roots);
+                    return (saved.index, saved.roots, Source::Loaded);
                 }
                 Ok(_) => eprintln!("saved index has other roots, scanning"),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -126,7 +134,20 @@ fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>) {
     };
     let index = scan_roots(&roots, &args.scan);
     save_index(args, &index, &roots);
-    (index, roots)
+    (index, roots, Source::Scanned)
+}
+
+fn report_catch_up(stats: &CatchUpStats, took: std::time::Duration) -> bool {
+    eprintln!(
+        "caught up in {:.0} ms: checked {} folders, re-read {}, +{} -{} updated {}",
+        took.as_secs_f64() * 1e3,
+        stats.dirs_checked,
+        stats.dirs_rescanned,
+        stats.added,
+        stats.removed,
+        stats.updated
+    );
+    stats.added + stats.removed + stats.updated > 0
 }
 
 fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) {
@@ -143,23 +164,34 @@ fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) {
     }
 }
 
-fn start_watcher(index: &Index) -> Option<Watcher> {
+/// Starts watching, then catches up with offline changes if the index was
+/// loaded. Returns the watcher and whether the catch-up changed the index.
+fn start_watcher(
+    index: &mut Index,
+    options: &ScanOptions,
+    source: Source,
+) -> (Option<Watcher>, bool) {
     let started = Instant::now();
-    match Watcher::new(index) {
-        Ok(w) => {
-            eprintln!(
-                "watching {} folders ({} could not be watched) after {:.0} ms",
-                w.watch_count(),
-                w.failed_watches,
-                started.elapsed().as_secs_f64() * 1e3
-            );
-            Some(w)
-        }
+    let mut w = match Watcher::new(index, options) {
+        Ok(w) => w,
         Err(e) => {
             eprintln!("cannot watch for changes: {e}");
-            None
+            return (None, false);
         }
+    };
+    eprintln!(
+        "watching {} folders ({} could not be watched) after {:.0} ms",
+        w.watch_count(),
+        w.failed_watches,
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    let mut changed = false;
+    if source == Source::Loaded {
+        let started = Instant::now();
+        let stats = w.catch_up(index);
+        changed = report_catch_up(&stats, started.elapsed());
     }
+    (Some(w), changed)
 }
 
 fn scan_roots(roots: &[PathBuf], options: &ScanOptions) -> Index {
@@ -225,17 +257,23 @@ fn main() -> ExitCode {
             Ok(())
         }
         "search" => {
-            let (index, _) = open_index(&args, false);
+            let (mut index, roots, source) = open_index(&args, false);
+            if source == Source::Loaded {
+                let started = Instant::now();
+                let stats = catch_up(&mut index, &args.scan);
+                if report_catch_up(&stats, started.elapsed()) {
+                    save_index(&args, &index, &roots);
+                }
+            }
             run_query(&index, &args, &args.query, &mut out)
         }
         "shell" => {
-            let (mut index, roots) = open_index(&args, false);
-            let mut watcher = if args.watch {
-                start_watcher(&index)
+            let (mut index, roots, source) = open_index(&args, false);
+            let (mut watcher, mut changed) = if args.watch {
+                start_watcher(&mut index, &args.scan, source)
             } else {
-                None
+                (None, false)
             };
-            let mut changed = false;
             let mut status = Ok(());
             for line in io::stdin().lock().lines() {
                 let q = match line {
@@ -250,7 +288,7 @@ fn main() -> ExitCode {
                         Ok(st) if st.overflow => {
                             eprintln!("change queue overflowed, rescanning");
                             index = scan_roots(&roots, &args.scan);
-                            *w = match Watcher::new(&index) {
+                            *w = match Watcher::new(&index, &args.scan) {
                                 Ok(nw) => nw,
                                 Err(e) => {
                                     eprintln!("cannot watch for changes: {e}");

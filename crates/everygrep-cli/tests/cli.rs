@@ -21,7 +21,7 @@ fn run(args: &[&str]) -> Output {
 }
 
 #[test]
-fn search_uses_saved_index_when_no_root_is_given() {
+fn search_loads_saved_index_and_catches_up_without_full_scan() {
     let dir = temp_dir("saved");
     let tree = dir.join("tree");
     let index = dir.join("index.bin");
@@ -31,18 +31,24 @@ fn search_uses_saved_index_when_no_root_is_given() {
     assert!(built.status.success());
     assert!(index.exists());
 
-    // Remove a file after indexing: a search that rescans would not find it.
+    // Changed while nothing was running.
     fs::remove_file(tree.join("sub/Holiday-Photo.JPG")).unwrap();
-    let found = run(&["search", "--index-file", index_s, "photo"]);
+    fs::write(tree.join("sub/holiday-video.mp4"), b"v").unwrap();
+    let found = run(&["search", "--index-file", index_s, "holiday"]);
     let stdout = String::from_utf8(found.stdout).unwrap();
     let stderr = String::from_utf8(found.stderr).unwrap();
     fs::remove_dir_all(&dir).unwrap();
 
     assert!(found.status.success());
     assert!(stderr.contains("loaded"), "stderr: {stderr}");
+    assert!(stderr.contains("caught up"), "stderr: {stderr}");
+    assert!(
+        !stderr.contains("indexed"),
+        "must not rescan fully, stderr: {stderr}"
+    );
     assert_eq!(
         stdout.trim(),
-        tree.join("sub/Holiday-Photo.JPG").to_str().unwrap()
+        tree.join("sub/holiday-video.mp4").to_str().unwrap()
     );
 }
 

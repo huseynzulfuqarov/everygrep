@@ -7,16 +7,18 @@
 //! the node id so paths below a renamed folder stay correct for free. A move out
 //! of the watched trees is a removal; a move in from outside is a creation.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::index::Index;
 use crate::inotify::{Event, Inotify, Mask, WatchId};
+use crate::scan::{ScanOptions, skip_set};
 use crate::store::{Meta, NodeId};
+use crate::sync::{CatchUpStats, add_tree, catch_up_with};
 
 /// What happened while applying a batch of events.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,18 +40,21 @@ pub struct Watcher {
     inotify: Inotify,
     dir_of: HashMap<WatchId, NodeId>,
     watch_of: HashMap<NodeId, WatchId>,
+    skip: HashSet<PathBuf>,
     buf: Vec<u8>,
     /// Folders that could not be watched (for example permission denied).
     pub failed_watches: usize,
 }
 
 impl Watcher {
-    /// Creates a watcher with a watch on every live folder of `index`.
-    pub fn new(index: &Index) -> io::Result<Self> {
+    /// Creates a watcher with a watch on every live folder of `index`. Folders
+    /// that a scan with `options` would not enter are not watched either.
+    pub fn new(index: &Index, options: &ScanOptions) -> io::Result<Self> {
         let mut w = Self {
             inotify: Inotify::new()?,
             dir_of: HashMap::new(),
             watch_of: HashMap::new(),
+            skip: skip_set(options),
             buf: Vec::new(),
             failed_watches: 0,
         };
@@ -62,6 +67,18 @@ impl Watcher {
             w.watch(index, dir);
         }
         Ok(w)
+    }
+
+    /// Brings `index` up to date with changes made while nothing was watching
+    /// (see [`crate::sync`]) and adjusts the watches to match. Call it after
+    /// [`new`](Self::new), so changes made during the catch-up are still reported.
+    pub fn catch_up(&mut self, index: &mut Index) -> CatchUpStats {
+        let (stats, changes) = catch_up_with(index, &self.skip);
+        self.forget(&changes.removed);
+        for dir in changes.new_dirs {
+            self.watch(index, dir);
+        }
+        stats
     }
 
     /// Number of active watches.
@@ -79,6 +96,7 @@ impl Watcher {
     pub fn apply(&mut self, index: &mut Index, events: &[Event]) -> ApplyStats {
         let mut stats = ApplyStats::default();
         let mut moved_out: HashMap<u32, NodeId> = HashMap::new();
+        let mut touched: HashSet<NodeId> = HashSet::new();
         for ev in events {
             if ev.mask.contains(Mask::Q_OVERFLOW) {
                 stats.overflow = true;
@@ -109,6 +127,12 @@ impl Watcher {
                 continue;
             };
 
+            if ev
+                .mask
+                .intersects(Mask::CREATE | Mask::DELETE | Mask::MOVED_FROM | Mask::MOVED_TO)
+            {
+                touched.insert(dir);
+            }
             if ev.mask.contains(Mask::MOVED_FROM) {
                 if let Some(node) = index.find_child(Some(dir), name) {
                     moved_out.insert(ev.cookie, node);
@@ -144,11 +168,22 @@ impl Watcher {
         for node in moved_out.into_values() {
             stats.removed += self.remove(index, node);
         }
+        // Keep folder times current, so the next catch-up skips these folders.
+        for dir in touched {
+            if index.store().is_live(dir) {
+                if let Ok(m) = fs::symlink_metadata(index.store().path(dir)) {
+                    index.set_meta(dir, Meta::from_metadata(&m));
+                }
+            }
+        }
         stats
     }
 
     fn watch(&mut self, index: &Index, dir: NodeId) {
         let path = index.store().path(dir);
+        if self.skip.contains(&path) {
+            return;
+        }
         match self.inotify.add_watch(&path, Mask::INDEX_EVENTS) {
             Ok(wd) => {
                 if let Some(old) = self.dir_of.insert(wd, dir) {
@@ -163,14 +198,19 @@ impl Watcher {
 
     fn remove(&mut self, index: &mut Index, node: NodeId) -> usize {
         let removed = index.remove(node);
-        for id in &removed {
+        self.forget(&removed);
+        removed.len()
+    }
+
+    /// Drops the watches of removed folders.
+    fn forget(&mut self, removed: &[NodeId]) {
+        for id in removed {
             if let Some(wd) = self.watch_of.remove(id) {
                 self.dir_of.remove(&wd);
                 // The folder may still exist elsewhere (moved out), so stop watching it.
                 let _ = self.inotify.remove_watch(wd);
             }
         }
-        removed.len()
     }
 
     fn refresh_meta(&self, index: &mut Index, node: NodeId, stats: &mut ApplyStats) {
@@ -187,38 +227,10 @@ impl Watcher {
             .store()
             .path(parent)
             .join(std::ffi::OsStr::from_bytes(name));
-        let Ok(m) = fs::symlink_metadata(&path) else {
-            return 0; // already gone again
-        };
-        let id = index.insert(Some(parent), name, m.is_dir(), Meta::from_metadata(&m));
-        if !m.is_dir() {
-            return 1;
-        }
-        self.watch(index, id);
-        1 + self.scan_new_folder(index, id, &path)
-    }
-
-    fn scan_new_folder(&mut self, index: &mut Index, dir: NodeId, path: &Path) -> usize {
-        let mut added = 0;
-        let mut pending = vec![(dir, path.to_path_buf())];
-        while let Some((dir_id, dir_path)) = pending.pop() {
-            let Ok(entries) = fs::read_dir(&dir_path) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let Ok(m) = entry.metadata() else { continue };
-                let id = index.insert(
-                    Some(dir_id),
-                    entry.file_name().as_bytes(),
-                    m.is_dir(),
-                    Meta::from_metadata(&m),
-                );
-                added += 1;
-                if m.is_dir() {
-                    self.watch(index, id);
-                    pending.push((id, entry.path()));
-                }
-            }
+        let mut new_dirs = Vec::new();
+        let added = add_tree(index, parent, name, &path, &self.skip, &mut new_dirs);
+        for dir in new_dirs {
+            self.watch(index, dir);
         }
         added
     }
@@ -229,7 +241,7 @@ mod tests {
     use super::*;
     use crate::scan::{ScanOptions, scan};
     use crate::store::NodeStore;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::Instant;
 
     struct Fixture {
@@ -249,7 +261,7 @@ mod tests {
             let mut store = NodeStore::new();
             scan(&mut store, &[base.join("root")], &ScanOptions::default());
             let index = Index::new(store);
-            let watcher = Watcher::new(&index).unwrap();
+            let watcher = Watcher::new(&index, &ScanOptions::default()).unwrap();
             Self {
                 base,
                 index,
@@ -359,6 +371,36 @@ mod tests {
         fs::rename(&outside, f.root().join("back")).unwrap();
         let back = f.root().join("back");
         assert!(f.settle(|i| has(i, &back.join("a.txt")) && has(i, &back.join("ignored.txt"))));
+    }
+
+    #[test]
+    fn catch_up_adds_offline_changes_and_watches_new_folders() {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-offline-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("root")).unwrap();
+        let mut store = NodeStore::new();
+        scan(&mut store, &[base.join("root")], &ScanOptions::default());
+        let mut index = Index::new(store);
+        // Changes while not running.
+        fs::create_dir_all(base.join("root/offline/inner")).unwrap();
+        fs::write(base.join("root/offline/inner/o.txt"), b"o").unwrap();
+
+        let mut watcher = Watcher::new(&index, &ScanOptions::default()).unwrap();
+        let stats = watcher.catch_up(&mut index);
+        assert_eq!(stats.added, 3, "{stats:?}");
+        assert!(has(&index, &base.join("root/offline/inner/o.txt")));
+        // The folder found by the catch-up is watched.
+        let later = base.join("root/offline/inner/later.txt");
+        fs::write(&later, b"l").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !has(&index, &later) && Instant::now() < deadline {
+            watcher
+                .poll(&mut index, Some(Duration::from_millis(50)))
+                .unwrap();
+        }
+        fs::remove_dir_all(&base).unwrap();
+        assert!(has(&index, &later));
     }
 
     #[test]
