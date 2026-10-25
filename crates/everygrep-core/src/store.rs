@@ -32,6 +32,10 @@ pub struct Meta {
 
 /// Marks a folder in the packed parent column.
 const DIR_BIT: u32 = 1 << 31;
+/// Marks a removed node. Its slot stays until the store is compacted.
+const DEAD_BIT: u32 = 1 << 30;
+/// Bits of the packed parent column that hold the parent id + 1.
+const PARENT_MASK: u32 = DEAD_BIT - 1;
 /// Marks a folded name that is identical to the raw name and therefore not stored.
 const SAME_AS_RAW: u32 = u32::MAX;
 
@@ -42,7 +46,7 @@ const SAME_AS_RAW: u32 = u32::MAX;
 /// when folding changes nothing) and the metadata.
 #[derive(Default)]
 pub struct NodeStore {
-    /// Bit 31: folder flag. Bits 0..31: parent id + 1, or 0 for a root.
+    /// Bit 31: folder flag. Bit 30: removed. Bits 0..30: parent id + 1, or 0 for a root.
     parent_kind: Vec<u32>,
     name_start: Vec<u32>,
     name_len: Vec<u16>,
@@ -52,6 +56,8 @@ pub struct NodeStore {
     name_pool: Vec<u8>,
     folded_pool: Vec<u8>,
     scratch: Vec<u8>,
+    dead: usize,
+    garbage: usize,
 }
 
 impl NodeStore {
@@ -60,9 +66,19 @@ impl NodeStore {
         Self::default()
     }
 
-    /// Number of nodes.
+    /// Number of node slots, including removed nodes that are not compacted yet.
     pub fn len(&self) -> usize {
         self.parent_kind.len()
+    }
+
+    /// Number of nodes that are not removed.
+    pub fn live_count(&self) -> usize {
+        self.len() - self.dead
+    }
+
+    /// Whether the node has not been removed.
+    pub fn is_live(&self, id: NodeId) -> bool {
+        self.parent_kind[id.index()] & DEAD_BIT == 0
     }
 
     /// Whether the store has no nodes.
@@ -76,15 +92,26 @@ impl NodeStore {
     ///
     /// # Panics
     ///
-    /// Panics if the store would exceed 2^31 - 1 nodes, 4 GiB of names, or a name
+    /// Panics if the store would exceed 2^30 - 1 nodes, 4 GiB of names, or a name
     /// longer than 65 535 bytes.
     pub fn add(&mut self, parent: Option<NodeId>, name: &[u8], is_dir: bool, meta: Meta) -> NodeId {
         let id = u32::try_from(self.len())
             .ok()
-            .filter(|&i| i < DIR_BIT - 1)
+            .filter(|&i| i < PARENT_MASK)
             .expect("too many nodes");
         let parent_word = parent.map_or(0, |p| p.0 + 1) | if is_dir { DIR_BIT } else { 0 };
 
+        let (name_start, name_len, folded_start, folded_len) = self.push_names(name);
+        self.parent_kind.push(parent_word);
+        self.name_start.push(name_start);
+        self.name_len.push(name_len);
+        self.folded_start.push(folded_start);
+        self.folded_len.push(folded_len);
+        self.meta.push(meta);
+        NodeId(id)
+    }
+
+    fn push_names(&mut self, name: &[u8]) -> (u32, u16, u32, u16) {
         let (name_start, name_len) = push(&mut self.name_pool, name);
         self.scratch.clear();
         fold_into(name, &mut self.scratch);
@@ -93,14 +120,90 @@ impl NodeStore {
         } else {
             push(&mut self.folded_pool, &self.scratch)
         };
+        (name_start, name_len, folded_start, folded_len)
+    }
 
-        self.parent_kind.push(parent_word);
-        self.name_start.push(name_start);
-        self.name_len.push(name_len);
-        self.folded_start.push(folded_start);
-        self.folded_len.push(folded_len);
-        self.meta.push(meta);
-        NodeId(id)
+    /// Marks a node as removed. Its name bytes become garbage until compaction.
+    pub fn remove(&mut self, id: NodeId) {
+        let i = id.index();
+        if self.parent_kind[i] & DEAD_BIT == 0 {
+            self.parent_kind[i] |= DEAD_BIT;
+            self.dead += 1;
+            self.garbage += self.name_len[i] as usize + self.stored_folded_len(i);
+        }
+    }
+
+    /// Gives a node a new name. The old name bytes become garbage.
+    pub fn set_name(&mut self, id: NodeId, name: &[u8]) {
+        let i = id.index();
+        self.garbage += self.name_len[i] as usize + self.stored_folded_len(i);
+        let (ns, nl, fs, fl) = self.push_names(name);
+        self.name_start[i] = ns;
+        self.name_len[i] = nl;
+        self.folded_start[i] = fs;
+        self.folded_len[i] = fl;
+    }
+
+    /// Moves a node under a new parent.
+    pub fn set_parent(&mut self, id: NodeId, parent: Option<NodeId>) {
+        let word = &mut self.parent_kind[id.index()];
+        *word = (*word & !PARENT_MASK) | parent.map_or(0, |p| p.0 + 1);
+    }
+
+    /// Replaces the metadata of a node.
+    pub fn set_meta(&mut self, id: NodeId, meta: Meta) {
+        self.meta[id.index()] = meta;
+    }
+
+    /// Name bytes no longer used by any live node.
+    pub fn garbage_bytes(&self) -> usize {
+        self.garbage
+    }
+
+    fn stored_folded_len(&self, i: usize) -> usize {
+        if self.folded_start[i] == SAME_AS_RAW {
+            0
+        } else {
+            self.folded_len[i] as usize
+        }
+    }
+
+    /// Key that orders nodes with equal names by parent: 0 for roots, parent id + 1
+    /// otherwise.
+    pub(crate) fn parent_key(&self, id: NodeId) -> u32 {
+        self.parent_kind[id.index()] & PARENT_MASK
+    }
+
+    /// Returns a copy without removed nodes and unused name bytes, plus the map
+    /// from old to new ids. New ids keep the relative order of the old ones.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a live node has a removed parent.
+    pub fn compacted(&self) -> (NodeStore, Vec<Option<NodeId>>) {
+        let mut remap = Vec::with_capacity(self.len());
+        let mut next = 0u32;
+        for i in 0..self.len() {
+            if self.parent_kind[i] & DEAD_BIT == 0 {
+                remap.push(Some(NodeId(next)));
+                next += 1;
+            } else {
+                remap.push(None);
+            }
+        }
+        let mut out = NodeStore::new();
+        for i in 0..self.len() {
+            let id = NodeId(i as u32);
+            if !self.is_live(id) {
+                continue;
+            }
+            let parent = self
+                .parent(id)
+                .map(|p| remap[p.index()].expect("live node with removed parent"));
+            out.add(parent, self.name(id), self.is_dir(id), self.meta(id));
+        }
+        out.shrink_to_fit();
+        (out, remap)
     }
 
     /// Releases spare capacity after a bulk build.
@@ -118,7 +221,7 @@ impl NodeStore {
 
     /// Parent of a node, `None` for roots.
     pub fn parent(&self, id: NodeId) -> Option<NodeId> {
-        match self.parent_kind[id.index()] & !DIR_BIT {
+        match self.parent_kind[id.index()] & PARENT_MASK {
             0 => None,
             p => Some(NodeId(p - 1)),
         }
@@ -220,7 +323,7 @@ impl NodeStore {
         {
             return Err("column lengths differ");
         }
-        if n >= (DIR_BIT - 1) as usize {
+        if n >= PARENT_MASK as usize {
             return Err("too many nodes");
         }
         let in_pool = |start: u32, len: u16, pool: &[u8]| {
@@ -229,7 +332,10 @@ impl NodeStore {
                 .is_some_and(|end| end <= pool.len())
         };
         for i in 0..n {
-            let parent = c.parent_kind[i] & !DIR_BIT;
+            if c.parent_kind[i] & DEAD_BIT != 0 {
+                return Err("removed node in saved index");
+            }
+            let parent = c.parent_kind[i] & PARENT_MASK;
             if parent as usize > n || parent as usize == i + 1 {
                 return Err("bad parent link");
             }
@@ -253,12 +359,12 @@ impl NodeStore {
             while state[cur] == 0 {
                 state[cur] = 1;
                 walk.push(cur);
-                match c.parent_kind[cur] & !DIR_BIT {
+                match c.parent_kind[cur] & PARENT_MASK {
                     0 => break,
                     p => cur = p as usize - 1,
                 }
             }
-            if state[cur] == 1 && c.parent_kind[cur] & !DIR_BIT != 0 {
+            if state[cur] == 1 && c.parent_kind[cur] & PARENT_MASK != 0 {
                 return Err("parent cycle");
             }
             for &w in &walk {
@@ -276,6 +382,8 @@ impl NodeStore {
             name_pool: c.name_pool,
             folded_pool: c.folded_pool,
             scratch: Vec::new(),
+            dead: 0,
+            garbage: 0,
         })
     }
 }
@@ -374,6 +482,27 @@ mod tests {
         assert!(NodeStore::from_columns(columns_with_parents(vec![2, 1])).is_err());
         // parent id out of range
         assert!(NodeStore::from_columns(columns_with_parents(vec![0, 9])).is_err());
+    }
+
+    #[test]
+    fn remove_rename_and_compact() {
+        let (mut s, file) = sample();
+        let docs = s.parent(file).unwrap();
+        let extra = s.add(Some(docs), b"Old.txt", false, Meta::default());
+        s.set_name(extra, b"new.txt");
+        s.set_parent(extra, s.parent(docs));
+        assert_eq!(s.path(extra), PathBuf::from("/data/new.txt"));
+        s.remove(file);
+        assert!(!s.is_live(file));
+        assert_eq!(s.live_count(), 3);
+        assert!(s.garbage_bytes() >= b"Old.txt".len() + b"Report.PDF".len());
+
+        let (c, remap) = s.compacted();
+        assert_eq!(c.len(), 3);
+        assert_eq!(remap[file.index()], None);
+        let new_extra = remap[extra.index()].unwrap();
+        assert_eq!(c.path(new_extra), PathBuf::from("/data/new.txt"));
+        assert_eq!(c.garbage_bytes(), 0);
     }
 
     #[test]

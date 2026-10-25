@@ -23,6 +23,7 @@ impl Index {
                 .folded_name(a)
                 .cmp(store.folded_name(b))
                 .then_with(|| store.name(a).cmp(store.name(b)))
+                .then_with(|| store.parent_key(a).cmp(&store.parent_key(b)))
                 .then_with(|| a.cmp(&b))
         });
         Self { store, by_name }
