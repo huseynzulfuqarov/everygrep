@@ -68,6 +68,12 @@ pub(crate) fn catch_up_with(
         let path = index.store().path(dir);
         let m = match fs::symlink_metadata(&path) {
             Ok(m) if m.is_dir() => m,
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                // Not allowed to look (for example under an unsearchable folder):
+                // keep what is indexed.
+                stats.errors += 1;
+                continue;
+            }
             _ => {
                 stats.removed += index.remove(dir).len();
                 continue;
@@ -88,32 +94,52 @@ pub(crate) fn catch_up_with(
             stats.errors += 1;
             continue;
         };
-        stats.dirs_rescanned += 1;
-        let mut on_disk: HashMap<Vec<u8>, Meta> = HashMap::new();
-        let mut disk_is_dir: HashMap<Vec<u8>, bool> = HashMap::new();
-        for entry in entries.flatten() {
-            let Ok(em) = entry.metadata() else { continue };
+        // Name -> (is folder, metadata if `lstat` worked). A listing that fails part
+        // way leaves the folder as it is, so unread entries are not taken as gone.
+        let mut on_disk: HashMap<Vec<u8>, (bool, Option<Meta>)> = HashMap::new();
+        let mut listing_failed = false;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                listing_failed = true;
+                break;
+            };
             let name = entry.file_name().as_bytes().to_vec();
-            disk_is_dir.insert(name.clone(), em.is_dir());
-            on_disk.insert(name, Meta::from_metadata(&em));
+            match entry.metadata() {
+                Ok(em) => {
+                    on_disk.insert(name, (em.is_dir(), Some(Meta::from_metadata(&em))));
+                }
+                // No permission to look at entries (folder readable but not
+                // searchable), or the entry vanished: keep it with its old data.
+                Err(_) => match entry.file_type() {
+                    Ok(ft) => {
+                        on_disk.insert(name, (ft.is_dir(), None));
+                    }
+                    Err(_) => listing_failed = true,
+                },
+            }
         }
+        if listing_failed {
+            stats.errors += 1;
+            continue;
+        }
+        stats.dirs_rescanned += 1;
         for kid in kids {
             if !index.store().is_live(kid) {
                 continue;
             }
             let name = index.store().name(kid).to_vec();
-            match (on_disk.remove(&name), disk_is_dir.get(&name)) {
-                (Some(m), Some(&is_dir)) if is_dir == index.store().is_dir(kid) => {
+            match on_disk.remove(&name) {
+                Some((is_dir, meta)) if is_dir == index.store().is_dir(kid) => {
                     if is_dir {
                         // A folder keeps its saved time until it is visited itself;
                         // updating it here would hide its own changes.
                         queue.push_back(kid);
-                    } else if index.store().meta(kid) != m {
+                    } else if let Some(m) = meta.filter(|&m| m != index.store().meta(kid)) {
                         index.set_meta(kid, m);
                         stats.updated += 1;
                     }
                 }
-                (still_there, _) => {
+                still_there => {
                     stats.removed += index.remove(kid).len();
                     if still_there.is_some() {
                         stats.added += add_tree(
@@ -258,6 +284,23 @@ mod tests {
         assert_eq!(stats.dirs_rescanned, 0, "{stats:?}");
         assert_eq!(stats.dirs_checked, 6);
         assert_eq!((stats.added, stats.removed), (0, 0));
+    }
+
+    #[test]
+    fn unsearchable_folder_keeps_its_entries() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tree("locked");
+        let locked = base.join("keep");
+        let mut index = index_of(&base);
+        fs::write(locked.join("added.txt"), b"x").unwrap();
+        // Readable but not searchable: listing works, lstat of entries fails.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o444)).unwrap();
+        catch_up(&mut index, &ScanOptions::default());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let found = paths(&index);
+        fs::remove_dir_all(&base).unwrap();
+        assert!(found.contains(&locked.join("a.txt")), "{found:?}");
+        assert!(found.contains(&locked.join("deep/b.txt")), "{found:?}");
     }
 
     #[test]
