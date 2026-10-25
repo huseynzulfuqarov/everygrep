@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use crate::store::{Meta, NodeId, NodeStore};
@@ -145,12 +144,10 @@ fn walk(
 }
 
 fn meta_of(m: &fs::Metadata, options: &ScanOptions) -> Meta {
-    if !options.with_metadata {
-        return Meta::default();
-    }
-    Meta {
-        size: if m.is_dir() { 0 } else { m.len() },
-        mtime: m.mtime(),
+    if options.with_metadata {
+        Meta::from_metadata(m)
+    } else {
+        Meta::default()
     }
 }
 

@@ -10,7 +10,7 @@
 //! folded   u64      bytes in the folded name pool
 //! roots    u32      number of root paths, then for each: u32 length + bytes
 //! columns  parent_kind[u32], name_start[u32], name_len[u16], folded_start[u32],
-//!          folded_len[u16], size[u64], mtime[i64], name pool, folded pool,
+//!          folded_len[u16], size[u64], mtime_ns[i64], name pool, folded pool,
 //!          name order[u32]
 //! checksum u64      over all preceding bytes
 //! ```
@@ -27,7 +27,7 @@ use crate::index::Index;
 use crate::store::{Columns, Meta, NodeId, NodeStore};
 
 const MAGIC: &[u8; 8] = b"EGRPIDX\0";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// An index loaded from disk together with the roots it was built from.
 pub struct Saved {
@@ -87,7 +87,7 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
     c.meta.iter().for_each(|m| put_u64(&mut buf, m.size));
     c.meta
         .iter()
-        .for_each(|m| buf.extend_from_slice(&m.mtime.to_le_bytes()));
+        .for_each(|m| buf.extend_from_slice(&m.mtime_ns.to_le_bytes()));
     buf.extend_from_slice(c.name_pool);
     buf.extend_from_slice(c.folded_pool);
     index.order().iter().for_each(|id| put_u32(&mut buf, id.0));
@@ -147,7 +147,7 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         .zip(mtimes)
         .map(|(size, mtime)| Meta {
             size,
-            mtime: mtime as i64,
+            mtime_ns: mtime as i64,
         })
         .collect();
     let name_pool = r.bytes(names)?.to_vec();
@@ -267,17 +267,33 @@ mod tests {
     fn sample() -> Index {
         let mut s = NodeStore::new();
         let root = s.add(None, b"/data", true, Meta::default());
-        let docs = s.add(Some(root), b"Docs", true, Meta { size: 0, mtime: -5 });
+        let docs = s.add(
+            Some(root),
+            b"Docs",
+            true,
+            Meta {
+                size: 0,
+                mtime_ns: -5,
+            },
+        );
         s.add(
             Some(docs),
             b"Report.PDF",
             false,
             Meta {
                 size: 42,
-                mtime: 1_700_000_000,
+                mtime_ns: 1_700_000_000,
             },
         );
-        s.add(Some(docs), b"notes.txt", false, Meta { size: 7, mtime: 3 });
+        s.add(
+            Some(docs),
+            b"notes.txt",
+            false,
+            Meta {
+                size: 7,
+                mtime_ns: 3,
+            },
+        );
         Index::new(s)
     }
 
@@ -311,11 +327,11 @@ mod tests {
             loaded.store().meta(hits[0]),
             Meta {
                 size: 42,
-                mtime: 1_700_000_000
+                mtime_ns: 1_700_000_000
             }
         );
         let docs = loaded.store().parent(hits[0]).unwrap();
-        assert_eq!(loaded.store().meta(docs).mtime, -5);
+        assert_eq!(loaded.store().meta(docs).mtime_ns, -5);
     }
 
     #[test]

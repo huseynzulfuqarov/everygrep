@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -176,7 +175,7 @@ impl Watcher {
 
     fn refresh_meta(&self, index: &mut Index, node: NodeId, stats: &mut ApplyStats) {
         if let Ok(m) = fs::symlink_metadata(index.store().path(node)) {
-            index.set_meta(node, meta_of(&m));
+            index.set_meta(node, Meta::from_metadata(&m));
             stats.updated += 1;
         }
     }
@@ -191,7 +190,7 @@ impl Watcher {
         let Ok(m) = fs::symlink_metadata(&path) else {
             return 0; // already gone again
         };
-        let id = index.insert(Some(parent), name, m.is_dir(), meta_of(&m));
+        let id = index.insert(Some(parent), name, m.is_dir(), Meta::from_metadata(&m));
         if !m.is_dir() {
             return 1;
         }
@@ -212,7 +211,7 @@ impl Watcher {
                     Some(dir_id),
                     entry.file_name().as_bytes(),
                     m.is_dir(),
-                    meta_of(&m),
+                    Meta::from_metadata(&m),
                 );
                 added += 1;
                 if m.is_dir() {
@@ -222,13 +221,6 @@ impl Watcher {
             }
         }
         added
-    }
-}
-
-fn meta_of(m: &fs::Metadata) -> Meta {
-    Meta {
-        size: if m.is_dir() { 0 } else { m.len() },
-        mtime: m.mtime(),
     }
 }
 

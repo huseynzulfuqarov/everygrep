@@ -26,8 +26,22 @@ impl NodeId {
 pub struct Meta {
     /// Size in bytes; for folders this is 0 until folder sizes are computed.
     pub size: u64,
-    /// Modification time in seconds since the Unix epoch.
-    pub mtime: i64,
+    /// Modification time in nanoseconds since the Unix epoch.
+    pub mtime_ns: i64,
+}
+
+impl Meta {
+    /// Metadata of a directory entry as returned by `lstat`. Folders get size 0.
+    pub fn from_metadata(m: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            size: if m.is_dir() { 0 } else { m.len() },
+            mtime_ns: m
+                .mtime()
+                .saturating_mul(1_000_000_000)
+                .saturating_add(m.mtime_nsec()),
+        }
+    }
 }
 
 /// Marks a folder in the packed parent column.
@@ -424,7 +438,10 @@ mod tests {
             Some(docs),
             b"Report.PDF",
             false,
-            Meta { size: 42, mtime: 7 },
+            Meta {
+                size: 42,
+                mtime_ns: 7,
+            },
         );
         (s, file)
     }
@@ -435,7 +452,13 @@ mod tests {
         assert_eq!(s.len(), 3);
         assert_eq!(s.name(file), b"Report.PDF");
         assert_eq!(s.folded_name(file), b"report.pdf");
-        assert_eq!(s.meta(file), Meta { size: 42, mtime: 7 });
+        assert_eq!(
+            s.meta(file),
+            Meta {
+                size: 42,
+                mtime_ns: 7
+            }
+        );
         assert!(!s.is_dir(file));
     }
 

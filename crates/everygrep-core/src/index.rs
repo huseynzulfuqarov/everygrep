@@ -325,7 +325,15 @@ mod tests {
         assert_eq!(index.find_child(Some(docs), b"a.txt"), Some(a));
         assert_eq!(index.find_child(Some(root), b"a.txt"), Some(b));
         assert_eq!(
-            index.insert(Some(docs), b"a.txt", false, Meta { size: 5, mtime: 0 }),
+            index.insert(
+                Some(docs),
+                b"a.txt",
+                false,
+                Meta {
+                    size: 5,
+                    mtime_ns: 0
+                }
+            ),
             a
         );
         assert_eq!(index.store().meta(a).size, 5);
