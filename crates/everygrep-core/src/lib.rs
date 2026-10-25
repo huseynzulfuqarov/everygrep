@@ -9,6 +9,7 @@ pub mod persist;
 pub mod scan;
 pub mod search;
 pub mod store;
+pub mod sync;
 pub mod watch;
 
 /// Version of the engine, taken from the crate manifest.

@@ -64,8 +64,7 @@ pub struct ScanStats {
 /// systems ([`VIRTUAL_FS_TYPES`]) and folders in `options.exclude` are indexed
 /// but not entered.
 pub fn scan(store: &mut NodeStore, roots: &[PathBuf], options: &ScanOptions) -> ScanStats {
-    let mut skip: HashSet<PathBuf> = virtual_mount_points();
-    skip.extend(options.exclude.iter().cloned());
+    let skip = skip_set(options);
     let mut stats = ScanStats::default();
     for root in roots {
         let meta = match fs::symlink_metadata(root) {
@@ -141,6 +140,14 @@ fn walk(
             }
         }
     }
+}
+
+/// Folders that are indexed but not entered: virtual file system mount points and
+/// the configured excludes.
+pub(crate) fn skip_set(options: &ScanOptions) -> HashSet<PathBuf> {
+    let mut skip = virtual_mount_points();
+    skip.extend(options.exclude.iter().cloned());
+    skip
 }
 
 fn meta_of(m: &fs::Metadata, options: &ScanOptions) -> Meta {
