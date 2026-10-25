@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- EveryGrep app mark: a list of results with a lens over one highlighted row. -->
+  <defs>
+    <clipPath id="lens">
+      <circle cx="62" cy="62" r="21"/>
+    </clipPath>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="#22314d"/>
+  <!-- result rows: small file square + name bar -->
+  <g fill="#43557a">
+    <rect x="24" y="26" width="8" height="8" rx="2"/>
+    <rect x="38" y="26" width="50" height="8" rx="4"/>
+    <rect x="24" y="42" width="8" height="8" rx="2"/>
+    <rect x="38" y="42" width="40" height="8" rx="4"/>
+    <rect x="24" y="58" width="8" height="8" rx="2"/>
+    <rect x="38" y="58" width="66" height="8" rx="4"/>
+    <rect x="24" y="74" width="8" height="8" rx="2"/>
+    <rect x="38" y="74" width="46" height="8" rx="4"/>
+    <rect x="24" y="90" width="8" height="8" rx="2"/>
+    <rect x="38" y="90" width="28" height="8" rx="4"/>
+  </g>
+  <!-- seen through the lens: brighter rows, the match in amber -->
+  <g clip-path="url(#lens)">
+    <circle cx="62" cy="62" r="21" fill="#2f4470"/>
+    <rect x="38" y="42" width="40" height="8" rx="4" fill="#8ea3cc"/>
+    <rect x="38" y="58" width="66" height="8" rx="4" fill="#ffb648"/>
+    <rect x="38" y="74" width="46" height="8" rx="4" fill="#8ea3cc"/>
+  </g>
+  <circle cx="62" cy="62" r="21" fill="none" stroke="#f3f5f9" stroke-width="7"/>
+  <path d="M79 79l18 18" stroke="#f3f5f9" stroke-width="11" stroke-linecap="round"/>
+</svg>

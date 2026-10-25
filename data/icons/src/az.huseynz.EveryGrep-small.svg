@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Simplified EveryGrep mark for 16-32 px: fewer rows, thicker ring, pixel-aligned. -->
+  <defs>
+    <clipPath id="lens">
+      <circle cx="7" cy="7" r="3.25"/>
+    </clipPath>
+  </defs>
+  <rect x="0.5" y="0.5" width="15" height="15" rx="3.5" fill="#22314d"/>
+  <rect x="2.5" y="2.5" width="5" height="1" fill="#43557a"/>
+  <rect x="2.5" y="12.5" width="4" height="1" fill="#43557a"/>
+  <g clip-path="url(#lens)">
+    <circle cx="7" cy="7" r="3.25" fill="#2f4470"/>
+    <rect x="3" y="6.25" width="8" height="1.5" fill="#ffb648"/>
+  </g>
+  <circle cx="7" cy="7" r="3.25" fill="none" stroke="#f3f5f9" stroke-width="1.5"/>
+  <path d="M9.75 9.75l2.5 2.5" stroke="#f3f5f9" stroke-width="2" stroke-linecap="round"/>
+</svg>

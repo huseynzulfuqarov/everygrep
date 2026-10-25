@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=EveryGrep
+GenericName=File Search
+Comment=Find files and folders by name as you type
+Exec=everygrep-gui
+Icon=az.huseynz.EveryGrep
+Terminal=false
+Categories=Utility;FileTools;
+Keywords=search;find;file;folder;locate;filename;
+StartupNotify=true
+StartupWMClass=az.huseynz.EveryGrep
