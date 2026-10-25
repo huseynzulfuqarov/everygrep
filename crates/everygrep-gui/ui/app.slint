@@ -183,6 +183,23 @@ component Row inherits Rectangle {
     }
 }
 
+// A drag handle on the boundary between two header cells.
+component ColumnGrip inherits TouchArea {
+    callback dragged(length);
+    width: Theme.s2;
+    mouse-cursor: col-resize;
+    // The grip follows the boundary, so the offset from the press point is the
+    // movement since the previous event.
+    moved => { root.dragged(self.mouse-x - self.pressed-x); }
+    Rectangle {
+        x: (parent.width - 1px) / 2;
+        width: 1px;
+        y: parent.height / 4;
+        height: parent.height / 2;
+        background: root.pressed || root.has-hover ? Theme.text-muted : Theme.line;
+    }
+}
+
 export component AppWindow inherits Window {
     title: "EveryGrep";
     preferred-width: 1040px;
@@ -207,12 +224,39 @@ export component AppWindow inherits Window {
     callback activate(int);
     callback open-folder(int);
 
-    // Column widths; the name and folder share the space left by the fixed ones.
-    property <length> size-width: 96px;
-    property <length> date-width: 120px;
-    property <length> flex-width: max(200px, self.width - self.size-width - self.date-width);
-    property <length> name-width: self.flex-width * 0.48;
+    // Column widths. Size and Modified keep the width the user gave them; Name
+    // and Folder share the rest of the window, so the columns always end at the
+    // right edge. Name keeps its chosen width while Folder can stay at least at
+    // its minimum, then shrinks. Until the user drags Name, it takes 48 % of
+    // the shared space.
+    in-out property <length> name-want: (self.width - self.size-want - self.date-want) * 0.48;
+    in-out property <length> size-want: 96px;
+    in-out property <length> date-want: 120px;
+    out property <length> name-min: 120px;
+    out property <length> folder-min: 100px;
+    out property <length> size-min: 56px;
+    out property <length> date-min: 80px;
+    property <length> size-width: max(self.size-min, self.size-want);
+    property <length> date-width: max(self.date-min, self.date-want);
+    property <length> flex-width: max(self.name-min + self.folder-min, self.width - self.size-width - self.date-width);
+    property <length> name-width: max(self.name-min, min(self.name-want, self.flex-width - self.folder-min));
     property <length> folder-width: self.flex-width - self.name-width;
+
+    // Dragging a boundary moves it between its two neighbours; neither gets
+    // narrower than its minimum, so the total width stays the same.
+    function drag-boundary(boundary: int, delta: length) {
+        if (boundary == 0) {
+            root.name-want = max(root.name-min, min(root.name-width + delta, root.name-width + root.folder-width - root.folder-min));
+        } else if (boundary == 1) {
+            root.name-want = root.name-width;
+            root.size-want = max(root.size-min, min(root.size-width - delta, root.size-width + root.folder-width - root.folder-min));
+        } else {
+            let pair = root.size-width + root.date-width;
+            let size = max(root.size-min, min(root.size-width + delta, pair - root.date-min));
+            root.size-want = size;
+            root.date-want = pair - size;
+        }
+    }
 
     public function focus-search() {
         search.focus-and-select();
@@ -323,6 +367,22 @@ export component AppWindow inherits Window {
                 sorted: root.sort-column == 3;
                 descending: root.sort-descending;
                 clicked => { root.sort-by(3); }
+            }
+            // Boundary grips, on top of the cells.
+            ColumnGrip {
+                x: root.name-width - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(0, delta); }
+            }
+            ColumnGrip {
+                x: root.name-width + root.folder-width - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(1, delta); }
+            }
+            ColumnGrip {
+                x: root.name-width + root.folder-width + root.size-width - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(2, delta); }
             }
         }
         Rectangle { height: 1px; background: Theme.line; }
