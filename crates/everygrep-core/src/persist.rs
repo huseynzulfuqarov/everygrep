@@ -27,7 +27,7 @@ use crate::index::Index;
 use crate::store::{Columns, Meta, NodeId, NodeStore};
 
 const MAGIC: &[u8; 8] = b"EGRPIDX\0";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// An index loaded from disk together with the roots it was built from.
 pub struct Saved {
@@ -49,6 +49,13 @@ pub fn default_path() -> Option<PathBuf> {
 
 /// Writes `index` and its `roots` to `path` atomically.
 pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
+    let compacted;
+    let index = if index.needs_compaction() {
+        compacted = index.compacted().0;
+        &compacted
+    } else {
+        index
+    };
     let c = index.store().columns();
     let mut buf = Vec::with_capacity(index.heap_bytes() + 64);
     buf.extend_from_slice(MAGIC);
@@ -83,10 +90,7 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
         .for_each(|m| buf.extend_from_slice(&m.mtime.to_le_bytes()));
     buf.extend_from_slice(c.name_pool);
     buf.extend_from_slice(c.folded_pool);
-    index
-        .by_name()
-        .iter()
-        .for_each(|id| put_u32(&mut buf, id.0));
+    index.order().iter().for_each(|id| put_u32(&mut buf, id.0));
     let sum = checksum(&buf);
     put_u64(&mut buf, sum);
 
@@ -295,7 +299,7 @@ mod tests {
         assert_eq!(saved.roots, [PathBuf::from("/data")]);
         let loaded = saved.index;
         assert_eq!(loaded.len(), index.len());
-        assert_eq!(loaded.by_name(), index.by_name());
+        assert!(loaded.order().iter().eq(index.order().iter()));
         let m = Matcher::new("pdf", MatchOptions::default());
         let hits = search(&loaded, &m, 2);
         assert_eq!(hits.len(), 1);
@@ -312,6 +316,32 @@ mod tests {
         );
         let docs = loaded.store().parent(hits[0]).unwrap();
         assert_eq!(loaded.store().meta(docs).mtime, -5);
+    }
+
+    #[test]
+    fn saving_after_changes_writes_a_compacted_index() {
+        let path = temp_file("compact");
+        let mut index = sample();
+        let pdf = index
+            .order()
+            .iter()
+            .find(|&id| index.store().name(id) == b"Report.PDF")
+            .unwrap();
+        let docs = index.store().parent(pdf).unwrap();
+        index.remove(pdf);
+        index.insert(Some(docs), b"added.md", false, Meta::default());
+        assert!(index.needs_compaction());
+        save(&index, &[], &path).unwrap();
+        let loaded = load(&path).unwrap().index;
+        fs::remove_file(&path).unwrap();
+        assert_eq!(loaded.len(), index.len());
+        assert_eq!(loaded.store().len(), loaded.len());
+        let names: Vec<&[u8]> = loaded
+            .order()
+            .iter()
+            .map(|id| loaded.store().name(id))
+            .collect();
+        assert_eq!(names, [&b"/data"[..], b"added.md", b"Docs", b"notes.txt"]);
     }
 
     #[test]

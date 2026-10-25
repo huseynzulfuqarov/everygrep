@@ -7,38 +7,38 @@ use crate::index::Index;
 use crate::matcher::Matcher;
 use crate::store::NodeId;
 
-/// Number of name-order entries handed to a worker at a time.
-const CHUNK: usize = 8192;
+/// Number of name-order blocks handed to a worker at a time.
+const BLOCKS_PER_TASK: usize = 16;
 
-/// Returns the ids of all nodes whose name matches, sorted by name.
+/// Returns the ids of all live nodes whose name matches, sorted by name.
 ///
-/// The name order is split into chunks that worker threads take one by one, so
-/// fast and slow chunks balance out. Chunk results are joined in chunk order,
-/// which keeps the name order of the index.
+/// The name order is split into groups of blocks that worker threads take one by
+/// one, so fast and slow groups balance out. Group results are joined in group
+/// order, which keeps the name order of the index.
 pub fn search(index: &Index, matcher: &Matcher, threads: usize) -> Vec<NodeId> {
-    let order = index.by_name();
+    let order = index.order();
     if matcher.matches_all() {
-        return order.to_vec();
+        return order.iter().collect();
     }
-    let chunks = order.len().div_ceil(CHUNK);
-    let threads = threads.clamp(1, chunks.max(1));
+    let groups: Vec<&[Vec<NodeId>]> = order.blocks().chunks(BLOCKS_PER_TASK).collect();
+    let threads = threads.clamp(1, groups.len().max(1));
     if threads == 1 {
-        return scan(index, matcher, order);
+        return groups
+            .iter()
+            .flat_map(|g| scan(index, matcher, g))
+            .collect();
     }
 
     let next = AtomicUsize::new(0);
-    let parts: Mutex<Vec<(usize, Vec<NodeId>)>> = Mutex::new(Vec::with_capacity(chunks));
+    let parts: Mutex<Vec<(usize, Vec<NodeId>)>> = Mutex::new(Vec::with_capacity(groups.len()));
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
                 let mut local = Vec::new();
                 loop {
                     let n = next.fetch_add(1, Ordering::Relaxed);
-                    if n >= chunks {
-                        break;
-                    }
-                    let slice = &order[n * CHUNK..((n + 1) * CHUNK).min(order.len())];
-                    local.push((n, scan(index, matcher, slice)));
+                    let Some(group) = groups.get(n) else { break };
+                    local.push((n, scan(index, matcher, group)));
                 }
                 parts.lock().expect("search worker panicked").extend(local);
             });
@@ -55,10 +55,12 @@ pub fn search(index: &Index, matcher: &Matcher, threads: usize) -> Vec<NodeId> {
     out
 }
 
-fn scan(index: &Index, matcher: &Matcher, ids: &[NodeId]) -> Vec<NodeId> {
+fn scan(index: &Index, matcher: &Matcher, blocks: &[Vec<NodeId>]) -> Vec<NodeId> {
     let store = index.store();
     let folded = matcher.uses_folded_names();
-    ids.iter()
+    blocks
+        .iter()
+        .flatten()
         .copied()
         .filter(|&id| {
             let name = if folded {
