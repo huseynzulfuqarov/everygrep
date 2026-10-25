@@ -15,6 +15,7 @@ use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
 use crate::ResultRow;
 use crate::engine::{Engine, IndexState};
+use crate::filetype;
 use crate::format;
 
 /// Rows of the result table, backed by a list of node ids.
@@ -137,7 +138,9 @@ impl Model for ResultsModel {
             .map(|p| self.folder_text(store.path(p).as_os_str().as_bytes()))
             .unwrap_or_default();
         let now = self.now_ns.get();
-        let name = String::from_utf8_lossy(store.name(id));
+        let raw_name = store.name(id);
+        let kind = filetype::classify(raw_name, is_dir).icon_index();
+        let name = String::from_utf8_lossy(raw_name);
         let (before, matched, after) = split_name(&name, &self.terms.borrow());
         Some(ResultRow {
             name_before: before.into(),
@@ -152,6 +155,7 @@ impl Model for ResultsModel {
             modified: format::date(meta.mtime_ns, now, &self.zone).into(),
             modified_full: format::timestamp(meta.mtime_ns, &self.zone).into(),
             is_dir,
+            kind,
         })
     }
 

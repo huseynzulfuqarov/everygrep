@@ -1,6 +1,7 @@
 //! EveryGrep desktop window.
 
 mod engine;
+mod filetype;
 mod format;
 mod open;
 mod results;
@@ -17,9 +18,15 @@ use results::ResultsModel;
 
 slint::include_modules!();
 
+/// Wayland app id; equals the desktop entry and icon file names.
+const APP_ID: &str = "az.huseynz.EveryGrep";
+
 fn main() -> Result<(), slint::PlatformError> {
     let (roots, index_file) = parse_args();
     let window = AppWindow::new()?;
+    // Read when the native window is created on first show, so it must be set
+    // before `run()`. Matches the desktop entry, so the shell shows our icon.
+    slint::set_xdg_app_id(APP_ID)?;
     let weak = window.as_weak();
 
     let hooks = Hooks {

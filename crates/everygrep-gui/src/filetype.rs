@@ -5,10 +5,13 @@
 //! caller from file metadata and shown as [`FileKind::Link`].
 
 /// Broad file category. Each kind has one icon in `ui/icons/types/`.
+///
+/// The discriminant is the index of the kind's icon in `Icons.types` in
+/// `ui/app.slint`; the order there must match (a test checks it).
 #[allow(dead_code)] // `Link` is set by the caller from metadata.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FileKind {
-    Folder,
+    Folder = 0,
     File,
     Text,
     Document,
@@ -27,6 +30,11 @@ pub enum FileKind {
 }
 
 impl FileKind {
+    /// Index of the kind's icon in the window's icon list.
+    pub fn icon_index(self) -> i32 {
+        self as i32
+    }
+
     /// Icon file name (without `.svg`) in `ui/icons/types/`.
     #[allow(dead_code)]
     pub fn icon_name(self) -> &'static str {
@@ -71,7 +79,6 @@ const COMPOUND: &[(&str, FileKind)] = &[
 
 /// Classifies an entry by its name. `name` is the last path component as raw
 /// bytes (Linux file names need not be UTF-8).
-#[allow(dead_code)]
 pub fn classify(name: &[u8], is_dir: bool) -> FileKind {
     if is_dir {
         return FileKind::Folder;
@@ -281,29 +288,48 @@ mod tests {
         assert_eq!(k("archive.abcdefghijklmnopq"), FileKind::File);
     }
 
+    const ALL: [FileKind; 16] = [
+        FileKind::Folder,
+        FileKind::File,
+        FileKind::Text,
+        FileKind::Document,
+        FileKind::Pdf,
+        FileKind::Spreadsheet,
+        FileKind::Presentation,
+        FileKind::Image,
+        FileKind::Audio,
+        FileKind::Video,
+        FileKind::Archive,
+        FileKind::Code,
+        FileKind::Executable,
+        FileKind::Font,
+        FileKind::DiskImage,
+        FileKind::Link,
+    ];
+
     #[test]
     fn every_kind_has_an_icon_file() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/ui/icons/types");
-        for kind in [
-            FileKind::Folder,
-            FileKind::File,
-            FileKind::Text,
-            FileKind::Document,
-            FileKind::Pdf,
-            FileKind::Spreadsheet,
-            FileKind::Presentation,
-            FileKind::Image,
-            FileKind::Audio,
-            FileKind::Video,
-            FileKind::Archive,
-            FileKind::Code,
-            FileKind::Executable,
-            FileKind::Font,
-            FileKind::DiskImage,
-            FileKind::Link,
-        ] {
+        for kind in ALL {
             let path = format!("{dir}/{}.svg", kind.icon_name());
             assert!(std::path::Path::new(&path).is_file(), "{path}");
+        }
+    }
+
+    #[test]
+    fn window_icon_list_follows_the_kind_order() {
+        let ui = include_str!("../ui/app.slint");
+        let start = ui.find("out property <[image]> types").expect("icon list");
+        let list = &ui[start..start + ui[start..].find("];").expect("list end")];
+        let names: Vec<&str> = list
+            .split("@image-url(\"icons/types/")
+            .skip(1)
+            .map(|s| &s[..s.find(".svg").expect("svg")])
+            .collect();
+        let expected: Vec<&str> = ALL.iter().map(|k| k.icon_name()).collect();
+        assert_eq!(names, expected);
+        for (i, kind) in ALL.iter().enumerate() {
+            assert_eq!(kind.icon_index(), i as i32);
         }
     }
 }

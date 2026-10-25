@@ -12,6 +12,31 @@ export struct ResultRow {
     modified: string,
     modified-full: string,
     is-dir: bool,
+    // Index into Icons.types (FileKind in src/filetype.rs).
+    kind: int,
+}
+
+// File-type icons, in the order of FileKind. They carry their own colours and
+// must not be colorized.
+global Icons {
+    out property <[image]> types: [
+        @image-url("icons/types/folder.svg"),
+        @image-url("icons/types/file.svg"),
+        @image-url("icons/types/text.svg"),
+        @image-url("icons/types/document.svg"),
+        @image-url("icons/types/pdf.svg"),
+        @image-url("icons/types/spreadsheet.svg"),
+        @image-url("icons/types/presentation.svg"),
+        @image-url("icons/types/image.svg"),
+        @image-url("icons/types/audio.svg"),
+        @image-url("icons/types/video.svg"),
+        @image-url("icons/types/archive.svg"),
+        @image-url("icons/types/code.svg"),
+        @image-url("icons/types/executable.svg"),
+        @image-url("icons/types/font.svg"),
+        @image-url("icons/types/disk-image.svg"),
+        @image-url("icons/types/link.svg")
+    ];
 }
 
 component SearchField inherits Rectangle {
@@ -139,8 +164,7 @@ component Row inherits Rectangle {
     // Cells are positioned directly to keep the columns aligned with the header.
     Image {
         x: Theme.s3;
-        source: root.data.is-dir ? @image-url("icons/folder.svg") : @image-url("icons/file.svg");
-        colorize: root.selected ? Theme.selection-text : Theme.text-muted;
+        source: Icons.types[root.data.kind];
         width: Theme.icon;
         height: Theme.icon;
         y: (parent.height - self.height) / 2;
@@ -238,6 +262,9 @@ component ColumnGrip inherits TouchArea {
 
 export component AppWindow inherits Window {
     title: "EveryGrep";
+    // Used on X11; Wayland compositors take the icon from the desktop entry
+    // that matches the app id.
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
     preferred-width: 1040px;
     preferred-height: 660px;
     min-width: 560px;
