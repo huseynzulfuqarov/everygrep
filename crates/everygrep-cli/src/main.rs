@@ -7,8 +7,8 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use everygrep_core::index::Index;
-use everygrep_core::matcher::{MatchOptions, Matcher};
 use everygrep_core::persist;
+use everygrep_core::query::{Query, QueryOptions};
 use everygrep_core::scan::{ScanOptions, scan};
 use everygrep_core::search::search;
 use everygrep_core::store::NodeStore;
@@ -21,6 +21,9 @@ usage:
   everygrep search [options] <query>   print matching paths
   everygrep shell [options]            read one query per line
   everygrep --version
+
+query syntax: space = and, a|b = or, !a = not, <a b> = group, \"a b\" = literal,
+*.pdf = wildcard, case: path: file: folder: ext:pdf;jpg size:>10mb modified:<7d
 
 search and shell load the saved index; they scan and save it first when there
 is none, when --root differs from the saved roots, or with --rescan.
@@ -45,7 +48,7 @@ struct Args {
     rescan: bool,
     watch: bool,
     scan: ScanOptions,
-    matching: MatchOptions,
+    matching: QueryOptions,
     threads: usize,
     limit: usize,
 }
@@ -61,7 +64,7 @@ fn parse_args() -> Result<Args, String> {
         rescan: false,
         watch: false,
         scan: ScanOptions::default(),
-        matching: MatchOptions::default(),
+        matching: QueryOptions::default(),
         threads: std::thread::available_parallelism().map_or(1, |n| n.get()),
         limit: 50,
     };
@@ -216,8 +219,14 @@ fn scan_roots(roots: &[PathBuf], options: &ScanOptions) -> Index {
 
 fn run_query(index: &Index, args: &Args, query: &str, out: &mut impl Write) -> io::Result<()> {
     let started = Instant::now();
-    let matcher = Matcher::new(query, args.matching);
-    let hits = search(index, &matcher, args.threads);
+    let parsed = match Query::parse(query, args.matching) {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("bad query: {e}");
+            return Ok(());
+        }
+    };
+    let hits = search(index, &parsed, args.threads);
     let took = started.elapsed();
     let shown = if args.limit == 0 {
         hits.len()

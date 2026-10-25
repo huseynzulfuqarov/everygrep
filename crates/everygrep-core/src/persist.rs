@@ -333,7 +333,7 @@ impl StreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matcher::{MatchOptions, Matcher};
+    use crate::query::{Query, QueryOptions};
     use crate::search::search;
 
     fn sample() -> Index {
@@ -388,7 +388,7 @@ mod tests {
         let loaded = saved.index;
         assert_eq!(loaded.len(), index.len());
         assert!(loaded.order().iter().eq(index.order().iter()));
-        let m = Matcher::new("pdf", MatchOptions::default());
+        let m = Query::parse("pdf", QueryOptions::default()).unwrap();
         let hits = search(&loaded, &m, 2);
         assert_eq!(hits.len(), 1);
         assert_eq!(

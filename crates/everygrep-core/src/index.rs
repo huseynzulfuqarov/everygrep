@@ -288,7 +288,7 @@ fn compare(store: &NodeStore, a: NodeId, b: NodeId) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matcher::{MatchOptions, Matcher};
+    use crate::query::{EvalScratch, Query, QueryOptions};
     use crate::search::search;
 
     fn names(index: &Index) -> Vec<Vec<u8>> {
@@ -443,11 +443,12 @@ mod tests {
             }
             assert_eq!(index.find_child(store.parent(id), store.name(id)), Some(id));
         }
-        let m = Matcher::new("a", MatchOptions::default());
+        let m = Query::parse("a", QueryOptions::default()).unwrap();
+        let mut scratch = EvalScratch::default();
         let expected: Vec<NodeId> = ids
             .iter()
             .copied()
-            .filter(|&id| m.is_match(store.folded_name(id)))
+            .filter(|&id| m.matches(store, id, &mut scratch))
             .collect();
         assert_eq!(search(index, &m, 4), expected);
     }
