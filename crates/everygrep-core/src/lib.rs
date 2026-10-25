@@ -9,6 +9,7 @@ pub mod persist;
 pub mod query;
 pub mod scan;
 pub mod search;
+pub mod sort;
 pub mod store;
 pub mod sync;
 pub mod watch;
