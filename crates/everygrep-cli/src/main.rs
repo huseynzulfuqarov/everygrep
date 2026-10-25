@@ -8,18 +8,25 @@ use std::time::Instant;
 
 use everygrep_core::index::Index;
 use everygrep_core::matcher::{MatchOptions, Matcher};
+use everygrep_core::persist;
 use everygrep_core::scan::{ScanOptions, scan};
 use everygrep_core::search::search;
 use everygrep_core::store::NodeStore;
 
 const USAGE: &str = "\
 usage:
-  everygrep search [options] <query>   scan, then print matching paths
-  everygrep shell [options]            scan once, then read one query per line
+  everygrep index [options]            scan and save the index
+  everygrep search [options] <query>   print matching paths
+  everygrep shell [options]            read one query per line
   everygrep --version
 
+search and shell load the saved index; they scan and save it first when there
+is none, when --root differs from the saved roots, or with --rescan.
+
 options:
-  --root <path>      folder to index (repeatable, default: $HOME)
+  --root <path>      folder to index (repeatable, default: saved roots or $HOME)
+  --index-file <p>   index location (default: ~/.cache/everygrep/index.bin)
+  --rescan           scan even if a saved index exists
   --exclude <path>   folder not to enter (repeatable)
   --case             match case exactly
   --threads <n>      search threads (default: number of CPUs)
@@ -30,6 +37,8 @@ struct Args {
     command: String,
     query: String,
     roots: Vec<PathBuf>,
+    index_file: Option<PathBuf>,
+    rescan: bool,
     scan: ScanOptions,
     matching: MatchOptions,
     threads: usize,
@@ -43,6 +52,8 @@ fn parse_args() -> Result<Args, String> {
         command,
         query: String::new(),
         roots: Vec::new(),
+        index_file: persist::default_path(),
+        rescan: false,
         scan: ScanOptions::default(),
         matching: MatchOptions::default(),
         threads: std::thread::available_parallelism().map_or(1, |n| n.get()),
@@ -53,6 +64,8 @@ fn parse_args() -> Result<Args, String> {
         let mut value = |name: &str| it.next().ok_or(format!("{name} needs a value"));
         match a.as_str() {
             "--root" => args.roots.push(PathBuf::from(value("--root")?)),
+            "--index-file" => args.index_file = Some(PathBuf::from(value("--index-file")?)),
+            "--rescan" => args.rescan = true,
             "--exclude" => args.scan.exclude.push(PathBuf::from(value("--exclude")?)),
             "--case" => args.matching.case_sensitive = true,
             "--threads" => args.threads = parse_num(&value("--threads")?)?,
@@ -63,13 +76,6 @@ fn parse_args() -> Result<Args, String> {
         }
     }
     args.query = query.join(" ");
-    if args.roots.is_empty() {
-        args.roots.push(
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .ok_or("HOME is not set")?,
-        );
-    }
     Ok(args)
 }
 
@@ -77,10 +83,59 @@ fn parse_num(s: &str) -> Result<usize, String> {
     s.parse().map_err(|_| format!("not a number: {s}"))
 }
 
-fn build_index(args: &Args) -> Index {
+fn home_root() -> Vec<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .into_iter()
+        .collect()
+}
+
+/// Loads the saved index if it fits the request, otherwise scans and saves.
+fn open_index(args: &Args, force_scan: bool) -> Index {
+    if !force_scan && !args.rescan {
+        if let Some(path) = &args.index_file {
+            let started = Instant::now();
+            match persist::load(path) {
+                Ok(saved) if args.roots.is_empty() || saved.roots == args.roots => {
+                    eprintln!(
+                        "loaded {} entries from {} in {:.0} ms, memory {:.1} MiB",
+                        saved.index.len(),
+                        path.display(),
+                        started.elapsed().as_secs_f64() * 1e3,
+                        saved.index.heap_bytes() as f64 / 1048576.0,
+                    );
+                    return saved.index;
+                }
+                Ok(_) => eprintln!("saved index has other roots, scanning"),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => eprintln!("cannot use saved index ({e}), scanning"),
+            }
+        }
+    }
+    let roots = if args.roots.is_empty() {
+        home_root()
+    } else {
+        args.roots.clone()
+    };
+    let index = scan_roots(&roots, &args.scan);
+    if let Some(path) = &args.index_file {
+        let started = Instant::now();
+        match persist::save(&index, &roots, path) {
+            Ok(()) => eprintln!(
+                "saved index to {} in {:.0} ms",
+                path.display(),
+                started.elapsed().as_secs_f64() * 1e3
+            ),
+            Err(e) => eprintln!("could not save index to {}: {e}", path.display()),
+        }
+    }
+    index
+}
+
+fn scan_roots(roots: &[PathBuf], options: &ScanOptions) -> Index {
     let started = Instant::now();
     let mut store = NodeStore::new();
-    let stats = scan(&mut store, &args.roots, &args.scan);
+    let stats = scan(&mut store, roots, options);
     let scanned = started.elapsed();
     let index = Index::new(store);
     let sorted = started.elapsed() - scanned;
@@ -135,12 +190,16 @@ fn main() -> ExitCode {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let result = match args.command.as_str() {
+        "index" => {
+            open_index(&args, true);
+            Ok(())
+        }
         "search" => {
-            let index = build_index(&args);
+            let index = open_index(&args, false);
             run_query(&index, &args, &args.query, &mut out)
         }
         "shell" => {
-            let index = build_index(&args);
+            let index = open_index(&args, false);
             let mut status = Ok(());
             for line in io::stdin().lock().lines() {
                 match line {
