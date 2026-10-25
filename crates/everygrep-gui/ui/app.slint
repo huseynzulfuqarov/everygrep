@@ -206,7 +206,8 @@ component Row inherits Rectangle {
         clip: true;
         before := Text {
             x: 0;
-            width: min(self.preferred-width, parent.width);
+            // An empty Text still reports a small preferred width; force 0.
+            width: self.text == "" ? 0px : min(self.preferred-width, parent.width);
             height: parent.height;
             text: root.data.name-before;
             color: root.selected ? Theme.selection-text : Theme.text;
@@ -216,7 +217,7 @@ component Row inherits Rectangle {
         }
         matched := Text {
             x: before.width;
-            width: min(self.preferred-width, parent.width - self.x);
+            width: self.text == "" ? 0px : min(self.preferred-width, parent.width - self.x);
             height: parent.height;
             visible: self.text != "";
             text: root.data.name-match;
