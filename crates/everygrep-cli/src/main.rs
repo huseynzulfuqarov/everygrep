@@ -185,7 +185,7 @@ fn start_watcher(
     eprintln!(
         "watching {} folders ({} could not be watched) after {:.0} ms",
         w.watch_count(),
-        w.failed_watches,
+        w.failed_watches(),
         started.elapsed().as_secs_f64() * 1e3
     );
     let mut changed = false;

@@ -35,22 +35,23 @@ pub struct CatchUpStats {
     pub errors: usize,
 }
 
-/// Node-level changes made while catching up, for keeping watches in step.
-#[derive(Default)]
-pub(crate) struct Changes {
-    pub new_dirs: Vec<NodeId>,
-    pub removed: Vec<NodeId>,
-}
-
 /// Brings `index` up to date with the disk. See the module documentation for
 /// what is and is not detected.
 pub fn catch_up(index: &mut Index, options: &ScanOptions) -> CatchUpStats {
-    catch_up_with(index, &skip_set(options)).0
+    let stats = catch_up_with(index, &skip_set(options), &mut |_: &Index, _| {});
+    // Nobody keeps per-node state here, so the removal log is not needed.
+    index.take_removed();
+    stats
 }
 
-pub(crate) fn catch_up_with(index: &mut Index, skip: &HashSet<PathBuf>) -> (CatchUpStats, Changes) {
+/// Catch-up that calls `on_new_dir` for every folder it adds, before reading
+/// that folder. Removed ids are left in the index's removal log.
+pub(crate) fn catch_up_with(
+    index: &mut Index,
+    skip: &HashSet<PathBuf>,
+    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+) -> CatchUpStats {
     let mut stats = CatchUpStats::default();
-    let mut changes = Changes::default();
 
     let store = index.store();
     let mut children: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -72,9 +73,7 @@ pub(crate) fn catch_up_with(index: &mut Index, skip: &HashSet<PathBuf>) -> (Catc
         let m = match fs::symlink_metadata(&path) {
             Ok(m) if m.is_dir() => m,
             _ => {
-                let gone = index.remove(dir);
-                stats.removed += gone.len();
-                changes.removed.extend(gone);
+                stats.removed += index.remove(dir).len();
                 continue;
             }
         };
@@ -119,9 +118,7 @@ pub(crate) fn catch_up_with(index: &mut Index, skip: &HashSet<PathBuf>) -> (Catc
                     }
                 }
                 (still_there, _) => {
-                    let gone = index.remove(kid);
-                    stats.removed += gone.len();
-                    changes.removed.extend(gone);
+                    stats.removed += index.remove(kid).len();
                     if still_there.is_some() {
                         stats.added += add_tree(
                             index,
@@ -129,7 +126,7 @@ pub(crate) fn catch_up_with(index: &mut Index, skip: &HashSet<PathBuf>) -> (Catc
                             &name,
                             &path.join(OsStr::from_bytes(&name)),
                             skip,
-                            &mut changes.new_dirs,
+                            on_new_dir,
                         );
                     }
                 }
@@ -142,24 +139,24 @@ pub(crate) fn catch_up_with(index: &mut Index, skip: &HashSet<PathBuf>) -> (Catc
                 &name,
                 &path.join(OsStr::from_bytes(&name)),
                 skip,
-                &mut changes.new_dirs,
+                on_new_dir,
             );
         }
         index.set_meta(dir, meta);
     }
-    (stats, changes)
+    stats
 }
 
 /// Adds the entry `name` at `path` under `parent`, and for a folder all entries
-/// below it. New folder ids are appended to `new_dirs`. Returns how many nodes
-/// were added.
+/// below it. `on_new_dir` is called for each added folder before its contents
+/// are read. Returns how many nodes were added.
 pub(crate) fn add_tree(
     index: &mut Index,
     parent: NodeId,
     name: &[u8],
     path: &Path,
     skip: &HashSet<PathBuf>,
-    new_dirs: &mut Vec<NodeId>,
+    on_new_dir: &mut dyn FnMut(&Index, NodeId),
 ) -> usize {
     let Ok(m) = fs::symlink_metadata(path) else {
         return 0;
@@ -168,13 +165,13 @@ pub(crate) fn add_tree(
     if !m.is_dir() {
         return 1;
     }
-    new_dirs.push(id);
     let mut added = 1;
     let mut pending = vec![(id, path.to_path_buf())];
     while let Some((dir_id, dir_path)) = pending.pop() {
         if skip.contains(&dir_path) {
             continue;
         }
+        on_new_dir(index, dir_id);
         let Ok(entries) = fs::read_dir(&dir_path) else {
             continue;
         };
@@ -188,7 +185,6 @@ pub(crate) fn add_tree(
             );
             added += 1;
             if em.is_dir() {
-                new_dirs.push(child);
                 pending.push((child, entry.path()));
             }
         }
