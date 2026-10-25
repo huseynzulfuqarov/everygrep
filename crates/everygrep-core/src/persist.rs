@@ -19,7 +19,7 @@
 //! leaves either the old or the new file, never a half-written one.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -108,21 +108,28 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
 
 /// Reads an index file written by [`save`].
 ///
+/// The file is decoded while it is read, so memory use stays close to the size
+/// of the index itself. The sizes in the header are checked against the file
+/// size before anything is allocated.
+///
 /// Returns an error of kind `InvalidData` if the file is damaged, from another
 /// version, or inconsistent in any way.
 pub fn load(path: &Path) -> io::Result<Saved> {
-    let data = fs::read(path)?;
-    if data.len() < MAGIC.len() + 8 || &data[..MAGIC.len()] != MAGIC {
+    let file = fs::File::open(path)?;
+    let file_len = file.metadata()?.len();
+    let body_len = file_len
+        .checked_sub(8)
+        .filter(|&l| l >= (MAGIC.len() + 4 + 8 * 3 + 4) as u64)
+        .ok_or_else(|| invalid("not an index file"))?;
+    let mut r = StreamReader {
+        inner: io::BufReader::with_capacity(1 << 20, file),
+        left: body_len,
+        hasher: Hasher::new(body_len),
+        scratch: Vec::new(),
+    };
+    if r.bytes(MAGIC.len())? != MAGIC {
         return Err(invalid("not an index file"));
     }
-    let (body, tail) = data.split_at(data.len() - 8);
-    if checksum(body) != u64::from_le_bytes(tail.try_into().expect("8 bytes")) {
-        return Err(invalid("checksum mismatch"));
-    }
-    let mut r = Reader {
-        data: body,
-        pos: MAGIC.len(),
-    };
     if r.u32()? != VERSION {
         return Err(invalid("unsupported version"));
     }
@@ -130,31 +137,39 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     let names = r.len()?;
     let folded = r.len()?;
     let root_count = r.u32()? as usize;
-    let mut roots = Vec::with_capacity(root_count.min(1024));
+    let mut roots = Vec::new();
     for _ in 0..root_count {
         let len = r.u32()? as usize;
-        roots.push(PathBuf::from(std::ffi::OsStr::from_bytes(r.bytes(len)?)));
+        roots.push(PathBuf::from(std::ffi::OsStr::from_bytes(&r.bytes(len)?)));
     }
-    let parent_kind = r.vec_u32(nodes)?;
-    let name_start = r.vec_u32(nodes)?;
-    let name_len = r.vec_u16(nodes)?;
-    let folded_start = r.vec_u32(nodes)?;
-    let folded_len = r.vec_u16(nodes)?;
-    let sizes = r.vec_u64(nodes)?;
-    let mtimes = r.vec_u64(nodes)?;
-    let meta = sizes
+    // 4+4+2+4+2+8+8 bytes of columns and 4 of name order per node.
+    let expected = (nodes as u64)
+        .checked_mul(36)
+        .and_then(|v| v.checked_add(names as u64))
+        .and_then(|v| v.checked_add(folded as u64));
+    if expected != Some(r.left) {
+        return Err(invalid("sizes in header do not match file size"));
+    }
+
+    let parent_kind = r.vec(nodes, u32::from_le_bytes)?;
+    let name_start = r.vec(nodes, u32::from_le_bytes)?;
+    let name_len = r.vec(nodes, u16::from_le_bytes)?;
+    let folded_start = r.vec(nodes, u32::from_le_bytes)?;
+    let folded_len = r.vec(nodes, u16::from_le_bytes)?;
+    let mut meta: Vec<Meta> = r
+        .vec(nodes, u64::from_le_bytes)?
         .into_iter()
-        .zip(mtimes)
-        .map(|(size, mtime)| Meta {
-            size,
-            mtime_ns: mtime as i64,
-        })
+        .map(|size| Meta { size, mtime_ns: 0 })
         .collect();
-    let name_pool = r.bytes(names)?.to_vec();
-    let folded_pool = r.bytes(folded)?.to_vec();
-    let by_name = r.vec_u32(nodes)?.into_iter().map(NodeId).collect();
-    if r.pos != body.len() {
-        return Err(invalid("trailing data"));
+    r.each(nodes, i64::from_le_bytes, |i, t| meta[i].mtime_ns = t)?;
+    let name_pool = r.bytes(names)?;
+    let folded_pool = r.bytes(folded)?;
+    let by_name = r.vec(nodes, |b: [u8; 4]| NodeId(u32::from_le_bytes(b)))?;
+
+    let mut tail = [0u8; 8];
+    r.inner.read_exact(&mut tail)?;
+    if r.hasher.finish() != u64::from_le_bytes(tail) {
+        return Err(invalid("checksum mismatch"));
     }
     let store = NodeStore::from_columns(Columns {
         parent_kind,
@@ -185,76 +200,133 @@ fn put_u64(buf: &mut Vec<u8>, v: u64) {
 
 /// Word-at-a-time 64-bit hash, used only to detect damaged files.
 fn checksum(data: &[u8]) -> u64 {
+    let mut h = Hasher::new(data.len() as u64);
+    h.update(data);
+    h.finish()
+}
+
+/// Incremental form of [`checksum`]: feeding the same bytes in any number of
+/// pieces gives the same result.
+struct Hasher {
+    h: u64,
+    pending: [u8; 8],
+    pending_len: usize,
+}
+
+impl Hasher {
     const K: u64 = 0x9E37_79B9_7F4A_7C15;
-    let mut h: u64 = 0x5EED ^ data.len() as u64;
-    let mut words = data.chunks_exact(8);
-    for w in &mut words {
-        let v = u64::from_le_bytes(w.try_into().expect("8 bytes"));
-        h = (h ^ v).wrapping_mul(K).rotate_left(29);
+
+    fn new(total_len: u64) -> Self {
+        Self {
+            h: 0x5EED ^ total_len,
+            pending: [0; 8],
+            pending_len: 0,
+        }
     }
-    for &b in words.remainder() {
-        h = (h ^ u64::from(b)).wrapping_mul(K).rotate_left(29);
+
+    fn mix(&mut self, v: u64) {
+        self.h = (self.h ^ v).wrapping_mul(Self::K).rotate_left(29);
     }
-    h ^ (h >> 31)
+
+    fn update(&mut self, mut data: &[u8]) {
+        if self.pending_len > 0 {
+            let take = (8 - self.pending_len).min(data.len());
+            self.pending[self.pending_len..self.pending_len + take].copy_from_slice(&data[..take]);
+            self.pending_len += take;
+            data = &data[take..];
+            if self.pending_len < 8 {
+                return;
+            }
+            self.mix(u64::from_le_bytes(self.pending));
+            self.pending_len = 0;
+        }
+        let mut words = data.chunks_exact(8);
+        for w in &mut words {
+            self.mix(u64::from_le_bytes(w.try_into().expect("8 bytes")));
+        }
+        let rest = words.remainder();
+        self.pending[..rest.len()].copy_from_slice(rest);
+        self.pending_len = rest.len();
+    }
+
+    fn finish(mut self) -> u64 {
+        for i in 0..self.pending_len {
+            let b = self.pending[i];
+            self.mix(u64::from(b));
+        }
+        self.h ^ (self.h >> 31)
+    }
 }
 
-struct Reader<'a> {
-    data: &'a [u8],
-    pos: usize,
+/// Reads the body of an index file, hashing every byte it hands out and never
+/// reading past the body.
+struct StreamReader {
+    inner: io::BufReader<fs::File>,
+    left: u64,
+    hasher: Hasher,
+    scratch: Vec<u8>,
 }
 
-impl<'a> Reader<'a> {
-    fn bytes(&mut self, n: usize) -> io::Result<&'a [u8]> {
-        let end = self
-            .pos
-            .checked_add(n)
-            .filter(|&e| e <= self.data.len())
-            .ok_or_else(|| invalid("file too short"))?;
-        let out = &self.data[self.pos..end];
-        self.pos = end;
+impl StreamReader {
+    fn fill(&mut self, n: usize) -> io::Result<()> {
+        if (n as u64) > self.left {
+            return Err(invalid("file too short"));
+        }
+        self.scratch.resize(n, 0);
+        self.inner.read_exact(&mut self.scratch)?;
+        self.hasher.update(&self.scratch);
+        self.left -= n as u64;
+        Ok(())
+    }
+
+    fn bytes(&mut self, n: usize) -> io::Result<Vec<u8>> {
+        if (n as u64) > self.left {
+            return Err(invalid("file too short"));
+        }
+        let mut out = vec![0u8; n];
+        self.inner.read_exact(&mut out)?;
+        self.hasher.update(&out);
+        self.left -= n as u64;
         Ok(out)
     }
 
     fn u32(&mut self) -> io::Result<u32> {
+        self.fill(4)?;
         Ok(u32::from_le_bytes(
-            self.bytes(4)?.try_into().expect("4 bytes"),
+            self.scratch[..4].try_into().expect("4 bytes"),
         ))
     }
 
     fn len(&mut self) -> io::Result<usize> {
-        let v = u64::from_le_bytes(self.bytes(8)?.try_into().expect("8 bytes"));
+        self.fill(8)?;
+        let v = u64::from_le_bytes(self.scratch[..8].try_into().expect("8 bytes"));
         usize::try_from(v).map_err(|_| invalid("length too large"))
     }
 
-    fn sized(&mut self, n: usize, width: usize) -> io::Result<&'a [u8]> {
-        let total = n
-            .checked_mul(width)
-            .ok_or_else(|| invalid("length too large"))?;
-        self.bytes(total)
+    /// Decodes `n` fixed-size values, passing each to `f` with its index.
+    fn each<const W: usize, T>(
+        &mut self,
+        n: usize,
+        decode: fn([u8; W]) -> T,
+        mut f: impl FnMut(usize, T),
+    ) -> io::Result<()> {
+        const CHUNK: usize = 1 << 16;
+        let mut i = 0;
+        while i < n {
+            let count = (n - i).min(CHUNK);
+            self.fill(count * W)?;
+            for c in self.scratch.chunks_exact(W) {
+                f(i, decode(c.try_into().expect("chunk of W bytes")));
+                i += 1;
+            }
+        }
+        Ok(())
     }
 
-    fn vec_u16(&mut self, n: usize) -> io::Result<Vec<u16>> {
-        let raw = self.sized(n, 2)?;
-        Ok(raw
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect())
-    }
-
-    fn vec_u32(&mut self, n: usize) -> io::Result<Vec<u32>> {
-        let raw = self.sized(n, 4)?;
-        Ok(raw
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes(c.try_into().expect("4 bytes")))
-            .collect())
-    }
-
-    fn vec_u64(&mut self, n: usize) -> io::Result<Vec<u64>> {
-        let raw = self.sized(n, 8)?;
-        Ok(raw
-            .chunks_exact(8)
-            .map(|c| u64::from_le_bytes(c.try_into().expect("8 bytes")))
-            .collect())
+    fn vec<const W: usize, T>(&mut self, n: usize, decode: fn([u8; W]) -> T) -> io::Result<Vec<T>> {
+        let mut out = Vec::with_capacity(n);
+        self.each(n, decode, |_, v| out.push(v))?;
+        Ok(out)
     }
 }
 
@@ -358,6 +430,34 @@ mod tests {
             .map(|id| loaded.store().name(id))
             .collect();
         assert_eq!(names, [&b"/data"[..], b"added.md", b"Docs", b"notes.txt"]);
+    }
+
+    #[test]
+    fn incremental_hash_matches_one_shot_hash() {
+        let data: Vec<u8> = (0..1000u32)
+            .map(|i| (i.wrapping_mul(31) >> 3) as u8)
+            .collect();
+        for split in [0, 1, 3, 7, 8, 9, 500, 999, 1000] {
+            let mut h = Hasher::new(data.len() as u64);
+            h.update(&data[..split]);
+            for piece in data[split..].chunks(5) {
+                h.update(piece);
+            }
+            assert_eq!(h.finish(), checksum(&data), "split at {split}");
+        }
+    }
+
+    #[test]
+    fn header_claiming_huge_sizes_is_rejected_before_allocating() {
+        let path = temp_file("huge");
+        save(&sample(), &[], &path).unwrap();
+        let mut data = fs::read(&path).unwrap();
+        // The node count follows the 8-byte magic and the 4-byte version.
+        data[12..20].copy_from_slice(&(u64::MAX / 64).to_le_bytes());
+        fs::write(&path, &data).unwrap();
+        let err = load(&path).err().expect("must not load");
+        fs::remove_file(&path).unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
