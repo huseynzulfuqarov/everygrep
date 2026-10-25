@@ -1,7 +1,9 @@
 //! EveryGrep core: an in-memory file name index with instant substring search.
 
 pub mod fold;
+pub mod index;
 pub mod matcher;
+pub mod search;
 pub mod store;
 
 /// Version of the engine, taken from the crate manifest.
