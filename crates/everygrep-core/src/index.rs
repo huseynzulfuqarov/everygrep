@@ -13,7 +13,8 @@ pub struct Index {
 
 impl Index {
     /// Builds the index and its name order from a filled store.
-    pub fn new(store: NodeStore) -> Self {
+    pub fn new(mut store: NodeStore) -> Self {
+        store.shrink_to_fit();
         let mut by_name: Vec<NodeId> = (0..store.len())
             .map(|i| NodeId(u32::try_from(i).expect("store ids fit in u32")))
             .collect();

@@ -30,30 +30,28 @@ pub struct Meta {
     pub mtime: i64,
 }
 
-/// Byte range inside one of the name pools.
-#[derive(Clone, Copy, Debug)]
-struct Span {
-    start: u32,
-    len: u32,
-}
-
-impl Span {
-    fn range(self) -> std::ops::Range<usize> {
-        let start = self.start as usize;
-        start..start + self.len as usize
-    }
-}
+/// Marks a folder in the packed parent column.
+const DIR_BIT: u32 = 1 << 31;
+/// Marks a folded name that is identical to the raw name and therefore not stored.
+const SAME_AS_RAW: u32 = u32::MAX;
 
 /// Column storage of all nodes.
+///
+/// Per node it keeps a packed parent/folder word, the position and length of the
+/// raw name, the position and length of the folded name (shared with the raw name
+/// when folding changes nothing) and the metadata.
 #[derive(Default)]
 pub struct NodeStore {
-    parent: Vec<Option<NodeId>>,
-    is_dir: Vec<bool>,
-    name: Vec<Span>,
-    folded: Vec<Span>,
+    /// Bit 31: folder flag. Bits 0..31: parent id + 1, or 0 for a root.
+    parent_kind: Vec<u32>,
+    name_start: Vec<u32>,
+    name_len: Vec<u16>,
+    folded_start: Vec<u32>,
+    folded_len: Vec<u16>,
     meta: Vec<Meta>,
     name_pool: Vec<u8>,
     folded_pool: Vec<u8>,
+    scratch: Vec<u8>,
 }
 
 impl NodeStore {
@@ -64,12 +62,12 @@ impl NodeStore {
 
     /// Number of nodes.
     pub fn len(&self) -> usize {
-        self.parent.len()
+        self.parent_kind.len()
     }
 
     /// Whether the store has no nodes.
     pub fn is_empty(&self) -> bool {
-        self.parent.is_empty()
+        self.parent_kind.is_empty()
     }
 
     /// Adds a node and returns its id.
@@ -78,37 +76,72 @@ impl NodeStore {
     ///
     /// # Panics
     ///
-    /// Panics if the store would exceed `u32::MAX` nodes or 4 GiB of names.
+    /// Panics if the store would exceed 2^31 - 1 nodes, 4 GiB of names, or a name
+    /// longer than 65 535 bytes.
     pub fn add(&mut self, parent: Option<NodeId>, name: &[u8], is_dir: bool, meta: Meta) -> NodeId {
-        let id = NodeId(u32::try_from(self.len()).expect("too many nodes"));
-        let name_span = push_span(&mut self.name_pool, |pool| pool.extend_from_slice(name));
-        let folded_span = push_span(&mut self.folded_pool, |pool| fold_into(name, pool));
-        self.parent.push(parent);
-        self.is_dir.push(is_dir);
-        self.name.push(name_span);
-        self.folded.push(folded_span);
+        let id = u32::try_from(self.len())
+            .ok()
+            .filter(|&i| i < DIR_BIT - 1)
+            .expect("too many nodes");
+        let parent_word = parent.map_or(0, |p| p.0 + 1) | if is_dir { DIR_BIT } else { 0 };
+
+        let (name_start, name_len) = push(&mut self.name_pool, name);
+        self.scratch.clear();
+        fold_into(name, &mut self.scratch);
+        let (folded_start, folded_len) = if self.scratch == name {
+            (SAME_AS_RAW, name_len)
+        } else {
+            push(&mut self.folded_pool, &self.scratch)
+        };
+
+        self.parent_kind.push(parent_word);
+        self.name_start.push(name_start);
+        self.name_len.push(name_len);
+        self.folded_start.push(folded_start);
+        self.folded_len.push(folded_len);
         self.meta.push(meta);
-        id
+        NodeId(id)
+    }
+
+    /// Releases spare capacity after a bulk build.
+    pub fn shrink_to_fit(&mut self) {
+        self.parent_kind.shrink_to_fit();
+        self.name_start.shrink_to_fit();
+        self.name_len.shrink_to_fit();
+        self.folded_start.shrink_to_fit();
+        self.folded_len.shrink_to_fit();
+        self.meta.shrink_to_fit();
+        self.name_pool.shrink_to_fit();
+        self.folded_pool.shrink_to_fit();
+        self.scratch = Vec::new();
     }
 
     /// Parent of a node, `None` for roots.
     pub fn parent(&self, id: NodeId) -> Option<NodeId> {
-        self.parent[id.index()]
+        match self.parent_kind[id.index()] & !DIR_BIT {
+            0 => None,
+            p => Some(NodeId(p - 1)),
+        }
     }
 
     /// Whether the node is a folder.
     pub fn is_dir(&self, id: NodeId) -> bool {
-        self.is_dir[id.index()]
+        self.parent_kind[id.index()] & DIR_BIT != 0
     }
 
     /// Raw name bytes of a node.
     pub fn name(&self, id: NodeId) -> &[u8] {
-        &self.name_pool[self.name[id.index()].range()]
+        let i = id.index();
+        slice(&self.name_pool, self.name_start[i], self.name_len[i])
     }
 
     /// Folded name bytes of a node, used for case-insensitive matching.
     pub fn folded_name(&self, id: NodeId) -> &[u8] {
-        &self.folded_pool[self.folded[id.index()].range()]
+        let i = id.index();
+        match self.folded_start[i] {
+            SAME_AS_RAW => self.name(id),
+            start => slice(&self.folded_pool, start, self.folded_len[i]),
+        }
     }
 
     /// Metadata of a node.
@@ -134,23 +167,26 @@ impl NodeStore {
     /// Approximate heap memory used by the store, in bytes.
     pub fn heap_bytes(&self) -> usize {
         use std::mem::size_of;
-        self.parent.capacity() * size_of::<Option<NodeId>>()
-            + self.is_dir.capacity()
-            + (self.name.capacity() + self.folded.capacity()) * size_of::<Span>()
+        (self.parent_kind.capacity() + self.name_start.capacity() + self.folded_start.capacity())
+            * size_of::<u32>()
+            + (self.name_len.capacity() + self.folded_len.capacity()) * size_of::<u16>()
             + self.meta.capacity() * size_of::<Meta>()
             + self.name_pool.capacity()
             + self.folded_pool.capacity()
+            + self.scratch.capacity()
     }
 }
 
-fn push_span(pool: &mut Vec<u8>, write: impl FnOnce(&mut Vec<u8>)) -> Span {
-    let start = pool.len();
-    write(pool);
-    let len = pool.len() - start;
-    Span {
-        start: u32::try_from(start).expect("name pool exceeds 4 GiB"),
-        len: u32::try_from(len).expect("name too long"),
-    }
+fn push(pool: &mut Vec<u8>, bytes: &[u8]) -> (u32, u16) {
+    let start = u32::try_from(pool.len()).expect("name pool exceeds 4 GiB");
+    let len = u16::try_from(bytes.len()).expect("name longer than 65535 bytes");
+    pool.extend_from_slice(bytes);
+    (start, len)
+}
+
+fn slice(pool: &[u8], start: u32, len: u16) -> &[u8] {
+    let start = start as usize;
+    &pool[start..start + len as usize]
 }
 
 #[cfg(test)]
@@ -184,6 +220,19 @@ mod tests {
     fn builds_full_path() {
         let (s, file) = sample();
         assert_eq!(s.path(file), PathBuf::from("/data/Docs/Report.PDF"));
+    }
+
+    #[test]
+    fn folded_copy_is_shared_when_unchanged() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/", true, Meta::default());
+        let lower = s.add(Some(root), b"readme.txt", false, Meta::default());
+        let mixed = s.add(Some(root), b"ReadMe.txt", false, Meta::default());
+        assert_eq!(s.folded_name(lower), b"readme.txt");
+        assert_eq!(s.folded_name(mixed), b"readme.txt");
+        assert_eq!(s.folded_pool.len(), b"readme.txt".len());
+        assert_eq!(s.parent(lower), Some(root));
+        assert!(s.is_dir(root) && !s.is_dir(lower));
     }
 
     #[test]
