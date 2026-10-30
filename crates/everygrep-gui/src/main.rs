@@ -37,7 +37,21 @@ const APP_ID: &str = "az.huseynz.EveryGrep";
 const HISTORY_PAUSE: Duration = Duration::from_secs(1);
 
 fn main() -> Result<(), slint::PlatformError> {
-    let args = parse_args(std::env::args().skip(1));
+    let args = match parse_args(std::env::args().skip(1)) {
+        Ok(Command::Run(args)) => args,
+        Ok(Command::Help) => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+        Ok(Command::Version) => {
+            println!("everygrep-gui {}", everygrep_core::VERSION);
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!("everygrep-gui: {e}\n\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
     let window = AppWindow::new()?;
     // Read when the native window is created on first show, so it must be set
     // before `run()`. Matches the desktop entry, so the shell shows our icon.
@@ -447,44 +461,73 @@ struct Args {
     show_ext: bool,
 }
 
-/// `everygrep-gui [--root <path>]... [--index-file <path>] [--filter <name>]
-/// [--case] [--whole-words] [--match-path] [--diacritics]
-/// [--columns type,extension] [query words...]`.
-/// Without roots the saved roots, or the home folder, are used. Unknown
-/// options and values are ignored; after `--` every argument is a query word.
-fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
+const USAGE: &str = "\
+usage: everygrep-gui [options] [query words...]
+
+Words after the options become the first query. After -- every argument is a
+query word.
+
+options:
+  --root <path>          folder to index (repeatable, default: saved roots or $HOME)
+  --index-file <path>    index location (default: ~/.cache/everygrep/index.bin)
+  --filter <name>        start with a filter: all, audio, archive, code, document,
+                         executable, folder, image, video
+  --case                 match case exactly
+  --whole-words          match whole words only
+  --match-path           match the full path instead of the name
+  --diacritics           match diacritics exactly (by default e also finds é)
+  --columns <list>       show optional columns: type, extension (comma separated)
+  -h, --help             print this help
+  -V, --version          print the version";
+
+/// What the command line asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum Command {
+    Run(Args),
+    Help,
+    Version,
+}
+
+/// `everygrep-gui [options] [query words...]`, see [`USAGE`].
+/// Without roots the saved roots, or the home folder, are used. An unknown
+/// option or value is an error, so a mistyped flag never opens a window on
+/// the default roots; after `--` every argument is a query word.
+fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
     let mut out = Args::default();
     let mut words: Vec<String> = Vec::new();
     let mut args = args.into_iter();
     while let Some(a) = args.next() {
+        let mut value = || args.next().ok_or_else(|| format!("{a} needs a value"));
         match a.as_str() {
-            "--root" => out.roots.extend(args.next().map(PathBuf::from)),
-            "--index-file" => out.index_file = args.next().map(PathBuf::from),
+            "-h" | "--help" => return Ok(Command::Help),
+            "-V" | "--version" => return Ok(Command::Version),
+            "--root" => out.roots.push(PathBuf::from(value()?)),
+            "--index-file" => out.index_file = Some(PathBuf::from(value()?)),
             "--filter" => {
-                if let Some(f) = args.next().as_deref().and_then(Filter::from_id) {
-                    out.options.filter = f;
-                }
+                let name = value()?;
+                out.options.filter =
+                    Filter::from_id(&name).ok_or_else(|| format!("unknown filter {name}"))?;
             }
             "--case" => out.options.case_sensitive = true,
             "--whole-words" => out.options.whole_words = true,
             "--match-path" => out.options.match_path = true,
             "--diacritics" => out.options.match_diacritics = true,
             "--columns" => {
-                for column in args.next().unwrap_or_default().split(',') {
+                for column in value()?.split(',') {
                     match column.trim() {
                         "type" => out.show_type = true,
                         "extension" => out.show_ext = true,
-                        _ => {}
+                        other => return Err(format!("unknown column {other}")),
                     }
                 }
             }
             "--" => words.extend(args.by_ref()),
-            _ if a.starts_with("--") => {}
+            _ if a.starts_with("--") => return Err(format!("unknown option {a}")),
             _ => words.push(a),
         }
     }
     out.query = words.join(" ");
-    out
+    Ok(Command::Run(out))
 }
 
 /// The sort for a header column of the window (0 name, 1 folder, 2 size,
@@ -590,8 +633,35 @@ fn refresh_status(w: &AppWindow) {
 mod tests {
     use super::*;
 
-    fn args(list: &[&str]) -> Args {
+    fn parse(list: &[&str]) -> Result<Command, String> {
         parse_args(list.iter().map(|s| (*s).to_owned()))
+    }
+
+    fn args(list: &[&str]) -> Args {
+        match parse(list) {
+            Ok(Command::Run(a)) => a,
+            other => panic!("{list:?} gave {other:?}"),
+        }
+    }
+
+    #[test]
+    fn help_version_and_mistakes_never_open_a_window() {
+        assert_eq!(parse(&["--help"]), Ok(Command::Help));
+        assert_eq!(parse(&["a", "-h"]), Ok(Command::Help));
+        assert_eq!(parse(&["-V"]), Ok(Command::Version));
+        // `--help` after `--` is a query word.
+        assert_eq!(args(&["--", "--help"]).query, "--help");
+        for wrong in [
+            &["--fast"][..],
+            &["--root"],
+            &["--index-file"],
+            &["--filter", "nope"],
+            &["--filter"],
+            &["--columns", "size"],
+            &["--columns"],
+        ] {
+            assert!(parse(wrong).is_err(), "{wrong:?} was accepted");
+        }
     }
 
     #[test]
@@ -608,11 +678,8 @@ mod tests {
         assert_eq!(a.index_file, Some(PathBuf::from("/tmp/i")));
         assert_eq!(a.query, "report pdf");
         assert_eq!(args(&[]), Args::default());
-        // Unknown options are skipped; after `--` options are words too.
-        assert_eq!(
-            args(&["--fast", "a", "--", "--root", "b"]).query,
-            "a --root b"
-        );
+        // After `--` options are words too.
+        assert_eq!(args(&["a", "--", "--root", "b"]).query, "a --root b");
         assert!(args(&["--", "--root", "b"]).roots.is_empty());
         // Single-dash words such as `-draft` are query words.
         assert_eq!(args(&["-x", "ext:pdf"]).query, "-x ext:pdf");
@@ -634,10 +701,10 @@ mod tests {
         assert!(!a.options.whole_words && !a.options.match_path);
         assert!(a.show_type && a.show_ext);
         assert_eq!(a.query, "img");
-        let a = args(&["--whole-words", "--match-path", "--filter", "nope"]);
+        let a = args(&["--whole-words", "--match-path"]);
         assert!(a.options.whole_words && a.options.match_path);
         assert_eq!(a.options.filter, Filter::All);
-        assert!(!args(&["--columns", "size"]).show_type);
+        assert!(!a.show_type && !a.show_ext);
     }
 
     #[test]

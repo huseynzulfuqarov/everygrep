@@ -49,7 +49,8 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
-loaded. Type to search; `↓` moves into the results. The selector next to the
+loaded. `everygrep-gui --help` lists the options; a mistyped option or value
+stops with an error instead of opening the window. Type to search; `↓` moves into the results. The selector next to the
 search field limits results to one kind (folders, documents, pictures, …); the
 toggles inside the field switch match case, whole words, full path and
 diacritics, and the modes that are on show in the status line. Right-click the
