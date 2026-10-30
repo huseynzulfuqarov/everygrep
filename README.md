@@ -18,6 +18,8 @@ matches anywhere in a name (not only at word starts) as you type.
 | `"two words"` | literal text, including spaces and operators |
 | `*.pdf`, `img_??.png` | wildcards, matched against the whole name |
 | `case:Readme` | match case for this term |
+| `wholeword:art` | whole words only: `pop-art.png`, not `party.png` |
+| `diacritics:café` | match diacritics for this term (by default `cafe` finds `café` and `sekil` finds `Şəkil`) |
 | `path:src/main`, `docs/report` | match the full path (any term with `/` does) |
 | `file:`, `folder:` | only files / only folders |
 | `ext:pdf;jpg` | extensions |
@@ -26,16 +28,32 @@ matches anywhere in a name (not only at word starts) as you type.
 | `modified:2026-10-25`, `modified:2026-10`, `modified:today`, `modified:yesterday` | changed on that local day, month or year |
 | `modified:>2026-10-25`, `modified:<=2026-10`, `modified:2026-10-01..2026-10-25` | after / up to a whole day, month or year; `..` is inclusive |
 
-Case is ignored unless `case:` or `--case` is used.
+Case and diacritics are ignored unless `case:`/`--case` or
+`diacritics:`/`--diacritics` is used. `nocase:`, `nowholeword:`, `nodiacritics:` and
+`nopath:` turn a mode off for one term. The command line also takes
+`--whole-words`, `--match-path` and `--filter <name>` (`audio`, `archive`,
+`code`, `document`, `executable`, `folder`, `image`, `video`).
+
+Ignoring diacritics folds letters with marks to their base letters (Latin-1,
+Latin Extended-A, and Azerbaijani/Turkish/Romanian letters: `ç ş ğ ı ö ü ə` →
+`c s g i o u e`, `ß` → `ss`) and drops combining marks; the table is in
+`crates/everygrep-core/src/fold.rs`. Whole words are separated by any
+character that is not a letter or digit.
 
 ## Using the window
 
 ```sh
-everygrep-gui [--root <folder>]... [--index-file <file>] [query words...]
+everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
+              [--case] [--whole-words] [--match-path] [--diacritics]
+              [--columns type,extension] [query words...]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
-loaded. Type to search; `↓` moves into the results.
+loaded. Type to search; `↓` moves into the results. The selector next to the
+search field limits results to one kind (folders, documents, pictures, …); the
+toggles inside the field switch match case, whole words, full path and
+diacritics, and the modes that are on show in the status line. Right-click the
+column headers to show the Type and Extension columns.
 
 | Keys | Action |
 |---|---|
@@ -51,6 +69,9 @@ loaded. Type to search; `↓` moves into the results.
 | `Shift+Delete` | delete permanently, after a confirmation |
 | `Esc` | clear the selection, then back to the search |
 | `Ctrl+F`, `Ctrl+L` | focus the search field |
+| `Alt+←` / `Alt+→` | back / forward through earlier searches |
+| `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | match case, whole words, full path, diacritics |
+| `Alt+↑` / `Alt+↓` | previous / next filter |
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.

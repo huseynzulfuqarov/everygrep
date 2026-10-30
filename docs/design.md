@@ -26,7 +26,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ [ search field ........................... ] [filter ▾] [⋯]  │  top bar 48 px
+│ [ search field ............... Aa ab a/b é ] [filter ▾] [⋯]  │  top bar 48 px
 ├──────────────────────────────────────────────────────────────┤
 │ Name ▲               │ Folder                │ Size │ Modified│  header 30 px
 │ ▢ report-2026.pdf    │ ~/Documents/work      │ 3 MB │ 25 Oct  │  rows 28 px
@@ -37,14 +37,20 @@ screen; when a change conflicts with them, the rules win or are changed first.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- **Top bar.** The search field takes all the remaining width. A filter
-  selector sits next to it: all, folders, documents, pictures, audio, video,
-  archives, code, executables. The overflow menu holds settings, help and about.
-- **Result table.** Default columns are Name, Folder, Size and Modified. More
-  are available (Type, Created, Extension, Full path). Columns can be resized,
-  reordered, hidden and sorted by clicking the header. The match is highlighted
-  inside the name.
-- **Status line.** Result count, index size, index state and query time.
+- **Top bar.** The search field takes all the remaining width. Four small
+  toggles at its right end switch the matching modes: match case, whole words,
+  full path and diacritics; each shows its name and key in a tip on hover. A
+  filter selector sits next to the field: all, audio, archives, code,
+  documents, executables, folders, pictures, videos. The overflow menu holds
+  settings, help and about.
+- **Result table.** Default columns are Name, Folder, Size and Modified. Type
+  and Extension can be shown from the header's context menu; Created and Full
+  path are planned (the index does not keep creation or access times yet).
+  Columns can be resized, hidden and sorted by clicking the header; reordering
+  is planned. Sorting by Type groups by kind, then extension. The match is
+  highlighted inside the name.
+- **Status line.** Result count, index size, index state, small badges for the
+  matching modes that are on, and query time.
 - **Optional panes,** hidden by default: a preview pane on the right and a
   sidebar of saved searches on the left.
 
@@ -95,12 +101,21 @@ words.
 | Context menu | `Menu`, `Shift+F10` | right-click |
 | Clear the selection, then back to the search | `Esc` in the list | — |
 | Clear the search | `Esc` in the search field | — |
+| Back / forward through earlier searches | `Alt+←` / `Alt+→` | — |
+| Match case, whole words, full path, diacritics | `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | toggles in the search field |
+| Previous / next filter | `Alt+↑` / `Alt+↓` | filter selector |
+| Show or hide the Type and Extension columns | — | header context menu |
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per
 line on the clipboard. Opening is limited to 20 items at once. The selection
 follows the files, not the row numbers: it stays when the list is sorted again
 or refreshed after file changes, and a new query clears it.
+
+A search is kept in the history when typing pauses for a second, on `Enter`
+in the search field, or when a result is opened; a repeat of the current entry
+is skipped, and searching after going back drops the entries ahead, as in a web
+browser. The history lives in memory for the session (up to 200 entries).
 
 Rename refuses a name that already exists in the folder and shows the reason in
 the status line. Moving to the trash asks first only for more than 50 items;
