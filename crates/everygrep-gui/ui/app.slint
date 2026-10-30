@@ -1,4 +1,4 @@
-import { Button, ComboBox, ListView, Palette } from "std-widgets.slint";
+import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 export { SettingsWindow } from "settings.slint";
 
@@ -19,6 +19,20 @@ export struct ResultRow {
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
     selected: bool,
+}
+
+// One choice of a group in a menu (theme, density, filter, ...), with its
+// check mark. The program gives a new list whenever the choice changes, since
+// activating a checkable menu item overwrites its check mark.
+export struct MenuChoice {
+    title: string,
+    checked: bool,
+}
+
+// A line of the keyboard shortcuts dialog.
+export struct ShortcutRow {
+    keys: string,
+    action: string,
 }
 
 // File-type icons, in the order of FileKind. They carry their own colours and
@@ -471,6 +485,62 @@ component Row inherits Rectangle {
     }
 }
 
+// A dialog above the window: a dimmed backdrop, a card with a title, the
+// content and a Close button. Esc, Enter and a click outside close it.
+component InfoDialog inherits Rectangle {
+    in property <string> title;
+    in property <length> card-width: 420px;
+    callback close();
+
+    background: #00000060;
+    TouchArea {
+        clicked => { root.close(); }
+    }
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape || event.text == Key.Return) {
+                root.close();
+            }
+            accept
+        }
+    }
+    Rectangle {
+        width: min(root.card-width, root.width - 2 * Theme.s5);
+        height: min(card-layout.preferred-height, root.height - 2 * Theme.s5);
+        background: Theme.surface;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000040;
+        clip: true;
+        // Clicks on the card stay on it.
+        TouchArea { }
+        card-layout := VerticalLayout {
+            padding: Theme.s5;
+            spacing: Theme.s3;
+            Text {
+                text: root.title;
+                font-size: Theme.body + 2px;
+                font-weight: 600;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            @children
+            HorizontalLayout {
+                alignment: end;
+                padding-top: Theme.s2;
+                Button {
+                    text: "Close";
+                    primary: true;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+    }
+}
+
 // A drag handle on the boundary between two header cells.
 component ColumnGrip inherits TouchArea {
     callback dragged(length);
@@ -533,6 +603,29 @@ export component AppWindow inherits Window {
     // window only hides it).
     callback open-settings();
     callback quit();
+    // Another window over the same index.
+    callback new-window();
+
+    // Menu bar and the appearance choices in its View menu. The choices
+    // are saved as settings; the program sets the lists again after a
+    // change.
+    in-out property <bool> show-menu-bar: true;
+    in-out property <bool> status-details: true;
+    in property <[MenuChoice]> filter-items;
+    in property <[MenuChoice]> theme-items;
+    in property <[MenuChoice]> density-items;
+    in property <[MenuChoice]> folder-size-items;
+    callback menu-bar-changed(bool);
+    callback status-details-changed(bool);
+    callback choose-theme(int);
+    callback choose-density(int);
+    callback choose-folder-size(int);
+
+    // Help: the keyboard shortcuts and the about dialog.
+    in property <[ShortcutRow]> shortcuts;
+    in property <string> version;
+    in-out property <bool> shortcuts-open;
+    in-out property <bool> about-open;
 
     callback query-edited(string);
     callback sort-changed(int, bool);
@@ -637,10 +730,9 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Shows or hides an optional column (4 type, 5 extension). Hiding the
-    // sorted column sorts by name again.
-    function set-column-shown(column: int, shown: bool) {
-        if (column == 4) { root.show-type = shown; } else { root.show-ext = shown; }
+    // After an optional column (4 type, 5 extension) was shown or hidden: hiding the sorted
+    // column sorts by name again.
+    function column-shown(column: int, shown: bool) {
         if (!shown && root.sort-column == column) {
             root.sort-column = 0;
             root.sort-descending = false;
@@ -660,6 +752,11 @@ export component AppWindow inherits Window {
         root.options-changed();
     }
 
+    function history-go(step: int) {
+        root.history-step(step);
+        root.results-replaced();
+    }
+
     // Shortcuts that work in the search field and in the list.
     function shortcut(event: KeyEvent) -> bool {
         if (event.modifiers.control && !event.modifiers.alt) {
@@ -677,8 +774,7 @@ export component AppWindow inherits Window {
             return false;
         }
         if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
-            root.history-step(event.text == Key.LeftArrow ? -1 : 1);
-            root.results-replaced();
+            root.history-go(event.text == Key.LeftArrow ? -1 : 1);
             return true;
         }
         if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
@@ -827,13 +923,29 @@ export component AppWindow inherits Window {
                     current-index <=> root.filter-index;
                     selected => { root.options-edited(); }
                 }
-                // Overflow menu.
-                more-menu := ContextMenuArea {
+                // Overflow menu, in place of the menu bar when that is hidden.
+                if !root.show-menu-bar: more-menu := ContextMenuArea {
                     width: 34px;
                     Menu {
                         MenuItem {
                             title: "Settings";
                             activated => { root.open-settings(); }
+                        }
+                        MenuItem {
+                            title: "Keyboard shortcuts";
+                            activated => { root.shortcuts-open = true; }
+                        }
+                        MenuItem {
+                            title: "About EveryGrep";
+                            activated => { root.about-open = true; }
+                        }
+                        MenuSeparator { }
+                        MenuItem {
+                            title: "Show the menu bar";
+                            activated => {
+                                root.show-menu-bar = true;
+                                root.menu-bar-changed(true);
+                            }
                         }
                         MenuSeparator { }
                         MenuItem {
@@ -845,7 +957,7 @@ export component AppWindow inherits Window {
                         border-radius: Theme.radius;
                         background: more-touch.has-hover ? Theme.hover : transparent;
                         accessible-role: button;
-                        accessible-label: "More (settings: Ctrl+comma, quit: Ctrl+Q)";
+                        accessible-label: "More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)";
                         accessible-action-default => { more-menu.show({ x: 0, y: self.height }); }
                         more-touch := TouchArea {
                             clicked => { more-menu.show({ x: 0, y: self.height }); }
@@ -869,17 +981,19 @@ export component AppWindow inherits Window {
             background: Theme.surface-alt;
             header-menu := ContextMenuArea {
                 Menu {
+                    // Activating a checkable item flips its check mark, which
+                    // is tied to the column flag both ways.
                     MenuItem {
                         title: "Type";
                         checkable: true;
-                        checked: root.show-type;
-                        activated => { root.set-column-shown(4, !root.show-type); }
+                        checked <=> root.show-type;
+                        activated => { root.column-shown(4, root.show-type); }
                     }
                     MenuItem {
                         title: "Extension";
                         checkable: true;
-                        checked: root.show-ext;
-                        activated => { root.set-column-shown(5, !root.show-ext); }
+                        checked <=> root.show-ext;
+                        activated => { root.column-shown(5, root.show-ext); }
                     }
                 }
                 HeaderCell {
@@ -1175,10 +1289,19 @@ export component AppWindow inherits Window {
         }
     }
 
+    // The window's top left corner below the menu bar: the tip is placed
+    // from absolute positions.
+    origin := Rectangle {
+        x: 0;
+        y: 0;
+        width: 0;
+        height: 0;
+    }
+
     // Tip of the matching-mode toggle under the mouse.
     if search.hover-tip != "": Rectangle {
-        x: min(search.hover-x, root.width - self.width - Theme.s2);
-        y: search.hover-bottom + Theme.s1;
+        x: min(search.hover-x - origin.absolute-position.x, root.width - self.width - Theme.s2);
+        y: search.hover-bottom - origin.absolute-position.y + Theme.s1;
         width: tip-text.preferred-width + 2 * Theme.s2;
         height: tip-text.preferred-height + 2 * Theme.s1;
         background: Theme.surface;
@@ -1257,6 +1380,274 @@ export component AppWindow inherits Window {
                         clicked => { root.confirm-accepted(); }
                     }
                 }
+            }
+        }
+    }
+
+    if root.shortcuts-open: InfoDialog {
+        title: "Keyboard shortcuts";
+        card-width: 520px;
+        close => {
+            root.shortcuts-open = false;
+            search.focus-and-select();
+        }
+        ListView {
+            // Grows with the rows up to what the window leaves.
+            preferred-height: root.shortcuts.length * 24px;
+            min-height: 120px;
+            for row in root.shortcuts: HorizontalLayout {
+                height: 24px;
+                spacing: Theme.s3;
+                Text {
+                    width: 200px;
+                    text: row.keys;
+                    color: Theme.text;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Text {
+                    text: row.action;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+
+    if root.about-open: InfoDialog {
+        title: "About EveryGrep";
+        close => {
+            root.about-open = false;
+            search.focus-and-select();
+        }
+        HorizontalLayout {
+            spacing: Theme.s3;
+            Image {
+                source: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+                width: 48px;
+                height: 48px;
+            }
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: "EveryGrep";
+                    font-size: Theme.body + 4px;
+                    font-weight: 600;
+                    color: Theme.text;
+                }
+                Text {
+                    text: "Version " + root.version;
+                    color: Theme.text-muted;
+                }
+            }
+        }
+        Text {
+            text: "Finds files and folders by name as you type.";
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "Licensed under the MIT license or the Apache License 2.0, at your option.";
+            font-size: Theme.small;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        // The toolkit's attribution, required by its royalty-free license.
+        HorizontalLayout {
+            alignment: center;
+            AboutSlint { }
+        }
+    }
+
+    // The menu bar. It is drawn inside the window (GNOME has no global menu
+    // bar). Its shortcuts are handled before the focused field sees the key,
+    // so only keys that mean the same everywhere get one: Ctrl+C, Delete or
+    // F2 keep their meaning in the search field.
+    if root.show-menu-bar: MenuBar {
+        Menu {
+            title: "File";
+            MenuItem {
+                title: "New window";
+                shortcut: @keys(Control + N);
+                enabled: !root.confirm-open;
+                activated => { root.new-window(); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Settings…";
+                shortcut: @keys(Control + ",");
+                enabled: !root.confirm-open;
+                activated => { root.open-settings(); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Quit";
+                shortcut: @keys(Control + Q);
+                enabled: !root.confirm-open;
+                activated => { root.quit(); }
+            }
+        }
+        Menu {
+            title: "Edit";
+            MenuItem {
+                title: "Copy name";
+                enabled: root.current >= 0;
+                activated => { root.copy-names(root.current); }
+            }
+            MenuItem {
+                title: "Copy full path";
+                enabled: root.current >= 0;
+                activated => { root.copy-paths(root.current); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Select all";
+                enabled: root.results.length > 0;
+                activated => {
+                    root.select-all();
+                    keys.focus();
+                }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Rename";
+                enabled: root.current >= 0 && root.rename-row < 0;
+                activated => { root.rename-start(root.current); }
+            }
+            MenuItem {
+                title: "Move to trash";
+                enabled: root.current >= 0;
+                activated => { root.trash(root.current); }
+            }
+            MenuItem {
+                title: "Delete permanently…";
+                enabled: root.current >= 0;
+                activated => { root.delete-request(root.current); }
+            }
+        }
+        Menu {
+            title: "View";
+            MenuItem {
+                title: "Type column";
+                checkable: true;
+                checked <=> root.show-type;
+                activated => { root.column-shown(4, root.show-type); }
+            }
+            MenuItem {
+                title: "Extension column";
+                checkable: true;
+                checked <=> root.show-ext;
+                activated => { root.column-shown(5, root.show-ext); }
+            }
+            MenuSeparator { }
+            Menu {
+                title: "Folder size";
+                for item[i] in root.folder-size-items: MenuItem {
+                    title: item.title;
+                    checkable: true;
+                    checked: item.checked;
+                    activated => { root.choose-folder-size(i); }
+                }
+            }
+            Menu {
+                title: "Density";
+                for item[i] in root.density-items: MenuItem {
+                    title: item.title;
+                    checkable: true;
+                    checked: item.checked;
+                    activated => { root.choose-density(i); }
+                }
+            }
+            Menu {
+                title: "Theme";
+                for item[i] in root.theme-items: MenuItem {
+                    title: item.title;
+                    checkable: true;
+                    checked: item.checked;
+                    activated => { root.choose-theme(i); }
+                }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Selection details";
+                checkable: true;
+                checked <=> root.status-details;
+                activated => { root.status-details-changed(root.status-details); }
+            }
+            MenuItem {
+                title: "Menu bar";
+                checkable: true;
+                checked <=> root.show-menu-bar;
+                activated => { root.menu-bar-changed(root.show-menu-bar); }
+            }
+        }
+        Menu {
+            title: "Search";
+            MenuItem {
+                title: "Match case";
+                shortcut: @keys(Alt + C);
+                checkable: true;
+                checked <=> root.match-case;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: "Match whole words";
+                shortcut: @keys(Alt + W);
+                checkable: true;
+                checked <=> root.whole-words;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: "Match the full path";
+                shortcut: @keys(Alt + P);
+                checkable: true;
+                checked <=> root.match-path;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: "Match diacritics";
+                shortcut: @keys(Alt + D);
+                checkable: true;
+                checked <=> root.match-diacritics;
+                activated => { root.options-edited(); }
+            }
+            MenuSeparator { }
+            Menu {
+                title: "Filter";
+                for item[i] in root.filter-items: MenuItem {
+                    title: item.title;
+                    checkable: true;
+                    checked: item.checked;
+                    activated => {
+                        root.filter-index = i;
+                        root.options-edited();
+                    }
+                }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "Previous search";
+                shortcut: @keys(Alt + LeftArrow);
+                activated => { root.history-go(-1); }
+            }
+            MenuItem {
+                title: "Next search";
+                shortcut: @keys(Alt + RightArrow);
+                activated => { root.history-go(1); }
+            }
+        }
+        Menu {
+            title: "Help";
+            MenuItem {
+                title: "Keyboard shortcuts";
+                activated => { root.shortcuts-open = true; }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: "About EveryGrep";
+                activated => { root.about-open = true; }
             }
         }
     }

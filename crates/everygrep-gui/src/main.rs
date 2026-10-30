@@ -16,6 +16,7 @@ mod selection;
 mod settings;
 
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -29,6 +30,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, Vec
 use engine::{Engine, Hooks, IndexState, SearchResult};
 use prefs::{IndexSetup, Prefs};
 use results::ResultsModel;
+use settings::{Density, ThemeChoice};
 
 slint::include_modules!();
 
@@ -118,6 +120,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }),
     };
+    let window_args = new_window_args(&args.roots, args.index_file.as_deref());
     let engine = Engine::start(
         setup.roots.clone(),
         setup.excludes.clone(),
@@ -147,9 +150,7 @@ fn main() -> Result<(), slint::PlatformError> {
         &window,
     );
     prefs.restore_columns(&window);
-    prefs.apply_theme();
-    prefs.apply_density();
-    prefs.apply_status_details();
+    prefs.apply_look();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
         let _ = portal::watch_color_scheme(|scheme| {
@@ -229,6 +230,12 @@ fn main() -> Result<(), slint::PlatformError> {
         let prefs = prefs.clone();
         move || prefs.open(None)
     });
+    window.on_new_window(move || {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).args(&window_args).spawn();
+        }
+    });
+    connect_menus(&window);
     window.on_quit({
         let (weak, prefs) = (weak.clone(), prefs.clone());
         move || {
@@ -331,6 +338,57 @@ fn main() -> Result<(), slint::PlatformError> {
     window.hide()?;
     engine.shutdown();
     Ok(())
+}
+
+/// Arguments that open another window over the same index.
+fn new_window_args(roots: &[PathBuf], index_file: Option<&std::path::Path>) -> Vec<OsString> {
+    let mut out = vec![OsString::from("--new-instance")];
+    for root in roots {
+        out.push("--root".into());
+        out.push(root.into());
+    }
+    if let Some(file) = index_file {
+        out.push("--index-file".into());
+        out.push(file.into());
+    }
+    out
+}
+
+/// The View menu's appearance choices and the Help menu's dialogs.
+fn connect_menus(w: &AppWindow) {
+    w.set_version(everygrep_core::VERSION.into());
+    let shortcuts: Vec<ShortcutRow> = labels::SHORTCUTS
+        .iter()
+        .map(|&(keys, action)| ShortcutRow {
+            keys: keys.into(),
+            action: action.into(),
+        })
+        .collect();
+    w.set_shortcuts(ModelRc::new(VecModel::from(shortcuts)));
+    let pick = |all_len: usize, i: i32| usize::try_from(i).ok().filter(|&i| i < all_len);
+    w.on_choose_theme(move |i| {
+        let i = pick(ThemeChoice::ALL.len(), i);
+        prefs::with(|p| match i {
+            Some(i) => p.set_theme(ThemeChoice::ALL[i]),
+            None => p.fill_menus(),
+        });
+    });
+    w.on_choose_density(move |i| {
+        let i = pick(Density::ALL.len(), i);
+        prefs::with(|p| match i {
+            Some(i) => p.set_density(Density::ALL[i]),
+            None => p.fill_menus(),
+        });
+    });
+    w.on_choose_folder_size(move |i| {
+        let i = pick(FolderSize::ALL.len(), i);
+        prefs::with(|p| match i {
+            Some(i) => p.set_folder_size(FolderSize::ALL[i]),
+            None => p.fill_menus(),
+        });
+    });
+    w.on_status_details_changed(|on| prefs::with(|p| p.set_status_details(on)));
+    w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
 }
 
 /// Requests from later launches, waiting for the UI thread.
@@ -841,6 +899,12 @@ fn show_badges(w: &AppWindow) {
         .map(SharedString::from)
         .collect();
     w.set_badges(ModelRc::new(VecModel::from(badges)));
+    // A new list, so the Filter menu shows a fresh check mark.
+    w.set_filter_items(prefs::choices(
+        &Filter::ALL,
+        options(w).filter,
+        labels::filter,
+    ));
 }
 
 fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
@@ -1019,6 +1083,34 @@ mod tests {
         assert!(parse(&["--settings=nope"]).is_err());
         assert_eq!(present_args(&["--settings=search"]).settings_page, Some(1));
         assert_eq!(args(&["--", "--settings"]).query, "--settings");
+    }
+
+    #[test]
+    fn a_new_window_opens_over_the_same_index() {
+        assert_eq!(new_window_args(&[], None), ["--new-instance"]);
+        let args = new_window_args(
+            &[PathBuf::from("/a b"), PathBuf::from("/c")],
+            Some(std::path::Path::new("/tmp/i.bin")),
+        );
+        assert_eq!(
+            args,
+            [
+                "--new-instance",
+                "--root",
+                "/a b",
+                "--root",
+                "/c",
+                "--index-file",
+                "/tmp/i.bin"
+            ]
+        );
+        // The arguments parse back to the same index.
+        let back = parse_args(args.iter().map(|a| a.to_string_lossy().into_owned()));
+        let Ok(Command::Run(a)) = back else {
+            panic!("{back:?}")
+        };
+        assert!(a.new_instance && a.query.is_empty());
+        assert_eq!(a.roots, [PathBuf::from("/a b"), PathBuf::from("/c")]);
     }
 
     #[test]

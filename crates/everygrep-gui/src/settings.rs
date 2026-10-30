@@ -15,6 +15,7 @@
 //! theme = light
 //! density = compact
 //! status-details = false
+//! menu-bar = false
 //! ```
 //!
 //! Only settings that differ from their defaults are written, so a file
@@ -153,6 +154,9 @@ pub struct Settings {
     /// Whether the status line shows the size, date and path of the selected
     /// item (and the number and size of several).
     pub status_details: bool,
+    /// Whether the window has a menu bar; without it the ⋯ button holds the
+    /// program's menu.
+    pub menu_bar: bool,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -174,6 +178,7 @@ impl Default for Settings {
             theme: ThemeChoice::System,
             density: Density::Comfortable,
             status_details: true,
+            menu_bar: true,
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -270,6 +275,7 @@ impl Settings {
                 .map(|t| self.theme = t)
                 .is_some(),
             "status-details" => put_flag(&mut self.status_details),
+            "menu-bar" => put_flag(&mut self.menu_bar),
             "density" => Density::ALL
                 .into_iter()
                 .find(|d| d.id() == value)
@@ -363,6 +369,7 @@ impl Settings {
             self.status_details,
             d.status_details,
         );
+        flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
         let c = &self.columns;
         flag(&mut out, "show-type-column", c.show_type, false);
         flag(&mut out, "show-extension-column", c.show_ext, false);
@@ -403,6 +410,7 @@ impl Settings {
                 self.theme = d.theme;
                 self.density = d.density;
                 self.status_details = d.status_details;
+                self.menu_bar = d.menu_bar;
             }
             Page::Window => {
                 self.on_close = d.on_close;
@@ -616,6 +624,7 @@ pub(crate) mod tests {
             theme: ThemeChoice::Dark,
             density: Density::Compact,
             status_details: false,
+            menu_bar: false,
             ..Settings::default()
         };
         let text = s.to_text();
@@ -623,6 +632,7 @@ pub(crate) mod tests {
         assert!(text.contains("theme = dark\n"));
         assert!(text.contains("density = compact\n"));
         assert!(text.contains("status-details = false\n"));
+        assert!(text.contains("menu-bar = false\n"));
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));
@@ -664,6 +674,20 @@ pub(crate) mod tests {
         assert_eq!(s.theme, ThemeChoice::System);
         assert_eq!(s.density, Density::Comfortable);
         assert_eq!(s.options.filter, Filter::Code, "other pages stay");
+    }
+
+    #[test]
+    fn menu_bar_and_details_default_to_on() {
+        let d = Settings::default();
+        assert!(d.menu_bar && d.status_details);
+        let text = d.to_text();
+        assert!(!text.contains("menu-bar") && !text.contains("status-details"));
+        let s = Settings::parse("menu-bar = off\nstatus-details = no\n");
+        assert!(!s.menu_bar && !s.status_details);
+        let mut s = Settings::parse("menu-bar = false\non-close = hide\n");
+        s.reset(Page::Appearance);
+        assert!(s.menu_bar);
+        assert_eq!(s.on_close, OnClose::Hide, "the Window page stays");
     }
 
     #[test]

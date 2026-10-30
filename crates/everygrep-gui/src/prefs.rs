@@ -16,6 +16,8 @@ use everygrep_core::scan::normalize_roots;
 use everygrep_core::sort::FolderSize;
 use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem, VecModel};
 
+use crate::MenuChoice;
+
 use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
 use crate::look::{self, Scheme};
@@ -251,6 +253,43 @@ impl Prefs {
         }
     }
 
+    /// Shows or hides the main window's menu bar.
+    pub fn apply_menu_bar(&self) {
+        if let Some(m) = self.main.upgrade() {
+            m.set_show_menu_bar(self.settings.borrow().menu_bar);
+        }
+    }
+
+    /// Changes whether the main window has a menu bar.
+    pub fn set_menu_bar(&self, on: bool) {
+        self.change(|s| s.menu_bar = on);
+        self.apply_menu_bar();
+        self.refresh();
+    }
+
+    /// Changes what folders show in the Size column.
+    pub fn set_folder_size(&self, folder_size: FolderSize) {
+        self.change(|s| s.folder_size = folder_size);
+        self.apply_folder_size();
+        self.refresh();
+    }
+
+    /// Puts the check marks of the main window's View menu on the chosen
+    /// theme, density and folder size.
+    pub fn fill_menus(&self) {
+        let Some(m) = self.main.upgrade() else { return };
+        let s = self.settings.borrow();
+        m.set_theme_items(choices(&ThemeChoice::ALL, s.theme, labels::theme));
+        m.set_density_items(choices(&Density::ALL, s.density, labels::density));
+        m.set_folder_size_items(choices(
+            &FolderSize::ALL,
+            s.folder_size,
+            labels::folder_size,
+        ));
+        m.set_status_details(s.status_details);
+        m.set_show_menu_bar(s.menu_bar);
+    }
+
     /// Packs the main window's list as the density setting says.
     pub fn apply_density(&self) {
         let compact = self.settings.borrow().density == Density::Compact;
@@ -463,6 +502,7 @@ impl Prefs {
             .map(|&d| labels::density(d).into())
             .collect();
         w.set_status_details(s.status_details);
+        w.set_menu_bar(s.menu_bar);
         w.set_density_names(ModelRc::new(VecModel::from(densities)));
         w.set_density(
             Density::ALL
@@ -574,15 +614,31 @@ impl Prefs {
             .and_then(|i| Density::ALL.get(i).copied())
             .unwrap_or_default();
         let details = w.get_status_details();
-        self.set_theme(theme);
-        self.set_density(density);
-        self.set_status_details(details);
+        let menu_bar = w.get_menu_bar();
+        self.change(|s| {
+            s.theme = theme;
+            s.density = density;
+            s.status_details = details;
+            s.menu_bar = menu_bar;
+        });
+        self.apply_look();
+        self.refresh();
+    }
+
+    /// Applies the settings of the Appearance page to the windows.
+    pub fn apply_look(&self) {
+        self.apply_theme();
+        self.apply_density();
+        self.apply_status_details();
+        self.apply_menu_bar();
+        self.fill_menus();
     }
 
     /// Changes whether the status line describes the selection.
     pub fn set_status_details(&self, on: bool) {
         self.change(|s| s.status_details = on);
         self.apply_status_details();
+        self.fill_menus();
         self.refresh();
     }
 
@@ -590,6 +646,7 @@ impl Prefs {
     pub fn set_density(&self, density: Density) {
         self.change(|s| s.density = density);
         self.apply_density();
+        self.fill_menus();
         self.refresh();
     }
 
@@ -597,6 +654,7 @@ impl Prefs {
     pub fn set_theme(&self, theme: ThemeChoice) {
         self.change(|s| s.theme = theme);
         self.apply_theme();
+        self.fill_menus();
         self.refresh();
     }
 
@@ -645,6 +703,7 @@ impl Prefs {
 
     /// Shows the chosen folder size in the main window, when it changed.
     fn apply_folder_size(&self) {
+        self.fill_menus();
         let folder_size = self.settings.borrow().folder_size;
         if let Some(m) = self.main.upgrade() {
             let mut shown = None;
@@ -679,9 +738,7 @@ impl Prefs {
             self.apply_history();
         }
         if page == Page::Appearance {
-            self.apply_theme();
-            self.apply_density();
-            self.apply_status_details();
+            self.apply_look();
         }
         if page == Page::Window {
             self.apply_folder_size();
@@ -738,6 +795,23 @@ impl Prefs {
     pub fn hide_on_close(&self) -> bool {
         self.settings.borrow().on_close == OnClose::Hide
     }
+}
+
+/// Menu items for a group of choices, the chosen one checked. A new list
+/// each time, so the menu shows fresh check marks.
+pub fn choices<T: Copy + PartialEq>(
+    all: &[T],
+    chosen: T,
+    name: fn(T) -> &'static str,
+) -> ModelRc<MenuChoice> {
+    let items: Vec<MenuChoice> = all
+        .iter()
+        .map(|&c| MenuChoice {
+            title: name(c).into(),
+            checked: c == chosen,
+        })
+        .collect();
+    ModelRc::new(VecModel::from(items))
 }
 
 /// The page index for a `--settings=<page>` name.

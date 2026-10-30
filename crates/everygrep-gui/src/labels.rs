@@ -260,6 +260,34 @@ pub const SHORTCUT_STEPS: &str = "In GNOME: open Settings → Keyboard → View 
 
 pub const COMMAND_COPIED: &str = "Copied the command.";
 
+/// The keyboard shortcuts dialog: keys and what they do.
+pub const SHORTCUTS: &[(&str, &str)] = &[
+    ("↑ ↓ PgUp PgDn Home End", "Move in the results and select"),
+    ("Shift + movement", "Extend the selection"),
+    ("Ctrl + movement", "Move without changing the selection"),
+    ("Ctrl+Space", "Add or remove one row"),
+    ("Ctrl+A", "Select all"),
+    ("Enter", "Open"),
+    ("Ctrl+Enter", "Open the containing folder"),
+    ("Ctrl+C", "Copy the name"),
+    ("Ctrl+Shift+C", "Copy the full path"),
+    ("F2", "Rename"),
+    ("Delete", "Move to the trash"),
+    ("Shift+Delete", "Delete permanently"),
+    ("Menu, Shift+F10", "Context menu"),
+    ("Esc", "Clear the selection, then the search"),
+    ("Ctrl+F, Ctrl+L", "Focus the search field"),
+    ("Alt+← / Alt+→", "Previous / next search"),
+    ("Alt+C", "Match case"),
+    ("Alt+W", "Match whole words"),
+    ("Alt+P", "Match the full path"),
+    ("Alt+D", "Match diacritics"),
+    ("Alt+↑ / Alt+↓", "Previous / next filter"),
+    ("Ctrl+N", "New window"),
+    ("Ctrl+,", "Settings"),
+    ("Ctrl+Q", "Quit"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

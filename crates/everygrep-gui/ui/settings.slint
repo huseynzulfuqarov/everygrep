@@ -111,6 +111,7 @@ export component SettingsWindow inherits Window {
     in property <[string]> density-names;
     in-out property <int> density;
     in-out property <bool> status-details;
+    in-out property <bool> menu-bar;
     callback appearance-changed();
 
     // Window
@@ -362,6 +363,14 @@ export component SettingsWindow inherits Window {
                         toggled => { root.appearance-changed(); }
                     }
                     Note { text: "One selected item shows its size, modification time and full path; several show their number and the total size of the files among them."; }
+                    Rectangle { height: Theme.s2; }
+                    Heading { text: "Menu bar"; }
+                    CheckBox {
+                        text: "Show the menu bar";
+                        checked <=> root.menu-bar;
+                        toggled => { root.appearance-changed(); }
+                    }
+                    Note { text: "Without it, the ⋯ button next to the filter holds Settings, Keyboard shortcuts, About and Quit."; }
                 }
 
                 if root.page == 3: VerticalLayout {
