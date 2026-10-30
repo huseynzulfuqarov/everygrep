@@ -270,6 +270,18 @@ mod tests {
             .find(|&id| store.name(id) == b"two.TXT")
             .unwrap();
         assert_eq!(store.meta(two).size, 2);
+        // Folder totals: one.txt + two.TXT + the link (its target "/" is one
+        // byte long); the excluded folder is not entered and counts as 0.
+        let size_of = |name: &[u8]| {
+            let id = (0..store.len())
+                .map(|i| NodeId(i as u32))
+                .find(|&id| store.name(id) == name)
+                .unwrap();
+            (store.meta(id).size, store.items(id))
+        };
+        assert_eq!(size_of(base.as_os_str().as_bytes()), (4, 3));
+        assert_eq!(size_of(b"a"), (3, 2));
+        assert_eq!(size_of(b"skip"), (0, 0));
     }
 
     #[test]

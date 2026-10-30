@@ -13,6 +13,11 @@
 //! checksum u64      over all preceding bytes
 //! ```
 //!
+//! The size column holds each folder's total as it was when saved, but folder
+//! totals and item counts are computed again on load (a few milliseconds for
+//! 600 000 nodes) and the saved values are not used, so files written before
+//! folder sizes existed (with 0 for folders) load unchanged.
+//!
 //! Files are written to a temporary name, synced and then renamed, so a crash
 //! leaves either the old or the new file, never a half-written one.
 
@@ -469,5 +474,106 @@ mod tests {
         let err = load(&path).err().expect("truncated file must not load");
         fs::remove_file(&path).unwrap();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// A tree of about `n` entries shaped like a home folder: folders hold up
+    /// to 19 files and up to 3 subfolders, at most 12 levels deep. Nodes are
+    /// added breadth first, so parents come before their children.
+    fn synthetic_tree(n: usize) -> NodeStore {
+        let mut s = NodeStore::new();
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let root = s.add(None, b"/home/me", true, Meta::default());
+        let mut queue = std::collections::VecDeque::from([(root, 0)]);
+        let mut count = 1;
+        while count < n {
+            let (dir, depth) = queue.pop_front().unwrap_or((root, 0));
+            for f in 0..next() % 20 {
+                let h = next();
+                let meta = Meta {
+                    size: h % (1 << (h % 28)),
+                    mtime_ns: (h >> 20) as i64,
+                };
+                s.add(
+                    Some(dir),
+                    format!("file-{count}-{f}-{h:x}.dat").as_bytes(),
+                    false,
+                    meta,
+                );
+                count += 1;
+            }
+            let subdirs = if depth < 12 { next() % 4 } else { 0 };
+            for d in 0..subdirs {
+                let id = s.add(
+                    Some(dir),
+                    format!("dir-{count}-{d}").as_bytes(),
+                    true,
+                    Meta::default(),
+                );
+                queue.push_back((id, depth + 1));
+                count += 1;
+            }
+        }
+        s
+    }
+
+    /// Prints build, save and load times and memory for a synthetic index of
+    /// 617 000 entries. Run with `cargo test --release -p everygrep-core
+    /// load_timing -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing only"]
+    fn load_timing() {
+        let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1e3;
+        let mut builds = Vec::new();
+        let mut store = NodeStore::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            store = synthetic_tree(617_000);
+            builds.push(ms(started));
+        }
+        let index = Index::new(store);
+        let path = temp_file("timing");
+        save(&index, &[], &path).unwrap();
+        let mut loads = Vec::new();
+        for _ in 0..7 {
+            let started = std::time::Instant::now();
+            let loaded = load(&path).unwrap();
+            loads.push(ms(started));
+            assert_eq!(loaded.index.len(), index.len());
+        }
+        // A folder created last with an early file moved into it: folder
+        // sizes are then computed without relying on id order.
+        let heap = index.heap_bytes();
+        let mut moved = index;
+        let first = moved.order().iter().find(|&id| !moved.store().is_dir(id));
+        let root = NodeId(0);
+        let late = moved.insert(Some(root), b"late", true, Meta::default());
+        moved.rename(first.unwrap(), Some(late), b"moved").unwrap();
+        save(&moved, &[], &path).unwrap();
+        let mut moved_loads = Vec::new();
+        for _ in 0..7 {
+            let started = std::time::Instant::now();
+            load(&path).unwrap();
+            moved_loads.push(ms(started));
+        }
+        fs::remove_file(&path).unwrap();
+        builds.sort_by(f64::total_cmp);
+        loads.sort_by(f64::total_cmp);
+        moved_loads.sort_by(f64::total_cmp);
+        eprintln!(
+            "{} nodes: build median {:.1} ms, load median {:.1} ms (min {:.1}), \
+             load after a move {:.1} ms, heap {:.1} MiB",
+            moved.len(),
+            builds[builds.len() / 2],
+            loads[loads.len() / 2],
+            loads[0],
+            moved_loads[moved_loads.len() / 2],
+            heap as f64 / (1 << 20) as f64
+        );
     }
 }

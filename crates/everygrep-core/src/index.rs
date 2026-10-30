@@ -522,8 +522,192 @@ mod tests {
         assert!(!compact.needs_compaction());
     }
 
+    /// Random inserts (with sizes), size changes, kind changes, removals,
+    /// moves and renames, with compactions in between: after every step each
+    /// folder's total and item count equal a recount from scratch.
+    #[test]
+    fn random_operations_keep_folder_sizes_exact() {
+        for seed in [1u64, 0xdead_beef, 0x0123_4567_89ab_cdef] {
+            let mut rng = Rng(seed);
+            let mut index = Index::new(NodeStore::new());
+            let roots = [
+                index.insert(None, b"/r", true, Meta::default()),
+                index.insert(None, b"/s", true, Meta::default()),
+            ];
+            let mut dirs = roots.to_vec();
+            let size = |rng: &mut Rng| match rng.next(4) {
+                0 => 0,
+                1 => rng.next(100) as u64,
+                2 => rng.next(1 << 20) as u64,
+                _ => (rng.next(1 << 20) as u64) << 20,
+            };
+            for step in 0..1500 {
+                dirs.retain(|&d| index.store().is_live(d));
+                let parent = dirs[rng.next(dirs.len())];
+                // Few names, so inserts often hit an existing node.
+                let name = format!("n{}", rng.next(12));
+                let ids: Vec<NodeId> = index.order().iter().collect();
+                let some = ids[rng.next(ids.len())];
+                match rng.next(12) {
+                    0..=3 => {
+                        let meta = Meta {
+                            size: size(&mut rng),
+                            mtime_ns: 1,
+                        };
+                        index.insert(Some(parent), name.as_bytes(), false, meta);
+                    }
+                    4 | 5 => {
+                        let meta = Meta {
+                            size: size(&mut rng),
+                            mtime_ns: 2,
+                        };
+                        dirs.push(index.insert(Some(parent), name.as_bytes(), true, meta));
+                    }
+                    6 | 7 => {
+                        let meta = Meta {
+                            size: size(&mut rng),
+                            mtime_ns: 3,
+                        };
+                        index.set_meta(some, meta);
+                    }
+                    8 => {
+                        if !roots.contains(&some) {
+                            index.remove(some);
+                        }
+                    }
+                    _ => {
+                        if !roots.contains(&some) {
+                            let _ = index.rename(some, Some(parent), name.as_bytes());
+                        }
+                    }
+                }
+                check_folder_sizes(index.store());
+                if step % 300 == 299 {
+                    index.take_removed();
+                    let remap = index.compact_in_place();
+                    dirs = dirs.iter().filter_map(|d| remap[d.index()]).collect();
+                    let new_roots: Vec<NodeId> =
+                        roots.iter().map(|r| remap[r.index()].unwrap()).collect();
+                    assert_eq!(new_roots, roots, "roots keep the lowest ids");
+                    check_consistent(&index);
+                }
+            }
+            check_consistent(&index);
+            // Saving and loading recomputes the same totals, also when some
+            // folders were created after the files moved into them.
+            let path = std::env::temp_dir().join(format!(
+                "everygrep-index-sizes-{seed}-{}.bin",
+                std::process::id()
+            ));
+            crate::persist::save(&index, &[], &path).unwrap();
+            let loaded = crate::persist::load(&path).unwrap().index;
+            std::fs::remove_file(&path).unwrap();
+            check_consistent(&loaded);
+            let totals = |index: &Index| -> Vec<(std::path::PathBuf, u64, u32)> {
+                let mut v: Vec<_> = index
+                    .order()
+                    .iter()
+                    .map(|id| {
+                        let s = index.store();
+                        (s.path(id), s.meta(id).size, s.items(id))
+                    })
+                    .collect();
+                v.sort();
+                v
+            };
+            assert_eq!(totals(&loaded), totals(&index));
+        }
+    }
+
+    #[test]
+    fn folder_sizes_follow_each_kind_of_change() {
+        let mut index = Index::new(NodeStore::new());
+        let meta = |size| Meta { size, mtime_ns: 0 };
+        let root = index.insert(None, b"/r", true, meta(0));
+        let a = index.insert(Some(root), b"a", true, meta(999));
+        let b = index.insert(Some(a), b"b", true, meta(0));
+        let f = index.insert(Some(b), b"f", false, meta(100));
+        let g = index.insert(Some(a), b"g", false, meta(10));
+        let size = |index: &Index, id| index.store().meta(id).size;
+        // A new folder starts empty, whatever size it was given.
+        assert_eq!((size(&index, a), size(&index, root)), (110, 110));
+        assert_eq!(index.store().items(a), 2);
+        // Size change.
+        index.set_meta(f, meta(300));
+        assert_eq!((size(&index, b), size(&index, root)), (300, 310));
+        // A folder's own metadata keeps its total.
+        index.set_meta(
+            a,
+            Meta {
+                size: 0,
+                mtime_ns: 9,
+            },
+        );
+        assert_eq!((size(&index, a), index.store().meta(a).mtime_ns), (310, 9));
+        // Move out of a folder, then rename in place.
+        index.rename(f, Some(root), b"f2").unwrap();
+        assert_eq!((size(&index, b), size(&index, a)), (0, 10));
+        assert_eq!(size(&index, root), 310);
+        // Moving a folder moves its total.
+        index.rename(a, None, b"/x").unwrap();
+        assert_eq!(size(&index, root), 300);
+        assert_eq!(index.store().items(root), 1);
+        // A file replaced by a folder of the same name.
+        let d = index.insert(Some(root), b"f2", true, meta(5));
+        assert_eq!((size(&index, d), size(&index, root)), (0, 0));
+        // Removing a folder takes its whole subtree.
+        let h = index.insert(Some(b), b"h", false, meta(7));
+        assert_eq!(size(&index, a), 17);
+        index.remove(b);
+        assert_eq!((size(&index, a), index.store().items(a)), (10, 1));
+        assert!(!index.store().is_live(h));
+        check_folder_sizes(index.store());
+        assert_eq!(index.store().items(g), 0);
+    }
+
+    /// Recounts every folder's total size and item count from scratch and
+    /// compares them with the kept ones.
+    fn check_folder_sizes(store: &NodeStore) {
+        let n = store.len();
+        let mut total = vec![0u64; n];
+        let mut items = vec![0u32; n];
+        for i in 0..n {
+            let id = NodeId(i as u32);
+            if !store.is_live(id) {
+                continue;
+            }
+            if let Some(p) = store.parent(id) {
+                items[p.index()] += 1;
+            }
+            if store.is_dir(id) {
+                continue;
+            }
+            let size = store.meta(id).size;
+            let mut up = store.parent(id);
+            while let Some(p) = up {
+                total[p.index()] = total[p.index()].wrapping_add(size);
+                up = store.parent(p);
+            }
+        }
+        for i in 0..n {
+            let id = NodeId(i as u32);
+            if store.is_live(id) {
+                assert_eq!(store.items(id), items[i], "items of {:?}", store.path(id));
+                if store.is_dir(id) {
+                    assert_eq!(
+                        store.meta(id).size,
+                        total[i],
+                        "size of {:?}",
+                        store.path(id)
+                    );
+                }
+            }
+        }
+    }
+
     fn check_consistent(index: &Index) {
         let store = index.store();
+        check_folder_sizes(store);
         let ids: Vec<NodeId> = index.order().iter().collect();
         let live: Vec<NodeId> = (0..store.len())
             .map(|i| NodeId(i as u32))

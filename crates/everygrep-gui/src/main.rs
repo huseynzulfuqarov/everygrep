@@ -776,7 +776,11 @@ fn sort_for_column(column: i32, descending: bool) -> Sort {
         5 => SortKey::Extension,
         _ => SortKey::Name,
     };
-    Sort { key, descending }
+    Sort {
+        key,
+        descending,
+        ..Sort::default()
+    }
 }
 
 /// The matching modes and filter set in the window.

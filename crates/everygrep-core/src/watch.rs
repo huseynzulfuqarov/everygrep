@@ -537,6 +537,50 @@ mod tests {
         assert!(f.settle(|i| has(i, &n)));
     }
 
+    /// Folder paths with their total size and item count.
+    fn folder_sizes(index: &Index) -> Vec<(PathBuf, u64, u32)> {
+        let store = index.store();
+        let mut v: Vec<_> = index
+            .order()
+            .iter()
+            .filter(|&id| store.is_dir(id))
+            .map(|id| (store.path(id), store.meta(id).size, store.items(id)))
+            .collect();
+        v.sort();
+        v
+    }
+
+    fn scanned_sizes(root: &Path) -> Vec<(PathBuf, u64, u32)> {
+        let mut store = NodeStore::new();
+        scan(&mut store, &[root.to_path_buf()], &ScanOptions::default());
+        folder_sizes(&Index::new(store))
+    }
+
+    #[test]
+    fn folder_sizes_follow_live_changes() {
+        let mut f = Fixture::new("sizes");
+        let root = f.root();
+        let same = |f: &mut Fixture| f.settle(|i| folder_sizes(i) == scanned_sizes(&root));
+        fs::create_dir_all(root.join("x/y")).unwrap();
+        fs::write(root.join("x/y/big.bin"), vec![0u8; 5000]).unwrap();
+        fs::write(root.join("x/small.txt"), b"12345").unwrap();
+        assert!(same(&mut f), "create");
+        fs::write(root.join("x/small.txt"), vec![1u8; 700]).unwrap();
+        assert!(same(&mut f), "grow");
+        fs::rename(root.join("x/y/big.bin"), root.join("docs/big.bin")).unwrap();
+        assert!(same(&mut f), "move between folders");
+        fs::rename(root.join("docs/big.bin"), f.base.join("outside/big.bin")).unwrap();
+        assert!(same(&mut f), "move out");
+        fs::rename(f.base.join("outside/big.bin"), root.join("x/y/in.bin")).unwrap();
+        assert!(same(&mut f), "move in");
+        fs::rename(root.join("x"), root.join("docs/x2")).unwrap();
+        assert!(same(&mut f), "move a folder");
+        fs::remove_dir_all(root.join("docs/x2")).unwrap();
+        assert!(same(&mut f), "remove a folder");
+        let docs = folder_sizes(&f.index);
+        assert_eq!(docs[1], (root.join("docs"), 1, 1));
+    }
+
     #[test]
     fn removing_a_folder_tree_removes_all_nodes() {
         let mut f = Fixture::new("rmtree");

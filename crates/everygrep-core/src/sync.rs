@@ -251,12 +251,26 @@ mod tests {
         v
     }
 
+    /// Folder paths with their total size and item count.
+    fn folder_sizes(index: &Index) -> Vec<(PathBuf, u64, u32)> {
+        let store = index.store();
+        let mut v: Vec<_> = index
+            .order()
+            .iter()
+            .filter(|&id| store.is_dir(id))
+            .map(|id| (store.path(id), store.meta(id).size, store.items(id)))
+            .collect();
+        v.sort();
+        v
+    }
+
     #[test]
     fn catch_up_matches_a_fresh_scan() {
         let base = tree("match");
         let mut index = index_of(&base);
 
         fs::write(base.join("keep/new.txt"), b"n").unwrap();
+        fs::write(base.join("keep/deep/b.txt"), b"bigger").unwrap();
         fs::remove_file(base.join("keep/a.txt")).unwrap();
         fs::remove_dir_all(base.join("gone")).unwrap();
         fs::rename(base.join("old-name"), base.join("new-name")).unwrap();
@@ -271,6 +285,7 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
 
         assert_eq!(paths(&index), paths(&fresh));
+        assert_eq!(folder_sizes(&index), folder_sizes(&fresh));
         assert!(stats.removed >= 4, "{stats:?}");
         assert!(stats.added >= 6, "{stats:?}");
     }

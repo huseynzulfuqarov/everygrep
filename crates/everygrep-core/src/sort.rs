@@ -4,6 +4,9 @@
 //! such a list by another key. Each key is computed once per node, then the keys
 //! are sorted; equal keys keep the name order of the input, so the result is
 //! deterministic. Folders are not forced before files.
+//!
+//! By size, folders count with what [`FolderSize`] says: their total size
+//! (sorted together with files), their number of items, or nothing.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -20,7 +23,7 @@ pub enum SortKey {
     Name,
     /// Containing folder, then name.
     Path,
-    /// Size in bytes (folders count as 0).
+    /// Size in bytes; folders as chosen by [`Sort::folders`].
     Size,
     /// Modification time.
     Modified,
@@ -30,6 +33,41 @@ pub enum SortKey {
     Type,
 }
 
+/// What a folder's size is when sorting by [`SortKey::Size`] (and what the
+/// window shows in its Size column).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FolderSize {
+    /// The total size of all files below the folder, at any depth. Folders
+    /// and files sort together by bytes.
+    #[default]
+    Total,
+    /// The number of direct children. Folders sort by it among themselves,
+    /// below all files (above them when descending), since a count and a size
+    /// cannot be compared.
+    Items,
+    /// Nothing: folders count as 0 bytes, as before folder sizes existed.
+    None,
+}
+
+impl FolderSize {
+    /// Every choice, in the order the settings show them.
+    pub const ALL: [FolderSize; 3] = [FolderSize::Total, FolderSize::Items, FolderSize::None];
+
+    /// Name used in settings files.
+    pub fn id(self) -> &'static str {
+        match self {
+            FolderSize::Total => "total",
+            FolderSize::Items => "items",
+            FolderSize::None => "none",
+        }
+    }
+
+    /// The choice named `id` (see [`id`](Self::id)).
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.id() == id)
+    }
+}
+
 /// A sort key and a direction.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Sort {
@@ -37,6 +75,8 @@ pub struct Sort {
     pub key: SortKey,
     /// Largest first instead of smallest first.
     pub descending: bool,
+    /// What a folder's size is for [`SortKey::Size`].
+    pub folders: FolderSize,
 }
 
 /// Lists shorter than this are sorted on the calling thread.
@@ -69,10 +109,35 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
                 ids.reverse();
             }
         }
-        SortKey::Size => {
-            let k: Vec<u64> = ids.iter().map(|&id| store.meta(id).size).collect();
-            sort_directed(ids, threads, desc, k);
-        }
+        SortKey::Size => match sort.folders {
+            FolderSize::Total | FolderSize::None => {
+                let none = sort.folders == FolderSize::None;
+                let k: Vec<u64> = ids
+                    .iter()
+                    .map(|&id| {
+                        if none && store.is_dir(id) {
+                            0
+                        } else {
+                            store.meta(id).size
+                        }
+                    })
+                    .collect();
+                sort_directed(ids, threads, desc, k);
+            }
+            FolderSize::Items => {
+                let k: Vec<(bool, u64)> = ids
+                    .iter()
+                    .map(|&id| {
+                        if store.is_dir(id) {
+                            (false, u64::from(store.items(id)))
+                        } else {
+                            (true, store.meta(id).size)
+                        }
+                    })
+                    .collect();
+                sort_directed(ids, threads, desc, k);
+            }
+        },
         SortKey::Modified => {
             let k: Vec<i64> = ids.iter().map(|&id| store.meta(id).mtime_ns).collect();
             sort_directed(ids, threads, desc, k);
@@ -283,7 +348,16 @@ mod tests {
     fn sorted(index: &Index, key: SortKey, descending: bool, threads: usize) -> Vec<String> {
         let all = Query::parse("", QueryOptions::default()).unwrap();
         let mut ids = search(index, &all, 1);
-        sort(index, &mut ids, Sort { key, descending }, threads);
+        sort(
+            index,
+            &mut ids,
+            Sort {
+                key,
+                descending,
+                folders: FolderSize::None,
+            },
+            threads,
+        );
         ids.iter()
             .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
             .collect()
@@ -367,6 +441,97 @@ mod tests {
                 "b",
             ],
         );
+    }
+
+    fn sorted_by_size(index: &Index, folders: FolderSize, descending: bool) -> Vec<String> {
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let mut ids = search(index, &all, 1);
+        let s = Sort {
+            key: SortKey::Size,
+            descending,
+            folders,
+        };
+        sort(index, &mut ids, s, 1);
+        ids.iter()
+            .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn folders_sort_by_total_size_together_with_files() {
+        // Totals: /r 80, b 40, A 30, a-c 10.
+        let index = tree();
+        assert_eq!(
+            sorted_by_size(&index, FolderSize::Total, false),
+            [
+                ".bashrc",
+                "a-c",
+                "alpha.pdf",
+                "Beta.Pdf",
+                "mid.txt",
+                "A",
+                "zeta.TXT",
+                "b",
+                "/r"
+            ]
+        );
+        assert_eq!(
+            sorted_by_size(&index, FolderSize::Total, true),
+            [
+                "/r",
+                "b",
+                "A",
+                "zeta.TXT",
+                "mid.txt",
+                ".bashrc",
+                "a-c",
+                "alpha.pdf",
+                "Beta.Pdf"
+            ]
+        );
+    }
+
+    #[test]
+    fn folders_sort_by_items_apart_from_files() {
+        // Items: /r 3, b 2, A 2, a-c 1.
+        let index = tree();
+        assert_eq!(
+            sorted_by_size(&index, FolderSize::Items, false),
+            [
+                "a-c",
+                "A",
+                "b",
+                "/r",
+                ".bashrc",
+                "alpha.pdf",
+                "Beta.Pdf",
+                "mid.txt",
+                "zeta.TXT"
+            ]
+        );
+        assert_eq!(
+            sorted_by_size(&index, FolderSize::Items, true),
+            [
+                "zeta.TXT",
+                "mid.txt",
+                ".bashrc",
+                "alpha.pdf",
+                "Beta.Pdf",
+                "/r",
+                "A",
+                "b",
+                "a-c"
+            ]
+        );
+    }
+
+    #[test]
+    fn folder_size_ids_round_trip() {
+        for f in FolderSize::ALL {
+            assert_eq!(FolderSize::from_id(f.id()), Some(f));
+        }
+        assert_eq!(FolderSize::from_id("bytes"), None);
+        assert_eq!(FolderSize::default(), FolderSize::Total);
     }
 
     #[test]
@@ -511,21 +676,22 @@ mod tests {
         let all = Query::parse("", QueryOptions::default()).unwrap();
         let ids = search(&index, &all, 1);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-        for key in KEYS {
+        let cases = KEYS.iter().map(|&key| (key, FolderSize::Total)).chain([
+            (SortKey::Size, FolderSize::Items),
+            (SortKey::Size, FolderSize::None),
+        ]);
+        for (key, folders) in cases {
             for t in [1, threads] {
                 let mut v = ids.clone();
                 let started = std::time::Instant::now();
-                sort(
-                    &index,
-                    &mut v,
-                    Sort {
-                        key,
-                        descending: false,
-                    },
-                    t,
-                );
+                let s = Sort {
+                    key,
+                    descending: false,
+                    folders,
+                };
+                sort(&index, &mut v, s, t);
                 eprintln!(
-                    "{key:?} {} nodes, {t} threads: {:.1} ms",
+                    "{key:?} ({folders:?}) {} nodes, {t} threads: {:.1} ms",
                     v.len(),
                     started.elapsed().as_secs_f64() * 1e3
                 );
