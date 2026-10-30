@@ -11,6 +11,7 @@
 //! filter = document
 //! history-size = 50
 //! on-close = hide
+//! folder-size = items
 //! ```
 //!
 //! Only settings that differ from their defaults are written, so a file
@@ -32,6 +33,7 @@ use std::path::{Path, PathBuf};
 
 use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
+use everygrep_core::sort::FolderSize;
 
 /// Search history entries kept by default (the number before settings
 /// existed).
@@ -92,6 +94,10 @@ pub struct Settings {
     /// Whether the search history is saved between sessions.
     pub history_on_disk: bool,
     pub on_close: OnClose,
+    /// What the Size column shows for folders, and sorts them by. The one
+    /// default that differs from the behaviour before settings existed
+    /// (folders had an empty size then).
+    pub folder_size: FolderSize,
     /// Whether the optional columns and the column widths are kept between
     /// sessions.
     pub remember_columns: bool,
@@ -111,6 +117,7 @@ impl Default for Settings {
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             on_close: OnClose::Quit,
+            folder_size: FolderSize::Total,
             remember_columns: true,
             columns: Columns::default(),
             unknown: Vec::new(),
@@ -198,6 +205,9 @@ impl Settings {
                 .find(|o| o.id() == value)
                 .map(|o| self.on_close = o)
                 .is_some(),
+            "folder-size" => FolderSize::from_id(value)
+                .map(|f| self.folder_size = f)
+                .is_some(),
             "remember-columns" => put_flag(&mut self.remember_columns),
             "show-type-column" => put_flag(&mut self.columns.show_type),
             "show-extension-column" => put_flag(&mut self.columns.show_ext),
@@ -266,6 +276,9 @@ impl Settings {
         if self.on_close != d.on_close {
             line(&mut out, "on-close", self.on_close.id());
         }
+        if self.folder_size != d.folder_size {
+            line(&mut out, "folder-size", self.folder_size.id());
+        }
         flag(
             &mut out,
             "remember-columns",
@@ -310,6 +323,7 @@ impl Settings {
             }
             Page::Window => {
                 self.on_close = d.on_close;
+                self.folder_size = d.folder_size;
                 self.remember_columns = d.remember_columns;
                 self.columns = d.columns;
             }
@@ -344,7 +358,7 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
 fn is_known(key: &str) -> bool {
     let mut probe = Settings::default();
     // Every known key accepts at least one of these values.
-    ["true", "all", "quit", "1", "/"]
+    ["true", "all", "quit", "total", "1", "/"]
         .iter()
         .any(|v| probe.set(key, v))
 }
@@ -503,6 +517,7 @@ pub(crate) mod tests {
             history_size: 0,
             history_on_disk: true,
             on_close: OnClose::Hide,
+            folder_size: FolderSize::Items,
             remember_columns: false,
             columns: Columns {
                 show_type: true,
@@ -519,6 +534,24 @@ pub(crate) mod tests {
         assert_eq!(Settings::parse(&text), s, "{text}");
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
+        assert!(text.contains("folder-size = items\n"));
+    }
+
+    #[test]
+    fn folder_size_defaults_to_total_and_reads_every_choice() {
+        assert_eq!(Settings::default().folder_size, FolderSize::Total);
+        for f in FolderSize::ALL {
+            let s = Settings {
+                folder_size: f,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).folder_size, f);
+        }
+        assert!(!Settings::default().to_text().contains("folder-size"));
+        let s = Settings::parse("folder-size = none\nfolder-size = bytes\n");
+        assert_eq!(s.folder_size, FolderSize::None);
+        assert_eq!(s.problems.len(), 1, "a bad value is reported, not kept");
+        assert!(!s.to_text().contains("bytes"));
     }
 
     #[test]
@@ -578,13 +611,14 @@ root = broken\\q
     #[test]
     fn reset_touches_one_page_only() {
         let mut s = Settings::parse(
-            "root = /a\nexclude = /a/b\nfilter = code\nhistory-size = 5\non-close = hide\n",
+            "root = /a\nexclude = /a/b\nfilter = code\nhistory-size = 5\non-close = hide\nfolder-size = none\n",
         );
         s.reset(Page::Search);
         assert_eq!(s.options, QueryOptions::default());
         assert_eq!(s.history_size, DEFAULT_HISTORY);
         assert_eq!(s.roots, [PathBuf::from("/a")]);
         assert_eq!(s.on_close, OnClose::Hide);
+        assert_eq!(s.folder_size, FolderSize::None);
         s.reset(Page::Indexing);
         assert!(s.roots.is_empty() && s.excludes.is_empty());
         s.reset(Page::Window);

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
 use everygrep_core::scan::normalize_roots;
+use everygrep_core::sort::FolderSize;
 use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use crate::engine::{Engine, IndexState};
@@ -379,6 +380,18 @@ impl Prefs {
                 .unwrap_or(0) as i32,
         );
         w.set_on_close_note(labels::on_close_note(s.on_close).into());
+        let sizes: Vec<SharedString> = FolderSize::ALL
+            .iter()
+            .map(|&f| labels::folder_size(f).into())
+            .collect();
+        w.set_folder_size_names(ModelRc::new(VecModel::from(sizes)));
+        w.set_folder_size(
+            FolderSize::ALL
+                .iter()
+                .position(|&f| f == s.folder_size)
+                .unwrap_or(0) as i32,
+        );
+        w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
         w.set_remember_columns(s.remember_columns);
 
         w.set_command(COMMAND.into());
@@ -495,15 +508,33 @@ impl Prefs {
             .ok()
             .and_then(|i| OnClose::ALL.get(i).copied())
             .unwrap_or_default();
+        let folder_size = usize::try_from(w.get_folder_size())
+            .ok()
+            .and_then(|i| FolderSize::ALL.get(i).copied())
+            .unwrap_or_default();
         let remember = w.get_remember_columns();
         self.change(|s| {
             s.on_close = on_close;
+            s.folder_size = folder_size;
             s.remember_columns = remember;
             if !remember {
                 s.columns = Columns::default();
             }
         });
+        self.apply_folder_size();
         self.refresh();
+    }
+
+    /// Shows the chosen folder size in the main window, when it changed.
+    fn apply_folder_size(&self) {
+        let folder_size = self.settings.borrow().folder_size;
+        if let Some(m) = self.main.upgrade() {
+            let mut shown = None;
+            crate::with_model(&m, |model| shown = Some(model.folder_size()));
+            if shown != Some(folder_size) {
+                crate::set_folder_size(&m, &self.engine, folder_size);
+            }
+        }
     }
 
     fn reset(&self, page: usize) {
@@ -527,6 +558,9 @@ impl Prefs {
         self.change(|s| s.reset(page));
         if page == Page::Search {
             self.apply_history();
+        }
+        if page == Page::Window {
+            self.apply_folder_size();
         }
         self.refresh();
     }

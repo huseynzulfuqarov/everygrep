@@ -5,6 +5,7 @@
 use everygrep_core::filter::Filter;
 use everygrep_core::kind::FileKind;
 use everygrep_core::query::QueryOptions;
+use everygrep_core::sort::FolderSize;
 
 use crate::engine::IndexState;
 use crate::format;
@@ -86,6 +87,37 @@ pub fn folder_count(n: usize) -> String {
         "1 folder".to_owned()
     } else {
         format!("{} folders", format::count(n))
+    }
+}
+
+/// `1 item`, `12 items`: a folder's size when it shows the number of items.
+pub fn items(n: u32) -> String {
+    if n == 1 {
+        "1 item".to_owned()
+    } else {
+        format!("{} items", format::count(n as usize))
+    }
+}
+
+/// Choices for what a folder's Size shows.
+pub fn folder_size(f: FolderSize) -> &'static str {
+    match f {
+        FolderSize::Total => "Total size",
+        FolderSize::Items => "Number of items",
+        FolderSize::None => "Nothing",
+    }
+}
+
+/// What the chosen folder size means.
+pub fn folder_size_note(f: FolderSize) -> &'static str {
+    match f {
+        FolderSize::Total => {
+            "The size of all files inside the folder and its subfolders. Folders sort by it together with files."
+        }
+        FolderSize::Items => {
+            "How many files and folders are directly inside. Sorting by Size puts folders apart from files, by this number."
+        }
+        FolderSize::None => "Folders sort by Size as if they were empty.",
     }
 }
 

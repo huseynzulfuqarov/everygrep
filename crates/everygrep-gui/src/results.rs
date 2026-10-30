@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use everygrep_core::localtime::Zone;
 use everygrep_core::query::{NameTerm, match_span};
+use everygrep_core::sort::FolderSize;
 use everygrep_core::store::NodeId;
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
@@ -38,6 +39,7 @@ pub struct ResultsModel {
     state: Cell<IndexState>,
     indexed: Cell<usize>,
     took: Cell<Duration>,
+    folder_size: Cell<FolderSize>,
     notify: ModelNotify,
 }
 
@@ -57,6 +59,7 @@ impl ResultsModel {
             state: Cell::new(IndexState::Loading),
             indexed: Cell::new(0),
             took: Cell::new(Duration::ZERO),
+            folder_size: Cell::new(FolderSize::default()),
             notify: ModelNotify::default(),
         }
     }
@@ -196,6 +199,16 @@ impl ResultsModel {
             })
     }
 
+    /// What the Size column shows for folders. Rows change with the next
+    /// result.
+    pub fn set_folder_size(&self, f: FolderSize) {
+        self.folder_size.set(f);
+    }
+
+    pub fn folder_size(&self) -> FolderSize {
+        self.folder_size.get()
+    }
+
     pub fn set_state(&self, state: IndexState, indexed: usize) {
         self.state.set(state);
         self.indexed.set(indexed);
@@ -297,11 +310,7 @@ impl Model for ResultsModel {
             name_match: matched.into(),
             name_after: after.into(),
             folder,
-            size: if is_dir {
-                SharedString::new()
-            } else {
-                format::size(meta.size).into()
-            },
+            size: size_text(is_dir, meta.size, store.items(id), self.folder_size.get()).into(),
             modified: format::date(meta.mtime_ns, now, &self.zone).into(),
             modified_full: format::timestamp(meta.mtime_ns, &self.zone).into(),
             type_name,
@@ -318,6 +327,16 @@ impl Model for ResultsModel {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+/// Text of the Size column. A folder's size is the total of the files below
+/// it.
+fn size_text(is_dir: bool, size: u64, items: u32, folders: FolderSize) -> String {
+    match (is_dir, folders) {
+        (false, _) | (true, FolderSize::Total) => format::size(size),
+        (true, FolderSize::Items) => labels::items(items),
+        (true, FolderSize::None) => String::new(),
     }
 }
 
@@ -347,6 +366,23 @@ mod tests {
             .name_terms();
         let (a, b, c) = split_name(name, &terms);
         (a.into(), b.into(), c.into())
+    }
+
+    #[test]
+    fn folder_size_column_follows_the_setting() {
+        let gb = 3 << 30;
+        assert_eq!(size_text(true, gb, 12, FolderSize::Total), "3.0 GB");
+        assert_eq!(size_text(true, gb, 12, FolderSize::Items), "12 items");
+        assert_eq!(size_text(true, gb, 1, FolderSize::Items), "1 item");
+        assert_eq!(size_text(true, gb, 0, FolderSize::Items), "0 items");
+        assert_eq!(size_text(true, gb, 12, FolderSize::None), "");
+        for f in FolderSize::ALL {
+            assert_eq!(size_text(false, 512, 0, f), "512 B");
+        }
+        assert_eq!(
+            size_text(true, 0, 12_345, FolderSize::Items),
+            "12\u{2009}345 items"
+        );
     }
 
     #[test]

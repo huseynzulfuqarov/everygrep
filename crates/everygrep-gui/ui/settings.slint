@@ -110,6 +110,9 @@ export component SettingsWindow inherits Window {
     in-out property <int> on-close;
     in property <string> on-close-note;
     in-out property <bool> remember-columns;
+    in property <[string]> folder-size-names;
+    in-out property <int> folder-size;
+    in property <string> folder-size-note;
     callback window-changed();
 
     // Keyboard shortcut
@@ -318,6 +321,25 @@ export component SettingsWindow inherits Window {
                         toggled => { root.window-changed(); }
                     }
                     Note { text: "Right-click the column headers to show the Type and Extension columns; drag the header borders to resize."; }
+                    Rectangle { height: Theme.s2; }
+                    Heading { text: "Folder size"; }
+                    HorizontalLayout {
+                        spacing: Theme.s3;
+                        Text {
+                            text: "The Size column shows";
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        ComboBox {
+                            width: 180px;
+                            accessible-label: "What the Size column shows for folders";
+                            model: root.folder-size-names;
+                            current-index <=> root.folder-size;
+                            selected => { root.window-changed(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Note { text: root.folder-size-note; }
                 }
 
                 if root.page == 3: VerticalLayout {

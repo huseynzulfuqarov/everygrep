@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
-use everygrep_core::sort::{Sort, SortKey};
+use everygrep_core::sort::{FolderSize, Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use engine::{Engine, Hooks, IndexState, SearchResult};
@@ -133,6 +133,10 @@ fn main() -> Result<(), slint::PlatformError> {
     set_options(&window, start_options);
     window.set_show_type(args.show_type);
     window.set_show_ext(args.show_ext);
+    let folder_size = settings.folder_size;
+    if folder_size != FolderSize::default() {
+        set_folder_size(&window, &engine, folder_size);
+    }
     let prefs = Prefs::install(
         settings_path,
         settings,
@@ -223,9 +227,9 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     window.on_sort_changed({
-        let engine = engine.clone();
+        let (engine, model) = (engine.clone(), model.clone());
         move |column, descending| {
-            engine.set_sort(sort_for_column(column, descending));
+            engine.set_sort(sort_for_column(column, descending, model.folder_size()));
         }
     });
     window.on_select({
@@ -766,8 +770,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
 
 /// The sort for a header column of the window (0 name, 1 folder, 2 size,
 /// 3 modified, 4 type, 5 extension). The folder column sorts by folder, then
-/// name.
-fn sort_for_column(column: i32, descending: bool) -> Sort {
+/// name; folders sort by size as `folders` says.
+fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
     let key = match column {
         1 => SortKey::Path,
         2 => SortKey::Size,
@@ -779,8 +783,19 @@ fn sort_for_column(column: i32, descending: bool) -> Sort {
     Sort {
         key,
         descending,
-        ..Sort::default()
+        folders,
     }
+}
+
+/// Shows folder sizes as `folders` says and sorts by them; the rows change
+/// with the new result.
+fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
+    with_model(w, |m| m.set_folder_size(folders));
+    engine.set_sort(sort_for_column(
+        w.get_sort_column(),
+        w.get_sort_descending(),
+        folders,
+    ));
 }
 
 /// The matching modes and filter set in the window.
@@ -1002,7 +1017,9 @@ mod tests {
 
     #[test]
     fn header_columns_map_to_sort_keys() {
-        let keys: Vec<SortKey> = (0..6).map(|c| sort_for_column(c, false).key).collect();
+        let keys: Vec<SortKey> = (0..6)
+            .map(|c| sort_for_column(c, false, FolderSize::Total).key)
+            .collect();
         assert_eq!(
             keys,
             [
@@ -1014,7 +1031,14 @@ mod tests {
                 SortKey::Extension
             ]
         );
-        assert!(sort_for_column(2, true).descending);
-        assert_eq!(sort_for_column(9, false).key, SortKey::Name);
+        assert!(sort_for_column(2, true, FolderSize::Total).descending);
+        assert_eq!(
+            sort_for_column(2, false, FolderSize::Items).folders,
+            FolderSize::Items
+        );
+        assert_eq!(
+            sort_for_column(9, false, FolderSize::None).key,
+            SortKey::Name
+        );
     }
 }
