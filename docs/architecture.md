@@ -99,6 +99,34 @@ While watching, removed slots and unused name bytes accumulate; when they
 make up more than a quarter of the store, it is compacted in place and the
 ids are renumbered (callers get the id map).
 
+### Removable drives (`drives.rs`)
+
+A drive counts as removable only when its mount point lies directly in
+`/run/media/$USER` or `/media/$USER`, where the desktop's disk service
+(udisks) mounts what is plugged in; in-memory and virtual file systems never
+count. Any other mount in the mount table, including file systems mounted
+from `/etc/fstab` under `/mnt`, is never treated as a drive (a test holds
+this). A drive is named by the UUID of its file system: the link in
+`/dev/disk/by-uuid` that points to the mount's source (compared as a path,
+or by device numbers), and labelled from `/dev/disk/by-label`. So the same
+disk is recognised wherever it is mounted.
+
+`MountWatch` notices mount table changes: the kernel marks
+`/proc/self/mountinfo` with `POLLPRI` on every mount and unmount, so a thread
+can sleep in `poll` at no cost until then (it wakes once a second only to
+check whether the program is ending). A table that is a plain file (a
+simulated one) is read again once a second and compared.
+
+What is known about a drive lives in the volumes folder
+(`$XDG_CACHE_HOME/everygrep/volumes`): `<uuid>.bin`, its saved index in the
+normal index format with the mount point as its root, and `<uuid>.info`, a
+`key = value` text with its UUID, label, last mount point, the time it was
+last connected and its number of entries.
+
+Every place can be replaced for tests and demonstrations with environment
+variables: `EVERYGREP_MOUNTINFO`, `EVERYGREP_MEDIA_DIRS` (`:`-separated),
+`EVERYGREP_DISK_BY_UUID`, `EVERYGREP_DISK_BY_LABEL` and `EVERYGREP_VOLUMES`.
+
 ### Saved index (`persist.rs`)
 
 See [index-format.md](index-format.md).

@@ -31,6 +31,10 @@ const IN_NONBLOCK: c_int = 0o4000;
 const IN_CLOEXEC: c_int = 0o2000000;
 /// `POLLIN` (`<bits/poll.h>`).
 const POLLIN: c_short = 0x001;
+/// `POLLPRI` (`<bits/poll.h>`).
+const POLLPRI: c_short = 0x002;
+/// `POLLERR` (`<bits/poll.h>`).
+const POLLERR: c_short = 0x008;
 
 /// Mirror of glibc `struct pollfd` (`<sys/poll.h>`).
 #[repr(C)]
@@ -46,6 +50,31 @@ unsafe extern "C" {
     fn inotify_rm_watch(fd: c_int, wd: c_int) -> c_int;
     fn read(fd: c_int, buf: *mut c_void, count: usize) -> isize;
     fn poll(fds: *mut PollFd, nfds: c_ulong, timeout: c_int) -> c_int;
+}
+
+/// Waits up to `timeout` for `POLLPRI` or `POLLERR` on `fd`, which is how
+/// `/proc/self/mountinfo` reports a change of the mount table. Returns
+/// whether it came. Restarts after a signal with the remaining time.
+pub(crate) fn wait_priority(fd: &impl AsRawFd, timeout: Duration) -> io::Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let ms = duration_to_poll_ms(deadline.saturating_duration_since(Instant::now()));
+        let mut pfd = PollFd {
+            fd: fd.as_raw_fd(),
+            events: POLLPRI,
+            revents: 0,
+        };
+        // SAFETY: `pfd` is a valid, writable pollfd and nfds is 1.
+        let rc = unsafe { poll(&mut pfd, 1, ms) };
+        if rc < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(rc > 0 && pfd.revents & (POLLPRI | POLLERR) != 0);
+    }
 }
 
 /// A set of inotify event bits and watch flags.

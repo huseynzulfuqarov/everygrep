@@ -1,5 +1,6 @@
 //! EveryGrep core: an in-memory file name index with instant substring search.
 
+pub mod drives;
 pub mod filter;
 pub mod fold;
 pub mod index;
