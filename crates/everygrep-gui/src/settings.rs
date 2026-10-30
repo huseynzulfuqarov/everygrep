@@ -12,6 +12,7 @@
 //! history-size = 50
 //! on-close = hide
 //! folder-size = items
+//! theme = light
 //! ```
 //!
 //! Only settings that differ from their defaults are written, so a file
@@ -65,6 +66,28 @@ impl OnClose {
     }
 }
 
+/// The window's colors.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemeChoice {
+    /// Follow the desktop's light or dark setting, also when it changes.
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 3] = [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark];
+
+    fn id(self) -> &'static str {
+        match self {
+            ThemeChoice::System => "system",
+            ThemeChoice::Light => "light",
+            ThemeChoice::Dark => "dark",
+        }
+    }
+}
+
 /// Optional columns and column widths as the window last showed them. A width
 /// of `None` means the window's default.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -102,6 +125,7 @@ pub struct Settings {
     /// sessions.
     pub remember_columns: bool,
     pub columns: Columns,
+    pub theme: ThemeChoice,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -120,6 +144,7 @@ impl Default for Settings {
             folder_size: FolderSize::Total,
             remember_columns: true,
             columns: Columns::default(),
+            theme: ThemeChoice::System,
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -131,6 +156,7 @@ impl Default for Settings {
 pub enum Page {
     Indexing,
     Search,
+    Appearance,
     Window,
 }
 
@@ -209,6 +235,11 @@ impl Settings {
                 .map(|f| self.folder_size = f)
                 .is_some(),
             "remember-columns" => put_flag(&mut self.remember_columns),
+            "theme" => ThemeChoice::ALL
+                .into_iter()
+                .find(|t| t.id() == value)
+                .map(|t| self.theme = t)
+                .is_some(),
             "show-type-column" => put_flag(&mut self.columns.show_type),
             "show-extension-column" => put_flag(&mut self.columns.show_ext),
             "name-width" | "size-width" | "modified-width" | "type-width" | "extension-width" => {
@@ -285,6 +316,9 @@ impl Settings {
             self.remember_columns,
             d.remember_columns,
         );
+        if self.theme != d.theme {
+            line(&mut out, "theme", self.theme.id());
+        }
         let c = &self.columns;
         flag(&mut out, "show-type-column", c.show_type, false);
         flag(&mut out, "show-extension-column", c.show_ext, false);
@@ -320,6 +354,9 @@ impl Settings {
                 self.options = d.options;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
+            }
+            Page::Appearance => {
+                self.theme = d.theme;
             }
             Page::Window => {
                 self.on_close = d.on_close;
@@ -358,7 +395,7 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
 fn is_known(key: &str) -> bool {
     let mut probe = Settings::default();
     // Every known key accepts at least one of these values.
-    ["true", "all", "quit", "total", "1", "/"]
+    ["true", "all", "quit", "total", "system", "1", "/"]
         .iter()
         .any(|v| probe.set(key, v))
 }
@@ -528,10 +565,12 @@ pub(crate) mod tests {
                 type_: Some(120.0),
                 ext: Some(60.0),
             },
+            theme: ThemeChoice::Dark,
             ..Settings::default()
         };
         let text = s.to_text();
         assert_eq!(Settings::parse(&text), s, "{text}");
+        assert!(text.contains("theme = dark\n"));
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));
@@ -552,6 +591,26 @@ pub(crate) mod tests {
         assert_eq!(s.folder_size, FolderSize::None);
         assert_eq!(s.problems.len(), 1, "a bad value is reported, not kept");
         assert!(!s.to_text().contains("bytes"));
+    }
+
+    #[test]
+    fn theme_defaults_to_the_system_and_reads_every_choice() {
+        assert_eq!(Settings::default().theme, ThemeChoice::System);
+        for t in ThemeChoice::ALL {
+            let s = Settings {
+                theme: t,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).theme, t);
+        }
+        assert!(!Settings::default().to_text().contains("theme"));
+        let s = Settings::parse("theme = light\ntheme = blue\n");
+        assert_eq!(s.theme, ThemeChoice::Light);
+        assert_eq!(s.problems.len(), 1);
+        let mut s = Settings::parse("theme = dark\nfilter = code\n");
+        s.reset(Page::Appearance);
+        assert_eq!(s.theme, ThemeChoice::System);
+        assert_eq!(s.options.filter, Filter::Code, "other pages stay");
     }
 
     #[test]

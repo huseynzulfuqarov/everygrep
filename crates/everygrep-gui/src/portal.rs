@@ -1,9 +1,10 @@
-//! Choosing folders through the desktop's file chooser.
+//! The XDG desktop portal: choosing folders and following the desktop's
+//! light or dark setting.
 //!
-//! The dialog comes from the XDG desktop portal
-//! (`org.freedesktop.portal.FileChooser`), so it is the desktop's own file
-//! chooser and needs no toolkit of ours. The call blocks until the user
-//! closes the dialog; run it off the UI thread.
+//! The folder dialog comes from `org.freedesktop.portal.FileChooser`, so it
+//! is the desktop's own file chooser and needs no toolkit of ours. The color
+//! scheme comes from `org.freedesktop.portal.Settings`. Both calls block;
+//! run them off the UI thread.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -17,6 +18,66 @@ const DESTINATION: &str = "org.freedesktop.portal.Desktop";
 const PATH: &str = "/org/freedesktop/portal/desktop";
 const CHOOSER: &str = "org.freedesktop.portal.FileChooser";
 const REQUEST: &str = "org.freedesktop.portal.Request";
+const SETTINGS: &str = "org.freedesktop.portal.Settings";
+const APPEARANCE: &str = "org.freedesktop.appearance";
+const COLOR_SCHEME: &str = "color-scheme";
+
+/// The desktop's color scheme as the portal reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorScheme {
+    /// No preference (GNOME's "Default" style, which is light).
+    NoPreference,
+    Dark,
+    Light,
+}
+
+/// The color scheme in a portal value: `1` dark, `2` light, `0` and unknown
+/// numbers no preference. The deprecated `Read` call wraps the number in one
+/// more variant, which is unwrapped. `None` when there is no number.
+pub fn color_scheme(value: &Value) -> Option<ColorScheme> {
+    match value {
+        Value::U32(1) => Some(ColorScheme::Dark),
+        Value::U32(2) => Some(ColorScheme::Light),
+        Value::U32(_) => Some(ColorScheme::NoPreference),
+        Value::Value(inner) => color_scheme(inner),
+        _ => None,
+    }
+}
+
+/// Reports the desktop's color scheme to `changed`: once at the start and
+/// again whenever it changes. Runs until the session bus goes away; `Err`
+/// when the portal cannot be reached.
+pub fn watch_color_scheme(changed: impl Fn(ColorScheme)) -> Result<(), String> {
+    let conn = Connection::session().map_err(|e| e.to_string())?;
+    let settings = Proxy::new(&conn, DESTINATION, PATH, SETTINGS).map_err(|e| e.to_string())?;
+    // Listen before reading, so a change in between is not missed.
+    let signals = settings
+        .receive_signal("SettingChanged")
+        .map_err(|e| e.to_string())?;
+    let args = (APPEARANCE, COLOR_SCHEME);
+    // Portals before version 2 only have the deprecated `Read`.
+    let reply = settings
+        .call_method("ReadOne", &args)
+        .or_else(|_| settings.call_method("Read", &args))
+        .map_err(|e| e.to_string())?;
+    let value: OwnedValue = reply.body().deserialize().map_err(|e| e.to_string())?;
+    if let Some(scheme) = color_scheme(&value) {
+        changed(scheme);
+    }
+    for message in signals {
+        let Ok((namespace, key, value)) =
+            message.body().deserialize::<(String, String, OwnedValue)>()
+        else {
+            continue;
+        };
+        if namespace == APPEARANCE && key == COLOR_SCHEME {
+            if let Some(scheme) = color_scheme(&value) {
+                changed(scheme);
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Asks the user for one or more folders. `Ok(None)` when the dialog was
 /// cancelled; `Err` when the portal is not available.
@@ -104,6 +165,25 @@ pub fn file_path(uri: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_scheme_values() {
+        assert_eq!(color_scheme(&Value::U32(1)), Some(ColorScheme::Dark));
+        assert_eq!(color_scheme(&Value::U32(2)), Some(ColorScheme::Light));
+        assert_eq!(
+            color_scheme(&Value::U32(0)),
+            Some(ColorScheme::NoPreference)
+        );
+        assert_eq!(
+            color_scheme(&Value::U32(7)),
+            Some(ColorScheme::NoPreference)
+        );
+        // The deprecated Read wraps the value once more.
+        let wrapped = Value::Value(Box::new(Value::U32(1)));
+        assert_eq!(color_scheme(&wrapped), Some(ColorScheme::Dark));
+        assert_eq!(color_scheme(&Value::from("dark")), None);
+        assert_eq!(color_scheme(&Value::I32(1)), None);
+    }
 
     #[test]
     fn file_uris_become_paths() {

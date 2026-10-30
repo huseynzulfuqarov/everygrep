@@ -9,7 +9,7 @@ use everygrep_core::sort::FolderSize;
 
 use crate::engine::IndexState;
 use crate::format;
-use crate::settings::OnClose;
+use crate::settings::{OnClose, ThemeChoice};
 
 /// Name of a filter in the filter selector.
 pub fn filter(f: Filter) -> &'static str {
@@ -138,6 +138,15 @@ pub fn on_close_note(o: OnClose) -> &'static str {
         OnClose::Hide => {
             "EveryGrep keeps the index in memory and keeps watching for changes. Starting EveryGrep again (for example with its shortcut) shows the window at once. Ctrl+Q or Quit in the ⋯ menu ends it."
         }
+    }
+}
+
+/// Choices for the window's colors.
+pub fn theme(t: ThemeChoice) -> &'static str {
+    match t {
+        ThemeChoice::System => "Same as the desktop",
+        ThemeChoice::Light => "Light",
+        ThemeChoice::Dark => "Dark",
     }
 }
 

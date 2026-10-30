@@ -1,6 +1,6 @@
 // The settings window. Changes apply at once; each page has a button that
 // puts its settings back to the defaults.
-import { Button, CheckBox, ComboBox, SpinBox, StandardListView } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, Palette, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 component Heading inherits Text {
@@ -74,7 +74,7 @@ export component SettingsWindow inherits Window {
     background: Theme.surface;
     default-font-size: Theme.body;
 
-    // 0 indexing, 1 search, 2 window, 3 keyboard shortcut.
+    // 0 indexing, 1 search, 2 appearance, 3 window, 4 keyboard shortcut.
     in-out property <int> page: 0;
     // A problem with the settings file or the last action; empty when fine.
     in property <string> error;
@@ -105,6 +105,11 @@ export component SettingsWindow inherits Window {
     in-out property <bool> history-on-disk;
     callback search-changed();
 
+    // Appearance
+    in property <[string]> theme-names;
+    in-out property <int> theme;
+    callback appearance-changed();
+
     // Window
     in property <[string]> close-names;
     in-out property <int> on-close;
@@ -132,6 +137,13 @@ export component SettingsWindow inherits Window {
 
     changed page => { pages.set-current-item(root.page); }
 
+    // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
+    // setting. Sets the palette of the standard widgets too.
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
     // Puts text on the clipboard through a hidden text field.
     public function copy-text(text: string) {
         clip.text = text;
@@ -147,7 +159,7 @@ export component SettingsWindow inherits Window {
                 return accept;
             }
             if (event.modifiers.control && (event.text == Key.PageDown || event.text == Key.PageUp)) {
-                root.page = Math.mod(root.page + (event.text == Key.PageDown ? 1 : -1), 4);
+                root.page = Math.mod(root.page + (event.text == Key.PageDown ? 1 : -1), 5);
                 return accept;
             }
             reject
@@ -165,6 +177,7 @@ export component SettingsWindow inherits Window {
                         model: [
                             { text: "Indexing" },
                             { text: "Search" },
+                            { text: "Appearance" },
                             { text: "Window" },
                             { text: "Keyboard shortcut" },
                         ];
@@ -301,6 +314,30 @@ export component SettingsWindow inherits Window {
                     spacing: Theme.s3;
                     alignment: start;
                     vertical-stretch: 1;
+                    Heading { text: "Colors"; }
+                    HorizontalLayout {
+                        spacing: Theme.s3;
+                        Text {
+                            text: "Theme";
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        ComboBox {
+                            width: 200px;
+                            accessible-label: "Theme";
+                            model: root.theme-names;
+                            current-index <=> root.theme;
+                            selected => { root.appearance-changed(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Note { text: "Same as the desktop follows the light or dark style chosen in the desktop's settings, also when it changes."; }
+                }
+
+                if root.page == 3: VerticalLayout {
+                    spacing: Theme.s3;
+                    alignment: start;
+                    vertical-stretch: 1;
                     Heading { text: "Closing the window"; }
                     HorizontalLayout {
                         ComboBox {
@@ -342,7 +379,7 @@ export component SettingsWindow inherits Window {
                     Note { text: root.folder-size-note; }
                 }
 
-                if root.page == 3: VerticalLayout {
+                if root.page == 4: VerticalLayout {
                     spacing: Theme.s3;
                     alignment: start;
                     vertical-stretch: 1;
@@ -373,7 +410,7 @@ export component SettingsWindow inherits Window {
                     Note { text: "Pressing the keys again while EveryGrep is open brings its window to the front."; }
                 }
 
-                if root.page < 3: HorizontalLayout {
+                if root.page < 4: HorizontalLayout {
                     alignment: end;
                     Button {
                         text: "Reset to defaults";

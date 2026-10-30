@@ -1,4 +1,4 @@
-import { Button, ComboBox, ListView } from "std-widgets.slint";
+import { Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 export { SettingsWindow } from "settings.slint";
 
@@ -127,7 +127,7 @@ component SearchField inherits Rectangle {
     border-radius: Theme.radius;
     background: Theme.field;
     border-width: input.has-focus ? 2px : 1px;
-    border-color: input.has-focus ? Theme.accent : Theme.line;
+    border-color: input.has-focus ? Theme.accent : Theme.field-line;
 
     HorizontalLayout {
         padding-left: Theme.s3;
@@ -702,6 +702,13 @@ export component AppWindow inherits Window {
         }
         root.options-edited();
         true
+    }
+
+    // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
+    // setting. Sets the palette of the standard widgets too.
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
     }
 
     public function focus-search() {

@@ -18,11 +18,13 @@ use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem, VecMod
 
 use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
-use crate::settings::{self, Columns, MAX_HISTORY, OnClose, Page, Settings};
+use crate::look::{self, Scheme};
+use crate::portal::ColorScheme;
+use crate::settings::{self, Columns, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice};
 use crate::{AppWindow, SettingsWindow, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
-pub const PAGES: [&str; 4] = ["indexing", "search", "window", "shortcut"];
+pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "shortcut"];
 
 /// The command a desktop shortcut runs.
 const COMMAND: &str = "everygrep-gui";
@@ -103,6 +105,11 @@ pub struct Prefs {
     main: slint::Weak<AppWindow>,
     pub history: RefCell<History>,
     window: RefCell<Option<SettingsWindow>>,
+    /// The desktop's light or dark setting, once the portal told it.
+    desktop_scheme: Cell<Option<ColorScheme>>,
+    /// Whether the windows were given colors; until then they follow the
+    /// toolkit's own reading of the desktop setting.
+    scheme_set: Cell<bool>,
 }
 
 thread_local! {
@@ -168,6 +175,8 @@ impl Prefs {
             engine,
             main: main.as_weak(),
             window: RefCell::default(),
+            desktop_scheme: Cell::new(None),
+            scheme_set: Cell::new(false),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
         prefs
@@ -214,6 +223,32 @@ impl Prefs {
     pub fn set_state(&self, state: IndexState, indexed: usize) {
         self.state.set((state, indexed));
         self.refresh();
+    }
+
+    /// Notes the desktop's light or dark setting and recolors the windows
+    /// when the theme follows it.
+    pub fn set_desktop_scheme(&self, scheme: ColorScheme) {
+        self.desktop_scheme.set(Some(scheme));
+        self.apply_theme();
+    }
+
+    /// Gives the windows the colors of the theme setting.
+    pub fn apply_theme(&self) {
+        let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
+        // Until the desktop's setting is known the toolkit's own reading of
+        // it stays in place, so the first frame has the right colors.
+        if scheme == Scheme::Toolkit && !self.scheme_set.get() {
+            return;
+        }
+        self.scheme_set.set(true);
+        if let Some(m) = self.main.upgrade() {
+            m.invoke_set_color_scheme(scheme as i32);
+        }
+        if let Ok(window) = self.window.try_borrow() {
+            if let Some(w) = window.as_ref() {
+                w.invoke_set_color_scheme(scheme as i32);
+            }
+        }
     }
 
     /// Puts the remembered columns into the main window.
@@ -301,6 +336,7 @@ impl Prefs {
                 Ok(w) => {
                     self.connect(&w);
                     *self.window.borrow_mut() = Some(w);
+                    self.apply_theme();
                 }
                 Err(e) => {
                     eprintln!("everygrep-gui: cannot open the settings window: {e}");
@@ -394,6 +430,18 @@ impl Prefs {
         w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
         w.set_remember_columns(s.remember_columns);
 
+        let themes: Vec<SharedString> = ThemeChoice::ALL
+            .iter()
+            .map(|&t| labels::theme(t).into())
+            .collect();
+        w.set_theme_names(ModelRc::new(VecModel::from(themes)));
+        w.set_theme(
+            ThemeChoice::ALL
+                .iter()
+                .position(|&t| t == s.theme)
+                .unwrap_or(0) as i32,
+        );
+
         w.set_command(COMMAND.into());
         w.set_shortcut_steps(labels::SHORTCUT_STEPS.into());
         w.set_error(self.error.borrow().as_str().into());
@@ -438,6 +486,7 @@ impl Prefs {
         w.on_rebuild(on(|p| p.rebuild()));
         w.on_search_changed(on(|p| p.search_changed()));
         w.on_window_changed(on(|p| p.window_changed()));
+        w.on_appearance_changed(on(|p| p.appearance_changed()));
         w.on_copy_command(on(|p| {
             if let Some(w) = p.window.borrow().as_ref() {
                 w.invoke_copy_text(COMMAND.into());
@@ -480,6 +529,25 @@ impl Prefs {
             s.history_on_disk = on_disk;
         });
         self.apply_history();
+    }
+
+    fn appearance_changed(&self) {
+        let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
+            return;
+        };
+        let Some(w) = w.upgrade() else { return };
+        let theme = usize::try_from(w.get_theme())
+            .ok()
+            .and_then(|i| ThemeChoice::ALL.get(i).copied())
+            .unwrap_or_default();
+        self.set_theme(theme);
+    }
+
+    /// Changes the theme setting and recolors the windows.
+    pub fn set_theme(&self, theme: ThemeChoice) {
+        self.change(|s| s.theme = theme);
+        self.apply_theme();
+        self.refresh();
     }
 
     /// Applies the history settings: its size, and keeping it on disk or
@@ -541,7 +609,8 @@ impl Prefs {
         let page = match page {
             0 => Page::Indexing,
             1 => Page::Search,
-            2 => Page::Window,
+            2 => Page::Appearance,
+            3 => Page::Window,
             _ => return,
         };
         if page == Page::Indexing {
@@ -558,6 +627,9 @@ impl Prefs {
         self.change(|s| s.reset(page));
         if page == Page::Search {
             self.apply_history();
+        }
+        if page == Page::Appearance {
+            self.apply_theme();
         }
         if page == Page::Window {
             self.apply_folder_size();
@@ -683,7 +755,8 @@ mod tests {
     #[test]
     fn page_names() {
         assert_eq!(page_index("indexing"), Some(0));
-        assert_eq!(page_index("shortcut"), Some(3));
+        assert_eq!(page_index("appearance"), Some(2));
+        assert_eq!(page_index("shortcut"), Some(4));
         assert_eq!(page_index("nope"), None);
     }
 }

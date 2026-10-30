@@ -2,21 +2,31 @@
 import { Palette } from "std-widgets.slint";
 
 export global Theme {
-    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+    // The colors the program chose: light or dark. Unknown follows the
+    // toolkit's own reading of the desktop setting, which is used until the
+    // program knows it (see set-color-scheme in the windows).
+    in-out property <ColorScheme> scheme: ColorScheme.unknown;
+    out property <bool> dark: scheme == ColorScheme.unknown
+        ? Palette.color-scheme == ColorScheme.dark
+        : scheme == ColorScheme.dark;
 
-    // Colors
+    // Colors. Light: text is 17.9:1 on the surface and muted text 7.1:1
+    // (6.3:1 on hover); the selection keeps dark text (13:1), and the accent
+    // marks focus and the sort column. The search field is white with a
+    // visible border, since the surface is white too.
     out property <color> surface: dark ? #1c1d20 : #ffffff;
-    out property <color> surface-alt: dark ? #232428 : #f6f7f9;
-    out property <color> field: dark ? #2a2b30 : #f1f2f5;
+    out property <color> surface-alt: dark ? #232428 : #f5f6f8;
+    out property <color> field: dark ? #2a2b30 : #ffffff;
+    out property <color> field-line: dark ? #33353b : #c5cad2;
     out property <color> text: dark ? #ecedf0 : #16171a;
-    out property <color> text-muted: dark ? #a3a6ad : #5c606a;
-    out property <color> line: dark ? #33353b : #e3e5e9;
-    out property <color> accent: dark ? #6aa1ff : #2563eb;
+    out property <color> text-muted: dark ? #a3a6ad : #545862;
+    out property <color> line: dark ? #33353b : #dfe2e7;
+    out property <color> accent: dark ? #6aa1ff : #1f5fd6;
     out property <color> accent-text: #ffffff;
-    out property <color> selection: dark ? #2b4a80 : #dbe7ff;
+    out property <color> selection: dark ? #2b4a80 : #d3e2fd;
     out property <color> selection-text: dark ? #ffffff : #0b1b3d;
-    out property <color> hover: dark ? #26282d : #f3f5f8;
-    out property <color> danger: dark ? #ff8080 : #c42b2b;
+    out property <color> hover: dark ? #26282d : #eef1f5;
+    out property <color> danger: dark ? #ff8080 : #b42323;
 
     // Spacing
     out property <length> s1: 4px;

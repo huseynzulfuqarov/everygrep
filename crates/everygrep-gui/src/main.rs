@@ -7,6 +7,7 @@ mod format;
 mod history;
 mod instance;
 mod labels;
+mod look;
 mod open;
 mod portal;
 mod prefs;
@@ -146,6 +147,15 @@ fn main() -> Result<(), slint::PlatformError> {
         &window,
     );
     prefs.restore_columns(&window);
+    prefs.apply_theme();
+    // Follows the desktop's light or dark setting for the System theme.
+    std::thread::spawn(|| {
+        let _ = portal::watch_color_scheme(|scheme| {
+            let _ = slint::invoke_from_event_loop(move || {
+                prefs::with(|p| p.set_desktop_scheme(scheme));
+            });
+        });
+    });
     refresh_status(&window);
     // The search thread runs the query now and again once the index is
     // loaded, so the first results appear as soon as they can.
@@ -698,7 +708,7 @@ options:
   --columns <list>       show optional columns: type, extension (comma separated)
   --new-instance         open another window even if one is already open
   --settings[=<page>]    open the settings window too, at a page: indexing,
-                         search, window, shortcut
+                         search, appearance, window, shortcut
   -h, --help             print this help
   -V, --version          print the version";
 
@@ -1002,7 +1012,8 @@ mod tests {
     fn settings_flag_opens_a_page() {
         assert_eq!(args(&["x"]).settings_page, None);
         assert_eq!(args(&["--settings"]).settings_page, Some(0));
-        assert_eq!(args(&["--settings=window"]).settings_page, Some(2));
+        assert_eq!(args(&["--settings=window"]).settings_page, Some(3));
+        assert_eq!(args(&["--settings=appearance"]).settings_page, Some(2));
         assert!(parse(&["--settings=nope"]).is_err());
         assert_eq!(present_args(&["--settings=search"]).settings_page, Some(1));
         assert_eq!(args(&["--", "--settings"]).query, "--settings");
