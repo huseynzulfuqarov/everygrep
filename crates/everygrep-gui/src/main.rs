@@ -5,6 +5,7 @@ mod engine;
 mod filetype;
 mod format;
 mod history;
+mod i18n;
 mod instance;
 mod labels;
 mod look;
@@ -28,6 +29,7 @@ use everygrep_core::sort::{FolderSize, Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use engine::{Engine, Hooks, IndexState, SearchResult};
+use i18n::{fill, tr};
 use prefs::{IndexSetup, Prefs};
 use results::ResultsModel;
 use settings::{Density, ThemeChoice};
@@ -129,11 +131,7 @@ fn main() -> Result<(), slint::PlatformError> {
     );
     let model = Rc::new(ResultsModel::new(engine.clone()));
     window.set_results(ModelRc::from(model.clone()));
-    let filter_names: Vec<SharedString> = Filter::ALL
-        .iter()
-        .map(|&f| labels::filter(f).into())
-        .collect();
-    window.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
+    set_filter_names(&window);
     set_options(&window, start_options);
     window.set_show_type(args.show_type);
     window.set_show_ext(args.show_ext);
@@ -354,17 +352,41 @@ fn new_window_args(roots: &[PathBuf], index_file: Option<&std::path::Path>) -> V
     out
 }
 
-/// The View menu's appearance choices and the Help menu's dialogs.
-fn connect_menus(w: &AppWindow) {
-    w.set_version(everygrep_core::VERSION.into());
-    let shortcuts: Vec<ShortcutRow> = labels::SHORTCUTS
+fn set_filter_names(w: &AppWindow) {
+    let filter_names: Vec<SharedString> = Filter::ALL
         .iter()
-        .map(|&(keys, action)| ShortcutRow {
+        .map(|&f| labels::filter(f).into())
+        .collect();
+    w.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
+}
+
+fn set_shortcuts(w: &AppWindow) {
+    let shortcuts: Vec<ShortcutRow> = labels::shortcuts()
+        .into_iter()
+        .map(|(keys, action)| ShortcutRow {
             keys: keys.into(),
             action: action.into(),
         })
         .collect();
     w.set_shortcuts(ModelRc::new(VecModel::from(shortcuts)));
+}
+
+/// Sets the texts made in Rust again, after the language changed. The
+/// `.slint` texts follow by themselves; a note in the status line is
+/// dropped rather than left in the old language.
+pub fn relabel(w: &AppWindow) {
+    set_filter_names(w);
+    set_shortcuts(w);
+    show_badges(w);
+    with_model(w, |m| m.relabel());
+    w.set_notice("".into());
+    refresh_status(w);
+}
+
+/// The View menu's appearance choices and the Help menu's dialogs.
+fn connect_menus(w: &AppWindow) {
+    w.set_version(everygrep_core::VERSION.into());
+    set_shortcuts(w);
     let pick = |all_len: usize, i: i32| usize::try_from(i).ok().filter(|&i| i < all_len);
     w.on_choose_theme(move |i| {
         let i = pick(ThemeChoice::ALL.len(), i);
@@ -521,7 +543,10 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 if let Some(w) = weak.upgrade() {
                     error(
                         &w,
-                        format!("Select at most {MAX_OPEN} items to open them at once."),
+                        fill(
+                            tr("Select at most {} items to open them at once."),
+                            &[&MAX_OPEN],
+                        ),
                     );
                 }
                 return;
@@ -542,7 +567,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             let paths = model.targets(row(r));
             if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
                 w.invoke_copy_text(actions::names_text(&paths).into());
-                info(&w, copied(paths.len(), "name", "names"));
+                info(&w, labels::copied_names(paths.len()));
             }
         }
     });
@@ -552,7 +577,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             let paths = model.targets(row(r));
             if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
                 w.invoke_copy_text(actions::paths_text(&paths).into());
-                info(&w, copied(paths.len(), "path", "paths"));
+                info(&w, labels::copied_paths(paths.len()));
             }
         }
     });
@@ -564,7 +589,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 return;
             };
             if model.is_selected(r) && model.selected_count() > 1 {
-                error(&w, "Select one item to rename it.".into());
+                error(&w, tr("Select one item to rename it.").into());
                 return;
             }
             let Some((name, is_dir)) = model.name(r) else {
@@ -611,9 +636,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             if paths.len() > TRASH_CONFIRM {
                 ask(
                     &w,
-                    format!("Move {} to the trash?", actions::describe(&paths)),
-                    "You can restore them from the trash.",
-                    "Move to trash",
+                    fill(tr("Move {} to the trash?"), &[&actions::describe(&paths)]),
+                    tr("You can restore them from the trash."),
+                    tr("Move to trash"),
                 );
                 *pending.borrow_mut() = Some(Pending::Trash(paths));
             } else if !paths.is_empty() {
@@ -631,9 +656,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             }
             ask(
                 &w,
-                format!("Delete {} permanently?", actions::describe(&paths)),
-                "This cannot be undone. Folders are deleted with all their contents.",
-                "Delete",
+                fill(tr("Delete {} permanently?"), &[&actions::describe(&paths)]),
+                tr("This cannot be undone. Folders are deleted with all their contents."),
+                tr("Delete"),
             );
             *pending.borrow_mut() = Some(Pending::Delete(paths));
         }
@@ -663,14 +688,6 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     });
 }
 
-fn copied(n: usize, one: &str, many: &str) -> String {
-    if n == 1 {
-        format!("Copied the {one}.")
-    } else {
-        format!("Copied {} {many}.", format::count(n))
-    }
-}
-
 fn info(w: &AppWindow, text: String) {
     w.set_notice_error(false);
     w.set_notice(text.into());
@@ -697,12 +714,12 @@ fn stop_renaming(w: &AppWindow, model: &ResultsModel) {
 /// Moves items to the trash on a helper thread and reports the outcome.
 fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
     let what = actions::describe(&paths);
-    info(w, format!("Moving {what} to the trash…"));
+    info(w, fill(tr("Moving {} to the trash…"), &[&what]));
     let weak = w.as_weak();
     std::thread::spawn(move || {
         let result = actions::trash(&paths);
         let _ = weak.upgrade_in_event_loop(move |w| match result {
-            Ok(()) => info(&w, format!("Moved {what} to the trash.")),
+            Ok(()) => info(&w, fill(tr("Moved {} to the trash."), &[&what])),
             Err(e) => error(&w, e),
         });
     });
@@ -711,19 +728,22 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
 /// Deletes items on a helper thread and reports the outcome.
 fn run_delete(w: &AppWindow, paths: Vec<PathBuf>) {
     let what = actions::describe(&paths);
-    info(w, format!("Deleting {what}…"));
+    info(w, fill(tr("Deleting {}…"), &[&what]));
     let weak = w.as_weak();
     std::thread::spawn(move || {
         let failed = actions::delete_permanently(&paths);
         let _ = weak.upgrade_in_event_loop(move |w| match failed.as_slice() {
-            [] => info(&w, format!("Deleted {what}.")),
+            [] => info(&w, fill(tr("Deleted {}."), &[&what])),
             [(path, e), ..] => error(
                 &w,
-                format!(
-                    "Could not delete {} of {}: {}: {e}.",
-                    format::count(failed.len()),
-                    format::count(paths.len()),
-                    path.display()
+                fill(
+                    tr("Could not delete {} of {}: {}: {}."),
+                    &[
+                        &format::count(failed.len()),
+                        &format::count(paths.len()),
+                        &path.display(),
+                        e,
+                    ],
                 ),
             ),
         });
@@ -931,7 +951,7 @@ fn show_results(w: &AppWindow, result: SearchResult) {
         w.set_current(0);
     }
     w.set_message(match result.error {
-        Some(e) => format!("Cannot search: {e}").into(),
+        Some(e) => fill(tr("Cannot search: {}"), &[&e]).into(),
         None => "".into(),
     });
     refresh_status(w);
@@ -943,19 +963,31 @@ fn refresh_status(w: &AppWindow) {
         let (left, right) = m.status();
         w.set_status_left(left.into());
         w.set_status_right(right.into());
-        message = match m.state() {
-            IndexState::Loading if m.row_count() == 0 => Some("Loading the index…"),
-            IndexState::Scanning if m.row_count() == 0 => {
-                Some("Indexing your files. This happens once; later starts are instant.")
-            }
-            _ => None,
+        message = if m.row_count() == 0 {
+            labels::loading_message(m.state())
+        } else {
+            None
         };
     });
     if let Some(text) = message {
         w.set_message(text.into());
-    } else if w.get_message().starts_with("Loading") || w.get_message().starts_with("Indexing") {
+    } else if is_loading_message(&w.get_message()) {
         w.set_message("".into());
     }
+}
+
+/// Whether `text` is one of the loading messages, in any language (the
+/// language may have changed since it was shown).
+fn is_loading_message(text: &str) -> bool {
+    !text.is_empty()
+        && i18n::Lang::ALL.into_iter().any(|lang| {
+            [
+                "Loading the index…",
+                "Indexing your files. This happens once; later starts are instant.",
+            ]
+            .into_iter()
+            .any(|m| i18n::tr_in(lang, m) == text)
+        })
 }
 
 #[cfg(test)]

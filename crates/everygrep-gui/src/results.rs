@@ -215,6 +215,14 @@ impl ResultsModel {
         self.folder_size.get()
     }
 
+    /// Shows the rows again, after the language changed (the Type, Size and
+    /// Modified columns have words in them).
+    pub fn relabel(&self) {
+        let rows = self.ids.borrow().len();
+        // Each call only touches the rows on screen, so this stays cheap.
+        (0..rows).for_each(|r| self.notify.row_changed(r));
+    }
+
     /// Whether the status line describes the selected items.
     pub fn set_details(&self, on: bool) {
         self.details.set(on);
@@ -284,14 +292,8 @@ impl ResultsModel {
     /// Text for the left and right side of the status line.
     pub fn status(&self) -> (String, String) {
         let results = self.ids.borrow().len();
-        let indexed = format::count(self.indexed.get());
-        let state = match self.state.get() {
-            IndexState::Loading => "loading",
-            IndexState::Scanning => "indexing",
-            IndexState::CatchingUp => "catching up",
-            IndexState::Watching => "watching for changes",
-            IndexState::Static => "not watching changes",
-        };
+        let indexed = labels::indexed(self.indexed.get());
+        let state = labels::state_word(self.state.get());
         let mut left = labels::results(results);
         let selected = self.selected_count();
         let described = if self.details.get() {
@@ -303,9 +305,13 @@ impl ResultsModel {
             left.push_str(labels::STATUS_GAP);
             left.push_str(&text);
         } else if selected > 1 {
-            left.push_str(&format!("  ·  {} selected", format::count(selected)));
+            left.push_str(labels::STATUS_GAP);
+            left.push_str(&labels::selected(selected));
         }
-        left.push_str(&format!("  ·  {indexed} indexed  ·  {state}"));
+        for part in [indexed.as_str(), state] {
+            left.push_str(labels::STATUS_GAP);
+            left.push_str(part);
+        }
         let ms = self.took.get().as_secs_f64() * 1e3;
         let right = if ms < 10.0 {
             format!("{ms:.1} ms")
@@ -393,7 +399,7 @@ impl Model for ResultsModel {
 fn size_text(is_dir: bool, size: u64, items: u32, folders: FolderSize) -> String {
     match (is_dir, folders) {
         (false, _) | (true, FolderSize::Total) => format::size(size),
-        (true, FolderSize::Items) => labels::items(items),
+        (true, FolderSize::Items) => labels::items(items as usize),
         (true, FolderSize::None) => String::new(),
     }
 }

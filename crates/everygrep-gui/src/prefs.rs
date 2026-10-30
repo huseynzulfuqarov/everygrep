@@ -20,9 +20,12 @@ use crate::MenuChoice;
 
 use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
+use crate::i18n;
 use crate::look::{self, Scheme};
 use crate::portal::ColorScheme;
-use crate::settings::{self, Columns, Density, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice};
+use crate::settings::{
+    self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
+};
 use crate::{AppWindow, SettingsWindow, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
@@ -112,6 +115,8 @@ pub struct Prefs {
     /// Whether the windows were given colors; until then they follow the
     /// toolkit's own reading of the desktop setting.
     scheme_set: Cell<bool>,
+    /// Whether the language was given to the `.slint` texts.
+    language_set: Cell<bool>,
 }
 
 thread_local! {
@@ -125,19 +130,21 @@ pub fn with(f: impl FnOnce(&Rc<Prefs>)) {
     }
 }
 
-/// Reads the settings file. A file that cannot be read gives the defaults
-/// and the reason.
+/// Reads the settings file and chooses the language of the texts made in
+/// Rust from it. A file that cannot be read gives the defaults and the
+/// reason.
 pub fn load() -> (Option<PathBuf>, Settings, Option<String>) {
     let Some(path) = settings::path() else {
+        i18n::set(LanguageChoice::System.resolve());
         return (None, Settings::default(), None);
     };
-    match Settings::load(&path) {
-        Ok(s) => (Some(path), s, None),
-        Err(e) => {
-            let why = labels::cannot_read(&path, &e);
-            (Some(path), Settings::default(), Some(why))
-        }
-    }
+    let (settings, error) = match Settings::load(&path) {
+        Ok(s) => (s, None),
+        Err(e) => (Settings::default(), Some(e)),
+    };
+    i18n::set(settings.language.resolve());
+    let why = error.map(|e| labels::cannot_read(&path, &e));
+    (Some(path), settings, why)
 }
 
 impl Prefs {
@@ -159,7 +166,7 @@ impl Prefs {
         };
         let error = match (&read_error, &path) {
             (Some(e), _) => e.clone(),
-            (None, None) => labels::NO_SETTINGS_FOLDER.to_owned(),
+            (None, None) => labels::no_settings_folder().to_owned(),
             (None, Some(_)) if !settings.problems.is_empty() => {
                 labels::bad_lines(settings.problems.len())
             }
@@ -179,6 +186,7 @@ impl Prefs {
             window: RefCell::default(),
             desktop_scheme: Cell::new(None),
             scheme_set: Cell::new(false),
+            language_set: Cell::new(false),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
         prefs
@@ -439,7 +447,7 @@ impl Prefs {
         w.set_index_note(if index.saved {
             "".into()
         } else {
-            labels::INDEX_FROM_COMMAND_LINE.into()
+            labels::index_from_command_line().into()
         });
         let (state, indexed) = self.state.get();
         w.set_index_status(labels::index_status(state, indexed).into());
@@ -510,9 +518,20 @@ impl Prefs {
                 .position(|&d| d == s.density)
                 .unwrap_or(0) as i32,
         );
+        let languages: Vec<SharedString> = LanguageChoice::ALL
+            .iter()
+            .map(|&l| labels::language(l).into())
+            .collect();
+        w.set_language_names(ModelRc::new(VecModel::from(languages)));
+        w.set_language(
+            LanguageChoice::ALL
+                .iter()
+                .position(|&l| l == s.language)
+                .unwrap_or(0) as i32,
+        );
 
         w.set_command(COMMAND.into());
-        w.set_shortcut_steps(labels::SHORTCUT_STEPS.into());
+        w.set_shortcut_steps(labels::shortcut_steps().into());
         w.set_error(self.error.borrow().as_str().into());
     }
 
@@ -562,7 +581,7 @@ impl Prefs {
             }
             if let Some(m) = p.main.upgrade() {
                 m.set_notice_error(false);
-                m.set_notice(labels::COMMAND_COPIED.into());
+                m.set_notice(labels::command_copied().into());
             }
         }));
         w.on_reset_page(on_index(|p, i| p.reset(i)));
@@ -615,11 +634,16 @@ impl Prefs {
             .unwrap_or_default();
         let details = w.get_status_details();
         let menu_bar = w.get_menu_bar();
+        let language = usize::try_from(w.get_language())
+            .ok()
+            .and_then(|i| LanguageChoice::ALL.get(i).copied())
+            .unwrap_or_default();
         self.change(|s| {
             s.theme = theme;
             s.density = density;
             s.status_details = details;
             s.menu_bar = menu_bar;
+            s.language = language;
         });
         self.apply_look();
         self.refresh();
@@ -627,11 +651,30 @@ impl Prefs {
 
     /// Applies the settings of the Appearance page to the windows.
     pub fn apply_look(&self) {
+        self.apply_language();
         self.apply_theme();
         self.apply_density();
         self.apply_status_details();
         self.apply_menu_bar();
         self.fill_menus();
+    }
+
+    /// Shows the windows in the language of the language setting, when it
+    /// is not the one shown. The `.slint` texts change at once; the texts
+    /// made in Rust are set again.
+    pub fn apply_language(&self) {
+        let lang = self.settings.borrow().language.resolve();
+        let ui_set = self.language_set.replace(true);
+        if ui_set && lang == i18n::current() {
+            return;
+        }
+        i18n::set(lang);
+        i18n::apply_to_ui();
+        if let Some(m) = self.main.upgrade() {
+            crate::relabel(&m);
+        }
+        self.fill_menus();
+        self.refresh();
     }
 
     /// Changes whether the status line describes the selection.
@@ -753,12 +796,13 @@ impl Prefs {
             return;
         }
         let title = if roots {
-            labels::CHOOSE_ROOTS
+            labels::choose_roots()
         } else {
-            labels::CHOOSE_EXCLUDES
+            labels::choose_excludes()
         };
+        let accept = labels::choose_accept();
         std::thread::spawn(move || {
-            let result = crate::portal::choose_folders(title, labels::CHOOSE_ACCEPT);
+            let result = crate::portal::choose_folders(title, accept);
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
                     p.choosing.set(false);

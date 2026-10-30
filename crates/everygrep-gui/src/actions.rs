@@ -10,6 +10,8 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::i18n::{fill, tr};
+
 /// Paths passed to one `gio trash` call, to stay well below the argument
 /// size limit.
 const TRASH_BATCH: usize = 256;
@@ -67,12 +69,14 @@ pub enum RenameError {
 impl fmt::Display for RenameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RenameError::Empty => write!(f, "A name cannot be empty."),
-            RenameError::Slash => write!(f, "A name cannot contain “/”."),
-            RenameError::Reserved => write!(f, "“.” and “..” cannot be used as names."),
-            RenameError::TooLong => write!(f, "The name is too long."),
-            RenameError::Exists(n) => write!(f, "“{n}” already exists in this folder."),
-            RenameError::Io(e) => write!(f, "Cannot rename: {e}."),
+            RenameError::Empty => f.write_str(tr("A name cannot be empty.")),
+            RenameError::Slash => f.write_str(tr("A name cannot contain “/”.")),
+            RenameError::Reserved => f.write_str(tr("“.” and “..” cannot be used as names.")),
+            RenameError::TooLong => f.write_str(tr("The name is too long.")),
+            RenameError::Exists(n) => {
+                f.write_str(&fill(tr("“{}” already exists in this folder."), &[n]))
+            }
+            RenameError::Io(e) => f.write_str(&fill(tr("Cannot rename: {}."), &[e])),
         }
     }
 }
@@ -142,14 +146,14 @@ pub fn trash(paths: &[PathBuf]) -> Result<(), String> {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
-            .map_err(|e| format!("Cannot run gio: {e}."))?;
+            .map_err(|e| fill(tr("Cannot run gio: {}."), &[&e]))?;
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
             let first = err.lines().next().unwrap_or("").trim();
             return Err(if first.is_empty() {
-                "Cannot move to the trash.".to_owned()
+                tr("Cannot move to the trash.").to_owned()
             } else {
-                format!("Cannot move to the trash: {first}")
+                fill(tr("Cannot move to the trash: {}"), &[&first])
             });
         }
     }
@@ -180,7 +184,7 @@ pub fn describe(paths: &[PathBuf]) -> String {
             "“{}”",
             String::from_utf8_lossy(one.file_name().unwrap_or(one.as_os_str()).as_bytes())
         ),
-        many => format!("{} items", crate::format::count(many.len())),
+        many => crate::labels::items(many.len()),
     }
 }
 

@@ -207,26 +207,26 @@ component SearchField inherits Rectangle {
             padding-bottom: (root.height - 24px) / 2;
             case-toggle := ModeToggle {
                 glyph: "Aa";
-                tip: "Match case (Alt+C)";
+                tip: @tr("Match case (Alt+C)");
                 checked <=> root.match-case;
                 toggled => { root.modes-changed(); }
             }
             words-toggle := ModeToggle {
                 glyph: "ab";
                 underline: true;
-                tip: "Match whole words (Alt+W)";
+                tip: @tr("Match whole words (Alt+W)");
                 checked <=> root.whole-words;
                 toggled => { root.modes-changed(); }
             }
             path-toggle := ModeToggle {
                 glyph: "a/b";
-                tip: "Match the full path (Alt+P)";
+                tip: @tr("Match the full path (Alt+P)");
                 checked <=> root.match-path;
                 toggled => { root.modes-changed(); }
             }
             marks-toggle := ModeToggle {
                 glyph: "é";
-                tip: "Match diacritics (Alt+D)";
+                tip: @tr("Match diacritics (Alt+D)");
                 checked <=> root.match-diacritics;
                 toggled => { root.modes-changed(); }
             }
@@ -235,7 +235,7 @@ component SearchField inherits Rectangle {
     placeholder := Text {
         x: Theme.s3 + Theme.icon + Theme.s2;
         visible: input.text == "";
-        text: "Search files and folders";
+        text: @tr("Search files and folders");
         color: Theme.text-muted;
         font-size: Theme.body + 1px;
         vertical-alignment: center;
@@ -532,7 +532,7 @@ component InfoDialog inherits Rectangle {
                 alignment: end;
                 padding-top: Theme.s2;
                 Button {
-                    text: "Close";
+                    text: @tr("Close");
                     primary: true;
                     clicked => { root.close(); }
                 }
@@ -918,7 +918,7 @@ export component AppWindow inherits Window {
                 ComboBox {
                     width: 160px;
                     horizontal-stretch: 0;
-                    accessible-label: "Filter";
+                    accessible-label: @tr("Filter");
                     model: root.filter-names;
                     current-index <=> root.filter-index;
                     selected => { root.options-edited(); }
@@ -928,20 +928,20 @@ export component AppWindow inherits Window {
                     width: 34px;
                     Menu {
                         MenuItem {
-                            title: "Settings";
+                            title: @tr("Settings");
                             activated => { root.open-settings(); }
                         }
                         MenuItem {
-                            title: "Keyboard shortcuts";
+                            title: @tr("Keyboard shortcuts");
                             activated => { root.shortcuts-open = true; }
                         }
                         MenuItem {
-                            title: "About EveryGrep";
+                            title: @tr("About EveryGrep");
                             activated => { root.about-open = true; }
                         }
                         MenuSeparator { }
                         MenuItem {
-                            title: "Show the menu bar";
+                            title: @tr("Show the menu bar");
                             activated => {
                                 root.show-menu-bar = true;
                                 root.menu-bar-changed(true);
@@ -949,7 +949,7 @@ export component AppWindow inherits Window {
                         }
                         MenuSeparator { }
                         MenuItem {
-                            title: "Quit";
+                            title: @tr("Quit");
                             activated => { root.quit(); }
                         }
                     }
@@ -957,7 +957,7 @@ export component AppWindow inherits Window {
                         border-radius: Theme.radius;
                         background: more-touch.has-hover ? Theme.hover : transparent;
                         accessible-role: button;
-                        accessible-label: "More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)";
+                        accessible-label: @tr("More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)");
                         accessible-action-default => { more-menu.show({ x: 0, y: self.height }); }
                         more-touch := TouchArea {
                             clicked => { more-menu.show({ x: 0, y: self.height }); }
@@ -984,13 +984,13 @@ export component AppWindow inherits Window {
                     // Activating a checkable item flips its check mark, which
                     // is tied to the column flag both ways.
                     MenuItem {
-                        title: "Type";
+                        title: @tr("Type");
                         checkable: true;
                         checked <=> root.show-type;
                         activated => { root.column-shown(4, root.show-type); }
                     }
                     MenuItem {
-                        title: "Extension";
+                        title: @tr("Extension");
                         checkable: true;
                         checked <=> root.show-ext;
                         activated => { root.column-shown(5, root.show-ext); }
@@ -1000,7 +1000,7 @@ export component AppWindow inherits Window {
                     x: Theme.s1;
                     width: root.name-width - Theme.s1;
                     height: parent.height;
-                    label: "Name";
+                    label: @tr("Name");
                     sorted: root.sort-column == 0;
                     descending: root.sort-descending;
                     clicked => { root.sort-by(0); }
@@ -1010,7 +1010,7 @@ export component AppWindow inherits Window {
                     x: root.name-width;
                     width: root.folder-width;
                     height: parent.height;
-                    label: "Folder";
+                    label: @tr("Folder");
                     sorted: root.sort-column == 1;
                     descending: root.sort-descending;
                     clicked => { root.sort-by(1); }
@@ -1020,7 +1020,7 @@ export component AppWindow inherits Window {
                     x: root.name-width + root.folder-width;
                     width: root.size-width;
                     height: parent.height;
-                    label: "Size";
+                    label: @tr("Size");
                     align: right;
                     sorted: root.sort-column == 2;
                     descending: root.sort-descending;
@@ -1031,7 +1031,7 @@ export component AppWindow inherits Window {
                     x: root.name-width + root.folder-width + root.size-width;
                     width: root.date-width;
                     height: parent.height;
-                    label: "Modified";
+                    label: @tr("Modified");
                     sorted: root.sort-column == 3;
                     descending: root.sort-descending;
                     clicked => { root.sort-by(3); }
@@ -1041,7 +1041,7 @@ export component AppWindow inherits Window {
                     x: root.name-width + root.folder-width + root.size-width + root.date-width;
                     width: root.type-width;
                     height: parent.height;
-                    label: "Type";
+                    label: @tr("Type");
                     sorted: root.sort-column == 4;
                     descending: root.sort-descending;
                     clicked => { root.sort-by(4); }
@@ -1051,7 +1051,7 @@ export component AppWindow inherits Window {
                     x: root.name-width + root.folder-width + root.fixed-width - root.ext-width;
                     width: root.ext-width;
                     height: parent.height;
-                    label: "Extension";
+                    label: @tr("Extension");
                     sorted: root.sort-column == 5;
                     descending: root.sort-descending;
                     clicked => { root.sort-by(5); }
@@ -1156,33 +1156,33 @@ export component AppWindow inherits Window {
                 enabled: root.current >= 0;
                 Menu {
                     MenuItem {
-                        title: "Open";
+                        title: @tr("Open");
                         activated => { root.activate(root.current); }
                     }
                     MenuItem {
-                        title: "Open containing folder";
+                        title: @tr("Open containing folder");
                         activated => { root.open-folder(root.current); }
                     }
                     MenuSeparator { }
                     MenuItem {
-                        title: "Copy name";
+                        title: @tr("Copy name");
                         activated => { root.copy-names(root.current); }
                     }
                     MenuItem {
-                        title: "Copy full path";
+                        title: @tr("Copy full path");
                         activated => { root.copy-paths(root.current); }
                     }
                     MenuSeparator { }
                     MenuItem {
-                        title: "Rename";
+                        title: @tr("Rename");
                         activated => { root.rename-start(root.current); }
                     }
                     MenuItem {
-                        title: "Move to trash";
+                        title: @tr("Move to trash");
                         activated => { root.trash(root.current); }
                     }
                     MenuItem {
-                        title: "Delete permanently…";
+                        title: @tr("Delete permanently…");
                         activated => { root.delete-request(root.current); }
                     }
                 }
@@ -1371,7 +1371,7 @@ export component AppWindow inherits Window {
                     spacing: Theme.s2;
                     padding-top: Theme.s2;
                     Button {
-                        text: "Cancel";
+                        text: @tr("Cancel");
                         clicked => { root.confirm-cancelled(); }
                     }
                     Button {
@@ -1385,7 +1385,7 @@ export component AppWindow inherits Window {
     }
 
     if root.shortcuts-open: InfoDialog {
-        title: "Keyboard shortcuts";
+        title: @tr("Keyboard shortcuts");
         card-width: 520px;
         close => {
             root.shortcuts-open = false;
@@ -1417,7 +1417,7 @@ export component AppWindow inherits Window {
     }
 
     if root.about-open: InfoDialog {
-        title: "About EveryGrep";
+        title: @tr("About EveryGrep");
         close => {
             root.about-open = false;
             search.focus-and-select();
@@ -1438,18 +1438,18 @@ export component AppWindow inherits Window {
                     color: Theme.text;
                 }
                 Text {
-                    text: "Version " + root.version;
+                    text: @tr("Version {}", root.version);
                     color: Theme.text-muted;
                 }
             }
         }
         Text {
-            text: "Finds files and folders by name as you type.";
+            text: @tr("Finds files and folders by name as you type.");
             color: Theme.text;
             wrap: word-wrap;
         }
         Text {
-            text: "Licensed under the MIT license or the Apache License 2.0, at your option.";
+            text: @tr("Licensed under the MIT license or the Apache License 2.0, at your option.");
             font-size: Theme.small;
             color: Theme.text-muted;
             wrap: word-wrap;
@@ -1467,43 +1467,43 @@ export component AppWindow inherits Window {
     // F2 keep their meaning in the search field.
     if root.show-menu-bar: MenuBar {
         Menu {
-            title: "File";
+            title: @tr("File");
             MenuItem {
-                title: "New window";
+                title: @tr("New window");
                 shortcut: @keys(Control + N);
                 enabled: !root.confirm-open;
                 activated => { root.new-window(); }
             }
             MenuSeparator { }
             MenuItem {
-                title: "Settings…";
+                title: @tr("Settings…");
                 shortcut: @keys(Control + ",");
                 enabled: !root.confirm-open;
                 activated => { root.open-settings(); }
             }
             MenuSeparator { }
             MenuItem {
-                title: "Quit";
+                title: @tr("Quit");
                 shortcut: @keys(Control + Q);
                 enabled: !root.confirm-open;
                 activated => { root.quit(); }
             }
         }
         Menu {
-            title: "Edit";
+            title: @tr("Edit");
             MenuItem {
-                title: "Copy name";
+                title: @tr("Copy name");
                 enabled: root.current >= 0;
                 activated => { root.copy-names(root.current); }
             }
             MenuItem {
-                title: "Copy full path";
+                title: @tr("Copy full path");
                 enabled: root.current >= 0;
                 activated => { root.copy-paths(root.current); }
             }
             MenuSeparator { }
             MenuItem {
-                title: "Select all";
+                title: @tr("Select all");
                 enabled: root.results.length > 0;
                 activated => {
                     root.select-all();
@@ -1512,38 +1512,38 @@ export component AppWindow inherits Window {
             }
             MenuSeparator { }
             MenuItem {
-                title: "Rename";
+                title: @tr("Rename");
                 enabled: root.current >= 0 && root.rename-row < 0;
                 activated => { root.rename-start(root.current); }
             }
             MenuItem {
-                title: "Move to trash";
+                title: @tr("Move to trash");
                 enabled: root.current >= 0;
                 activated => { root.trash(root.current); }
             }
             MenuItem {
-                title: "Delete permanently…";
+                title: @tr("Delete permanently…");
                 enabled: root.current >= 0;
                 activated => { root.delete-request(root.current); }
             }
         }
         Menu {
-            title: "View";
+            title: @tr("View");
             MenuItem {
-                title: "Type column";
+                title: @tr("Type column");
                 checkable: true;
                 checked <=> root.show-type;
                 activated => { root.column-shown(4, root.show-type); }
             }
             MenuItem {
-                title: "Extension column";
+                title: @tr("Extension column");
                 checkable: true;
                 checked <=> root.show-ext;
                 activated => { root.column-shown(5, root.show-ext); }
             }
             MenuSeparator { }
             Menu {
-                title: "Folder size";
+                title: @tr("Folder size");
                 for item[i] in root.folder-size-items: MenuItem {
                     title: item.title;
                     checkable: true;
@@ -1552,7 +1552,7 @@ export component AppWindow inherits Window {
                 }
             }
             Menu {
-                title: "Density";
+                title: @tr("Density");
                 for item[i] in root.density-items: MenuItem {
                     title: item.title;
                     checkable: true;
@@ -1561,7 +1561,7 @@ export component AppWindow inherits Window {
                 }
             }
             Menu {
-                title: "Theme";
+                title: @tr("Theme");
                 for item[i] in root.theme-items: MenuItem {
                     title: item.title;
                     checkable: true;
@@ -1571,43 +1571,43 @@ export component AppWindow inherits Window {
             }
             MenuSeparator { }
             MenuItem {
-                title: "Selection details";
+                title: @tr("Selection details");
                 checkable: true;
                 checked <=> root.status-details;
                 activated => { root.status-details-changed(root.status-details); }
             }
             MenuItem {
-                title: "Menu bar";
+                title: @tr("Menu bar");
                 checkable: true;
                 checked <=> root.show-menu-bar;
                 activated => { root.menu-bar-changed(root.show-menu-bar); }
             }
         }
         Menu {
-            title: "Search";
+            title: @tr("Search");
             MenuItem {
-                title: "Match case";
+                title: @tr("Match case");
                 shortcut: @keys(Alt + C);
                 checkable: true;
                 checked <=> root.match-case;
                 activated => { root.options-edited(); }
             }
             MenuItem {
-                title: "Match whole words";
+                title: @tr("Match whole words");
                 shortcut: @keys(Alt + W);
                 checkable: true;
                 checked <=> root.whole-words;
                 activated => { root.options-edited(); }
             }
             MenuItem {
-                title: "Match the full path";
+                title: @tr("Match the full path");
                 shortcut: @keys(Alt + P);
                 checkable: true;
                 checked <=> root.match-path;
                 activated => { root.options-edited(); }
             }
             MenuItem {
-                title: "Match diacritics";
+                title: @tr("Match diacritics");
                 shortcut: @keys(Alt + D);
                 checkable: true;
                 checked <=> root.match-diacritics;
@@ -1615,7 +1615,7 @@ export component AppWindow inherits Window {
             }
             MenuSeparator { }
             Menu {
-                title: "Filter";
+                title: @tr("Filter");
                 for item[i] in root.filter-items: MenuItem {
                     title: item.title;
                     checkable: true;
@@ -1628,25 +1628,25 @@ export component AppWindow inherits Window {
             }
             MenuSeparator { }
             MenuItem {
-                title: "Previous search";
+                title: @tr("Previous search");
                 shortcut: @keys(Alt + LeftArrow);
                 activated => { root.history-go(-1); }
             }
             MenuItem {
-                title: "Next search";
+                title: @tr("Next search");
                 shortcut: @keys(Alt + RightArrow);
                 activated => { root.history-go(1); }
             }
         }
         Menu {
-            title: "Help";
+            title: @tr("Help");
             MenuItem {
-                title: "Keyboard shortcuts";
+                title: @tr("Keyboard shortcuts");
                 activated => { root.shortcuts-open = true; }
             }
             MenuSeparator { }
             MenuItem {
-                title: "About EveryGrep";
+                title: @tr("About EveryGrep");
                 activated => { root.about-open = true; }
             }
         }

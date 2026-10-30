@@ -16,6 +16,7 @@
 //! density = compact
 //! status-details = false
 //! menu-bar = false
+//! language = az
 //! ```
 //!
 //! Only settings that differ from their defaults are written, so a file
@@ -38,6 +39,8 @@ use std::path::{Path, PathBuf};
 use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
 use everygrep_core::sort::FolderSize;
+
+use crate::i18n::{self, Lang};
 
 /// Search history entries kept by default (the number before settings
 /// existed).
@@ -112,6 +115,40 @@ impl Density {
     }
 }
 
+/// The language of the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LanguageChoice {
+    /// The language of the desktop session (`LANGUAGE`, `LC_ALL`,
+    /// `LC_MESSAGES`, `LANG`), English when it has no translation.
+    #[default]
+    System,
+    Fixed(Lang),
+}
+
+impl LanguageChoice {
+    pub const ALL: [LanguageChoice; 4] = [
+        LanguageChoice::System,
+        LanguageChoice::Fixed(Lang::En),
+        LanguageChoice::Fixed(Lang::Az),
+        LanguageChoice::Fixed(Lang::Tr),
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            LanguageChoice::System => "system",
+            LanguageChoice::Fixed(lang) => lang.code(),
+        }
+    }
+
+    /// The language the window shows for this choice.
+    pub fn resolve(self) -> Lang {
+        match self {
+            LanguageChoice::System => i18n::system_language_from_env(),
+            LanguageChoice::Fixed(lang) => lang,
+        }
+    }
+}
+
 /// Optional columns and column widths as the window last showed them. A width
 /// of `None` means the window's default.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -157,6 +194,7 @@ pub struct Settings {
     /// Whether the window has a menu bar; without it the ⋯ button holds the
     /// program's menu.
     pub menu_bar: bool,
+    pub language: LanguageChoice,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -179,6 +217,7 @@ impl Default for Settings {
             density: Density::Comfortable,
             status_details: true,
             menu_bar: true,
+            language: LanguageChoice::System,
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -276,6 +315,11 @@ impl Settings {
                 .is_some(),
             "status-details" => put_flag(&mut self.status_details),
             "menu-bar" => put_flag(&mut self.menu_bar),
+            "language" => LanguageChoice::ALL
+                .into_iter()
+                .find(|l| l.id() == value)
+                .map(|l| self.language = l)
+                .is_some(),
             "density" => Density::ALL
                 .into_iter()
                 .find(|d| d.id() == value)
@@ -370,6 +414,9 @@ impl Settings {
             d.status_details,
         );
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
+        if self.language != d.language {
+            line(&mut out, "language", self.language.id());
+        }
         let c = &self.columns;
         flag(&mut out, "show-type-column", c.show_type, false);
         flag(&mut out, "show-extension-column", c.show_ext, false);
@@ -411,6 +458,7 @@ impl Settings {
                 self.density = d.density;
                 self.status_details = d.status_details;
                 self.menu_bar = d.menu_bar;
+                self.language = d.language;
             }
             Page::Window => {
                 self.on_close = d.on_close;
@@ -688,6 +736,32 @@ pub(crate) mod tests {
         s.reset(Page::Appearance);
         assert!(s.menu_bar);
         assert_eq!(s.on_close, OnClose::Hide, "the Window page stays");
+    }
+
+    #[test]
+    fn language_defaults_to_the_system_and_reads_every_choice() {
+        assert_eq!(Settings::default().language, LanguageChoice::System);
+        assert!(!Settings::default().to_text().contains("language"));
+        for l in LanguageChoice::ALL {
+            let s = Settings {
+                language: l,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).language, l);
+        }
+        let s = Settings::parse("language = az\nlanguage = de\n");
+        assert_eq!(s.language, LanguageChoice::Fixed(Lang::Az));
+        assert_eq!(s.problems.len(), 1, "an unknown language is reported");
+        assert!(
+            Settings::parse("language = tr\n")
+                .to_text()
+                .contains("language = tr\n")
+        );
+        let mut s = Settings::parse("language = en\nfilter = code\n");
+        s.reset(Page::Appearance);
+        assert_eq!(s.language, LanguageChoice::System);
+        assert_eq!(s.options.filter, Filter::Code);
+        assert_eq!(LanguageChoice::Fixed(Lang::Tr).resolve(), Lang::Tr);
     }
 
     #[test]

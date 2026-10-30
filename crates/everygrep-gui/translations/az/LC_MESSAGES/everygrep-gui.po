@@ -1,0 +1,957 @@
+# Azerbaijani translation of the EveryGrep window.
+# This file is distributed under the same license as EveryGrep (MIT OR Apache-2.0).
+# The source texts are in crates/everygrep-gui/ui/*.slint (@tr) and src/*.rs (tr, trn).
+msgid ""
+msgstr ""
+"Project-Id-Version: everygrep-gui 0.1.0\n"
+"Language: az\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: ui/app.slint
+msgid "Match case (Alt+C)"
+msgstr "Hərf registrini nəzərə al (Alt+C)"
+
+#: ui/app.slint
+msgid "Match whole words (Alt+W)"
+msgstr "Yalnız tam sözlər (Alt+W)"
+
+#: ui/app.slint
+msgid "Match the full path (Alt+P)"
+msgstr "Tam yolda axtar (Alt+P)"
+
+#: ui/app.slint
+msgid "Match diacritics (Alt+D)"
+msgstr "Diakritik işarələri nəzərə al (Alt+D)"
+
+#: ui/app.slint
+msgid "Search files and folders"
+msgstr "Fayl və qovluqları axtar"
+
+#: ui/app.slint
+msgid "Close"
+msgstr "Bağla"
+
+#: ui/app.slint
+msgid "Filter"
+msgstr "Filtr"
+
+#: ui/app.slint
+msgid "Settings"
+msgstr "Ayarlar"
+
+#: ui/app.slint
+msgid "Keyboard shortcuts"
+msgstr "Klaviatura qısayolları"
+
+#: ui/app.slint
+msgid "About EveryGrep"
+msgstr "EveryGrep haqqında"
+
+#: ui/app.slint
+msgid "Show the menu bar"
+msgstr "Menyu zolağını göstər"
+
+#: ui/app.slint
+msgid "Quit"
+msgstr "Çıx"
+
+#: ui/app.slint
+msgid "More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)"
+msgstr "Daha çox (ayarlar: Ctrl+vergül, klaviatura qısayolları, haqqında, çıxış: Ctrl+Q)"
+
+#: ui/app.slint
+msgid "Type"
+msgstr "Növ"
+
+#: ui/app.slint
+msgid "Extension"
+msgstr "Genişlənmə"
+
+#: ui/app.slint
+msgid "Name"
+msgstr "Ad"
+
+#: ui/app.slint
+msgid "Folder"
+msgstr "Qovluq"
+
+#: ui/app.slint
+msgid "Size"
+msgstr "Ölçü"
+
+#: ui/app.slint
+msgid "Modified"
+msgstr "Dəyişmə tarixi"
+
+#: ui/app.slint
+msgid "Open"
+msgstr "Aç"
+
+#: ui/app.slint
+msgid "Open containing folder"
+msgstr "Olduğu qovluğu aç"
+
+#: ui/app.slint
+msgid "Copy name"
+msgstr "Adı kopyala"
+
+#: ui/app.slint
+msgid "Copy full path"
+msgstr "Tam yolu kopyala"
+
+#: ui/app.slint
+msgid "Rename"
+msgstr "Adını dəyiş"
+
+#: ui/app.slint
+msgid "Move to trash"
+msgstr "Zibil qutusuna at"
+
+#: ui/app.slint
+msgid "Delete permanently…"
+msgstr "Birdəfəlik sil…"
+
+#: ui/app.slint
+msgid "Cancel"
+msgstr "İmtina"
+
+#: ui/app.slint
+msgid "Version {}"
+msgstr "Versiya {}"
+
+#: ui/app.slint
+msgid "Finds files and folders by name as you type."
+msgstr "Siz yazdıqca faylları və qovluqları adına görə tapır."
+
+#: ui/app.slint
+msgid "Licensed under the MIT license or the Apache License 2.0, at your option."
+msgstr "MIT lisenziyası və ya Apache License 2.0 ilə, seçiminizə görə lisenziyalanıb."
+
+#: ui/app.slint
+msgid "File"
+msgstr "Fayl"
+
+#: ui/app.slint
+msgid "New window"
+msgstr "Yeni pəncərə"
+
+#: ui/app.slint
+msgid "Settings…"
+msgstr "Ayarlar…"
+
+#: ui/app.slint
+msgid "Edit"
+msgstr "Düzəliş"
+
+#: ui/app.slint
+msgid "Select all"
+msgstr "Hamısını seç"
+
+#: ui/app.slint
+msgid "View"
+msgstr "Görünüş"
+
+#: ui/app.slint
+msgid "Type column"
+msgstr "Növ sütunu"
+
+#: ui/app.slint
+msgid "Extension column"
+msgstr "Genişlənmə sütunu"
+
+#: ui/app.slint
+msgid "Folder size"
+msgstr "Qovluq ölçüsü"
+
+#: ui/app.slint
+msgid "Density"
+msgstr "Sıxlıq"
+
+#: ui/app.slint
+msgid "Theme"
+msgstr "Tema"
+
+#: ui/app.slint
+msgid "Selection details"
+msgstr "Seçim haqqında məlumat"
+
+#: ui/app.slint
+msgid "Menu bar"
+msgstr "Menyu zolağı"
+
+#: ui/app.slint
+msgid "Search"
+msgstr "Axtarış"
+
+#: ui/app.slint
+msgid "Match case"
+msgstr "Hərf registrini nəzərə al"
+
+#: ui/app.slint
+msgid "Match whole words"
+msgstr "Yalnız tam sözlər"
+
+#: ui/app.slint
+msgid "Match the full path"
+msgstr "Tam yolda axtar"
+
+#: ui/app.slint
+msgid "Match diacritics"
+msgstr "Diakritik işarələri nəzərə al"
+
+#: ui/app.slint
+msgid "Previous search"
+msgstr "Əvvəlki axtarış"
+
+#: ui/app.slint
+msgid "Next search"
+msgstr "Növbəti axtarış"
+
+#: ui/app.slint
+msgid "Help"
+msgstr "Kömək"
+
+#: ui/settings.slint
+msgid "Add…"
+msgstr "Əlavə et…"
+
+#: ui/settings.slint
+msgid "Remove"
+msgstr "Sil"
+
+#: ui/settings.slint
+msgid "EveryGrep settings"
+msgstr "EveryGrep ayarları"
+
+#: ui/settings.slint
+msgid "Settings pages"
+msgstr "Ayar səhifələri"
+
+#: ui/settings.slint
+msgid "Indexing"
+msgstr "İndeksləmə"
+
+#: ui/settings.slint
+msgid "Appearance"
+msgstr "Görünüş"
+
+#: ui/settings.slint
+msgid "Window"
+msgstr "Pəncərə"
+
+#: ui/settings.slint
+msgid "Keyboard shortcut"
+msgstr "Klaviatura qısayolu"
+
+#: ui/settings.slint
+msgid "Folders to index"
+msgstr "İndekslənən qovluqlar"
+
+#: ui/settings.slint
+msgid "Your home folder"
+msgstr "Ev qovluğunuz"
+
+#: ui/settings.slint
+msgid "Excluded folders"
+msgstr "İstisna qovluqlar"
+
+#: ui/settings.slint
+msgid "None. Folders listed here are shown but not searched inside."
+msgstr "Yoxdur. Burada olan qovluqlar nəticələrdə görünür, amma içində axtarılmır."
+
+#: ui/settings.slint
+msgid "Rebuild index now"
+msgstr "İndeksi indi yenidən qur"
+
+#: ui/settings.slint
+msgid "When EveryGrep starts"
+msgstr "EveryGrep açılanda"
+
+#: ui/settings.slint
+msgid "Default filter"
+msgstr "Standart filtr"
+
+#: ui/settings.slint
+msgid "Options given on the command line take their place."
+msgstr "Komanda sətrində verilən seçimlər bunları əvəz edir."
+
+#: ui/settings.slint
+msgid "Search history"
+msgstr "Axtarış tarixçəsi"
+
+#: ui/settings.slint
+msgid "Searches to keep"
+msgstr "Saxlanan axtarışlar"
+
+#: ui/settings.slint
+msgid "0 turns the history off."
+msgstr "0 tarixçəni söndürür."
+
+#: ui/settings.slint
+msgid "Keep the history after EveryGrep closes"
+msgstr "EveryGrep bağlanandan sonra tarixçəni saxla"
+
+#: ui/settings.slint
+msgid "Off: the history is forgotten when EveryGrep quits. Turning it off deletes the saved history."
+msgstr "Sönülü olanda tarixçə EveryGrep bağlananda unudulur. Söndürmək saxlanmış tarixçəni silir."
+
+#: ui/settings.slint
+msgid "Language and colors"
+msgstr "Dil və rənglər"
+
+#: ui/settings.slint
+msgid "Language"
+msgstr "Dil"
+
+#: ui/settings.slint
+msgid "Same as the system follows LANGUAGE, LC_ALL, LC_MESSAGES or LANG. The command line stays in English."
+msgstr "“Sistemdəki kimi” LANGUAGE, LC_ALL, LC_MESSAGES və ya LANG dəyişəninə uyur. Komanda sətri ingiliscə qalır."
+
+#: ui/settings.slint
+msgid "Same as the desktop follows the light or dark style chosen in the desktop's settings, also when it changes."
+msgstr "“İş masasındakı kimi” iş masası ayarlarında seçilmiş açıq və ya tünd üslubu izləyir, dəyişəndə də."
+
+#: ui/settings.slint
+msgid "Result list"
+msgstr "Nəticə siyahısı"
+
+#: ui/settings.slint
+msgid "Density of the result list"
+msgstr "Nəticə siyahısının sıxlığı"
+
+#: ui/settings.slint
+msgid "Compact shows more rows at once, with smaller icons and text."
+msgstr "Yığcam görünüş kiçik nişan və mətnlə bir dəfəyə daha çox sətir göstərir."
+
+#: ui/settings.slint
+msgid "Status line"
+msgstr "Status sətri"
+
+#: ui/settings.slint
+msgid "Show details of the selected items"
+msgstr "Seçilmiş elementlərin təfərrüatını göstər"
+
+#: ui/settings.slint
+msgid "One selected item shows its size, modification time and full path; several show their number and the total size of the files among them."
+msgstr "Bir seçilmiş element ölçüsünü, dəyişmə vaxtını və tam yolunu göstərir; bir neçəsi isə sayını və aralarındakı faylların ümumi ölçüsünü."
+
+#: ui/settings.slint
+msgid "Without it, the ⋯ button next to the filter holds Settings, Keyboard shortcuts, About and Quit."
+msgstr "Menyu zolağı olmayanda Ayarlar, Klaviatura qısayolları, Haqqında və Çıx filtrin yanındakı ⋯ düyməsindədir."
+
+#: ui/settings.slint
+msgid "Closing the window"
+msgstr "Pəncərəni bağlayanda"
+
+#: ui/settings.slint
+msgid "When the window is closed"
+msgstr "Pəncərə bağlananda"
+
+#: ui/settings.slint
+msgid "Columns"
+msgstr "Sütunlar"
+
+#: ui/settings.slint
+msgid "Remember the shown columns and their widths"
+msgstr "Göstərilən sütunları və enlərini yadda saxla"
+
+#: ui/settings.slint
+msgid "Right-click the column headers to show the Type and Extension columns; drag the header borders to resize."
+msgstr "Növ və Genişlənmə sütunlarını göstərmək üçün sütun başlıqlarına sağ klikləyin; ölçünü dəyişmək üçün başlıq sərhədlərini çəkin."
+
+#: ui/settings.slint
+msgid "The Size column shows"
+msgstr "Ölçü sütunu göstərir"
+
+#: ui/settings.slint
+msgid "What the Size column shows for folders"
+msgstr "Ölçü sütununun qovluqlar üçün göstərdiyi"
+
+#: ui/settings.slint
+msgid "Open EveryGrep with a key"
+msgstr "EveryGrep-i düymə ilə aç"
+
+#: ui/settings.slint
+msgid "Copy command"
+msgstr "Komandanı kopyala"
+
+#: ui/settings.slint
+msgid "Pressing the keys again while EveryGrep is open brings its window to the front."
+msgstr "EveryGrep açıq olanda düymələri yenidən basmaq onun pəncərəsini öndə gətirir."
+
+#: ui/settings.slint
+msgid "Reset to defaults"
+msgstr "Standart ayarlara qaytar"
+
+#: src/actions.rs
+msgid "A name cannot be empty."
+msgstr "Ad boş ola bilməz."
+
+#: src/actions.rs
+msgid "A name cannot contain “/”."
+msgstr "Adda “/” ola bilməz."
+
+#: src/actions.rs
+msgid "“.” and “..” cannot be used as names."
+msgstr "“.” və “..” ad kimi istifadə edilə bilməz."
+
+#: src/actions.rs
+msgid "The name is too long."
+msgstr "Ad çox uzundur."
+
+#: src/actions.rs
+msgid "“{}” already exists in this folder."
+msgstr "Bu qovluqda artıq “{}” var."
+
+#: src/actions.rs
+msgid "Cannot rename: {}."
+msgstr "Adını dəyişmək olmadı: {}."
+
+#: src/actions.rs
+msgid "Cannot run gio: {}."
+msgstr "gio işə salına bilmədi: {}."
+
+#: src/actions.rs
+msgid "Cannot move to the trash."
+msgstr "Zibil qutusuna atmaq olmadı."
+
+#: src/actions.rs
+msgid "Cannot move to the trash: {}"
+msgstr "Zibil qutusuna atmaq olmadı: {}"
+
+#: src/format.rs
+msgid "Jan"
+msgstr "yan"
+
+#: src/format.rs
+msgid "Feb"
+msgstr "fev"
+
+#: src/format.rs
+msgid "Mar"
+msgstr "mar"
+
+#: src/format.rs
+msgid "Apr"
+msgstr "apr"
+
+#: src/format.rs
+msgid "May"
+msgstr "may"
+
+#: src/format.rs
+msgid "Jun"
+msgstr "iyn"
+
+#: src/format.rs
+msgid "Jul"
+msgstr "iyl"
+
+#: src/format.rs
+msgid "Aug"
+msgstr "avq"
+
+#: src/format.rs
+msgid "Sep"
+msgstr "sen"
+
+#: src/format.rs
+msgid "Oct"
+msgstr "okt"
+
+#: src/format.rs
+msgid "Nov"
+msgstr "noy"
+
+#: src/format.rs
+msgid "Dec"
+msgstr "dek"
+
+#: src/labels.rs
+msgid "All"
+msgstr "Hamısı"
+
+#: src/labels.rs
+msgid "Audio"
+msgstr "Audio"
+
+#: src/labels.rs
+msgid "Archives"
+msgstr "Arxivlər"
+
+#: src/labels.rs
+msgid "Code"
+msgstr "Kod"
+
+#: src/labels.rs
+msgid "Documents"
+msgstr "Sənədlər"
+
+#: src/labels.rs
+msgid "Executables"
+msgstr "İcra olunanlar"
+
+#: src/labels.rs
+msgid "Folders"
+msgstr "Qovluqlar"
+
+#: src/labels.rs
+msgid "Pictures"
+msgstr "Şəkillər"
+
+#: src/labels.rs
+msgid "Videos"
+msgstr "Videolar"
+
+#: src/labels.rs
+msgid "{} file"
+msgstr "{} faylı"
+
+#: src/labels.rs
+msgid "{} text"
+msgstr "{} mətni"
+
+#: src/labels.rs
+msgid "Text"
+msgstr "Mətn"
+
+#: src/labels.rs
+msgid "{} document"
+msgstr "{} sənədi"
+
+#: src/labels.rs
+msgid "Document"
+msgstr "Sənəd"
+
+#: src/labels.rs
+msgid "{} spreadsheet"
+msgstr "{} cədvəli"
+
+#: src/labels.rs
+msgid "Spreadsheet"
+msgstr "Cədvəl"
+
+#: src/labels.rs
+msgid "{} presentation"
+msgstr "{} təqdimatı"
+
+#: src/labels.rs
+msgid "Presentation"
+msgstr "Təqdimat"
+
+#: src/labels.rs
+msgid "{} image"
+msgstr "{} şəkli"
+
+#: src/labels.rs
+msgid "Image"
+msgstr "Şəkil"
+
+#: src/labels.rs
+msgid "{} audio"
+msgstr "{} audio faylı"
+
+#: src/labels.rs
+msgid "{} video"
+msgstr "{} videosu"
+
+#: src/labels.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/labels.rs
+msgid "{} archive"
+msgstr "{} arxivi"
+
+#: src/labels.rs
+msgid "Archive"
+msgstr "Arxiv"
+
+#: src/labels.rs
+msgid "{} source"
+msgstr "{} mənbə kodu"
+
+#: src/labels.rs
+msgid "Source"
+msgstr "Mənbə kodu"
+
+#: src/labels.rs
+msgid "{} program"
+msgstr "{} proqramı"
+
+#: src/labels.rs
+msgid "Program"
+msgstr "Proqram"
+
+#: src/labels.rs
+msgid "{} font"
+msgstr "{} şrifti"
+
+#: src/labels.rs
+msgid "Font"
+msgstr "Şrift"
+
+#: src/labels.rs
+msgid "{} disk image"
+msgstr "{} disk obrazı"
+
+#: src/labels.rs
+msgid "Disk image"
+msgstr "Disk obrazı"
+
+#: src/labels.rs
+msgid "{} link"
+msgstr "{} keçidi"
+
+#: src/labels.rs
+msgid "Link"
+msgstr "Keçid"
+
+#: src/labels.rs
+msgid "Case"
+msgstr "Registr"
+
+#: src/labels.rs
+msgid "Whole words"
+msgstr "Tam sözlər"
+
+#: src/labels.rs
+msgid "Path"
+msgstr "Yol"
+
+#: src/labels.rs
+msgid "Diacritics"
+msgstr "Diakritika"
+
+#: src/labels.rs
+msgid "loading"
+msgstr "yüklənir"
+
+#: src/labels.rs
+msgid "indexing"
+msgstr "indekslənir"
+
+#: src/labels.rs
+msgid "catching up"
+msgstr "dəyişikliklər oxunur"
+
+#: src/labels.rs
+msgid "watching for changes"
+msgstr "dəyişikliklər izlənir"
+
+#: src/labels.rs
+msgid "not watching changes"
+msgstr "dəyişikliklər izlənmir"
+
+#: src/labels.rs
+msgid "{} selected"
+msgstr "{} seçilib"
+
+#: src/labels.rs
+msgid "{} indexed"
+msgstr "{} indeksdə"
+
+#: src/labels.rs
+msgid "Modified {}"
+msgstr "Dəyişmə tarixi: {}"
+
+#: src/labels.rs
+msgid "Total size"
+msgstr "Ümumi ölçü"
+
+#: src/labels.rs
+msgid "Number of items"
+msgstr "Element sayı"
+
+#: src/labels.rs
+msgid "Nothing"
+msgstr "Heç nə"
+
+#: src/labels.rs
+msgid "The size of all files inside the folder and its subfolders. Folders sort by it together with files."
+msgstr "Qovluqdakı və alt qovluqlarındakı bütün faylların ölçüsü. Qovluqlar fayllarla birlikdə buna görə sıralanır."
+
+#: src/labels.rs
+msgid "How many files and folders are directly inside. Sorting by Size puts folders apart from files, by this number."
+msgstr "Birbaşa içindəki fayl və qovluqların sayı. Ölçüyə görə sıralananda qovluqlar fayllardan ayrı, bu saya görə düzülür."
+
+#: src/labels.rs
+msgid "Folders sort by Size as if they were empty."
+msgstr "Ölçüyə görə sıralananda qovluqlar boş sayılır."
+
+#: src/labels.rs
+msgid "Quit EveryGrep"
+msgstr "EveryGrep-i bağla"
+
+#: src/labels.rs
+msgid "Hide the window and keep running"
+msgstr "Pəncərəni gizlət, işləməyə davam et"
+
+#: src/labels.rs
+msgid "The index is saved and EveryGrep ends. The next start loads it again, which takes a moment for large indexes."
+msgstr "İndeks saxlanır və EveryGrep bağlanır. Növbəti açılışda indeks yenidən yüklənir; böyük indekslərdə bu bir az vaxt aparır."
+
+#: src/labels.rs
+msgid "EveryGrep keeps the index in memory and keeps watching for changes. Starting EveryGrep again (for example with its shortcut) shows the window at once. Ctrl+Q or Quit in the ⋯ menu ends it."
+msgstr "EveryGrep indeksi yaddaşda saxlayır və dəyişiklikləri izləməyə davam edir. EveryGrep-i yenidən açmaq (məsələn, qısayolu ilə) pəncərəni dərhal göstərir. Ctrl+Q və ya ⋯ menyusundakı Çıx onu bağlayır."
+
+#: src/labels.rs
+msgid "Same as the desktop"
+msgstr "İş masasındakı kimi"
+
+#: src/labels.rs
+msgid "Light"
+msgstr "Açıq"
+
+#: src/labels.rs
+msgid "Dark"
+msgstr "Tünd"
+
+#: src/labels.rs
+msgid "Comfortable"
+msgstr "Rahat"
+
+#: src/labels.rs
+msgid "Compact"
+msgstr "Yığcam"
+
+#: src/labels.rs
+msgid "Same as the system"
+msgstr "Sistemdəki kimi"
+
+#: src/labels.rs
+msgid "Loading the index…"
+msgstr "İndeks yüklənir…"
+
+#: src/labels.rs
+msgid "Indexing…"
+msgstr "İndekslənir…"
+
+#: src/labels.rs
+msgid "Indexing your files. This happens once; later starts are instant."
+msgstr "Fayllarınız indekslənir. Bu bir dəfə olur; sonrakı açılışlar dərhal olacaq."
+
+#: src/labels.rs
+msgid "This window was started with --root or --index-file. Changes here apply to this window only and are not saved."
+msgstr "Bu pəncərə --root və ya --index-file ilə açılıb. Buradakı dəyişikliklər yalnız bu pəncərəyə aiddir və saxlanmır."
+
+#: src/labels.rs
+msgid "Add folders to index"
+msgstr "İndeksə qovluq əlavə et"
+
+#: src/labels.rs
+msgid "Add folders to exclude"
+msgstr "İstisna qovluq əlavə et"
+
+#: src/labels.rs
+msgid "Add"
+msgstr "Əlavə et"
+
+#: src/labels.rs
+msgid "Cannot open the folder chooser: {}"
+msgstr "Qovluq seçimi pəncərəsi açılmadı: {}"
+
+#: src/labels.rs
+msgid "Cannot save the settings: {}"
+msgstr "Ayarları saxlamaq olmadı: {}"
+
+#: src/labels.rs
+msgid "Cannot read {}: {}. Changes are not saved until it can be read."
+msgstr "{} oxunmadı: {}. Oxuna bilənə qədər dəyişikliklər saxlanmır."
+
+#: src/labels.rs
+msgid "Neither XDG_CONFIG_HOME nor HOME is set, so settings cannot be saved."
+msgstr "Nə XDG_CONFIG_HOME, nə də HOME təyin olunub, ona görə ayarlar saxlanıla bilməz."
+
+#: src/labels.rs
+msgid "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter the name EveryGrep and the command below, then press the keys you want (for example Super+F)."
+msgstr "GNOME-da: Ayarlar → Klaviatura → Qısayollara bax və fərdiləşdir → Fərdi qısayollar bölməsini açın, + düyməsini basın, ad olaraq EveryGrep və aşağıdakı komandanı yazın, sonra istədiyiniz düymələri basın (məsələn, Super+F)."
+
+#: src/labels.rs
+msgid "Copied the command."
+msgstr "Komanda kopyalandı."
+
+#: src/labels.rs
+msgid "Move in the results and select"
+msgstr "Nəticələrdə gəz və seç"
+
+#: src/labels.rs
+msgid "Shift + movement"
+msgstr "Shift + hərəkət"
+
+#: src/labels.rs
+msgid "Extend the selection"
+msgstr "Seçimi genişləndir"
+
+#: src/labels.rs
+msgid "Ctrl + movement"
+msgstr "Ctrl + hərəkət"
+
+#: src/labels.rs
+msgid "Move without changing the selection"
+msgstr "Seçimi dəyişmədən gəz"
+
+#: src/labels.rs
+msgid "Add or remove one row"
+msgstr "Bir sətri əlavə et və ya çıxar"
+
+#: src/labels.rs
+msgid "Open the containing folder"
+msgstr "Olduğu qovluğu aç"
+
+#: src/labels.rs
+msgid "Copy the name"
+msgstr "Adı kopyala"
+
+#: src/labels.rs
+msgid "Copy the full path"
+msgstr "Tam yolu kopyala"
+
+#: src/labels.rs
+msgid "Move to the trash"
+msgstr "Zibil qutusuna at"
+
+#: src/labels.rs
+msgid "Delete permanently"
+msgstr "Birdəfəlik sil"
+
+#: src/labels.rs
+msgid "Context menu"
+msgstr "Kontekst menyusu"
+
+#: src/labels.rs
+msgid "Clear the selection, then the search"
+msgstr "Əvvəl seçimi, sonra axtarışı təmizlə"
+
+#: src/labels.rs
+msgid "Focus the search field"
+msgstr "Axtarış sahəsinə keç"
+
+#: src/labels.rs
+msgid "Previous / next search"
+msgstr "Əvvəlki / növbəti axtarış"
+
+#: src/labels.rs
+msgid "Previous / next filter"
+msgstr "Əvvəlki / növbəti filtr"
+
+#: src/labels.rs
+msgid "{} result"
+msgid_plural "{} results"
+msgstr[0] "{} nəticə"
+msgstr[1] "{} nəticə"
+
+#: src/labels.rs
+msgid "{} item selected"
+msgid_plural "{} items selected"
+msgstr[0] "{} element seçilib"
+msgstr[1] "{} element seçilib"
+
+#: src/labels.rs
+msgid "{} in {} file"
+msgid_plural "{} in {} files"
+msgstr[0] "{} ({} fayl)"
+msgstr[1] "{} ({} fayl)"
+
+#: src/labels.rs
+msgid "{} folder"
+msgid_plural "{} folders"
+msgstr[0] "{} qovluq"
+msgstr[1] "{} qovluq"
+
+#: src/labels.rs
+msgid "{} item"
+msgid_plural "{} items"
+msgstr[0] "{} element"
+msgstr[1] "{} element"
+
+#: src/labels.rs
+msgid "{} entry · catching up"
+msgid_plural "{} entries · catching up"
+msgstr[0] "{} qeyd · dəyişikliklər oxunur"
+msgstr[1] "{} qeyd · dəyişikliklər oxunur"
+
+#: src/labels.rs
+msgid "{} entry · watching for changes"
+msgid_plural "{} entries · watching for changes"
+msgstr[0] "{} qeyd · dəyişikliklər izlənir"
+msgstr[1] "{} qeyd · dəyişikliklər izlənir"
+
+#: src/labels.rs
+msgid "{} entry · not watching changes"
+msgid_plural "{} entries · not watching changes"
+msgstr[0] "{} qeyd · dəyişikliklər izlənmir"
+msgstr[1] "{} qeyd · dəyişikliklər izlənmir"
+
+#: src/labels.rs
+msgid "One line of the settings file was not understood and is ignored."
+msgid_plural "{} lines of the settings file were not understood and are ignored."
+msgstr[0] "Ayarlar faylının bir sətri anlaşılmadı və nəzərə alınmır."
+msgstr[1] "Ayarlar faylının {} sətri anlaşılmadı və nəzərə alınmır."
+
+#: src/labels.rs
+msgid "Copied the name."
+msgid_plural "Copied {} names."
+msgstr[0] "Ad kopyalandı."
+msgstr[1] "{} ad kopyalandı."
+
+#: src/labels.rs
+msgid "Copied the path."
+msgid_plural "Copied {} paths."
+msgstr[0] "Yol kopyalandı."
+msgstr[1] "{} yol kopyalandı."
+
+#: src/main.rs
+msgid "Select at most {} items to open them at once."
+msgstr "Birdən açmaq üçün ən çox {} element seçin."
+
+#: src/main.rs
+msgid "Select one item to rename it."
+msgstr "Adını dəyişmək üçün bir element seçin."
+
+#: src/main.rs
+msgid "Move {} to the trash?"
+msgstr "{} zibil qutusuna atılsın?"
+
+#: src/main.rs
+msgid "You can restore them from the trash."
+msgstr "Onları zibil qutusundan bərpa edə bilərsiniz."
+
+#: src/main.rs
+msgid "Delete {} permanently?"
+msgstr "{} birdəfəlik silinsin?"
+
+#: src/main.rs
+msgid "This cannot be undone. Folders are deleted with all their contents."
+msgstr "Bunu geri qaytarmaq olmaz. Qovluqlar bütün içindəkilərlə birlikdə silinir."
+
+#: src/main.rs
+msgid "Delete"
+msgstr "Sil"
+
+#: src/main.rs
+msgid "Moving {} to the trash…"
+msgstr "{} zibil qutusuna atılır…"
+
+#: src/main.rs
+msgid "Moved {} to the trash."
+msgstr "{} zibil qutusuna atıldı."
+
+#: src/main.rs
+msgid "Deleting {}…"
+msgstr "{} silinir…"
+
+#: src/main.rs
+msgid "Deleted {}."
+msgstr "{} silindi."
+
+#: src/main.rs
+msgid "Could not delete {} of {}: {}: {}."
+msgstr "{} element silinmədi (cəmi {}): {}: {}."
+
+#: src/main.rs
+msgid "Cannot search: {}"
+msgstr "Axtarış alınmadı: {}"

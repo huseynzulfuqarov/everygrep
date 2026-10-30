@@ -2,9 +2,25 @@
 
 use everygrep_core::localtime::Zone;
 
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
+use crate::i18n::tr;
+
+/// Short month name for the Date column, 1 to 12.
+fn month(m: u32) -> &'static str {
+    match m {
+        1 => tr("Jan"),
+        2 => tr("Feb"),
+        3 => tr("Mar"),
+        4 => tr("Apr"),
+        5 => tr("May"),
+        6 => tr("Jun"),
+        7 => tr("Jul"),
+        8 => tr("Aug"),
+        9 => tr("Sep"),
+        10 => tr("Oct"),
+        11 => tr("Nov"),
+        _ => tr("Dec"),
+    }
+}
 
 /// Groups digits with thin spaces: `617178` → `617 178`.
 pub fn count(n: usize) -> String {
@@ -46,7 +62,7 @@ pub fn date(mtime_ns: i64, now_ns: i64, zone: &Zone) -> String {
     }
     let (y, m, d) = zone.local_date(mtime_ns.div_euclid(1_000_000_000));
     let (now_y, _, _) = zone.local_date(now_ns.div_euclid(1_000_000_000));
-    let month = MONTHS[(m as usize).clamp(1, 12) - 1];
+    let month = month(m);
     if y == now_y {
         format!("{d} {month}")
     } else {
