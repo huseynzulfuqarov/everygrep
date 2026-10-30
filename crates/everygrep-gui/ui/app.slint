@@ -1,5 +1,6 @@
 import { Button, ComboBox, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+export { SettingsWindow } from "settings.slint";
 
 export struct ResultRow {
     // The name, split around the highlighted match; without a match all of it
@@ -528,6 +529,11 @@ export component AppWindow inherits Window {
     callback history-step(int);
     callback history-record();
 
+    // The settings window, and ending the program (also when closing the
+    // window only hides it).
+    callback open-settings();
+    callback quit();
+
     callback query-edited(string);
     callback sort-changed(int, bool);
     callback activate(int);
@@ -579,6 +585,9 @@ export component AppWindow inherits Window {
     // Optional columns after Modified, hidden by default.
     in-out property <bool> show-type: false;
     in-out property <bool> show-ext: false;
+    // Whether Name has a width of its own (dragged, or restored from the
+    // settings) rather than its share of the window.
+    in-out property <bool> name-set: false;
     out property <length> name-min: 120px;
     out property <length> folder-min: 100px;
     out property <length> size-min: 56px;
@@ -597,6 +606,9 @@ export component AppWindow inherits Window {
     // Dragging a boundary moves it between its two neighbours; neither gets
     // narrower than its minimum, so the total width stays the same.
     function drag-boundary(boundary: int, delta: length) {
+        if (boundary <= 1) {
+            root.name-set = true;
+        }
         if (boundary == 0) {
             root.name-want = max(root.name-min, min(root.name-width + delta, root.name-width + root.folder-width - root.folder-min));
         } else if (boundary == 1) {
@@ -650,6 +662,17 @@ export component AppWindow inherits Window {
 
     // Shortcuts that work in the search field and in the list.
     function shortcut(event: KeyEvent) -> bool {
+        if (event.modifiers.control && !event.modifiers.alt) {
+            if (event.text == ",") {
+                root.open-settings();
+                return true;
+            }
+            if (event.text == "q" || event.text == "Q") {
+                root.quit();
+                return true;
+            }
+            return false;
+        }
         if (!event.modifiers.alt || event.modifiers.control) {
             return false;
         }
@@ -791,6 +814,37 @@ export component AppWindow inherits Window {
                     model: root.filter-names;
                     current-index <=> root.filter-index;
                     selected => { root.options-edited(); }
+                }
+                // Overflow menu.
+                more-menu := ContextMenuArea {
+                    width: 34px;
+                    Menu {
+                        MenuItem {
+                            title: "Settings";
+                            activated => { root.open-settings(); }
+                        }
+                        MenuSeparator { }
+                        MenuItem {
+                            title: "Quit";
+                            activated => { root.quit(); }
+                        }
+                    }
+                    Rectangle {
+                        border-radius: Theme.radius;
+                        background: more-touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: button;
+                        accessible-label: "More (settings: Ctrl+comma, quit: Ctrl+Q)";
+                        accessible-action-default => { more-menu.show({ x: 0, y: self.height }); }
+                        more-touch := TouchArea {
+                            clicked => { more-menu.show({ x: 0, y: self.height }); }
+                        }
+                        Image {
+                            source: @image-url("icons/more.svg");
+                            colorize: Theme.text-muted;
+                            width: Theme.icon;
+                            height: Theme.icon;
+                        }
+                    }
                 }
             }
         }

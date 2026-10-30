@@ -1,9 +1,14 @@
-//! Words the window shows for core concepts: filter names, file types and
-//! matching modes. They are kept together here so they can be translated.
+//! Words the window shows for core concepts (filter names, file types and
+//! matching modes) and the texts of the settings window that the program
+//! fills in. They are kept together here so they can be translated.
 
 use everygrep_core::filter::Filter;
 use everygrep_core::kind::FileKind;
 use everygrep_core::query::QueryOptions;
+
+use crate::engine::IndexState;
+use crate::format;
+use crate::settings::OnClose;
 
 /// Name of a filter in the filter selector.
 pub fn filter(f: Filter) -> &'static str {
@@ -75,6 +80,90 @@ pub fn mode_badges(o: &QueryOptions) -> Vec<&'static str> {
     .collect()
 }
 
+/// `1 folder`, `3 folders`.
+pub fn folder_count(n: usize) -> String {
+    if n == 1 {
+        "1 folder".to_owned()
+    } else {
+        format!("{} folders", format::count(n))
+    }
+}
+
+/// Choices for what closing the window does.
+pub fn on_close(o: OnClose) -> &'static str {
+    match o {
+        OnClose::Quit => "Quit EveryGrep",
+        OnClose::Hide => "Hide the window and keep running",
+    }
+}
+
+/// What the chosen close behaviour means.
+pub fn on_close_note(o: OnClose) -> &'static str {
+    match o {
+        OnClose::Quit => {
+            "The index is saved and EveryGrep ends. The next start loads it again, which takes a moment for large indexes."
+        }
+        OnClose::Hide => {
+            "EveryGrep keeps the index in memory and keeps watching for changes. Starting EveryGrep again (for example with its shortcut) shows the window at once. Ctrl+Q or Quit in the ⋯ menu ends it."
+        }
+    }
+}
+
+/// The state of the index for the settings window.
+pub fn index_status(state: IndexState, indexed: usize) -> String {
+    let entries = format::count(indexed);
+    match state {
+        IndexState::Loading => "Loading the index…".to_owned(),
+        IndexState::Scanning => "Indexing…".to_owned(),
+        IndexState::CatchingUp => format!("{entries} entries · catching up"),
+        IndexState::Watching => format!("{entries} entries · watching for changes"),
+        IndexState::Static => format!("{entries} entries · not watching changes"),
+    }
+}
+
+/// Shown on the Indexing page when the window was started with its own
+/// folders or index file.
+pub const INDEX_FROM_COMMAND_LINE: &str = "This window was started with --root or --index-file. Changes here apply to this window only and are not saved.";
+
+/// Titles and button of the folder chooser.
+pub const CHOOSE_ROOTS: &str = "Add folders to index";
+pub const CHOOSE_EXCLUDES: &str = "Add folders to exclude";
+pub const CHOOSE_ACCEPT: &str = "Add";
+
+pub fn chooser_failed(e: &str) -> String {
+    format!("Cannot open the folder chooser: {e}")
+}
+
+pub fn cannot_save(e: &std::io::Error) -> String {
+    format!("Cannot save the settings: {e}")
+}
+
+pub fn cannot_read(path: &std::path::Path, e: &std::io::Error) -> String {
+    format!(
+        "Cannot read {}: {e}. Changes are not saved until it can be read.",
+        path.display()
+    )
+}
+
+pub fn bad_lines(n: usize) -> String {
+    if n == 1 {
+        "One line of the settings file was not understood and is ignored.".to_owned()
+    } else {
+        format!(
+            "{} lines of the settings file were not understood and are ignored.",
+            format::count(n)
+        )
+    }
+}
+
+pub const NO_SETTINGS_FOLDER: &str =
+    "Neither XDG_CONFIG_HOME nor HOME is set, so settings cannot be saved.";
+
+/// How to add a GNOME shortcut that opens the window.
+pub const SHORTCUT_STEPS: &str = "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter the name EveryGrep and the command below, then press the keys you want (for example Super+F).";
+
+pub const COMMAND_COPIED: &str = "Copied the command.";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +200,18 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), Filter::ALL.len());
+    }
+
+    #[test]
+    fn counts_and_states() {
+        assert_eq!(folder_count(1), "1 folder");
+        assert_eq!(folder_count(0), "0 folders");
+        assert_eq!(
+            index_status(IndexState::Watching, 1234),
+            format!("{} entries · watching for changes", format::count(1234))
+        );
+        assert_ne!(on_close(OnClose::Quit), on_close(OnClose::Hide));
+        assert_eq!(bad_lines(1).split(' ').next(), Some("One"));
     }
 
     #[test]

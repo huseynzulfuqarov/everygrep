@@ -57,7 +57,10 @@ pub struct Hooks {
 pub struct Engine {
     pub index: RwLock<Index>,
     roots: Mutex<Vec<PathBuf>>,
-    options: ScanOptions,
+    options: Mutex<ScanOptions>,
+    /// Set by [`Engine::reindex`]; the index thread scans again when it sees
+    /// it.
+    rescan: AtomicBool,
     index_file: Option<PathBuf>,
     /// Bumped for every new query; older results are dropped.
     generation: AtomicU64,
@@ -86,12 +89,22 @@ const REFRESH_EVERY: Duration = Duration::from_millis(500);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 
 impl Engine {
-    /// Creates the engine and starts loading in the background.
-    pub fn start(roots: Vec<PathBuf>, index_file: Option<PathBuf>, hooks: Hooks) -> Arc<Self> {
+    /// Creates the engine and starts loading in the background. Folders in
+    /// `exclude` are not entered by scans.
+    pub fn start(
+        roots: Vec<PathBuf>,
+        exclude: Vec<PathBuf>,
+        index_file: Option<PathBuf>,
+        hooks: Hooks,
+    ) -> Arc<Self> {
         let engine = Arc::new(Self {
             index: RwLock::new(Index::new(NodeStore::new())),
             roots: Mutex::new(normalize_roots(&roots)),
-            options: ScanOptions::default(),
+            options: Mutex::new(ScanOptions {
+                exclude,
+                ..ScanOptions::default()
+            }),
+            rescan: AtomicBool::new(false),
             index_file: index_file.or_else(persist::default_path),
             generation: AtomicU64::new(0),
             query: Mutex::new(QueryState::default()),
@@ -121,6 +134,26 @@ impl Engine {
             .expect("lock")
             .extend([searcher, indexer]);
         engine
+    }
+
+    /// The folders the index covers. Empty until the index is loaded or the
+    /// first scan has started.
+    pub fn roots(&self) -> Vec<PathBuf> {
+        self.roots.lock().expect("lock").clone()
+    }
+
+    /// Indexes `roots` again from scratch, without entering `exclude`, in the
+    /// background. Empty `roots` stand for the home folder. The status hook
+    /// reports the scan as for a first start; the new index is saved as soon
+    /// as it is complete.
+    pub fn reindex(&self, roots: &[PathBuf], exclude: Vec<PathBuf>) {
+        *self.roots.lock().expect("lock") = normalize_roots(roots);
+        self.options.lock().expect("lock").exclude = exclude;
+        self.rescan.store(true, Ordering::SeqCst);
+    }
+
+    fn scan_options(&self) -> ScanOptions {
+        self.options.lock().expect("lock").clone()
     }
 
     /// Runs `text` as the current query. Returns the generation of the request.
@@ -229,46 +262,72 @@ impl Engine {
             }
         }
         if !loaded {
-            self.report(IndexState::Scanning);
-            let roots = {
-                let mut roots = self.roots.lock().expect("lock");
-                if roots.is_empty() {
-                    *roots = std::env::var_os("HOME")
-                        .map(PathBuf::from)
-                        .into_iter()
-                        .collect();
-                }
-                roots.clone()
-            };
-            let mut store = NodeStore::new();
-            scan(&mut store, &roots, &self.options);
-            self.replace_index(Index::new(store));
-            self.dirty.store(true, Ordering::SeqCst);
+            self.scan_fresh();
         }
         self.request_search();
 
-        let watcher = Watcher::new(&self.index.read().expect("index lock"), &self.options);
-        let Ok(mut watcher) = watcher else {
-            self.report(IndexState::Static);
-            return;
-        };
-        if loaded {
-            self.report(IndexState::CatchingUp);
-            let stats = watcher.catch_up(&mut self.index.write().expect("index lock"));
-            if stats.added + stats.removed + stats.updated > 0 {
-                self.dirty.store(true, Ordering::SeqCst);
+        let mut catch_up = loaded;
+        while !self.stop.load(Ordering::SeqCst) {
+            let watcher = Watcher::new(
+                &self.index.read().expect("index lock"),
+                &self.scan_options(),
+            );
+            match watcher {
+                Ok(mut watcher) => {
+                    if catch_up {
+                        self.report(IndexState::CatchingUp);
+                        let stats = watcher.catch_up(&mut self.index.write().expect("index lock"));
+                        if stats.added + stats.removed + stats.updated > 0 {
+                            self.dirty.store(true, Ordering::SeqCst);
+                            self.request_search();
+                        }
+                    }
+                    self.report(IndexState::Watching);
+                    self.watch_loop(&mut watcher);
+                }
+                Err(_) => {
+                    self.report(IndexState::Static);
+                    while !self.stop.load(Ordering::SeqCst) && !self.rescan.load(Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_millis(250));
+                    }
+                }
+            }
+            if self.rescan.swap(false, Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst) {
+                self.scan_fresh();
+                *self.shown.lock().expect("lock") = Arc::new(Vec::new());
                 self.request_search();
+                self.save();
+                catch_up = false;
             }
         }
-        self.report(IndexState::Watching);
-        self.watch_loop(&mut watcher);
     }
 
+    /// Builds the index from scratch over the current roots (the home
+    /// folder when there are none) and swaps it in.
+    fn scan_fresh(&self) {
+        self.report(IndexState::Scanning);
+        let roots = {
+            let mut roots = self.roots.lock().expect("lock");
+            if roots.is_empty() {
+                *roots = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .into_iter()
+                    .collect();
+            }
+            roots.clone()
+        };
+        let mut store = NodeStore::new();
+        scan(&mut store, &roots, &self.scan_options());
+        self.replace_index(Index::new(store));
+        self.dirty.store(true, Ordering::SeqCst);
+    }
+
+    /// Applies file changes until the engine stops or a rescan is asked for.
     fn watch_loop(&self, watcher: &mut Watcher) {
         let mut last_refresh = Instant::now();
         let mut last_save = Instant::now();
         let mut pending_refresh = false;
-        while !self.stop.load(Ordering::SeqCst) {
+        while !self.stop.load(Ordering::SeqCst) && !self.rescan.load(Ordering::SeqCst) {
             match watcher.wait(Some(Duration::from_millis(250))) {
                 Ok(events) if !events.is_empty() => {
                     let mut index = self.index.write().expect("index lock");
@@ -311,12 +370,13 @@ impl Engine {
     fn rescan_after_overflow(&self, watcher: &mut Watcher) {
         self.report(IndexState::Scanning);
         let roots = self.roots.lock().expect("lock").clone();
+        let options = self.scan_options();
         let mut store = NodeStore::new();
-        scan(&mut store, &roots, &self.options);
+        scan(&mut store, &roots, &options);
         let mut index = self.index.write().expect("index lock");
         *index = Index::new(store);
         self.epoch.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut fresh) = Watcher::new(&index, &self.options) {
+        if let Ok(mut fresh) = Watcher::new(&index, &options) {
             fresh.catch_up(&mut index);
             *watcher = fresh;
         }
@@ -349,5 +409,112 @@ impl Engine {
         }
         drop(threads);
         self.save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::tests::Scratch;
+    use std::fs;
+
+    /// Names of the results for `query`, once the engine reports `state`
+    /// with the index in place.
+    struct Probe {
+        engine: Arc<Engine>,
+        states: mpsc::Receiver<IndexState>,
+        results: mpsc::Receiver<SearchResult>,
+    }
+
+    impl Probe {
+        fn start(roots: Vec<PathBuf>, exclude: Vec<PathBuf>, index: PathBuf) -> Self {
+            let (state_tx, states) = mpsc::channel();
+            let (result_tx, results) = mpsc::channel();
+            let state_tx = Mutex::new(state_tx);
+            let result_tx = Mutex::new(result_tx);
+            let hooks = Hooks {
+                on_results: Box::new(move |r| {
+                    let _ = result_tx.lock().unwrap().send(r);
+                }),
+                on_state: Box::new(move |s, _| {
+                    let _ = state_tx.lock().unwrap().send(s);
+                }),
+            };
+            Self {
+                engine: Engine::start(roots, exclude, Some(index), hooks),
+                states,
+                results,
+            }
+        }
+
+        fn wait_for(&self, state: IndexState) {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let left = deadline.saturating_duration_since(Instant::now());
+                match self.states.recv_timeout(left) {
+                    Ok(s)
+                        if s == state
+                            || (state == IndexState::Watching && s == IndexState::Static) =>
+                    {
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(e) => panic!("no {state:?}: {e}"),
+                }
+            }
+        }
+
+        fn names(&self, query: &str) -> Vec<String> {
+            while self.results.try_recv().is_ok() {}
+            self.engine.set_query(query, QueryOptions::default());
+            loop {
+                let r = self
+                    .results
+                    .recv_timeout(Duration::from_secs(20))
+                    .expect("results");
+                if r.query != query {
+                    continue;
+                }
+                let index = self.engine.index.read().unwrap();
+                let mut names: Vec<String> = r
+                    .ids
+                    .iter()
+                    .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                    .collect();
+                names.sort();
+                return names;
+            }
+        }
+    }
+
+    #[test]
+    fn reindex_takes_new_roots_and_excludes_and_saves() {
+        let dir = Scratch::new("reindex");
+        let root = |p: &str| dir.0.join(p);
+        for f in ["a/one.txt", "a/skip/two.txt", "b/three.txt"] {
+            fs::create_dir_all(root(f).parent().unwrap()).unwrap();
+            fs::write(root(f), "").unwrap();
+        }
+        let index = root("index.bin");
+        let probe = Probe::start(vec![root("a")], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt", "two.txt"]);
+
+        probe
+            .engine
+            .reindex(&[root("a"), root("b")], vec![root("a/skip")]);
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt", "three.txt"]);
+        // The excluded folder itself is still listed.
+        assert_eq!(probe.names("skip"), ["skip"]);
+        let mut roots = probe.engine.roots();
+        roots.sort();
+        let canonical = fs::canonicalize(&dir.0).unwrap();
+        assert_eq!(roots, [canonical.join("a"), canonical.join("b")]);
+        // The new index was saved at once, with its roots.
+        let saved = persist::load(&index).unwrap();
+        assert_eq!(saved.roots, roots);
+        probe.engine.shutdown();
     }
 }

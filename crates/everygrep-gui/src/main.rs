@@ -8,8 +8,11 @@ mod history;
 mod instance;
 mod labels;
 mod open;
+mod portal;
+mod prefs;
 mod results;
 mod selection;
+mod settings;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -23,7 +26,7 @@ use everygrep_core::sort::{Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use engine::{Engine, Hooks, IndexState, SearchResult};
-use history::History;
+use prefs::{IndexSetup, Prefs};
 use results::ResultsModel;
 
 slint::include_modules!();
@@ -37,6 +40,9 @@ const APP_ID: &str = "az.huseynz.EveryGrep";
 
 /// A query typed and left alone this long is kept in the search history.
 const HISTORY_PAUSE: Duration = Duration::from_secs(1);
+
+/// `--settings` opens the settings window this long after the main window.
+const SETTINGS_DELAY: Duration = Duration::from_millis(300);
 
 fn main() -> Result<(), slint::PlatformError> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
@@ -71,6 +77,14 @@ fn main() -> Result<(), slint::PlatformError> {
             instance::Role::Alone => None,
         }
     };
+    let (settings_path, settings, settings_error) = prefs::load();
+    let setup = IndexSetup::new(&args.roots, args.index_file.as_deref(), &settings);
+    // Options given on the command line take the place of the saved ones.
+    let start_options = if args.options_given {
+        args.options
+    } else {
+        settings.options
+    };
     let window = AppWindow::new()?;
     // Read when the native window is created on first show, so it must be set
     // before `run()`. Matches the desktop entry, so the shell shows our icon.
@@ -98,11 +112,17 @@ fn main() -> Result<(), slint::PlatformError> {
                         with_model(&w, |m| m.set_state(state, indexed));
                         refresh_status(&w);
                     }
+                    prefs::with(|p| p.set_state(state, indexed));
                 });
             }
         }),
     };
-    let engine = Engine::start(args.roots, args.index_file, hooks);
+    let engine = Engine::start(
+        setup.roots.clone(),
+        setup.excludes.clone(),
+        args.index_file,
+        hooks,
+    );
     let model = Rc::new(ResultsModel::new(engine.clone()));
     window.set_results(ModelRc::from(model.clone()));
     let filter_names: Vec<SharedString> = Filter::ALL
@@ -110,30 +130,36 @@ fn main() -> Result<(), slint::PlatformError> {
         .map(|&f| labels::filter(f).into())
         .collect();
     window.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
-    set_options(&window, args.options);
+    set_options(&window, start_options);
     window.set_show_type(args.show_type);
     window.set_show_ext(args.show_ext);
+    let prefs = Prefs::install(
+        settings_path,
+        settings,
+        settings_error,
+        setup,
+        engine.clone(),
+        &window,
+    );
+    prefs.restore_columns(&window);
     refresh_status(&window);
-    let history = Rc::new(RefCell::new(History::default()));
     // The search thread runs the query now and again once the index is
     // loaded, so the first results appear as soon as they can.
-    if !args.query.is_empty() || args.options != QueryOptions::default() {
+    if !args.query.is_empty() || start_options != QueryOptions::default() {
         window.set_query(args.query.as_str().into());
-        engine.set_query(&args.query, args.options);
-        history.borrow_mut().record(&args.query);
+        engine.set_query(&args.query, start_options);
+        prefs.record(&args.query);
     }
 
     let pause = Rc::new(Timer::default());
     window.on_query_edited({
-        let (engine, weak, pause, history) =
-            (engine.clone(), weak.clone(), pause.clone(), history.clone());
+        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
         move |text| {
             let Some(w) = weak.upgrade() else { return };
             engine.set_query(&text, options(&w));
             w.set_notice("".into());
-            let history = history.clone();
             pause.start(TimerMode::SingleShot, HISTORY_PAUSE, move || {
-                history.borrow_mut().record(&text);
+                prefs::with(|p| p.record(&text));
             });
         }
     });
@@ -147,35 +173,53 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     window.on_history_record({
-        let (weak, pause, history) = (weak.clone(), pause.clone(), history.clone());
+        let (weak, pause, prefs) = (weak.clone(), pause.clone(), prefs.clone());
         move || {
             pause.stop();
             if let Some(w) = weak.upgrade() {
-                history.borrow_mut().record(&w.get_query());
+                prefs.record(&w.get_query());
             }
         }
     });
     window.on_history_step({
-        let (engine, weak, pause, history) =
-            (engine.clone(), weak.clone(), pause.clone(), history.clone());
+        let (engine, weak, pause, prefs) =
+            (engine.clone(), weak.clone(), pause.clone(), prefs.clone());
         move |step| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
             let shown = w.get_query();
-            let mut history = history.borrow_mut();
-            let next = if step < 0 {
-                history.back(&shown)
-            } else {
-                history.forward(&shown)
+            let next = {
+                let mut history = prefs.history.borrow_mut();
+                if step < 0 {
+                    history.back(&shown)
+                } else {
+                    history.forward(&shown)
+                }
+                .map(str::to_owned)
             };
+            // Back and Forward record text that was typed but not kept yet.
+            prefs.save_history();
             if let Some(text) = next {
-                w.set_query(text.into());
+                w.set_query(text.as_str().into());
                 // Setting the text keeps the old cursor offset; put the caret
                 // at the end of the restored query instead.
                 w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
-                engine.set_query(text, options(&w));
+                engine.set_query(&text, options(&w));
                 w.set_notice("".into());
             }
+        }
+    });
+    window.on_open_settings({
+        let prefs = prefs.clone();
+        move || prefs.open(None)
+    });
+    window.on_quit({
+        let (weak, prefs) = (weak.clone(), prefs.clone());
+        move || {
+            if let Some(w) = weak.upgrade() {
+                prefs.save_columns(&w);
+            }
+            let _ = slint::quit_event_loop();
         }
     });
     window.on_sort_changed({
@@ -229,10 +273,10 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_actions(&window, &model);
     ON_PRESENT.with(|p| {
         *p.borrow_mut() = Some(Box::new({
-            let (weak, engine, pause, history) = (weak.clone(), engine.clone(), pause, history);
+            let (weak, engine, pause, prefs) = (weak.clone(), engine.clone(), pause, prefs.clone());
             move |request| {
                 if let Some(w) = weak.upgrade() {
-                    present(&w, &engine, &pause, &history, request);
+                    present(&w, &engine, &pause, &prefs, request);
                 }
             }
         }));
@@ -241,12 +285,32 @@ fn main() -> Result<(), slint::PlatformError> {
     run_presents();
 
     // The window is hidden and shown again to raise it (see `raise`), so
-    // the event loop must not stop when it is hidden; closing it quits.
-    window.window().on_close_requested(|| {
-        let _ = slint::quit_event_loop();
-        slint::CloseRequestResponse::HideWindow
+    // the event loop must not stop when it is hidden. Closing it quits, or
+    // only hides it when the settings say so; a later launch shows it again.
+    window.window().on_close_requested({
+        let (weak, engine, prefs) = (weak.clone(), engine.clone(), prefs.clone());
+        move || {
+            if let Some(w) = weak.upgrade() {
+                prefs.save_columns(&w);
+            }
+            if prefs.hide_on_close() {
+                // Keep the index on disk current in case the session ends
+                // while the window is hidden.
+                let engine = engine.clone();
+                std::thread::spawn(move || engine.save());
+            } else {
+                let _ = slint::quit_event_loop();
+            }
+            slint::CloseRequestResponse::HideWindow
+        }
     });
     window.show()?;
+    if let Some(page) = args.settings_page {
+        // Opened once the main window is on screen, so the settings window
+        // is mapped after it and stays in front.
+        let prefs = prefs.clone();
+        Timer::single_shot(SETTINGS_DELAY, move || prefs.open(Some(page)));
+    }
     slint::run_event_loop_until_quit()?;
     window.hide()?;
     engine.shutdown();
@@ -284,6 +348,8 @@ fn run_presents() {
 /// What a later launch changes in the running window.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Presentation {
+    /// Settings page to open.
+    settings_page: Option<usize>,
     /// New query, when the launch had query words.
     query: Option<String>,
     /// New filter and matching modes, when the launch set any of them.
@@ -302,6 +368,7 @@ fn presentation(args: &[String]) -> Presentation {
             options: a.options_given.then_some(a.options),
             show_type: a.show_type,
             show_ext: a.show_ext,
+            settings_page: a.settings_page,
         },
         _ => Presentation::default(),
     }
@@ -313,7 +380,7 @@ fn present(
     w: &AppWindow,
     engine: &Engine,
     pause: &Timer,
-    history: &RefCell<History>,
+    prefs: &Rc<Prefs>,
     request: instance::Request,
 ) {
     let p = presentation(&request.args);
@@ -327,13 +394,16 @@ fn present(
         pause.stop();
         w.set_query(query.as_str().into());
         w.invoke_place_search_caret(i32::try_from(query.len()).unwrap_or(i32::MAX));
-        history.borrow_mut().record(query);
+        prefs.record(query);
         w.set_notice("".into());
     }
     if p.query.is_some() || p.options.is_some() {
         engine.set_query(&w.get_query(), options(w));
     }
     raise(w, request.activation_token);
+    if let Some(page) = p.settings_page {
+        prefs.open(Some(page));
+    }
 }
 
 /// Brings the window forward.
@@ -602,6 +672,8 @@ struct Args {
     show_ext: bool,
     /// Open a window of its own instead of handing over to a running one.
     new_instance: bool,
+    /// Open the settings window at this page (see [`prefs::PAGES`]).
+    settings_page: Option<usize>,
 }
 
 const USAGE: &str = "\
@@ -621,6 +693,8 @@ options:
   --diacritics           match diacritics exactly (by default e also finds é)
   --columns <list>       show optional columns: type, extension (comma separated)
   --new-instance         open another window even if one is already open
+  --settings[=<page>]    open the settings window too, at a page: indexing,
+                         search, window, shortcut
   -h, --help             print this help
   -V, --version          print the version";
 
@@ -664,6 +738,14 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                 out.options_given = true;
             }
             "--new-instance" => out.new_instance = true,
+            "--settings" => out.settings_page = Some(0),
+            _ if a.starts_with("--settings=") => {
+                let name = &a["--settings=".len()..];
+                out.settings_page = Some(
+                    prefs::page_index(name)
+                        .ok_or_else(|| format!("unknown settings page {name}"))?,
+                );
+            }
             "--columns" => {
                 for column in value()?.split(',') {
                     match column.trim() {
@@ -895,6 +977,16 @@ mod tests {
         for flag in ["--whole-words", "--match-path", "--diacritics"] {
             assert!(present_args(&[flag]).options.is_some(), "{flag}");
         }
+    }
+
+    #[test]
+    fn settings_flag_opens_a_page() {
+        assert_eq!(args(&["x"]).settings_page, None);
+        assert_eq!(args(&["--settings"]).settings_page, Some(0));
+        assert_eq!(args(&["--settings=window"]).settings_page, Some(2));
+        assert!(parse(&["--settings=nope"]).is_err());
+        assert_eq!(present_args(&["--settings=search"]).settings_page, Some(1));
+        assert_eq!(args(&["--", "--settings"]).query, "--settings");
     }
 
     #[test]
