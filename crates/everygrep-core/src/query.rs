@@ -14,6 +14,7 @@
 //! file:  folder:      only files / only folders
 //! ext:pdf;jpg         extension list (files only)
 //! size:>10mb  size:1kb..2mb  size:0
+//!                     folders match by the total size of the files below them
 //! modified:<7d        changed within the last 7 days (also h, m, s);
 //!                     modified:>30d = not changed for 30 days
 //! modified:2026-10-25 changed on that local day (also 2026-10, 2026,
@@ -226,8 +227,9 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                 })
         }
         Pred::Size { min, max } => {
+            // A folder's size is the total of the files below it.
             let size = store.meta(id).size;
-            !store.is_dir(id) && *min <= size && size <= *max
+            *min <= size && size <= *max
         }
         Pred::Modified { min, max } => {
             let t = store.meta(id).mtime_ns;
@@ -1192,8 +1194,12 @@ mod tests {
             t.find("ext:pdf;JPG"),
             ["Report-2026.PDF", "draft report.pdf", "photo.jpg"]
         );
-        assert_eq!(t.find("size:>1mb"), ["Report-2026.PDF"]);
-        assert_eq!(t.find("size:1kb..1mb"), ["main.rs", "photo.jpg"]);
+        assert_eq!(t.find("size:>1mb file:"), ["Report-2026.PDF"]);
+        assert_eq!(t.find("size:1kb..1mb file:"), ["main.rs", "photo.jpg"]);
+        // Folders match by the total size of the files below them.
+        assert_eq!(t.find("size:>1mb"), ["/home", "Docs", "Report-2026.PDF"]);
+        assert_eq!(t.find("size:1kb..1mb folder:"), ["src"]);
+        assert_eq!(t.find("size:0 folder:"), ["report"]);
         assert_eq!(
             t.find("size:<1kb file: !photo"),
             ["README", "draft report.pdf"]
