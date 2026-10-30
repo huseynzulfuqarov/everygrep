@@ -24,8 +24,9 @@ usage:
   everygrep --version
 
 query syntax: space = and, a|b = or, !a = not, <a b> = group, \"a b\" = literal,
-*.pdf = wildcard, case: path: file: folder: ext:pdf;jpg size:>10mb modified:<7d
-modified:2026-10-25 modified:>=2026-10 modified:2026-10-01..2026-10-25 modified:today
+*.pdf = wildcard, case: wholeword: diacritics: path: file: folder: ext:pdf;jpg
+size:>10mb modified:<7d modified:2026-10-25 modified:>=2026-10
+modified:2026-10-01..2026-10-25 modified:today
 
 search and shell load the saved index; they scan and save it first when there
 is none, when --root differs from the saved roots, or with --rescan.
@@ -38,6 +39,9 @@ options:
                      the index on exit
   --exclude <path>   folder not to enter (repeatable)
   --case             match case exactly
+  --whole-words      match whole words only
+  --match-path       match the full path instead of the name
+  --diacritics       match diacritics exactly (by default e also finds é)
   --filter <name>    only all, audio, archive, code, document, executable,
                      folder, picture or video entries
   --threads <n>      search threads (default: number of CPUs)
@@ -82,6 +86,9 @@ fn parse_args() -> Result<Args, String> {
             "--watch" => args.watch = true,
             "--exclude" => args.scan.exclude.push(PathBuf::from(value("--exclude")?)),
             "--case" => args.matching.case_sensitive = true,
+            "--whole-words" => args.matching.whole_words = true,
+            "--match-path" => args.matching.match_path = true,
+            "--diacritics" => args.matching.match_diacritics = true,
             "--filter" => {
                 let name = value("--filter")?;
                 args.matching.filter =

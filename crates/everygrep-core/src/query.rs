@@ -8,6 +8,8 @@
 //! "two words"         quotes make spaces and operators literal
 //! *.pdf  img_??.png   wildcards match the whole name
 //! case:Readme         match case for this term
+//! wholeword:art              whole words only: "art" but not "party"
+//! diacritics:café     match diacritics: "café" but not "cafe"
 //! path:src/main       match against the full path instead of the name
 //! file:  folder:      only files / only folders
 //! ext:pdf;jpg         extension list (files only)
@@ -23,13 +25,16 @@
 //! local midnight, so days with a daylight saving change are 23 or 25 hours long.
 //!
 //! Terms without wildcards match anywhere in the name. Matching ignores case
-//! unless `case:` or the case-sensitive option is used.
+//! and diacritics (`é` = `e`, `ş` = `s`, `ə` = `e`; see
+//! [`crate::fold::strip_diacritics_into`]) unless `case:`, `diacritics:` or the
+//! matching options are used. `nocase:`, `nowholeword:`, `nodiacritics:` and `nopath:`
+//! turn an option off for one term.
 
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::filter::Filter;
-use crate::fold::fold;
+use crate::fold::{fold, strip_diacritics_into};
 use crate::kind::classify;
 use crate::localtime::{Zone, civil_from_days, days_from_civil, days_in_month};
 use crate::store::{NodeId, NodeStore};
@@ -39,6 +44,13 @@ use crate::store::{NodeId, NodeStore};
 pub struct QueryOptions {
     /// Compare text exactly instead of case-insensitively.
     pub case_sensitive: bool,
+    /// Text terms match whole words only (see [`find_word`]).
+    pub whole_words: bool,
+    /// Text terms match the full path instead of the name.
+    pub match_path: bool,
+    /// Letters with diacritics differ from their base letters. Off by default:
+    /// `cafe` finds `café`.
+    pub match_diacritics: bool,
     /// Only entries of this kind match, in addition to the query text.
     pub filter: Filter,
 }
@@ -97,19 +109,25 @@ enum Pred {
 
 #[derive(Clone, Debug)]
 struct TextPred {
+    /// The text, folded unless `case` is set, without diacritics unless
+    /// `diacritics` is set.
     pattern: Vec<u8>,
     case: bool,
     on_path: bool,
     glob: bool,
+    whole_word: bool,
+    diacritics: bool,
 }
 
-/// Per-node scratch space for predicates that need the full path.
+/// Per-node scratch space for predicates that need the full path or a name
+/// without diacritics.
 #[derive(Default)]
 pub struct EvalScratch {
     path: Vec<u8>,
     folded_path: Vec<u8>,
     for_node: Option<NodeId>,
     folded_for_node: Option<NodeId>,
+    stripped: Vec<u8>,
 }
 
 impl Query {
@@ -216,23 +234,42 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             *min <= t && t <= *max
         }
         Pred::Text(t) => {
-            let subject: &[u8] = if t.on_path {
-                if t.case {
-                    path_bytes(store, id, scratch)
+            let mut stripped = std::mem::take(&mut scratch.stripped);
+            let matched = {
+                let subject: &[u8] = if t.on_path {
+                    if t.case {
+                        path_bytes(store, id, scratch)
+                    } else {
+                        folded_path_bytes(store, id, scratch)
+                    }
+                } else if t.case {
+                    store.name(id)
                 } else {
-                    folded_path_bytes(store, id, scratch)
-                }
-            } else if t.case {
-                store.name(id)
-            } else {
-                store.folded_name(id)
+                    store.folded_name(id)
+                };
+                // Most names are ASCII and have no diacritics to remove.
+                let subject = if t.diacritics || subject.is_ascii() {
+                    subject
+                } else {
+                    stripped.clear();
+                    strip_diacritics_into(subject, &mut stripped);
+                    &stripped
+                };
+                text_matches(t, subject)
             };
-            if t.glob {
-                glob_match(&t.pattern, subject)
-            } else {
-                contains(subject, &t.pattern)
-            }
+            scratch.stripped = stripped;
+            matched
         }
+    }
+}
+
+fn text_matches(t: &TextPred, subject: &[u8]) -> bool {
+    if t.glob {
+        glob_match(&t.pattern, subject)
+    } else if t.whole_word {
+        find_word(subject, &t.pattern).is_some()
+    } else {
+        contains(subject, &t.pattern)
     }
 }
 
@@ -283,15 +320,64 @@ pub fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     None
 }
 
+/// Returns the start of the first occurrence of `needle` in `haystack` that is
+/// a whole word: where `needle` starts with a letter or digit, the character
+/// before it is none; where it ends with one, the character after it is none.
+/// Any character that is not a letter or digit (Unicode alphanumeric) separates
+/// words, including `_`, `-`, `.` and spaces.
+pub fn find_word(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    let check_start = first_char(needle).is_some_and(is_word_char);
+    let check_end = last_char(needle).is_some_and(is_word_char);
+    let mut from = 0;
+    while from <= haystack.len() {
+        let at = from + find(&haystack[from..], needle)?;
+        let end = at + needle.len();
+        let starts = !check_start || !last_char(&haystack[..at]).is_some_and(is_word_char);
+        let ends = !check_end || !first_char(&haystack[end..]).is_some_and(is_word_char);
+        if starts && ends {
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric()
+}
+
+/// The first character of `bytes`, if they start with valid UTF-8.
+fn first_char(bytes: &[u8]) -> Option<char> {
+    let len = char_len(*bytes.first()?).min(bytes.len());
+    std::str::from_utf8(&bytes[..len]).ok()?.chars().next()
+}
+
+/// The last character of `bytes`, if they end with valid UTF-8.
+fn last_char(bytes: &[u8]) -> Option<char> {
+    let start = bytes
+        .iter()
+        .rev()
+        .take(4)
+        .position(|&b| b & 0xC0 != 0x80)
+        .map(|back| bytes.len() - 1 - back)?;
+    std::str::from_utf8(&bytes[start..]).ok()?.chars().next()
+}
+
 /// A plain text term that a matching name contains, used to highlight the
-/// match. Only terms that are not negated, have no wildcards and match the name
-/// (not the path) count.
+/// match. Only terms that are not negated and have no wildcards count; a term
+/// that matches the full path counts when it has no `/`, since it may occur in
+/// the name too.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NameTerm {
-    /// The text, folded unless `case` is set.
+    /// The text, prepared as for matching: folded unless `case` is set, without
+    /// diacritics unless `diacritics` is set.
     pub pattern: Vec<u8>,
     /// Whether the term matches case exactly.
     pub case: bool,
+    /// Whether the term matches whole words only.
+    pub whole_word: bool,
+    /// Whether the term matches diacritics exactly.
+    pub diacritics: bool,
 }
 
 impl Query {
@@ -310,51 +396,92 @@ fn collect_name_terms(node: &Node, out: &mut Vec<NameTerm>) {
                 collect_name_terms(item, out);
             }
         }
-        Node::Leaf(Pred::Text(t)) if !t.glob && !t.on_path => out.push(NameTerm {
-            pattern: t.pattern.clone(),
-            case: t.case,
-        }),
+        Node::Leaf(Pred::Text(t)) if !t.glob && !t.pattern.contains(&b'/') => {
+            out.push(NameTerm {
+                pattern: t.pattern.clone(),
+                case: t.case,
+                whole_word: t.whole_word,
+                diacritics: t.diacritics,
+            });
+        }
         Node::All | Node::Not(_) | Node::Leaf(_) => {}
     }
 }
 
 /// Byte range in `name` of the first occurrence of the first term that occurs
-/// in it. Ignoring case, offsets in the folded name are used for `name`, so if
-/// folding changes the byte length of any character of `name` (such as `İ`)
-/// there is no highlight rather than a wrong one.
+/// in it, matched the way the term matches names. The range always covers
+/// whole characters of `name`, also when folding changes byte lengths (`İ`,
+/// `ß`, `ə`).
 pub fn match_span(name: &str, terms: &[NameTerm]) -> Option<std::ops::Range<usize>> {
-    let mut folded: Option<Option<Vec<u8>>> = None;
+    // One prepared form of the name per (case, diacritics) combination.
+    let mut forms: Vec<((bool, bool), Mapped)> = Vec::new();
     for term in terms {
-        let subject: &[u8] = if term.case {
-            name.as_bytes()
-        } else {
-            match folded.get_or_insert_with(|| fold_same_length(name)) {
-                Some(f) => f,
-                None => continue,
+        if term.pattern.is_empty() {
+            continue;
+        }
+        let key = (term.case, term.diacritics);
+        let form = match forms.iter().position(|(k, _)| *k == key) {
+            Some(i) => &forms[i].1,
+            None => {
+                forms.push((key, Mapped::new(name, !term.case, !term.diacritics)));
+                &forms[forms.len() - 1].1
             }
         };
-        if let Some(start) = find(subject, &term.pattern) {
-            return Some(start..start + term.pattern.len());
+        let found = if term.whole_word {
+            find_word(&form.bytes, &term.pattern)
+        } else {
+            find(&form.bytes, &term.pattern)
+        };
+        if let Some(start) = found {
+            return Some(form.original(start..start + term.pattern.len()));
         }
     }
     None
 }
 
-/// The folded form of `name` if every character keeps its byte length.
-fn fold_same_length(name: &str) -> Option<Vec<u8>> {
-    if name.is_ascii() {
-        return Some(name.as_bytes().to_ascii_lowercase());
-    }
-    let mut out = Vec::with_capacity(name.len());
-    let mut buf = [0u8; 4];
-    for c in name.chars() {
-        let before = out.len();
-        crate::fold::fold_into(c.encode_utf8(&mut buf).as_bytes(), &mut out);
-        if out.len() - before != c.len_utf8() {
-            return None;
+/// A name as it is matched (folded and/or without diacritics), with the byte
+/// range of the original character behind each of its bytes.
+struct Mapped {
+    bytes: Vec<u8>,
+    /// Per byte of `bytes`: start and end of its character in the name.
+    spans: Vec<(usize, usize)>,
+}
+
+impl Mapped {
+    fn new(name: &str, fold_case: bool, strip: bool) -> Self {
+        let mut bytes = Vec::with_capacity(name.len());
+        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(name.len());
+        let mut folded = Vec::new();
+        let mut buf = [0u8; 4];
+        for (at, c) in name.char_indices() {
+            let len = bytes.len();
+            let raw = c.encode_utf8(&mut buf).as_bytes();
+            match (fold_case, strip) {
+                (false, false) => bytes.extend_from_slice(raw),
+                (true, false) => crate::fold::fold_into(raw, &mut bytes),
+                (false, true) => strip_diacritics_into(raw, &mut bytes),
+                (true, true) => {
+                    folded.clear();
+                    crate::fold::fold_into(raw, &mut folded);
+                    strip_diacritics_into(&folded, &mut bytes);
+                }
+            }
+            let span = (at, at + c.len_utf8());
+            if bytes.len() == len {
+                // A dropped combining mark belongs to the character before it.
+                for s in spans.iter_mut().rev().take_while(|s| s.1 == at) {
+                    s.1 = span.1;
+                }
+            }
+            spans.resize(bytes.len(), span);
         }
+        Self { bytes, spans }
     }
-    Some(out)
+
+    /// The range of whole characters of the name behind `range` of `bytes`.
+    fn original(&self, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        self.spans[range.start].0..self.spans[range.end - 1].1
+    }
 }
 
 /// Matches a whole subject against a pattern where `*` is any run of characters
@@ -550,7 +677,9 @@ impl Parser {
 
     fn parse_word(&mut self, raw: &str) -> Result<Option<Node>, ParseError> {
         let mut case = self.options.case_sensitive;
-        let mut on_path = false;
+        let mut on_path = self.options.match_path;
+        let mut whole_word = self.options.whole_words;
+        let mut diacritics = self.options.match_diacritics;
         let mut rest = raw;
         // Modifiers can be stacked: case:path:Src/Main
         while let Some((head, tail)) = split_modifier(rest) {
@@ -560,6 +689,11 @@ impl Parser {
                 "case" => case = true,
                 "nocase" => case = false,
                 "path" => on_path = true,
+                "nopath" => on_path = false,
+                "wholeword" => whole_word = true,
+                "nowholeword" => whole_word = false,
+                "diacritics" => diacritics = true,
+                "nodiacritics" => diacritics = false,
                 "file" | "files" => return Ok(Some(self.with_rest(Pred::IsFile, tail)?)),
                 "folder" | "folders" | "dir" => {
                     return Ok(Some(self.with_rest(Pred::IsDir, tail)?));
@@ -581,16 +715,21 @@ impl Parser {
         let glob = !quoted && (text.contains('*') || text.contains('?'));
         let on_path = on_path || text.contains('/');
         self.uses_path |= on_path;
-        let pattern = if case {
+        let mut pattern = if case {
             text.into_bytes()
         } else {
             fold(text.as_bytes())
         };
+        if !diacritics {
+            pattern = crate::fold::strip_diacritics(&pattern);
+        }
         Ok(Some(Node::Leaf(Pred::Text(TextPred {
             pattern,
             case,
             on_path,
             glob,
+            whole_word,
+            diacritics,
         }))))
     }
 
@@ -632,7 +771,21 @@ fn split_modifier(word: &str) -> Option<(String, &str)> {
     let (head, tail) = word.split_once(':')?;
     let head = head.to_ascii_lowercase();
     const KNOWN: &[&str] = &[
-        "case", "nocase", "path", "file", "files", "folder", "folders", "dir", "ext", "size",
+        "case",
+        "nocase",
+        "path",
+        "nopath",
+        "wholeword",
+        "nowholeword",
+        "diacritics",
+        "nodiacritics",
+        "file",
+        "files",
+        "folder",
+        "folders",
+        "dir",
+        "ext",
+        "size",
         "modified",
     ];
     KNOWN.contains(&head.as_str()).then_some((head, tail))
@@ -1292,7 +1445,10 @@ mod tests {
                 ("rep".into(), false),
                 ("Main".into(), true),
                 ("x".into(), false),
-                ("y".into(), false)
+                ("y".into(), false),
+                // Path terms go last (they are tested last); this one has no
+                // `/` and may occur in a name.
+                ("src".into(), false)
             ]
         );
     }
@@ -1311,13 +1467,120 @@ mod tests {
 
     #[test]
     fn match_span_handles_multibyte_names() {
-        // "Ş" and "Ə" fold to "ş" and "ə" with the same byte length; "İ"
-        // anywhere in the name turns highlighting off for the whole name.
-        assert_eq!(span("ŞƏKİL.png", "png"), None);
+        // Folding changes byte lengths ("İ" → "i", "Ə" → "e"); the range still
+        // covers whole characters of the name.
+        assert_eq!(span("ŞƏKİL.png", "png"), Some((9, 12)));
         assert_eq!(span("ŞƏKIL.png", "əkil"), Some((2, 7)));
-        // "İ" folds to three bytes: no highlight instead of shifted offsets.
-        assert_eq!(span("İzmir", "zmir"), None);
-        // A case-sensitive term does not need folding.
+        assert_eq!(span("İzmir", "izmir"), Some((0, 6)));
+        assert_eq!(span("İzmir", "zmir"), Some((2, 6)));
+        assert_eq!(span("Straße", "sse"), Some((4, 7)));
+        assert_eq!(span("Straße", "strass"), Some((0, 6)));
+        assert_eq!(span("cafe\u{301}.txt", "cafe"), Some((0, 6)));
+        // Exact terms use the name as it is.
         assert_eq!(span("İzmir", "case:zmir"), Some((2, 6)));
+        assert_eq!(span("şəkil", "diacritics:əkil"), Some((2, 7)));
+        assert_eq!(span("sekil", "diacritics:əkil"), None);
+    }
+
+    #[test]
+    fn match_span_follows_whole_words() {
+        assert_eq!(span("party-art.png", "wholeword:art"), Some((6, 9)));
+        assert_eq!(span("party.png", "wholeword:art"), None);
+        assert_eq!(span("party.png", "art"), Some((1, 4)));
+    }
+
+    fn with(f: impl FnOnce(&mut QueryOptions)) -> QueryOptions {
+        let mut o = QueryOptions::default();
+        f(&mut o);
+        o
+    }
+
+    fn named(names: &[&str]) -> Tree {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        let sub = store.add(Some(root), b"S\xc3\xbcd", true, Meta::default());
+        for name in names {
+            store.add(Some(sub), name.as_bytes(), false, Meta::default());
+        }
+        Tree { store }
+    }
+
+    #[test]
+    fn whole_words() {
+        let t = named(&[
+            "art.png",
+            "party.png",
+            "pop-art_2026.jpg",
+            "Art Deco.pdf",
+            "arts.txt",
+            "çart.txt",
+            "a.pdf.bak",
+        ]);
+        let ww = with(|o| o.whole_words = true);
+        assert_eq!(
+            t.find_with("art", ww),
+            ["Art Deco.pdf", "art.png", "pop-art_2026.jpg"]
+        );
+        assert_eq!(t.find("wholeword:art"), t.find_with("art", ww));
+        assert_eq!(t.find_with("nowholeword:art", ww).len(), 6);
+        // Non-word characters at the edges of the term need no boundary.
+        assert_eq!(t.find("wholeword:.pdf"), ["Art Deco.pdf", "a.pdf.bak"]);
+        assert_eq!(t.find("wholeword:\"art deco\""), ["Art Deco.pdf"]);
+        // Wildcards already match the whole name.
+        assert_eq!(
+            t.find("wholeword:art*"),
+            ["Art Deco.pdf", "art.png", "arts.txt"]
+        );
+    }
+
+    #[test]
+    fn find_word_boundaries() {
+        assert_eq!(find_word(b"party art", b"art"), Some(6));
+        assert_eq!(find_word(b"partyart", b"art"), None);
+        assert_eq!(find_word("şart art".as_bytes(), b"art"), Some(6));
+        assert_eq!(find_word(b"\xffart", b"art"), Some(1));
+        assert_eq!(find_word(b"art", b""), Some(0));
+        assert_eq!(find_word(b"", b"art"), None);
+    }
+
+    #[test]
+    fn diacritics_are_ignored_unless_matched() {
+        let t = named(&[
+            "Şəkil.png",
+            "sekil.png",
+            "café.txt",
+            "cafe\u{301}-nfd.txt",
+            "Straße.md",
+            "İzmir.jpg",
+            "ızgara.txt",
+            "Ölçü.ods",
+        ]);
+        assert_eq!(t.find("sekil"), ["sekil.png", "Şəkil.png"]);
+        assert_eq!(t.find("şəkil"), ["sekil.png", "Şəkil.png"]);
+        assert_eq!(t.find("diacritics:şəkil"), ["Şəkil.png"]);
+        assert_eq!(t.find("cafe"), ["cafe\u{301}-nfd.txt", "café.txt"]);
+        assert_eq!(t.find("strasse"), ["Straße.md"]);
+        assert_eq!(t.find("izmir"), ["İzmir.jpg"]);
+        assert_eq!(t.find("izgara"), ["ızgara.txt"]);
+        assert_eq!(t.find("olcu"), ["Ölçü.ods"]);
+        let exact = with(|o| o.match_diacritics = true);
+        assert_eq!(t.find_with("sekil", exact), ["sekil.png"]);
+        assert_eq!(t.find_with("nodiacritics:sekil", exact).len(), 2);
+        // Case-sensitive and diacritic-insensitive together.
+        assert_eq!(t.find("case:Sekil"), ["Şəkil.png"]);
+        assert!(t.find("case:SEKIL").is_empty());
+        // Wildcards and paths too ("Süd" is the folder).
+        assert_eq!(t.find("s?kil.*"), ["sekil.png", "Şəkil.png"]);
+        assert_eq!(t.find("sud/olcu"), ["Ölçü.ods"]);
+    }
+
+    #[test]
+    fn match_path_option() {
+        let t = named(&["a.txt", "sud.txt"]);
+        let path = with(|o| o.match_path = true);
+        // The folder "Süd" matches by its name, "a.txt" only by its path.
+        assert_eq!(t.find("sud"), ["Süd", "sud.txt"]);
+        assert_eq!(t.find_with("sud", path), ["Süd", "a.txt", "sud.txt"]);
+        assert_eq!(t.find_with("nopath:sud", path), ["Süd", "sud.txt"]);
     }
 }

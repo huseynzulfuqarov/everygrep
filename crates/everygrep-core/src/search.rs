@@ -103,4 +103,78 @@ mod tests {
         let m = Query::parse("", QueryOptions::default()).unwrap();
         assert_eq!(search(&index, &m, 4).len(), 11);
     }
+
+    /// Prints search times for 600 000 names, a tenth of them not ASCII. Run
+    /// with `cargo test --release -p everygrep-core search_timing -- --ignored
+    /// --nocapture`.
+    #[test]
+    #[ignore = "timing only"]
+    fn search_timing() {
+        use crate::filter::Filter;
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/r", true, Meta::default());
+        let exts = ["txt", "pdf", "rs", "jpg", "mp3", "md", "png"];
+        for i in 0..600_000u64 {
+            let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+            let word = if i % 10 == 0 {
+                "şəkil-ölçü"
+            } else {
+                "report-draft"
+            };
+            let name = format!("{word}-{h:06x}.{}", exts[i as usize % exts.len()]);
+            s.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        let index = Index::new(s);
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let cases: [(&str, QueryOptions); 7] = [
+            ("draft", QueryOptions::default()),
+            (
+                "draft",
+                QueryOptions {
+                    match_diacritics: true,
+                    ..QueryOptions::default()
+                },
+            ),
+            ("sekil", QueryOptions::default()),
+            (
+                "draft",
+                QueryOptions {
+                    whole_words: true,
+                    ..QueryOptions::default()
+                },
+            ),
+            (
+                "",
+                QueryOptions {
+                    filter: Filter::Picture,
+                    ..QueryOptions::default()
+                },
+            ),
+            (
+                "draft",
+                QueryOptions {
+                    filter: Filter::Audio,
+                    ..QueryOptions::default()
+                },
+            ),
+            (
+                "r",
+                QueryOptions {
+                    match_path: true,
+                    ..QueryOptions::default()
+                },
+            ),
+        ];
+        for (text, options) in cases {
+            let q = Query::parse(text, options).unwrap();
+            for t in [1, threads] {
+                let started = std::time::Instant::now();
+                let n = search(&index, &q, t).len();
+                eprintln!(
+                    "{text:?} {options:?}, {t} threads: {n} results, {:.1} ms",
+                    started.elapsed().as_secs_f64() * 1e3
+                );
+            }
+        }
+    }
 }
