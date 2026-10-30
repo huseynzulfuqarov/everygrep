@@ -5,6 +5,7 @@ mod engine;
 mod filetype;
 mod format;
 mod history;
+mod instance;
 mod labels;
 mod open;
 mod results;
@@ -13,6 +14,7 @@ mod selection;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use everygrep_core::filter::Filter;
@@ -37,7 +39,8 @@ const APP_ID: &str = "az.huseynz.EveryGrep";
 const HISTORY_PAUSE: Duration = Duration::from_secs(1);
 
 fn main() -> Result<(), slint::PlatformError> {
-    let args = match parse_args(std::env::args().skip(1)) {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    let args = match parse_args(raw.iter().cloned()) {
         Ok(Command::Run(args)) => args,
         Ok(Command::Help) => {
             println!("{USAGE}");
@@ -50,6 +53,22 @@ fn main() -> Result<(), slint::PlatformError> {
         Err(e) => {
             eprintln!("everygrep-gui: {e}\n\n{USAGE}");
             std::process::exit(2);
+        }
+    };
+    // Held until the window closes: dropping it releases the bus name.
+    let _instance = if args.new_instance {
+        None
+    } else {
+        let (roots, file) = instance::identity(&args.roots, args.index_file.as_deref());
+        let name = instance::bus_name(
+            &roots,
+            file.as_deref(),
+            instance::default_index().as_deref(),
+        );
+        match instance::start(&name, &raw, Box::new(queue_present)) {
+            instance::Role::Primary(connection) => Some(connection),
+            instance::Role::HandedOver => return Ok(()),
+            instance::Role::Alone => None,
         }
     };
     let window = AppWindow::new()?;
@@ -137,7 +156,8 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     window.on_history_step({
-        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
+        let (engine, weak, pause, history) =
+            (engine.clone(), weak.clone(), pause.clone(), history.clone());
         move |step| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
@@ -207,10 +227,126 @@ fn main() -> Result<(), slint::PlatformError> {
         move |row| usize::try_from(row).is_ok_and(|r| model.is_selected(r))
     });
     connect_actions(&window, &model);
+    ON_PRESENT.with(|p| {
+        *p.borrow_mut() = Some(Box::new({
+            let (weak, engine, pause, history) = (weak.clone(), engine.clone(), pause, history);
+            move |request| {
+                if let Some(w) = weak.upgrade() {
+                    present(&w, &engine, &pause, &history, request);
+                }
+            }
+        }));
+    });
+    // Requests that came in while the window was being set up.
+    run_presents();
 
-    window.run()?;
+    // The window is hidden and shown again to raise it (see `raise`), so
+    // the event loop must not stop when it is hidden; closing it quits.
+    window.window().on_close_requested(|| {
+        let _ = slint::quit_event_loop();
+        slint::CloseRequestResponse::HideWindow
+    });
+    window.show()?;
+    slint::run_event_loop_until_quit()?;
+    window.hide()?;
     engine.shutdown();
     Ok(())
+}
+
+/// Requests from later launches, waiting for the UI thread.
+static PRESENTS: Mutex<Vec<instance::Request>> = Mutex::new(Vec::new());
+
+/// Applies a later launch's request to the window.
+type Presenter = Box<dyn Fn(instance::Request)>;
+
+thread_local! {
+    /// Set once the window is ready.
+    static ON_PRESENT: RefCell<Option<Presenter>> = RefCell::default();
+}
+
+/// Called on the bus thread: queues the request and wakes the UI thread.
+fn queue_present(request: instance::Request) {
+    PRESENTS.lock().expect("lock").push(request);
+    // Fails only before the event loop exists; the queue is run once the
+    // window is ready.
+    let _ = slint::invoke_from_event_loop(run_presents);
+}
+
+/// Runs the queued requests on the UI thread, once the window is ready.
+fn run_presents() {
+    ON_PRESENT.with(|p| {
+        let Some(present) = &*p.borrow() else { return };
+        let requests = std::mem::take(&mut *PRESENTS.lock().expect("lock"));
+        requests.into_iter().for_each(present);
+    });
+}
+
+/// What a later launch changes in the running window.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Presentation {
+    /// New query, when the launch had query words.
+    query: Option<String>,
+    /// New filter and matching modes, when the launch set any of them.
+    options: Option<QueryOptions>,
+    /// Optional columns to show; columns already shown stay.
+    show_type: bool,
+    show_ext: bool,
+}
+
+/// The changes a later launch's arguments ask for. Arguments that do not
+/// parse (they were checked by the launch already) change nothing.
+fn presentation(args: &[String]) -> Presentation {
+    match parse_args(args.iter().cloned()) {
+        Ok(Command::Run(a)) => Presentation {
+            query: (!a.query.is_empty()).then_some(a.query),
+            options: a.options_given.then_some(a.options),
+            show_type: a.show_type,
+            show_ext: a.show_ext,
+        },
+        _ => Presentation::default(),
+    }
+}
+
+/// Applies a later launch's request and brings the window forward with the
+/// search field focused.
+fn present(
+    w: &AppWindow,
+    engine: &Engine,
+    pause: &Timer,
+    history: &RefCell<History>,
+    request: instance::Request,
+) {
+    let p = presentation(&request.args);
+    if let Some(o) = p.options {
+        set_options(w, o);
+    }
+    w.set_show_type(w.get_show_type() || p.show_type);
+    w.set_show_ext(w.get_show_ext() || p.show_ext);
+    w.invoke_focus_search();
+    if let Some(query) = &p.query {
+        pause.stop();
+        w.set_query(query.as_str().into());
+        w.invoke_place_search_caret(i32::try_from(query.len()).unwrap_or(i32::MAX));
+        history.borrow_mut().record(query);
+        w.set_notice("".into());
+    }
+    if p.query.is_some() || p.options.is_some() {
+        engine.set_query(&w.get_query(), options(w));
+    }
+    raise(w, request.activation_token);
+}
+
+/// Brings the window forward.
+///
+/// On Wayland a client cannot raise its own window: winit's
+/// `focus_window` does nothing there and unminimizing is ignored, and the
+/// only way to use an activation token in winit 0.30 is at window creation,
+/// which Slint does not expose. So the window is hidden and shown again:
+/// Slint then creates a new surface at the same size, and GNOME gives a new
+/// window the focus. The token from the later launch is not used yet.
+fn raise(w: &AppWindow, _activation_token: Option<String>) {
+    let _ = w.window().hide();
+    let _ = w.window().show();
 }
 
 /// More items than this are not opened at once; it is almost always a slip.
@@ -459,9 +595,13 @@ struct Args {
     query: String,
     /// Initial matching modes and filter.
     options: QueryOptions,
+    /// Whether any of the filter and matching mode options was given.
+    options_given: bool,
     /// Optional columns shown from the start.
     show_type: bool,
     show_ext: bool,
+    /// Open a window of its own instead of handing over to a running one.
+    new_instance: bool,
 }
 
 const USAGE: &str = "\
@@ -480,6 +620,7 @@ options:
   --match-path           match the full path instead of the name
   --diacritics           match diacritics exactly (by default e also finds é)
   --columns <list>       show optional columns: type, extension (comma separated)
+  --new-instance         open another window even if one is already open
   -h, --help             print this help
   -V, --version          print the version";
 
@@ -510,11 +651,19 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                 let name = value()?;
                 out.options.filter =
                     Filter::from_id(&name).ok_or_else(|| format!("unknown filter {name}"))?;
+                out.options_given = true;
             }
-            "--case" => out.options.case_sensitive = true,
-            "--whole-words" => out.options.whole_words = true,
-            "--match-path" => out.options.match_path = true,
-            "--diacritics" => out.options.match_diacritics = true,
+            "--case" | "--whole-words" | "--match-path" | "--diacritics" => {
+                let mode = match a.as_str() {
+                    "--case" => &mut out.options.case_sensitive,
+                    "--whole-words" => &mut out.options.whole_words,
+                    "--match-path" => &mut out.options.match_path,
+                    _ => &mut out.options.match_diacritics,
+                };
+                *mode = true;
+                out.options_given = true;
+            }
+            "--new-instance" => out.new_instance = true,
             "--columns" => {
                 for column in value()?.split(',') {
                     match column.trim() {
@@ -708,6 +857,51 @@ mod tests {
         assert!(a.options.whole_words && a.options.match_path);
         assert_eq!(a.options.filter, Filter::All);
         assert!(!a.show_type && !a.show_ext);
+    }
+
+    fn present_args(list: &[&str]) -> Presentation {
+        presentation(&list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_bare_later_launch_only_raises_the_window() {
+        assert_eq!(present_args(&[]), Presentation::default());
+        // Roots, index file and --new-instance are not the window's business.
+        assert_eq!(
+            present_args(&["--root", "/tmp", "--index-file", "/tmp/i", "--new-instance"]),
+            Presentation::default()
+        );
+        // Arguments the launch would have refused change nothing.
+        assert_eq!(present_args(&["--fast", "x"]), Presentation::default());
+        assert_eq!(present_args(&["--help"]), Presentation::default());
+    }
+
+    #[test]
+    fn later_launch_sets_query_modes_and_columns() {
+        let p = present_args(&["report", "pdf"]);
+        assert_eq!(p.query.as_deref(), Some("report pdf"));
+        assert_eq!(p.options, None);
+        let p = present_args(&["--filter", "image", "--case", "--columns", "type"]);
+        assert_eq!(p.query, None);
+        let o = p.options.expect("modes given");
+        assert_eq!(o.filter, Filter::Picture);
+        assert!(o.case_sensitive && !o.whole_words);
+        assert!(p.show_type && !p.show_ext);
+        // `--filter all` is a choice too: it resets the filter.
+        assert_eq!(
+            present_args(&["--filter", "all"]).options,
+            Some(QueryOptions::default())
+        );
+        for flag in ["--whole-words", "--match-path", "--diacritics"] {
+            assert!(present_args(&[flag]).options.is_some(), "{flag}");
+        }
+    }
+
+    #[test]
+    fn new_instance_flag() {
+        assert!(args(&["--new-instance", "x"]).new_instance);
+        assert!(!args(&["x"]).new_instance);
+        assert_eq!(args(&["--", "--new-instance"]).query, "--new-instance");
     }
 
     #[test]

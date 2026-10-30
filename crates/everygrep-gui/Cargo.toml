@@ -20,6 +20,12 @@ slint = { version = "1.18", default-features = false, features = [
     "renderer-femtovg",
     "accessibility",
 ] }
+# Single instance over the session bus. Same version and features as the
+# copy Slint already uses for accessibility, so no new crates.
+zbus = { version = "5.19", default-features = false, features = [
+    "async-io",
+    "blocking-api",
+] }
 
 [build-dependencies]
 slint-build = "1.18"

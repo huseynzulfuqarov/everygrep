@@ -1103,6 +1103,7 @@ dependencies = [
  "everygrep-core",
  "slint",
  "slint-build",
+ "zbus",
 ]
 
 [[package]]
