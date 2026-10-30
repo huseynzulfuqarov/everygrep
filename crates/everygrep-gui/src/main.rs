@@ -4,6 +4,8 @@ mod actions;
 mod engine;
 mod filetype;
 mod format;
+mod history;
+mod labels;
 mod open;
 mod results;
 mod selection;
@@ -11,12 +13,15 @@ mod selection;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
+use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
 use everygrep_core::sort::{Sort, SortKey};
-use slint::{ComponentHandle, Model, ModelRc};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use engine::{Engine, Hooks, IndexState, SearchResult};
+use history::History;
 use results::ResultsModel;
 
 slint::include_modules!();
@@ -27,6 +32,9 @@ const SELECT_EXTEND: i32 = 2;
 
 /// Wayland app id; equals the desktop entry and icon file names.
 const APP_ID: &str = "az.huseynz.EveryGrep";
+
+/// A query typed and left alone this long is kept in the search history.
+const HISTORY_PAUSE: Duration = Duration::from_secs(1);
 
 fn main() -> Result<(), slint::PlatformError> {
     let args = parse_args(std::env::args().skip(1));
@@ -64,20 +72,71 @@ fn main() -> Result<(), slint::PlatformError> {
     let engine = Engine::start(args.roots, args.index_file, hooks);
     let model = Rc::new(ResultsModel::new(engine.clone()));
     window.set_results(ModelRc::from(model.clone()));
+    let filter_names: Vec<SharedString> = Filter::ALL
+        .iter()
+        .map(|&f| labels::filter(f).into())
+        .collect();
+    window.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
+    set_options(&window, args.options);
+    window.set_show_type(args.show_type);
+    window.set_show_ext(args.show_ext);
     refresh_status(&window);
+    let history = Rc::new(RefCell::new(History::default()));
     // The search thread runs the query now and again once the index is
     // loaded, so the first results appear as soon as they can.
-    if !args.query.is_empty() {
+    if !args.query.is_empty() || args.options != QueryOptions::default() {
         window.set_query(args.query.as_str().into());
-        engine.set_query(&args.query, QueryOptions::default());
+        engine.set_query(&args.query, args.options);
+        history.borrow_mut().record(&args.query);
     }
 
+    let pause = Rc::new(Timer::default());
     window.on_query_edited({
-        let engine = engine.clone();
-        let weak = weak.clone();
+        let (engine, weak, pause, history) =
+            (engine.clone(), weak.clone(), pause.clone(), history.clone());
         move |text| {
-            engine.set_query(&text, QueryOptions::default());
+            let Some(w) = weak.upgrade() else { return };
+            engine.set_query(&text, options(&w));
+            w.set_notice("".into());
+            let history = history.clone();
+            pause.start(TimerMode::SingleShot, HISTORY_PAUSE, move || {
+                history.borrow_mut().record(&text);
+            });
+        }
+    });
+    window.on_options_changed({
+        let (engine, weak) = (engine.clone(), weak.clone());
+        move || {
             if let Some(w) = weak.upgrade() {
+                engine.set_query(&w.get_query(), options(&w));
+                show_badges(&w);
+            }
+        }
+    });
+    window.on_history_record({
+        let (weak, pause, history) = (weak.clone(), pause.clone(), history.clone());
+        move || {
+            pause.stop();
+            if let Some(w) = weak.upgrade() {
+                history.borrow_mut().record(&w.get_query());
+            }
+        }
+    });
+    window.on_history_step({
+        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
+        move |step| {
+            let Some(w) = weak.upgrade() else { return };
+            pause.stop();
+            let shown = w.get_query();
+            let mut history = history.borrow_mut();
+            let next = if step < 0 {
+                history.back(&shown)
+            } else {
+                history.forward(&shown)
+            };
+            if let Some(text) = next {
+                w.set_query(text.into());
+                engine.set_query(text, options(&w));
                 w.set_notice("".into());
             }
         }
@@ -158,6 +217,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
         let (weak, model) = (weak.clone(), model.clone());
         move |r| {
             let paths = model.targets(row(r));
+            if let Some(w) = weak.upgrade() {
+                w.invoke_history_record();
+            }
             if paths.len() > MAX_OPEN {
                 if let Some(w) = weak.upgrade() {
                     error(
@@ -378,11 +440,18 @@ struct Args {
     index_file: Option<PathBuf>,
     /// Words that are not options, joined by spaces: the initial query.
     query: String,
+    /// Initial matching modes and filter.
+    options: QueryOptions,
+    /// Optional columns shown from the start.
+    show_type: bool,
+    show_ext: bool,
 }
 
-/// `everygrep-gui [--root <path>]... [--index-file <path>] [query words...]`.
+/// `everygrep-gui [--root <path>]... [--index-file <path>] [--filter <name>]
+/// [--case] [--whole-words] [--match-path] [--diacritics]
+/// [--columns type,extension] [query words...]`.
 /// Without roots the saved roots, or the home folder, are used. Unknown
-/// options are ignored; after `--` every argument is a query word.
+/// options and values are ignored; after `--` every argument is a query word.
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     let mut out = Args::default();
     let mut words: Vec<String> = Vec::new();
@@ -391,6 +460,24 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         match a.as_str() {
             "--root" => out.roots.extend(args.next().map(PathBuf::from)),
             "--index-file" => out.index_file = args.next().map(PathBuf::from),
+            "--filter" => {
+                if let Some(f) = args.next().as_deref().and_then(Filter::from_id) {
+                    out.options.filter = f;
+                }
+            }
+            "--case" => out.options.case_sensitive = true,
+            "--whole-words" => out.options.whole_words = true,
+            "--match-path" => out.options.match_path = true,
+            "--diacritics" => out.options.match_diacritics = true,
+            "--columns" => {
+                for column in args.next().unwrap_or_default().split(',') {
+                    match column.trim() {
+                        "type" => out.show_type = true,
+                        "extension" => out.show_ext = true,
+                        _ => {}
+                    }
+                }
+            }
             "--" => words.extend(args.by_ref()),
             _ if a.starts_with("--") => {}
             _ => words.push(a),
@@ -401,15 +488,51 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 }
 
 /// The sort for a header column of the window (0 name, 1 folder, 2 size,
-/// 3 modified). The folder column sorts by folder, then name.
+/// 3 modified, 4 type, 5 extension). The folder column sorts by folder, then
+/// name.
 fn sort_for_column(column: i32, descending: bool) -> Sort {
     let key = match column {
         1 => SortKey::Path,
         2 => SortKey::Size,
         3 => SortKey::Modified,
+        4 => SortKey::Type,
+        5 => SortKey::Extension,
         _ => SortKey::Name,
     };
     Sort { key, descending }
+}
+
+/// The matching modes and filter set in the window.
+fn options(w: &AppWindow) -> QueryOptions {
+    QueryOptions {
+        case_sensitive: w.get_match_case(),
+        whole_words: w.get_whole_words(),
+        match_path: w.get_match_path(),
+        match_diacritics: w.get_match_diacritics(),
+        filter: usize::try_from(w.get_filter_index())
+            .ok()
+            .and_then(|i| Filter::ALL.get(i).copied())
+            .unwrap_or_default(),
+    }
+}
+
+/// Sets the window's toggles and filter selector.
+fn set_options(w: &AppWindow, o: QueryOptions) {
+    w.set_match_case(o.case_sensitive);
+    w.set_whole_words(o.whole_words);
+    w.set_match_path(o.match_path);
+    w.set_match_diacritics(o.match_diacritics);
+    let index = Filter::ALL.iter().position(|&f| f == o.filter).unwrap_or(0);
+    w.set_filter_index(index as i32);
+    show_badges(w);
+}
+
+fn show_badges(w: &AppWindow) {
+    let badges: Vec<SharedString> = labels::mode_badges(&options(w))
+        .into_iter()
+        .map(SharedString::from)
+        .collect();
+    w.set_badges(ModelRc::new(VecModel::from(badges)));
 }
 
 fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
@@ -496,15 +619,39 @@ mod tests {
     }
 
     #[test]
+    fn matching_modes_filter_and_columns() {
+        let a = args(&[
+            "--filter",
+            "image",
+            "--case",
+            "--diacritics",
+            "--columns",
+            "type, extension",
+            "img",
+        ]);
+        assert_eq!(a.options.filter, Filter::Picture);
+        assert!(a.options.case_sensitive && a.options.match_diacritics);
+        assert!(!a.options.whole_words && !a.options.match_path);
+        assert!(a.show_type && a.show_ext);
+        assert_eq!(a.query, "img");
+        let a = args(&["--whole-words", "--match-path", "--filter", "nope"]);
+        assert!(a.options.whole_words && a.options.match_path);
+        assert_eq!(a.options.filter, Filter::All);
+        assert!(!args(&["--columns", "size"]).show_type);
+    }
+
+    #[test]
     fn header_columns_map_to_sort_keys() {
-        let keys: Vec<SortKey> = (0..4).map(|c| sort_for_column(c, false).key).collect();
+        let keys: Vec<SortKey> = (0..6).map(|c| sort_for_column(c, false).key).collect();
         assert_eq!(
             keys,
             [
                 SortKey::Name,
                 SortKey::Path,
                 SortKey::Size,
-                SortKey::Modified
+                SortKey::Modified,
+                SortKey::Type,
+                SortKey::Extension
             ]
         );
         assert!(sort_for_column(2, true).descending);

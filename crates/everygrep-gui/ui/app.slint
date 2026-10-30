@@ -1,4 +1,4 @@
-import { Button, ListView } from "std-widgets.slint";
+import { Button, ComboBox, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export struct ResultRow {
@@ -11,6 +11,9 @@ export struct ResultRow {
     size: string,
     modified: string,
     modified-full: string,
+    // Words for the Type column ("PNG image") and the extension as written.
+    type-name: string,
+    extension: string,
     is-dir: bool,
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
@@ -40,12 +43,76 @@ global Icons {
     ];
 }
 
+// A small on/off button for a matching mode, shown inside the search field.
+component ModeToggle inherits Rectangle {
+    in property <string> glyph;
+    // Draws a line under the glyph (the whole-words look).
+    in property <bool> underline;
+    in property <string> tip;
+    in-out property <bool> checked;
+    out property <bool> hovered: touch.has-hover;
+    callback toggled();
+
+    width: 26px;
+    height: 24px;
+    border-radius: 4px;
+    background: root.checked ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
+    border-width: root.checked ? 1px : 0px;
+    border-color: Theme.accent;
+    accessible-role: checkbox;
+    accessible-label: root.tip;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.checked = !root.checked; root.toggled(); }
+
+    property <color> ink: root.checked ? Theme.selection-text : Theme.text-muted;
+    touch := TouchArea {
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+    Text {
+        text: root.glyph;
+        font-size: Theme.small;
+        font-weight: 600;
+        color: root.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if root.underline: Rectangle {
+        x: 7px;
+        y: parent.height - 6px;
+        width: parent.width - 14px;
+        height: 1px;
+        background: root.ink;
+    }
+}
+
 component SearchField inherits Rectangle {
     in-out property <string> text <=> input.text;
+    // Matching modes, changed by the toggles at the right end.
+    in-out property <bool> match-case;
+    in-out property <bool> whole-words;
+    in-out property <bool> match-path;
+    in-out property <bool> match-diacritics;
+    // The tip of the toggle under the mouse and where to show it.
+    out property <string> hover-tip: case-toggle.hovered ? case-toggle.tip
+        : words-toggle.hovered ? words-toggle.tip
+        : path-toggle.hovered ? path-toggle.tip
+        : marks-toggle.hovered ? marks-toggle.tip : "";
+    out property <length> hover-x: case-toggle.hovered ? case-toggle.absolute-position.x
+        : words-toggle.hovered ? words-toggle.absolute-position.x
+        : path-toggle.hovered ? path-toggle.absolute-position.x
+        : marks-toggle.absolute-position.x;
+    out property <length> hover-bottom: case-toggle.absolute-position.y + case-toggle.height;
     callback edited(string);
     callback accepted();
     callback down-pressed();
     callback escape-pressed();
+    callback modes-changed();
+    // Window-wide shortcuts; returns whether the key was used.
+    callback shortcut(KeyEvent) -> bool;
     public function focus-and-select() {
         input.focus();
         input.select-all();
@@ -59,7 +126,7 @@ component SearchField inherits Rectangle {
 
     HorizontalLayout {
         padding-left: Theme.s3;
-        padding-right: Theme.s3;
+        padding-right: Theme.s1;
         spacing: Theme.s2;
         Image {
             source: @image-url("icons/search.svg");
@@ -78,6 +145,9 @@ component SearchField inherits Rectangle {
             edited => { root.edited(self.text); }
             accepted => { root.accepted(); }
             key-pressed(event) => {
+                if (root.shortcut(event)) {
+                    return accept;
+                }
                 if (event.text == Key.DownArrow) {
                     root.down-pressed();
                     return accept;
@@ -87,6 +157,37 @@ component SearchField inherits Rectangle {
                     return accept;
                 }
                 reject
+            }
+        }
+        HorizontalLayout {
+            spacing: 2px;
+            // The toggles keep their height; centre them in the field.
+            padding-top: (root.height - 24px) / 2;
+            padding-bottom: (root.height - 24px) / 2;
+            case-toggle := ModeToggle {
+                glyph: "Aa";
+                tip: "Match case (Alt+C)";
+                checked <=> root.match-case;
+                toggled => { root.modes-changed(); }
+            }
+            words-toggle := ModeToggle {
+                glyph: "ab";
+                underline: true;
+                tip: "Match whole words (Alt+W)";
+                checked <=> root.whole-words;
+                toggled => { root.modes-changed(); }
+            }
+            path-toggle := ModeToggle {
+                glyph: "a/b";
+                tip: "Match the full path (Alt+P)";
+                checked <=> root.match-path;
+                toggled => { root.modes-changed(); }
+            }
+            marks-toggle := ModeToggle {
+                glyph: "é";
+                tip: "Match diacritics (Alt+D)";
+                checked <=> root.match-diacritics;
+                toggled => { root.modes-changed(); }
             }
         }
     }
@@ -108,6 +209,7 @@ component HeaderCell inherits Rectangle {
     in property <bool> sorted;
     in property <bool> descending;
     callback clicked();
+    callback right-pressed(length, length);
 
     property <bool> right: root.align == TextHorizontalAlignment.right;
     property <length> arrow-space: root.sorted ? Theme.icon : 0px;
@@ -117,6 +219,11 @@ component HeaderCell inherits Rectangle {
 
     touch := TouchArea {
         clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                root.right-pressed(self.mouse-x, self.mouse-y);
+            }
+        }
     }
     label-text := Text {
         x: root.right ? Theme.s2 + root.arrow-space : Theme.s2;
@@ -152,6 +259,9 @@ component Row inherits Rectangle {
     in property <length> folder-width;
     in property <length> size-width;
     in property <length> date-width;
+    // Optional columns; 0 when hidden.
+    in property <length> type-width;
+    in property <length> ext-width;
     // The name is being edited in place.
     in property <bool> editing;
     in-out property <string> edit-text;
@@ -311,6 +421,27 @@ component Row inherits Rectangle {
         vertical-alignment: center;
         overflow: elide;
     }
+    property <length> type-x: root.name-width + root.folder-width + root.size-width + root.date-width;
+    if root.type-width > 0: Text {
+        x: root.type-x + Theme.s2;
+        width: root.type-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.type-name;
+        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.ext-width > 0: Text {
+        x: root.type-x + root.type-width + Theme.s2;
+        width: root.ext-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.extension;
+        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        overflow: elide;
+    }
 }
 
 // A drag handle on the boundary between two header cells.
@@ -350,9 +481,26 @@ export component AppWindow inherits Window {
     // Text of the search field.
     in-out property <string> query <=> search.text;
 
-    // Sort column (0 name, 1 folder, 2 size, 3 modified) and direction.
+    // Sort column (0 name, 1 folder, 2 size, 3 modified, 4 type, 5 extension)
+    // and direction.
     in-out property <int> sort-column: 0;
     in-out property <bool> sort-descending: false;
+
+    // Matching modes and the filter; options-changed() runs the query again.
+    in-out property <bool> match-case <=> search.match-case;
+    in-out property <bool> whole-words <=> search.whole-words;
+    in-out property <bool> match-path <=> search.match-path;
+    in-out property <bool> match-diacritics <=> search.match-diacritics;
+    in property <[string]> filter-names;
+    in-out property <int> filter-index: 0;
+    // Words for the modes that are on, shown in the status line.
+    in property <[string]> badges;
+    callback options-changed();
+
+    // Search history: step -1 goes back, 1 forward; the handler sets the
+    // query. history-record() keeps the current query.
+    callback history-step(int);
+    callback history-record();
 
     callback query-edited(string);
     callback sort-changed(int, bool);
@@ -400,13 +548,23 @@ export component AppWindow inherits Window {
     in-out property <length> name-want: (self.width - self.size-want - self.date-want) * 0.48;
     in-out property <length> size-want: 96px;
     in-out property <length> date-want: 120px;
+    in-out property <length> type-want: 130px;
+    in-out property <length> ext-want: 80px;
+    // Optional columns after Modified, hidden by default.
+    in-out property <bool> show-type: false;
+    in-out property <bool> show-ext: false;
     out property <length> name-min: 120px;
     out property <length> folder-min: 100px;
     out property <length> size-min: 56px;
     out property <length> date-min: 80px;
+    out property <length> type-min: 64px;
+    out property <length> ext-min: 48px;
     property <length> size-width: max(self.size-min, self.size-want);
     property <length> date-width: max(self.date-min, self.date-want);
-    property <length> flex-width: max(self.name-min + self.folder-min, self.width - self.size-width - self.date-width);
+    property <length> type-width: self.show-type ? max(self.type-min, self.type-want) : 0px;
+    property <length> ext-width: self.show-ext ? max(self.ext-min, self.ext-want) : 0px;
+    property <length> fixed-width: self.size-width + self.date-width + self.type-width + self.ext-width;
+    property <length> flex-width: max(self.name-min + self.folder-min, self.width - self.fixed-width);
     property <length> name-width: max(self.name-min, min(self.name-want, self.flex-width - self.folder-min));
     property <length> folder-width: self.flex-width - self.name-width;
 
@@ -418,12 +576,83 @@ export component AppWindow inherits Window {
         } else if (boundary == 1) {
             root.name-want = root.name-width;
             root.size-want = max(root.size-min, min(root.size-width - delta, root.size-width + root.folder-width - root.folder-min));
-        } else {
+        } else if (boundary == 2) {
             let pair = root.size-width + root.date-width;
             let size = max(root.size-min, min(root.size-width + delta, pair - root.date-min));
             root.size-want = size;
             root.date-want = pair - size;
+        } else if (boundary == 3 && root.show-type) {
+            let pair = root.date-width + root.type-width;
+            let date = max(root.date-min, min(root.date-width + delta, pair - root.type-min));
+            root.date-want = date;
+            root.type-want = pair - date;
+        } else if (boundary == 3) {
+            let pair = root.date-width + root.ext-width;
+            let date = max(root.date-min, min(root.date-width + delta, pair - root.ext-min));
+            root.date-want = date;
+            root.ext-want = pair - date;
+        } else {
+            let pair = root.type-width + root.ext-width;
+            let type = max(root.type-min, min(root.type-width + delta, pair - root.ext-min));
+            root.type-want = type;
+            root.ext-want = pair - type;
         }
+    }
+
+    // Shows or hides an optional column (4 type, 5 extension). Hiding the
+    // sorted column sorts by name again.
+    function set-column-shown(column: int, shown: bool) {
+        if (column == 4) { root.show-type = shown; } else { root.show-ext = shown; }
+        if (!shown && root.sort-column == column) {
+            root.sort-column = 0;
+            root.sort-descending = false;
+            root.results-replaced();
+            root.sort-changed(0, false);
+        }
+    }
+
+    // Back to the top of a new result list.
+    function results-replaced() {
+        root.current = root.results.length > 0 ? 0 : -1;
+        list.content-y = 0;
+    }
+
+    function options-edited() {
+        root.results-replaced();
+        root.options-changed();
+    }
+
+    // Shortcuts that work in the search field and in the list.
+    function shortcut(event: KeyEvent) -> bool {
+        if (!event.modifiers.alt || event.modifiers.control) {
+            return false;
+        }
+        if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
+            root.history-step(event.text == Key.LeftArrow ? -1 : 1);
+            root.results-replaced();
+            return true;
+        }
+        if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+            let n = root.filter-names.length;
+            if (n > 0) {
+                root.filter-index = Math.mod(root.filter-index + (event.text == Key.UpArrow ? -1 : 1), n);
+                root.options-edited();
+            }
+            return true;
+        }
+        if (event.text == "c" || event.text == "C") {
+            root.match-case = !root.match-case;
+        } else if (event.text == "w" || event.text == "W") {
+            root.whole-words = !root.whole-words;
+        } else if (event.text == "p" || event.text == "P") {
+            root.match-path = !root.match-path;
+        } else if (event.text == "d" || event.text == "D") {
+            root.match-diacritics = !root.match-diacritics;
+        } else {
+            return false;
+        }
+        root.options-edited();
+        true
     }
 
     public function focus-search() {
@@ -498,13 +727,18 @@ export component AppWindow inherits Window {
                 padding-right: Theme.s3;
                 padding-top: (Theme.top-bar-height - 34px) / 2;
                 padding-bottom: (Theme.top-bar-height - 34px) / 2;
+                spacing: Theme.s2;
                 search := SearchField {
+                    horizontal-stretch: 1;
                     edited(text) => {
                         root.current = root.results.length > 0 ? 0 : -1;
                         list.content-y = 0;
                         root.query-edited(text);
                     }
+                    modes-changed => { root.options-edited(); }
+                    shortcut(event) => { root.shortcut(event) }
                     accepted => {
+                        root.history-record();
                         if (root.current >= 0) {
                             root.activate(root.current);
                         }
@@ -518,51 +752,99 @@ export component AppWindow inherits Window {
                         root.query-edited("");
                     }
                 }
+                ComboBox {
+                    width: 160px;
+                    horizontal-stretch: 0;
+                    accessible-label: "Filter";
+                    model: root.filter-names;
+                    current-index <=> root.filter-index;
+                    selected => { root.options-edited(); }
+                }
             }
         }
         Rectangle { height: 1px; background: Theme.line; }
 
         // Column headers (positioned directly, so they never feed back into
-        // the window's layout)
+        // the window's layout). Right-click shows or hides optional columns.
         Rectangle {
             height: Theme.header-height;
             background: Theme.surface-alt;
-            HeaderCell {
-                x: Theme.s1;
-                width: root.name-width - Theme.s1;
-                height: parent.height;
-                label: "Name";
-                sorted: root.sort-column == 0;
-                descending: root.sort-descending;
-                clicked => { root.sort-by(0); }
-            }
-            HeaderCell {
-                x: root.name-width;
-                width: root.folder-width;
-                height: parent.height;
-                label: "Folder";
-                sorted: root.sort-column == 1;
-                descending: root.sort-descending;
-                clicked => { root.sort-by(1); }
-            }
-            HeaderCell {
-                x: root.name-width + root.folder-width;
-                width: root.size-width;
-                height: parent.height;
-                label: "Size";
-                align: right;
-                sorted: root.sort-column == 2;
-                descending: root.sort-descending;
-                clicked => { root.sort-by(2); }
-            }
-            HeaderCell {
-                x: root.name-width + root.folder-width + root.size-width;
-                width: root.date-width;
-                height: parent.height;
-                label: "Modified";
-                sorted: root.sort-column == 3;
-                descending: root.sort-descending;
-                clicked => { root.sort-by(3); }
+            header-menu := ContextMenuArea {
+                Menu {
+                    MenuItem {
+                        title: "Type";
+                        checkable: true;
+                        checked: root.show-type;
+                        activated => { root.set-column-shown(4, !root.show-type); }
+                    }
+                    MenuItem {
+                        title: "Extension";
+                        checkable: true;
+                        checked: root.show-ext;
+                        activated => { root.set-column-shown(5, !root.show-ext); }
+                    }
+                }
+                HeaderCell {
+                    x: Theme.s1;
+                    width: root.name-width - Theme.s1;
+                    height: parent.height;
+                    label: "Name";
+                    sorted: root.sort-column == 0;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(0); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                HeaderCell {
+                    x: root.name-width;
+                    width: root.folder-width;
+                    height: parent.height;
+                    label: "Folder";
+                    sorted: root.sort-column == 1;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(1); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                HeaderCell {
+                    x: root.name-width + root.folder-width;
+                    width: root.size-width;
+                    height: parent.height;
+                    label: "Size";
+                    align: right;
+                    sorted: root.sort-column == 2;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(2); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                HeaderCell {
+                    x: root.name-width + root.folder-width + root.size-width;
+                    width: root.date-width;
+                    height: parent.height;
+                    label: "Modified";
+                    sorted: root.sort-column == 3;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(3); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                if root.show-type: HeaderCell {
+                    x: root.name-width + root.folder-width + root.size-width + root.date-width;
+                    width: root.type-width;
+                    height: parent.height;
+                    label: "Type";
+                    sorted: root.sort-column == 4;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(4); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                if root.show-ext: HeaderCell {
+                    x: root.name-width + root.folder-width + root.fixed-width - root.ext-width;
+                    width: root.ext-width;
+                    height: parent.height;
+                    label: "Extension";
+                    sorted: root.sort-column == 5;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(5); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
             }
             // Boundary grips, on top of the cells.
             ColumnGrip {
@@ -580,6 +862,16 @@ export component AppWindow inherits Window {
                 height: parent.height;
                 dragged(delta) => { root.drag-boundary(2, delta); }
             }
+            if root.show-type || root.show-ext: ColumnGrip {
+                x: root.name-width + root.folder-width + root.size-width + root.date-width - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(3, delta); }
+            }
+            if root.show-type && root.show-ext: ColumnGrip {
+                x: root.name-width + root.folder-width + root.fixed-width - root.ext-width - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(4, delta); }
+            }
         }
         Rectangle { height: 1px; background: Theme.line; }
 
@@ -589,6 +881,9 @@ export component AppWindow inherits Window {
             // Shift extends the selection, Ctrl moves the cursor alone.
             property <int> move-mode: 0;
             key-pressed(event) => {
+                if (root.shortcut(event)) {
+                    return accept;
+                }
                 self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
                 if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
                 if (event.text == Key.UpArrow) {
@@ -688,6 +983,8 @@ export component AppWindow inherits Window {
                     folder-width: root.folder-width;
                     size-width: root.size-width;
                     date-width: root.date-width;
+                    type-width: root.type-width;
+                    ext-width: root.ext-width;
                     pressed(mods) => {
                         root.current = i;
                         keys.focus();
@@ -736,6 +1033,27 @@ export component AppWindow inherits Window {
                     vertical-alignment: center;
                     overflow: elide;
                 }
+                // Matching modes that are on.
+                HorizontalLayout {
+                    spacing: Theme.s1;
+                    alignment: start;
+                    for badge in root.badges: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            height: 18px;
+                            width: badge-text.preferred-width + 2 * Theme.s1 + 2px;
+                            border-radius: 4px;
+                            background: Theme.selection;
+                            badge-text := Text {
+                                text: badge;
+                                font-size: Theme.small - 1px;
+                                color: Theme.selection-text;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
                 Text {
                     text: root.notice;
                     font-size: Theme.small;
@@ -753,6 +1071,25 @@ export component AppWindow inherits Window {
                     horizontal-alignment: right;
                 }
             }
+        }
+    }
+
+    // Tip of the matching-mode toggle under the mouse.
+    if search.hover-tip != "": Rectangle {
+        x: min(search.hover-x, root.width - self.width - Theme.s2);
+        y: search.hover-bottom + Theme.s1;
+        width: tip-text.preferred-width + 2 * Theme.s2;
+        height: tip-text.preferred-height + 2 * Theme.s1;
+        background: Theme.surface;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000030;
+        tip-text := Text {
+            text: search.hover-tip;
+            font-size: Theme.small;
+            color: Theme.text;
         }
     }
 

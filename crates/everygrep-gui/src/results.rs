@@ -17,6 +17,7 @@ use crate::ResultRow;
 use crate::engine::{Engine, IndexState, SearchResult};
 use crate::filetype::{self, KindIcon};
 use crate::format;
+use crate::labels;
 use crate::selection::{Changed, Selection};
 
 /// Rows of the result table, backed by a list of node ids.
@@ -285,8 +286,11 @@ impl Model for ResultsModel {
             .unwrap_or_default();
         let now = self.now_ns.get();
         let raw_name = store.name(id);
-        let kind = filetype::classify(raw_name, is_dir).icon_index();
+        let kind = filetype::classify(raw_name, is_dir);
         let name = String::from_utf8_lossy(raw_name);
+        let extension = labels::extension(&name, is_dir);
+        let type_name = labels::type_name(kind, extension).into();
+        let extension = extension.into();
         let (before, matched, after) = split_name(&name, &self.terms.borrow());
         Some(ResultRow {
             name_before: before.into(),
@@ -300,8 +304,10 @@ impl Model for ResultsModel {
             },
             modified: format::date(meta.mtime_ns, now, &self.zone).into(),
             modified_full: format::timestamp(meta.mtime_ns, &self.zone).into(),
+            type_name,
+            extension,
             is_dir,
-            kind,
+            kind: kind.icon_index(),
             selected: self.selection.borrow().contains(id),
         })
     }
