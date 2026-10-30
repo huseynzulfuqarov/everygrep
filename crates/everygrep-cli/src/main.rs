@@ -26,7 +26,8 @@ usage:
 query syntax: space = and, a|b = or, !a = not, <a b> = group, \"a b\" = literal,
 *.pdf = wildcard, case: wholeword: diacritics: path: file: folder: ext:pdf;jpg
 size:>10mb modified:<7d modified:2026-10-25 modified:>=2026-10
-modified:2026-10-01..2026-10-25 modified:today
+modified:2026-10-01..2026-10-25 modified:today prefix: suffix: nopunct:
+nospace: regex:^img_\\d+
 
 search and shell load the saved index; they scan and save it first when there
 is none, when --root differs from the saved roots, or with --rescan.
@@ -42,6 +43,11 @@ options:
   --whole-words      match whole words only
   --match-path       match the full path instead of the name
   --diacritics       match diacritics exactly (by default e also finds é)
+  --prefix           terms must match at the start of the name
+  --suffix           terms must match at the end of the name
+  --ignore-punctuation   leave punctuation out of names and terms
+  --ignore-whitespace    leave whitespace out of names and terms
+  --regex            the whole query is one regular expression
   --filter <name>    only all, audio, archive, code, document, executable,
                      folder, picture or video entries
   --threads <n>      search threads (default: number of CPUs)
@@ -89,6 +95,11 @@ fn parse_args() -> Result<Args, String> {
             "--whole-words" => args.matching.whole_words = true,
             "--match-path" => args.matching.match_path = true,
             "--diacritics" => args.matching.match_diacritics = true,
+            "--prefix" => args.matching.prefix = true,
+            "--suffix" => args.matching.suffix = true,
+            "--ignore-punctuation" => args.matching.ignore_punctuation = true,
+            "--ignore-whitespace" => args.matching.ignore_whitespace = true,
+            "--regex" => args.matching.regex = true,
             "--filter" => {
                 let name = value("--filter")?;
                 args.matching.filter =

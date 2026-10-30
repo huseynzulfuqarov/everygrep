@@ -271,8 +271,9 @@ there is none, when `--root` differs from the saved roots, or with
 (50 by default, `0` for all); counts and timings go to standard error.
 `shell --watch` applies file changes before every query and saves the index
 on exit. Other options: `--root`, `--index-file`, `--exclude`, `--case`,
-`--whole-words`, `--match-path`, `--diacritics`, `--filter`, `--threads`,
-`--no-meta`; `everygrep` without arguments prints them all. The command line
+`--whole-words`, `--match-path`, `--diacritics`, `--prefix`, `--suffix`,
+`--ignore-punctuation`, `--ignore-whitespace`, `--regex`, `--filter`,
+`--threads`, `--no-meta`; `everygrep` without arguments prints them all. The command line
 is English only.
 
 ## Languages

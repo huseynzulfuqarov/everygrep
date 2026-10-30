@@ -218,3 +218,42 @@ fn duplicate_and_relative_roots_still_load() {
     assert!(stderr.contains("loaded"), "stderr: {stderr}");
     assert_eq!(stdout.trim(), tree.join("notes.txt").to_str().unwrap());
 }
+
+#[test]
+fn matching_mode_flags() {
+    let dir = temp_dir("modes");
+    let tree = dir.join("tree");
+    fs::write(tree.join("my notes.txt"), b"m").unwrap();
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+    let found = |extra: &[&str]| -> Vec<String> {
+        let mut args = vec!["search", "--root", tree_s, "--index-file", index_s];
+        args.extend_from_slice(extra);
+        let out = run(&args);
+        assert!(out.status.success(), "{extra:?}");
+        let mut names: Vec<String> = String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| l.rsplit('/').next().unwrap().to_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    let prefix = found(&["--prefix", "no"]);
+    let suffix = found(&["--suffix", "txt"]);
+    let punct = found(&["--ignore-punctuation", "holidayphoto"]);
+    let space = found(&["--ignore-whitespace", "mynotes"]);
+    let regex = found(&["--regex", r"^(my|no)\w* ?notes"]);
+    let bad = run(&["search", "--index-file", index_s, "--regex", "("]);
+    fs::remove_dir_all(&dir).unwrap();
+
+    assert_eq!(prefix, ["notes.txt"]);
+    assert_eq!(suffix, ["my notes.txt", "notes.txt"]);
+    assert_eq!(punct, ["Holiday-Photo.JPG"]);
+    assert_eq!(space, ["my notes.txt"]);
+    assert_eq!(regex, ["my notes.txt"]);
+    // As for other bad queries: a message, no results.
+    assert!(bad.stdout.is_empty());
+    let stderr = String::from_utf8(bad.stderr).unwrap();
+    assert!(stderr.contains("bad regular expression"), "{stderr}");
+}
