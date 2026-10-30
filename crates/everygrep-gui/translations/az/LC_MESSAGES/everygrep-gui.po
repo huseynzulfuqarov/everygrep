@@ -955,3 +955,47 @@ msgstr "{} element silinmədi (cəmi {}): {}: {}."
 #: src/main.rs
 msgid "Cannot search: {}"
 msgstr "Axtarış alınmadı: {}"
+
+#: ui/app.slint
+msgid "Regular expression (Alt+R)"
+msgstr "Requlyar ifadə (Alt+R)"
+
+#: ui/app.slint
+msgid "Regular expression"
+msgstr "Requlyar ifadə"
+
+#: ui/app.slint
+msgid "Match prefix"
+msgstr "Adın əvvəlində axtar"
+
+#: ui/app.slint
+msgid "Match suffix"
+msgstr "Adın sonunda axtar"
+
+#: ui/app.slint
+msgid "Ignore punctuation"
+msgstr "Durğu işarələrinə məhəl qoyma"
+
+#: ui/app.slint
+msgid "Ignore whitespace"
+msgstr "Boşluqlara məhəl qoyma"
+
+#: src/labels.rs
+msgid "Regex"
+msgstr "Regex"
+
+#: src/labels.rs
+msgid "Prefix"
+msgstr "Əvvəl"
+
+#: src/labels.rs
+msgid "Suffix"
+msgstr "Son"
+
+#: src/labels.rs
+msgid "No punctuation"
+msgstr "Durğusuz"
+
+#: src/labels.rs
+msgid "No whitespace"
+msgstr "Boşluqsuz"

@@ -77,6 +77,11 @@ pub fn mode_badges(o: &QueryOptions) -> Vec<&'static str> {
         (o.whole_words, tr("Whole words")),
         (o.match_path, tr("Path")),
         (o.match_diacritics, tr("Diacritics")),
+        (o.regex, tr("Regex")),
+        (o.prefix, tr("Prefix")),
+        (o.suffix, tr("Suffix")),
+        (o.ignore_punctuation, tr("No punctuation")),
+        (o.ignore_whitespace, tr("No whitespace")),
     ]
     .into_iter()
     .filter_map(|(on, word)| on.then_some(word))
@@ -369,6 +374,11 @@ pub fn shortcuts() -> Vec<(&'static str, &'static str)> {
         ("Alt+W", tr("Match whole words")),
         ("Alt+P", tr("Match the full path")),
         ("Alt+D", tr("Match diacritics")),
+        ("Alt+R", tr("Regular expression")),
+        ("Alt+B", tr("Match prefix")),
+        ("Alt+E", tr("Match suffix")),
+        ("Alt+U", tr("Ignore punctuation")),
+        ("Alt+S", tr("Ignore whitespace")),
         ("Alt+↑ / Alt+↓", tr("Previous / next filter")),
         ("Ctrl+N", tr("New window")),
         ("Ctrl+,", tr("Settings")),
@@ -465,5 +475,12 @@ mod tests {
             ..QueryOptions::default()
         };
         assert_eq!(mode_badges(&o), ["Case", "Diacritics"]);
+        let o = QueryOptions {
+            regex: true,
+            suffix: true,
+            ignore_whitespace: true,
+            ..QueryOptions::default()
+        };
+        assert_eq!(mode_badges(&o), ["Regex", "Suffix", "No whitespace"]);
     }
 }

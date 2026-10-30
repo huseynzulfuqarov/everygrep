@@ -28,7 +28,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ File  Edit  View  Search  Help                               │  menu bar 40 px
-│ [ search field ............... Aa ab a/b é ] [filter ▾]      │  top bar 48 px
+│ [ search field ............ Aa ab a/b é .* ] [filter ▾]      │  top bar 48 px
 ├──────────────────────────────────────────────────────────────┤
 │ Name ▲               │ Folder                │ Size │ Modified│  header 30 px
 │ ▢ report-2026.pdf    │ ~/Documents/work      │ 3 MB │ 25 Oct  │  rows 28 px
@@ -43,20 +43,23 @@ screen; when a change conflicts with them, the rules win or are changed first.
   settings. File (new window, settings, quit), Edit (copy name and path,
   select all, rename, trash, delete), View (optional columns, folder size,
   density, theme, selection details, menu bar), Search (matching modes,
+  including prefix, suffix, ignore punctuation and ignore whitespace,
   filters, previous and next search), Help (keyboard shortcuts, about).
   Every entry runs the same action as its key or the context menu. Slint
   1.18 draws the bar inside the window on Linux (a native menu bar exists
   only on macOS and Windows), and its item shortcuts are matched before the
   focused widget sees the key. So only keys that mean the same everywhere
-  are given to menu items (`Ctrl+N`, `Ctrl+,`, `Ctrl+Q`, `Alt+C/W/P/D`,
-  `Alt+←/→`); `Ctrl+C`, `Ctrl+A`, `Delete` and `F2` stay with the search
+  are given to menu items (`Ctrl+N`, `Ctrl+,`, `Ctrl+Q`,
+  `Alt+C/W/P/D/R/B/E/U/S`, `Alt+←/→`); `Ctrl+C`, `Ctrl+A`, `Delete` and `F2` stay with the search
   field when it has focus, and the Edit entries show no key. Help →
   Keyboard shortcuts lists them all. The bar cannot be opened from the
   keyboard yet (no `F10`), which is fine because every entry has a key or
   is in the settings.
-- **Top bar.** The search field takes all the remaining width. Four small
+- **Top bar.** The search field takes all the remaining width. Five small
   toggles at its right end switch the matching modes: match case, whole words,
-  full path and diacritics; each shows its name and key in a tip on hover. A
+  full path, diacritics and regular expression; each shows its name and key
+  in a tip on hover. The rarer modes (prefix, suffix, ignore punctuation,
+  ignore whitespace) are in the Search menu only. A
   filter selector sits next to the field: all, audio, archives, code,
   documents, executables, folders, pictures, videos. When the menu bar is
   hidden, an overflow button (`⋯`) after the filter holds settings,
@@ -147,6 +150,9 @@ words.
 | Clear the search | `Esc` in the search field | — |
 | Back / forward through earlier searches | `Alt+←` / `Alt+→` | — |
 | Match case, whole words, full path, diacritics | `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | toggles in the search field |
+| Regular expression | `Alt+R` | toggle in the search field, Search menu |
+| Match prefix, match suffix | `Alt+B`, `Alt+E` | Search menu |
+| Ignore punctuation, ignore whitespace | `Alt+U`, `Alt+S` | Search menu |
 | Previous / next filter | `Alt+↑` / `Alt+↓` | filter selector, Search menu |
 | Show or hide the Type and Extension columns | — | header context menu, View menu |
 | New window over the same index | `Ctrl+N` | File menu |

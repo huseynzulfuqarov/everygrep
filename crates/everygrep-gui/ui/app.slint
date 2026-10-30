@@ -111,15 +111,18 @@ component SearchField inherits Rectangle {
     in-out property <bool> whole-words;
     in-out property <bool> match-path;
     in-out property <bool> match-diacritics;
+    in-out property <bool> use-regex;
     // The tip of the toggle under the mouse and where to show it.
     out property <string> hover-tip: case-toggle.hovered ? case-toggle.tip
         : words-toggle.hovered ? words-toggle.tip
         : path-toggle.hovered ? path-toggle.tip
-        : marks-toggle.hovered ? marks-toggle.tip : "";
+        : marks-toggle.hovered ? marks-toggle.tip
+        : regex-toggle.hovered ? regex-toggle.tip : "";
     out property <length> hover-x: case-toggle.hovered ? case-toggle.absolute-position.x
         : words-toggle.hovered ? words-toggle.absolute-position.x
         : path-toggle.hovered ? path-toggle.absolute-position.x
-        : marks-toggle.absolute-position.x;
+        : marks-toggle.hovered ? marks-toggle.absolute-position.x
+        : regex-toggle.absolute-position.x;
     out property <length> hover-bottom: case-toggle.absolute-position.y + case-toggle.height;
     callback edited(string);
     callback accepted();
@@ -228,6 +231,12 @@ component SearchField inherits Rectangle {
                 glyph: "é";
                 tip: @tr("Match diacritics (Alt+D)");
                 checked <=> root.match-diacritics;
+                toggled => { root.modes-changed(); }
+            }
+            regex-toggle := ModeToggle {
+                glyph: ".*";
+                tip: @tr("Regular expression (Alt+R)");
+                checked <=> root.use-regex;
                 toggled => { root.modes-changed(); }
             }
         }
@@ -588,6 +597,12 @@ export component AppWindow inherits Window {
     in-out property <bool> whole-words <=> search.whole-words;
     in-out property <bool> match-path <=> search.match-path;
     in-out property <bool> match-diacritics <=> search.match-diacritics;
+    in-out property <bool> use-regex <=> search.use-regex;
+    // Modes without a toggle in the field: Search menu and Alt keys.
+    in-out property <bool> match-prefix;
+    in-out property <bool> match-suffix;
+    in-out property <bool> ignore-punctuation;
+    in-out property <bool> ignore-whitespace;
     in property <[string]> filter-names;
     in-out property <int> filter-index: 0;
     // Words for the modes that are on, shown in the status line.
@@ -793,6 +808,16 @@ export component AppWindow inherits Window {
             root.match-path = !root.match-path;
         } else if (event.text == "d" || event.text == "D") {
             root.match-diacritics = !root.match-diacritics;
+        } else if (event.text == "r" || event.text == "R") {
+            root.use-regex = !root.use-regex;
+        } else if (event.text == "b" || event.text == "B") {
+            root.match-prefix = !root.match-prefix;
+        } else if (event.text == "e" || event.text == "E") {
+            root.match-suffix = !root.match-suffix;
+        } else if (event.text == "u" || event.text == "U") {
+            root.ignore-punctuation = !root.ignore-punctuation;
+        } else if (event.text == "s" || event.text == "S") {
+            root.ignore-whitespace = !root.ignore-whitespace;
         } else {
             return false;
         }
@@ -1611,6 +1636,42 @@ export component AppWindow inherits Window {
                 shortcut: @keys(Alt + D);
                 checkable: true;
                 checked <=> root.match-diacritics;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: @tr("Regular expression");
+                shortcut: @keys(Alt + R);
+                checkable: true;
+                checked <=> root.use-regex;
+                activated => { root.options-edited(); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: @tr("Match prefix");
+                shortcut: @keys(Alt + B);
+                checkable: true;
+                checked <=> root.match-prefix;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: @tr("Match suffix");
+                shortcut: @keys(Alt + E);
+                checkable: true;
+                checked <=> root.match-suffix;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: @tr("Ignore punctuation");
+                shortcut: @keys(Alt + U);
+                checkable: true;
+                checked <=> root.ignore-punctuation;
+                activated => { root.options-edited(); }
+            }
+            MenuItem {
+                title: @tr("Ignore whitespace");
+                shortcut: @keys(Alt + S);
+                checkable: true;
+                checked <=> root.ignore-whitespace;
                 activated => { root.options-edited(); }
             }
             MenuSeparator { }

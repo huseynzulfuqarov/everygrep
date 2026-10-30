@@ -58,6 +58,10 @@ First version, 0.1.0, not released yet.
   permanently, from keys, a context menu and the menu bar.
 - Filter selector and matching mode toggles, search history with
   `Alt+←`/`Alt+→`, initial query and options from the command line.
+- Regular expression toggle (`Alt+R`) and Search menu entries with check
+  marks for match prefix (`Alt+B`), match suffix (`Alt+E`), ignore
+  punctuation (`Alt+U`) and ignore whitespace (`Alt+S`), with status
+  badges, start defaults in the settings and command line flags.
 - One window per index: a later launch hands its query to the open window
   over the session bus; GNOME keyboard shortcut instructions.
 - Settings window: folders to index and exclude, start options, history,

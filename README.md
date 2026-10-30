@@ -86,6 +86,9 @@ and saves the index; later starts load it and catch up in a moment.
 | `*.pdf`, `img_??.png` | wildcards, matched against the whole name |
 | `case:Readme` | match case for this term |
 | `wholeword:art` | whole words only: `pop-art.png`, not `party.png` |
+| `prefix:rep`, `suffix:.tar.gz` | the term at the start / end of the name |
+| `nopunct:foo-bar`, `nospace:myfile` | ignore punctuation / whitespace: `foo_bar.txt`, `my file.txt` |
+| `regex:^img_\d+\.jpe?g$` | a regular expression (to the next space; case is ignored) |
 | `diacritics:café` | match diacritics for this term |
 | `path:src/main`, `docs/report` | match the full path (any term with `/` does) |
 | `file:`, `folder:` | only files / only folders |
@@ -103,6 +106,8 @@ The full syntax, with every modifier and edge case, is in
 ```sh
 everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--case] [--whole-words] [--match-path] [--diacritics]
+              [--prefix] [--suffix] [--ignore-punctuation]
+              [--ignore-whitespace] [--regex]
               [--columns type,extension] [--new-instance]
               [--settings[=indexing|search|appearance|window|shortcut]] [query words...]
 ```
@@ -111,8 +116,10 @@ Words after the options become the first query; it runs as soon as the index is
 loaded. `everygrep-gui --help` lists the options; a mistyped option or value
 stops with an error instead of opening the window. Type to search; `↓` moves into the results. The selector next to the
 search field limits results to one kind (folders, documents, pictures, …); the
-toggles inside the field switch match case, whole words, full path and
-diacritics, and the modes that are on show in the status line. Right-click the
+toggles inside the field switch match case, whole words, full path,
+diacritics and regular expressions; the Search menu also has match prefix,
+match suffix, ignore punctuation and ignore whitespace; the modes that are on
+show in the status line. Right-click the
 column headers to show the Type and Extension columns.
 
 | Keys | Action |
@@ -131,6 +138,9 @@ column headers to show the Type and Extension columns.
 | `Ctrl+F`, `Ctrl+L` | focus the search field |
 | `Alt+←` / `Alt+→` | back / forward through earlier searches |
 | `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | match case, whole words, full path, diacritics |
+| `Alt+R` | regular expression: the whole query is one expression |
+| `Alt+B`, `Alt+E` | match prefix, match suffix |
+| `Alt+U`, `Alt+S` | ignore punctuation, ignore whitespace |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
 | `Ctrl+N` | new window over the same index |
 | `Ctrl+,` | settings |
@@ -226,7 +236,8 @@ size-width = 120
 ```
 
 `root` and `exclude` repeat for each folder. Other keys: `whole-words`,
-`match-path`, `match-diacritics`, `folder-size` (`total`, `items`, `none`),
+`match-path`, `match-diacritics`, `match-prefix`, `match-suffix`,
+`ignore-punctuation`, `ignore-whitespace`, `regex`, `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
 `language` (`system`, `en`, `az`, `tr`),
 `status-details`, `menu-bar`, `remember-columns`,

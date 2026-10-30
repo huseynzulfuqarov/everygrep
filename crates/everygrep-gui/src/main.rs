@@ -785,6 +785,11 @@ options:
   --whole-words          match whole words only
   --match-path           match the full path instead of the name
   --diacritics           match diacritics exactly (by default e also finds é)
+  --prefix               terms must match at the start of the name
+  --suffix               terms must match at the end of the name
+  --ignore-punctuation   leave punctuation out of names and terms
+  --ignore-whitespace    leave whitespace out of names and terms
+  --regex                the whole query is one regular expression
   --columns <list>       show optional columns: type, extension (comma separated)
   --new-instance         open another window even if one is already open
   --settings[=<page>]    open the settings window too, at a page: indexing,
@@ -821,12 +826,26 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                     Filter::from_id(&name).ok_or_else(|| format!("unknown filter {name}"))?;
                 out.options_given = true;
             }
-            "--case" | "--whole-words" | "--match-path" | "--diacritics" => {
+            "--case"
+            | "--whole-words"
+            | "--match-path"
+            | "--diacritics"
+            | "--prefix"
+            | "--suffix"
+            | "--ignore-punctuation"
+            | "--ignore-whitespace"
+            | "--regex" => {
+                let o = &mut out.options;
                 let mode = match a.as_str() {
-                    "--case" => &mut out.options.case_sensitive,
-                    "--whole-words" => &mut out.options.whole_words,
-                    "--match-path" => &mut out.options.match_path,
-                    _ => &mut out.options.match_diacritics,
+                    "--case" => &mut o.case_sensitive,
+                    "--whole-words" => &mut o.whole_words,
+                    "--match-path" => &mut o.match_path,
+                    "--prefix" => &mut o.prefix,
+                    "--suffix" => &mut o.suffix,
+                    "--ignore-punctuation" => &mut o.ignore_punctuation,
+                    "--ignore-whitespace" => &mut o.ignore_whitespace,
+                    "--regex" => &mut o.regex,
+                    _ => &mut o.match_diacritics,
                 };
                 *mode = true;
                 out.options_given = true;
@@ -895,11 +914,15 @@ fn options(w: &AppWindow) -> QueryOptions {
         whole_words: w.get_whole_words(),
         match_path: w.get_match_path(),
         match_diacritics: w.get_match_diacritics(),
+        prefix: w.get_match_prefix(),
+        suffix: w.get_match_suffix(),
+        ignore_punctuation: w.get_ignore_punctuation(),
+        ignore_whitespace: w.get_ignore_whitespace(),
+        regex: w.get_use_regex(),
         filter: usize::try_from(w.get_filter_index())
             .ok()
             .and_then(|i| Filter::ALL.get(i).copied())
             .unwrap_or_default(),
-        ..QueryOptions::default()
     }
 }
 
@@ -909,6 +932,11 @@ fn set_options(w: &AppWindow, o: QueryOptions) {
     w.set_whole_words(o.whole_words);
     w.set_match_path(o.match_path);
     w.set_match_diacritics(o.match_diacritics);
+    w.set_match_prefix(o.prefix);
+    w.set_match_suffix(o.suffix);
+    w.set_ignore_punctuation(o.ignore_punctuation);
+    w.set_ignore_whitespace(o.ignore_whitespace);
+    w.set_use_regex(o.regex);
     let index = Filter::ALL.iter().position(|&f| f == o.filter).unwrap_or(0);
     w.set_filter_index(index as i32);
     show_badges(w);
@@ -1065,6 +1093,12 @@ mod tests {
         assert_eq!(a.query, "img");
         let a = args(&["--whole-words", "--match-path"]);
         assert!(a.options.whole_words && a.options.match_path);
+        let a = args(&["--prefix", "--suffix", "--ignore-punctuation"]);
+        assert!(a.options.prefix && a.options.suffix && a.options.ignore_punctuation);
+        assert!(!a.options.ignore_whitespace && !a.options.regex);
+        let a = args(&["--ignore-whitespace", "--regex", "a|b"]);
+        assert!(a.options.ignore_whitespace && a.options.regex && a.options_given);
+        assert_eq!(a.query, "a|b");
         assert_eq!(a.options.filter, Filter::All);
         assert!(!a.show_type && !a.show_ext);
     }
@@ -1102,7 +1136,16 @@ mod tests {
             present_args(&["--filter", "all"]).options,
             Some(QueryOptions::default())
         );
-        for flag in ["--whole-words", "--match-path", "--diacritics"] {
+        for flag in [
+            "--whole-words",
+            "--match-path",
+            "--diacritics",
+            "--prefix",
+            "--suffix",
+            "--ignore-punctuation",
+            "--ignore-whitespace",
+            "--regex",
+        ] {
             assert!(present_args(&[flag]).options.is_some(), "{flag}");
         }
     }

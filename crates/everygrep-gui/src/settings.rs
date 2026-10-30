@@ -292,6 +292,11 @@ impl Settings {
             "whole-words" => put_flag(&mut self.options.whole_words),
             "match-path" => put_flag(&mut self.options.match_path),
             "match-diacritics" => put_flag(&mut self.options.match_diacritics),
+            "match-prefix" => put_flag(&mut self.options.prefix),
+            "match-suffix" => put_flag(&mut self.options.suffix),
+            "ignore-punctuation" => put_flag(&mut self.options.ignore_punctuation),
+            "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
+            "regex" => put_flag(&mut self.options.regex),
             "history-size" => value
                 .parse::<usize>()
                 .ok()
@@ -380,6 +385,21 @@ impl Settings {
             o.match_diacritics,
             od.match_diacritics,
         );
+        flag(&mut out, "match-prefix", o.prefix, od.prefix);
+        flag(&mut out, "match-suffix", o.suffix, od.suffix);
+        flag(
+            &mut out,
+            "ignore-punctuation",
+            o.ignore_punctuation,
+            od.ignore_punctuation,
+        );
+        flag(
+            &mut out,
+            "ignore-whitespace",
+            o.ignore_whitespace,
+            od.ignore_whitespace,
+        );
+        flag(&mut out, "regex", o.regex, od.regex);
         if self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
@@ -653,8 +673,12 @@ pub(crate) mod tests {
                 whole_words: true,
                 match_path: true,
                 match_diacritics: true,
+                prefix: true,
+                suffix: true,
+                ignore_punctuation: true,
+                ignore_whitespace: true,
+                regex: true,
                 filter: Filter::Picture,
-                ..QueryOptions::default()
             },
             history_size: 0,
             history_on_disk: true,

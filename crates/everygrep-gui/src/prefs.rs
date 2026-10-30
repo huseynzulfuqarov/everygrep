@@ -464,6 +464,11 @@ impl Prefs {
         w.set_default_words(o.whole_words);
         w.set_default_path(o.match_path);
         w.set_default_diacritics(o.match_diacritics);
+        w.set_default_prefix(o.prefix);
+        w.set_default_suffix(o.suffix);
+        w.set_default_punctuation(o.ignore_punctuation);
+        w.set_default_whitespace(o.ignore_whitespace);
+        w.set_default_regex(o.regex);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
@@ -602,11 +607,15 @@ impl Prefs {
             whole_words: w.get_default_words(),
             match_path: w.get_default_path(),
             match_diacritics: w.get_default_diacritics(),
+            prefix: w.get_default_prefix(),
+            suffix: w.get_default_suffix(),
+            ignore_punctuation: w.get_default_punctuation(),
+            ignore_whitespace: w.get_default_whitespace(),
+            regex: w.get_default_regex(),
             filter: usize::try_from(w.get_default_filter())
                 .ok()
                 .and_then(|i| Filter::ALL.get(i).copied())
                 .unwrap_or_default(),
-            ..self.settings.borrow().options
         };
         let size = usize::try_from(w.get_history_size())
             .unwrap_or(0)

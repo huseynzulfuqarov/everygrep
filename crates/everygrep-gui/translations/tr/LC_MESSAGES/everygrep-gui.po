@@ -955,3 +955,47 @@ msgstr "{} öğe silinemedi (toplam {}): {}: {}."
 #: src/main.rs
 msgid "Cannot search: {}"
 msgstr "Arama yapılamadı: {}"
+
+#: ui/app.slint
+msgid "Regular expression (Alt+R)"
+msgstr "Düzenli ifade (Alt+R)"
+
+#: ui/app.slint
+msgid "Regular expression"
+msgstr "Düzenli ifade"
+
+#: ui/app.slint
+msgid "Match prefix"
+msgstr "Adın başında ara"
+
+#: ui/app.slint
+msgid "Match suffix"
+msgstr "Adın sonunda ara"
+
+#: ui/app.slint
+msgid "Ignore punctuation"
+msgstr "Noktalama işaretlerini yok say"
+
+#: ui/app.slint
+msgid "Ignore whitespace"
+msgstr "Boşlukları yok say"
+
+#: src/labels.rs
+msgid "Regex"
+msgstr "Regex"
+
+#: src/labels.rs
+msgid "Prefix"
+msgstr "Baş"
+
+#: src/labels.rs
+msgid "Suffix"
+msgstr "Son"
+
+#: src/labels.rs
+msgid "No punctuation"
+msgstr "Noktalamasız"
+
+#: src/labels.rs
+msgid "No whitespace"
+msgstr "Boşluksuz"
