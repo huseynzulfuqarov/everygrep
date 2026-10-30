@@ -9,6 +9,7 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::index::Index;
+use crate::kind::{FileKind, classify};
 use crate::store::{NodeId, NodeStore};
 
 /// Column to sort results by.
@@ -25,6 +26,8 @@ pub enum SortKey {
     Modified,
     /// Folded extension; names without one sort as an empty extension.
     Extension,
+    /// File kind (in [`FileKind`] order, folders first), then extension.
+    Type,
 }
 
 /// A sort key and a direction.
@@ -79,6 +82,21 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
             // spread over memory; there are few distinct extensions.
             let (exts, ranks) = extension_ranks(store, ids);
             let k: Vec<u32> = exts.iter().map(|&e| ranks[e as usize]).collect();
+            sort_directed(ids, threads, desc, k);
+        }
+        SortKey::Type => {
+            let (exts, ranks) = extension_ranks(store, ids);
+            let k: Vec<(FileKind, u32)> = ids
+                .iter()
+                .zip(&exts)
+                .map(
+                    |(&id, &e)| match classify(store.name(id), store.is_dir(id)) {
+                        // A dot in a folder name does not make a type.
+                        FileKind::Folder => (FileKind::Folder, 0),
+                        kind => (kind, ranks[e as usize]),
+                    },
+                )
+                .collect();
             sort_directed(ids, threads, desc, k);
         }
     }
@@ -409,6 +427,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn type_groups_by_kind_then_extension() {
+        check(
+            SortKey::Type,
+            &[
+                "/r",
+                "A",
+                "a-c",
+                "b",
+                "mid.txt",
+                "zeta.TXT",
+                "alpha.pdf",
+                "Beta.Pdf",
+                ".bashrc",
+            ],
+            &[
+                ".bashrc",
+                "alpha.pdf",
+                "Beta.Pdf",
+                "mid.txt",
+                "zeta.TXT",
+                "/r",
+                "A",
+                "a-c",
+                "b",
+            ],
+        );
+    }
+
     /// Many nodes in many folders with pseudo-random sizes and times.
     fn big_index(n: usize) -> Index {
         let mut s = NodeStore::new();
@@ -432,12 +479,13 @@ mod tests {
         Index::new(s)
     }
 
-    const KEYS: [SortKey; 5] = [
+    const KEYS: [SortKey; 6] = [
         SortKey::Name,
         SortKey::Path,
         SortKey::Size,
         SortKey::Modified,
         SortKey::Extension,
+        SortKey::Type,
     ];
 
     #[test]
