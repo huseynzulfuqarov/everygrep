@@ -25,6 +25,9 @@ Screenshots: to be added to `docs/images/`.
   `sekil` finds `Şəkil` and `cafe` finds `café`.
 - **Folder sizes.** Every folder knows the total size of the files below it,
   kept current as files change; sort and filter by it.
+- **Removable drives.** A USB stick or external disk is indexed when it is
+  plugged in; when it is removed, its entries stay searchable, shown dimmed,
+  and come back to life when it is plugged in again, wherever it is mounted.
 - **Keyboard first.** Every action has a key; open, open the containing
   folder, copy names or paths, rename in place, trash or delete.
 - **Fits the desktop.** Light and dark themes that follow GNOME, one window
@@ -182,6 +185,9 @@ the program behaves as before, except that folders show their total size.
 |---|---|---|
 | Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
 | | excluded folders: listed, but not searched inside | none |
+| | index removable drives automatically | on |
+| | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
+| | known drives, each with "Forget" and "Don't index this drive" | — |
 | | "Rebuild index now" | — |
 | Search | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
@@ -248,7 +254,9 @@ size-width = 120
 
 `root` and `exclude` repeat for each folder. Other keys: `whole-words`,
 `match-path`, `match-diacritics`, `match-prefix`, `match-suffix`,
-`ignore-punctuation`, `ignore-whitespace`, `regex`, `folder-size` (`total`, `items`, `none`),
+`ignore-punctuation`, `ignore-whitespace`, `regex`, `index-removable-drives`,
+`removed-drives` (`keep`, `forget`), `ignore-drive` (a file system UUID,
+repeated per drive), `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
 `language` (`system`, `en`, `az`, `tr`),
 `status-details`, `menu-bar`, `remember-columns`,
@@ -258,6 +266,32 @@ space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept
 lines that cannot be read are ignored (the settings window says how many),
 and the file is replaced atomically. The search history, when kept, is in
 `history` in the same folder, one query per line.
+
+### Removable drives
+
+Drives that the desktop mounts when they are plugged in (GNOME's disk
+service, udisks, mounts them under `/run/media/$USER`, some systems under
+`/media/$USER`) are indexed automatically, each into a file of its own. A
+drive is recognised by the UUID of its file system, so it keeps its entries
+when it is mounted somewhere else the next time. Nothing else is indexed
+because it was mounted: disks the system mounts, such as those in
+`/etc/fstab` under `/mnt`, are indexed only when you add them as folders.
+
+When a drive is removed (unmounted), its entries stay in the results,
+drawn dimmed and slanted; the status line says "Offline: the drive is not
+connected" for a selected one, and opening, the containing folder, rename,
+trash and delete are refused for them (copying their names and paths
+works). Plugged in again, the drive is caught up by reading only the folders
+whose time changed, then watched like any other folder. Settings →
+Indexing can forget a drive's entries instead when it is removed, and
+lists the known drives (label, UUID, connected or not, number of entries,
+last seen) with "Forget" (for a drive that is not connected) and "Don't
+index this drive" / "Index this drive". A drive whose mount point lies in
+a folder to index, or holds one, is left to that folder.
+
+EveryGrep notices mounts and unmounts through the kernel's mount table
+(`/proc/self/mountinfo`), which wakes it only when something changes; it
+costs nothing while idle. The command line does not search drives yet.
 
 ### One window
 
@@ -314,7 +348,10 @@ All data stays on this computer. EveryGrep makes no network connections and
 collects nothing. It stores:
 
 - the index, in `~/.cache/everygrep/index.bin` (names, sizes and modification
-  times of the indexed files, never their contents);
+  times of the indexed files, never their contents), and for each removable
+  drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same kind of data
+  and `<uuid>.info` with its label, last mount point, when it was last
+  connected and its number of entries;
 - the settings, in `~/.config/everygrep/settings`;
 - the search history, in `~/.config/everygrep/history`, only when "Keep the
   history after EveryGrep closes" is on (it is off by default).

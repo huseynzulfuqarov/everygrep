@@ -27,6 +27,9 @@ export global Theme {
     out property <color> selection-text: dark ? #ffffff : #0b1b3d;
     out property <color> hover: dark ? #26282d : #eef1f5;
     out property <color> danger: dark ? #ff8080 : #b42323;
+    // Entries of a drive that is not connected: dimmer than muted text,
+    // still readable (3.9:1 on the light surface, 4.3:1 on the dark one).
+    out property <color> text-offline: dark ? #7d8189 : #7c818b;
 
     // Spacing
     out property <length> s1: 4px;

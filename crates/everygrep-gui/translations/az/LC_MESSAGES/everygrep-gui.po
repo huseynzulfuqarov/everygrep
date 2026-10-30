@@ -1051,3 +1051,85 @@ msgid "Exporting {} result…"
 msgid_plural "Exporting {} results…"
 msgstr[0] "{} nəticə ixrac edilir…"
 msgstr[1] "{} nəticə ixrac edilir…"
+
+#: ui/settings.slint
+msgid "Removable drives"
+msgstr "Çıxarıla bilən disklər"
+
+#: ui/settings.slint
+msgid "Index removable drives automatically"
+msgstr "Çıxarıla bilən diskləri avtomatik indekslə"
+
+#: ui/settings.slint
+msgid "Drives the desktop mounts when they are plugged in (under /run/media) are indexed each in a file of their own. Disks the system mounts, such as those listed in /etc/fstab, are never indexed this way."
+msgstr "Taxılanda iş masasının qoşduğu disklər (/run/media altında) hər biri ayrıca faylda indekslənir. Sistemin qoşduğu disklər, məsələn /etc/fstab-dakılar, bu yolla heç vaxt indekslənmir."
+
+#: ui/settings.slint
+msgid "When a drive is removed"
+msgstr "Disk çıxarılanda"
+
+#: ui/settings.slint
+msgid "No drives yet. Plug one in to index it."
+msgstr "Hələ disk yoxdur. İndeksləmək üçün birini taxın."
+
+#: ui/settings.slint
+msgid "Forget"
+msgstr "Unut"
+
+#: src/labels.rs
+msgid "Keep its entries, shown dimmed"
+msgstr "Qeydlərini saxla, solğun göstər"
+
+#: src/labels.rs
+msgid "Forget its entries"
+msgstr "Qeydlərini unut"
+
+#: src/labels.rs
+msgid "Drive {}"
+msgstr "Disk {}"
+
+#: src/labels.rs
+msgid "Connected"
+msgstr "Qoşulub"
+
+#: src/labels.rs
+msgid "Not connected"
+msgstr "Qoşulmayıb"
+
+#: src/labels.rs
+msgid "UUID {}"
+msgstr "UUID {}"
+
+#: src/labels.rs
+msgid "Not indexed"
+msgstr "İndekslənmir"
+
+#: src/labels.rs
+msgid "{} entry"
+msgid_plural "{} entries"
+msgstr[0] "{} qeyd"
+msgstr[1] "{} qeyd"
+
+#: src/labels.rs
+msgid "Last seen {}"
+msgstr "Son dəfə: {}"
+
+#: src/labels.rs
+msgid "Index this drive"
+msgstr "Bu diski indekslə"
+
+#: src/labels.rs
+msgid "Don't index this drive"
+msgstr "Bu diski indeksləmə"
+
+#: src/labels.rs
+msgid "{} offline"
+msgstr "{} oflayn"
+
+#: src/labels.rs
+msgid "Offline: the drive is not connected"
+msgstr "Oflayn: disk qoşulmayıb"
+
+#: src/labels.rs
+msgid "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first."
+msgstr "Qoşulmamış diskdəki elementləri açmaq, adını dəyişmək və ya silmək olmur. Əvvəlcə diski qoşun."

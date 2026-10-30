@@ -26,7 +26,7 @@ use crate::portal::ColorScheme;
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
-use crate::{AppWindow, SettingsWindow, labels};
+use crate::{AppWindow, DriveRow, SettingsWindow, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
 pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "shortcut"];
@@ -117,6 +117,8 @@ pub struct Prefs {
     scheme_set: Cell<bool>,
     /// Whether the language was given to the `.slint` texts.
     language_set: Cell<bool>,
+    /// UUIDs of the drives in the settings window's list, in its order.
+    listed_drives: RefCell<Vec<String>>,
 }
 
 thread_local! {
@@ -187,6 +189,7 @@ impl Prefs {
             desktop_scheme: Cell::new(None),
             scheme_set: Cell::new(false),
             language_set: Cell::new(false),
+            listed_drives: RefCell::default(),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
         prefs
@@ -453,6 +456,28 @@ impl Prefs {
         w.set_index_status(labels::index_status(state, indexed).into());
 
         let s = self.settings.borrow();
+        w.set_drives_enabled(self.engine.drives_enabled());
+        w.set_index_drives(s.drives.auto);
+        let removed: Vec<SharedString> = [true, false]
+            .into_iter()
+            .map(|keep| labels::removed_drives(keep).into())
+            .collect();
+        w.set_removed_names(ModelRc::new(VecModel::from(removed)));
+        w.set_removed_choice(if s.drives.keep_offline { 0 } else { 1 });
+        let drives = self.engine.drives();
+        let zone = everygrep_core::localtime::Zone::local();
+        let rows: Vec<DriveRow> = drives
+            .iter()
+            .map(|d| DriveRow {
+                title: labels::drive_title(&d.label, &d.uuid).into(),
+                details: labels::drive_details(d, &zone).into(),
+                online: d.online,
+                can_forget: !d.online && (d.indexed || d.ignored || d.last_seen > 0),
+                action: labels::drive_action(d.ignored || !d.indexed).into(),
+            })
+            .collect();
+        *self.listed_drives.borrow_mut() = drives.into_iter().map(|d| d.uuid).collect();
+        w.set_drives(ModelRc::new(VecModel::from(rows)));
         let filters: Vec<SharedString> = Filter::ALL
             .iter()
             .map(|&f| labels::filter(f).into())
@@ -577,6 +602,19 @@ impl Prefs {
             }
         }));
         w.on_rebuild(on(|p| p.rebuild()));
+        w.on_drives_changed(on(|p| p.drives_changed()));
+        w.on_forget_drive(on_index(|p, i| {
+            let uuid = p.listed_drives.borrow().get(i).cloned();
+            if let Some(uuid) = uuid {
+                p.engine.forget_drive(&uuid);
+            }
+        }));
+        w.on_toggle_drive(on_index(|p, i| {
+            let uuid = p.listed_drives.borrow().get(i).cloned();
+            if let Some(uuid) = uuid {
+                p.toggle_drive(&uuid);
+            }
+        }));
         w.on_search_changed(on(|p| p.search_changed()));
         w.on_window_changed(on(|p| p.window_changed()));
         w.on_appearance_changed(on(|p| p.appearance_changed()));
@@ -595,6 +633,42 @@ impl Prefs {
                 let _ = w.hide();
             }
         }));
+    }
+
+    /// The drive settings of the Indexing page changed.
+    fn drives_changed(&self) {
+        let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
+            return;
+        };
+        let Some(w) = w.upgrade() else { return };
+        let auto = w.get_index_drives();
+        let keep = w.get_removed_choice() != 1;
+        self.change(|s| {
+            s.drives.auto = auto;
+            s.drives.keep_offline = keep;
+        });
+        self.engine
+            .set_drive_settings(self.settings.borrow().drives.clone());
+        self.refresh();
+    }
+
+    /// Stops indexing a drive that is indexed, or indexes one that is not.
+    fn toggle_drive(&self, uuid: &str) {
+        let indexed = self
+            .engine
+            .drives()
+            .iter()
+            .any(|d| d.uuid == uuid && d.indexed && !d.ignored);
+        self.change(|s| {
+            s.drives.ignored.retain(|u| u != uuid);
+            if indexed {
+                s.drives.ignored.push(uuid.to_owned());
+            }
+        });
+        self.engine
+            .set_drive_settings(self.settings.borrow().drives.clone());
+        self.engine.ignore_drive(uuid, indexed);
+        self.refresh();
     }
 
     fn search_changed(&self) {
@@ -776,6 +850,9 @@ impl Prefs {
             _ => return,
         };
         if page == Page::Indexing {
+            self.change(|s| s.drives = Default::default());
+            self.engine
+                .set_drive_settings(self.settings.borrow().drives.clone());
             let saved = self.index.borrow().saved;
             if saved {
                 self.set_index(Vec::new(), Vec::new());

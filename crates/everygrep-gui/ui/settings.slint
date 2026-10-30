@@ -3,6 +3,19 @@
 import { Button, CheckBox, ComboBox, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
+// One known removable drive in the Drives list.
+export struct DriveRow {
+    // The label, or the UUID when it has none.
+    title: string,
+    // UUID, connected or not, entries, last seen, mount point.
+    details: string,
+    online: bool,
+    // Forget is offered only for a drive that is not connected.
+    can-forget: bool,
+    // "Don't index this drive" or "Index this drive".
+    action: string,
+}
+
 component Heading inherits Text {
     font-size: Theme.body;
     font-weight: 600;
@@ -92,6 +105,15 @@ export component SettingsWindow inherits Window {
     callback add-excludes();
     callback remove-exclude(int);
     callback rebuild();
+    // Removable drives (shown when the program can keep drive indexes).
+    in property <bool> drives-enabled;
+    in-out property <bool> index-drives;
+    in property <[string]> removed-names;
+    in-out property <int> removed-choice;
+    in property <[DriveRow]> drives;
+    callback drives-changed();
+    callback forget-drive(int);
+    callback toggle-drive(int);
 
     // Search
     in property <[string]> filter-names;
@@ -236,6 +258,72 @@ export component SettingsWindow inherits Window {
                                 model: root.excludes;
                                 add => { root.add-excludes(); }
                                 remove(i) => { root.remove-exclude(i); }
+                            }
+                            if root.drives-enabled: VerticalLayout {
+                                spacing: Theme.s2;
+                                Heading { text: @tr("Removable drives"); }
+                                CheckBox {
+                                    text: @tr("Index removable drives automatically");
+                                    checked <=> root.index-drives;
+                                    toggled => { root.drives-changed(); }
+                                }
+                                Note { text: @tr("Drives the desktop mounts when they are plugged in (under /run/media) are indexed each in a file of their own. Disks the system mounts, such as those listed in /etc/fstab, are never indexed this way."); }
+                                HorizontalLayout {
+                                    spacing: Theme.s3;
+                                    Text {
+                                        text: @tr("When a drive is removed");
+                                        color: Theme.text;
+                                        vertical-alignment: center;
+                                    }
+                                    ComboBox {
+                                        width: 260px;
+                                        accessible-label: @tr("When a drive is removed");
+                                        model: root.removed-names;
+                                        current-index <=> root.removed-choice;
+                                        selected => { root.drives-changed(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                }
+                                if root.drives.length == 0: Note {
+                                    text: @tr("No drives yet. Plug one in to index it.");
+                                }
+                                for drive[i] in root.drives: Rectangle {
+                                    border-radius: Theme.radius;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    background: Theme.field;
+                                    HorizontalLayout {
+                                        padding: Theme.s2;
+                                        padding-left: Theme.s3;
+                                        spacing: Theme.s2;
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: center;
+                                            Text {
+                                                text: drive.title;
+                                                color: drive.online ? Theme.text : Theme.text-offline;
+                                                font-weight: 600;
+                                                overflow: elide;
+                                            }
+                                            Note { text: drive.details; }
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Button {
+                                                text: @tr("Forget");
+                                                enabled: drive.can-forget;
+                                                clicked => { root.forget-drive(i); }
+                                            }
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Button {
+                                                text: drive.action;
+                                                clicked => { root.toggle-drive(i); }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             HorizontalLayout {
                                 spacing: Theme.s3;

@@ -71,7 +71,11 @@ screen; when a change conflicts with them, the rules win or are changed first.
   path are planned (the index does not keep creation or access times yet).
   Columns can be resized, hidden and sorted by clicking the header; reordering
   is planned. Sorting by Type groups by kind, then extension. The match is
-  highlighted inside the name. A folder's Size is the total size of all
+  highlighted inside the name. Entries of a removable drive that is not
+  connected are drawn in the `text-offline` color (dimmer than muted text,
+  still at least 3.9:1), their names slanted and their icons faded, so the
+  state is not shown by color alone; file actions on them are refused with a
+  note in the status line. A folder's Size is the total size of all
   files below it, at any depth (a setting can show the number of items or
   nothing instead); sorting by Size mixes folders and files by that total,
   as every other column does, since folders are never forced first.
@@ -99,8 +103,9 @@ screen; when a change conflicts with them, the rules win or are changed first.
 | Themes | Light and dark, following the desktop setting by default |
 
 Colors are defined once as named tokens (`surface`, `surface-alt`, `field`,
-`field-line`, `text`, `text-muted`, `line`, `accent`, `accent-text`,
-`selection`, `selection-text`, `hover`, `danger`) for each theme. Components
+`field-line`, `text`, `text-muted`, `text-offline`, `line`, `accent`,
+`accent-text`, `selection`, `selection-text`, `hover`, `danger`) for each
+theme. Components
 use only the tokens, never raw colors.
 
 The theme setting is "same as the desktop", light or dark. "Same as the
@@ -221,6 +226,11 @@ pages and `Esc` closes the window.
   might want otherwise.
 - Folders are added through the desktop's own folder chooser (the XDG
   portal), never through a dialog of ours.
+- The Indexing page also holds the removable drives: index them
+  automatically (on), what happens when one is removed (keep its entries,
+  shown dimmed, or forget them) and the list of known drives, each with its
+  state and the buttons "Forget" and "Don't index this drive" / "Index this
+  drive".
 - Changing what is indexed rebuilds the index in the background; the window
   stays usable and the status line reports the progress.
 - Problems with the settings file are shown at the top of the settings window

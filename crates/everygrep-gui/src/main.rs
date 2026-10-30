@@ -124,10 +124,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }),
     };
     let window_args = new_window_args(&args.roots, args.index_file.as_deref());
+    let drives =
+        everygrep_core::drives::DriveEnv::from_env().map(|env| (env, settings.drives.clone()));
     let engine = Engine::start(
         setup.roots.clone(),
         setup.excludes.clone(),
         args.index_file,
+        drives,
         hooks,
     );
     let model = Rc::new(ResultsModel::new(engine.clone()));
@@ -547,6 +550,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_activate({
         let (weak, model) = (weak.clone(), model.clone());
         move |r| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
             let paths = model.targets(row(r));
             if let Some(w) = weak.upgrade() {
                 w.invoke_history_record();
@@ -567,8 +573,11 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
         }
     });
     window.on_open_folder({
-        let model = model.clone();
+        let (weak, model) = (weak.clone(), model.clone());
         move |r| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
             let paths = model.targets(row(r));
             open::show_in_folder(&paths[..paths.len().min(MAX_OPEN)]);
         }
@@ -602,6 +611,10 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             };
             if model.is_selected(r) && model.selected_count() > 1 {
                 error(&w, tr("Select one item to rename it.").into());
+                return;
+            }
+            if model.targets_offline(Some(r)) {
+                error(&w, labels::offline_refused().into());
                 return;
             }
             let Some((name, is_dir)) = model.name(r) else {
@@ -643,6 +656,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_trash({
         let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move |r| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
             let paths = model.targets(row(r));
             let Some(w) = weak.upgrade() else { return };
             if paths.len() > TRASH_CONFIRM {
@@ -661,6 +677,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_delete_request({
         let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move |r| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
             let paths = model.targets(row(r));
             let Some(w) = weak.upgrade() else { return };
             if paths.is_empty() {
@@ -817,6 +836,19 @@ fn write_export(
         }
     }
     out.finish().map_err(failed)
+}
+
+/// Refuses a file action on items of a drive that is not connected: their
+/// paths may now belong to other files, or to nothing. Returns whether it
+/// refused.
+fn refuse_offline(weak: &slint::Weak<AppWindow>, model: &ResultsModel, row: Option<usize>) -> bool {
+    if !model.targets_offline(row) {
+        return false;
+    }
+    if let Some(w) = weak.upgrade() {
+        error(&w, labels::offline_refused().into());
+    }
+    true
 }
 
 fn info(w: &AppWindow, text: String) {

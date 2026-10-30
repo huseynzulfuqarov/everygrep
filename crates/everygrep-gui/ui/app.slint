@@ -1,6 +1,6 @@
 import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-export { SettingsWindow } from "settings.slint";
+export { SettingsWindow, DriveRow } from "settings.slint";
 
 export struct ResultRow {
     // The name, split around the highlighted match; without a match all of it
@@ -19,6 +19,8 @@ export struct ResultRow {
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
     selected: bool,
+    // On a drive that is not connected: drawn dimmed, actions refused.
+    offline: bool,
 }
 
 // One choice of a group in a menu (theme, density, filter, ...), with its
@@ -325,6 +327,11 @@ component Row inherits Rectangle {
     callback edit-cancel();
 
     property <bool> selected: root.data.selected;
+    property <bool> offline: root.data.offline;
+    // Text colors: offline rows are dimmed (unless selected) and their names
+    // slanted, so the state is not shown by color alone.
+    property <color> name-color: selected ? Theme.selection-text : offline ? Theme.text-offline : Theme.text;
+    property <color> other-color: selected ? Theme.selection-text : offline ? Theme.text-offline : Theme.text-muted;
 
     height: Theme.row-height;
     background: selected ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
@@ -351,6 +358,7 @@ component Row inherits Rectangle {
     // Cells are positioned directly to keep the columns aligned with the header.
     Image {
         x: Theme.s3;
+        opacity: root.offline ? 0.45 : 1;
         source: Icons.types[root.data.kind];
         width: Theme.row-icon;
         height: Theme.row-icon;
@@ -370,7 +378,8 @@ component Row inherits Rectangle {
             width: self.text == "" ? 0px : min(self.preferred-width, parent.width);
             height: parent.height;
             text: root.data.name-before;
-            color: root.selected ? Theme.selection-text : Theme.text;
+            color: root.name-color;
+            font-italic: root.offline;
             font-size: Theme.list-text;
             vertical-alignment: center;
             overflow: elide;
@@ -381,7 +390,8 @@ component Row inherits Rectangle {
             height: parent.height;
             visible: self.text != "";
             text: root.data.name-match;
-            color: root.selected ? Theme.selection-text : Theme.text;
+            color: root.name-color;
+            font-italic: root.offline;
             font-size: Theme.list-text;
             font-weight: 700;
             vertical-alignment: center;
@@ -393,7 +403,8 @@ component Row inherits Rectangle {
             height: parent.height;
             visible: self.text != "";
             text: root.data.name-after;
-            color: root.selected ? Theme.selection-text : Theme.text;
+            color: root.name-color;
+            font-italic: root.offline;
             font-size: Theme.list-text;
             vertical-alignment: center;
             overflow: elide;
@@ -446,7 +457,7 @@ component Row inherits Rectangle {
         width: root.folder-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.folder;
-        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
@@ -456,7 +467,7 @@ component Row inherits Rectangle {
         width: root.size-width - Theme.s2;
         height: parent.height;
         text: root.data.size;
-        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
         horizontal-alignment: right;
@@ -466,7 +477,7 @@ component Row inherits Rectangle {
         width: root.date-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.modified;
-        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
@@ -477,7 +488,7 @@ component Row inherits Rectangle {
         width: root.type-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.type-name;
-        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
@@ -487,7 +498,7 @@ component Row inherits Rectangle {
         width: root.ext-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.extension;
-        color: root.selected ? Theme.selection-text : Theme.text-muted;
+        color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
@@ -919,6 +930,10 @@ export component AppWindow inherits Window {
     }
 
     property <int> page: max(1, floor(list.visible-height / Theme.row-height) - 1);
+    // The current row is on a drive that is not connected: file actions
+    // are off for it.
+    property <bool> current-offline: root.current >= 0 && root.current < root.results.length
+        && root.results[root.current].offline;
 
     VerticalLayout {
         // Top bar
@@ -1197,10 +1212,12 @@ export component AppWindow inherits Window {
                 Menu {
                     MenuItem {
                         title: @tr("Open");
+                        enabled: !root.current-offline;
                         activated => { root.activate(root.current); }
                     }
                     MenuItem {
                         title: @tr("Open containing folder");
+                        enabled: !root.current-offline;
                         activated => { root.open-folder(root.current); }
                     }
                     MenuSeparator { }
@@ -1215,14 +1232,17 @@ export component AppWindow inherits Window {
                     MenuSeparator { }
                     MenuItem {
                         title: @tr("Rename");
+                        enabled: !root.current-offline;
                         activated => { root.rename-start(root.current); }
                     }
                     MenuItem {
                         title: @tr("Move to trash");
+                        enabled: !root.current-offline;
                         activated => { root.trash(root.current); }
                     }
                     MenuItem {
                         title: @tr("Delete permanently…");
+                        enabled: !root.current-offline;
                         activated => { root.delete-request(root.current); }
                     }
                 }
@@ -1568,17 +1588,17 @@ export component AppWindow inherits Window {
             MenuSeparator { }
             MenuItem {
                 title: @tr("Rename");
-                enabled: root.current >= 0 && root.rename-row < 0;
+                enabled: root.current >= 0 && root.rename-row < 0 && !root.current-offline;
                 activated => { root.rename-start(root.current); }
             }
             MenuItem {
                 title: @tr("Move to trash");
-                enabled: root.current >= 0;
+                enabled: root.current >= 0 && !root.current-offline;
                 activated => { root.trash(root.current); }
             }
             MenuItem {
                 title: @tr("Delete permanently…");
-                enabled: root.current >= 0;
+                enabled: root.current >= 0 && !root.current-offline;
                 activated => { root.delete-request(root.current); }
             }
         }

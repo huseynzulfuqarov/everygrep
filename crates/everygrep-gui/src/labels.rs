@@ -117,16 +117,23 @@ pub fn indexed(n: usize) -> String {
     fill(tr("{} indexed"), &[&format::count(n)])
 }
 
-/// Details of one selected item for the status line: its size (empty for a
-/// folder whose size is not shown), modification time and full path.
-pub fn item_details(size: &str, modified: &str, path: &str) -> String {
+/// Details of one selected item for the status line: whether its drive is
+/// not connected, its size (empty for a folder whose size is not shown),
+/// modification time and full path.
+pub fn item_details(size: &str, modified: &str, path: &str, offline: bool) -> String {
     let modified = (!modified.is_empty()).then(|| fill(tr("Modified {}"), &[&modified]));
-    [Some(size.to_owned()), modified, Some(path.to_owned())]
-        .into_iter()
-        .flatten()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(STATUS_GAP)
+    let offline = offline.then(|| tr("Offline: the drive is not connected").to_owned());
+    [
+        offline,
+        Some(size.to_owned()),
+        modified,
+        Some(path.to_owned()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(STATUS_GAP)
 }
 
 /// Several selected items: their number and, when known, the total size of
@@ -151,6 +158,76 @@ pub fn selection_summary(n: usize, files: Option<(usize, u64)>) -> String {
         }
     }
     out
+}
+
+/// `2 offline` after the number of selected items.
+pub fn offline_count(n: usize) -> String {
+    fill(tr("{} offline"), &[&format::count(n)])
+}
+
+/// Why a file action was refused.
+pub fn offline_refused() -> &'static str {
+    tr(
+        "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first.",
+    )
+}
+
+/// Choices for what happens to a removed drive's entries.
+pub fn removed_drives(keep: bool) -> &'static str {
+    if keep {
+        tr("Keep its entries, shown dimmed")
+    } else {
+        tr("Forget its entries")
+    }
+}
+
+/// A drive's name in the Drives list: its label, or its UUID.
+pub fn drive_title(label: &str, uuid: &str) -> String {
+    if label.is_empty() {
+        fill(tr("Drive {}"), &[&uuid])
+    } else {
+        label.to_owned()
+    }
+}
+
+/// The second line of a drive in the Drives list.
+pub fn drive_details(
+    d: &crate::engine::DriveStatus,
+    zone: &everygrep_core::localtime::Zone,
+) -> String {
+    let state = if d.online {
+        tr("Connected")
+    } else {
+        tr("Not connected")
+    };
+    let mut parts = vec![fill(tr("UUID {}"), &[&d.uuid]), state.to_owned()];
+    if d.ignored {
+        parts.push(tr("Not indexed").to_owned());
+    } else if d.scanning {
+        parts.push(tr("Indexing…").to_owned());
+    } else if d.indexed {
+        parts.push(fill(
+            trn("{} entry", "{} entries", d.entries as usize),
+            &[&format::count(d.entries as usize)],
+        ));
+    } else {
+        parts.push(tr("Not indexed").to_owned());
+    }
+    if !d.online && d.last_seen > 0 {
+        let when = format::timestamp(d.last_seen.saturating_mul(1_000_000_000), zone);
+        parts.push(fill(tr("Last seen {}"), &[&when]));
+    }
+    parts.push(d.path.display().to_string());
+    parts.join(STATUS_GAP)
+}
+
+/// The button that stops or starts indexing a drive.
+pub fn drive_action(index_it: bool) -> &'static str {
+    if index_it {
+        tr("Index this drive")
+    } else {
+        tr("Don't index this drive")
+    }
 }
 
 /// `1 folder`, `3 folders`.
@@ -443,11 +520,15 @@ mod tests {
         assert_eq!(results(1), "1 result");
         assert_eq!(results(0), "0 results");
         assert_eq!(
-            item_details("210 KB", "2026-10-25 22:41", "/home/u/a.pdf"),
+            item_details("210 KB", "2026-10-25 22:41", "/home/u/a.pdf", false),
             "210 KB  ·  Modified 2026-10-25 22:41  ·  /home/u/a.pdf"
         );
         // A folder without a shown size, an unknown time.
-        assert_eq!(item_details("", "", "/srv"), "/srv");
+        assert_eq!(item_details("", "", "/srv", false), "/srv");
+        assert_eq!(
+            item_details("1 KB", "", "/run/media/u/USB/a", true),
+            "Offline: the drive is not connected  ·  1 KB  ·  /run/media/u/USB/a"
+        );
         assert_eq!(selection_summary(3, None), "3 items selected");
         assert_eq!(selection_summary(3, Some((0, 0))), "3 items selected");
         assert_eq!(

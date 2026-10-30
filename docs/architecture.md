@@ -215,6 +215,35 @@ shows itself again. A window that does not answer within 5 seconds is
 treated as gone. `--new-instance` skips the bus; without a session bus every
 launch opens its own window.
 
+### Removable drives in the window (`engine.rs`)
+
+Drives are roots of the one index, so searching, sorting and the result
+table need nothing special. The engine keeps a list of known drives (from
+the `.info` files) with the name of each drive's root in the index and
+whether it is mounted.
+
+- **Start.** After the index file is loaded (or scanned), every known
+  drive's saved index is grafted in and marked offline. A root name that is
+  taken already gets ` (<uuid>)` added.
+- **Mount changes.** A `mounts` thread sleeps in `MountWatch` and sets a
+  flag; the index thread looks at it every 250 ms and brings the drives in
+  line with the mount table: a drive that went away is unwatched and marked
+  offline, and its entries are saved to its own file (or, with "forget",
+  removed and its file deleted); a known drive that is back is renamed to
+  its new mount point if it moved, marked online, watched and caught up; a
+  new one is read on a helper thread and grafted when it is complete, then
+  caught up for the changes made meanwhile.
+- **Saving.** The index file gets only the folders to index
+  (`Index::extract`), each connected drive its own file; a drive that is
+  not connected was saved when it went away.
+- **Rebuilds.** A new scan of the folders to index (changed folders, a
+  queue overflow) carries the drives over from the old index.
+
+Requests from the settings window (forget a drive, stop or start indexing
+it) are queued and carried out on the index thread. File actions are
+refused for rows on an offline root (`Index::is_offline`): its paths may
+now belong to another disk mounted at the same place, or to nothing.
+
 ### File actions (`actions.rs`, `open.rs`)
 
 Opening runs `xdg-open`. The containing folder is shown with the items

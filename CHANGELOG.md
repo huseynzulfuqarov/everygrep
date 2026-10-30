@@ -77,6 +77,13 @@ First version, 0.1.0, not released yet.
   the selection in the status line.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is
   hidden.
+- Removable drives mounted by the desktop are indexed automatically, each
+  into its own file and recognised by file system UUID. A removed drive's
+  entries stay searchable, dimmed and with file actions refused, or are
+  forgotten, as a setting says; plugged in again they are caught up and
+  watched. Settings → Indexing lists the known drives with Forget and
+  Don't index this drive. Mounts are noticed through `POLLPRI` on the mount
+  table at no idle cost; fstab mounts are never indexed this way.
 - Translations into Azerbaijani and Turkish, with a language setting that
   applies at once; translated desktop entry.
 

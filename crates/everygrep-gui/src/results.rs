@@ -170,10 +170,24 @@ impl ResultsModel {
         self.ids.borrow().iter().position(|&i| i == id)
     }
 
-    /// The rows an action applies to: the selection when `row` is part of it
-    /// (or no row is given), otherwise `row` alone. Paths of nodes that no
-    /// longer exist are left out.
-    pub fn targets(&self, row: Option<usize>) -> Vec<PathBuf> {
+    /// Whether any of the rows an action on `row` applies to (see
+    /// [`targets`](Self::targets)) is on a drive that is not connected.
+    pub fn targets_offline(&self, row: Option<usize>) -> bool {
+        let picked = self.picked(row);
+        let Ok(index) = self.engine.index.read() else {
+            return false;
+        };
+        if index.offline_roots().is_empty() || self.engine.epoch() != self.epoch.get() {
+            return false;
+        }
+        let store = index.store();
+        picked
+            .into_iter()
+            .any(|id| id.index() < store.len() && store.is_live(id) && index.is_offline(id))
+    }
+
+    /// The ids of the rows an action on `row` applies to.
+    fn picked(&self, row: Option<usize>) -> Vec<NodeId> {
         let ids = Arc::clone(&self.ids.borrow());
         let use_selection = row.is_none_or(|r| self.is_selected(r));
         let picked: Vec<NodeId> = if use_selection {
@@ -181,11 +195,18 @@ impl ResultsModel {
         } else {
             Vec::new()
         };
-        let picked = if picked.is_empty() {
+        if picked.is_empty() {
             row.and_then(|r| ids.get(r).copied()).into_iter().collect()
         } else {
             picked
-        };
+        }
+    }
+
+    /// The rows an action applies to: the selection when `row` is part of it
+    /// (or no row is given), otherwise `row` alone. Paths of nodes that no
+    /// longer exist are left out.
+    pub fn targets(&self, row: Option<usize>) -> Vec<PathBuf> {
+        let picked = self.picked(row);
         let Ok(index) = self.engine.index.read() else {
             return Vec::new();
         };
@@ -271,13 +292,25 @@ impl ResultsModel {
                 &size,
                 &modified,
                 &path.to_string_lossy(),
+                index.is_offline(id),
             ));
         }
         let (files, bytes) = picked
             .iter()
             .filter(|id| live(id) && !store.is_dir(**id))
             .fold((0, 0u64), |(n, b), &id| (n + 1, b + store.meta(id).size));
-        Some(labels::selection_summary(selected, Some((files, bytes))))
+        let mut text = labels::selection_summary(selected, Some((files, bytes)));
+        if !index.offline_roots().is_empty() {
+            let offline = picked
+                .iter()
+                .filter(|&&id| live(&id) && index.is_offline(id))
+                .count();
+            if offline > 0 {
+                text.push_str(labels::STATUS_GAP);
+                text.push_str(&labels::offline_count(offline));
+            }
+        }
+        Some(text)
     }
 
     pub fn set_state(&self, state: IndexState, indexed: usize) {
@@ -391,6 +424,7 @@ impl Model for ResultsModel {
             is_dir,
             kind: kind.icon_index(),
             selected: self.selection.borrow().contains(id),
+            offline: index.is_offline(id),
         })
     }
 

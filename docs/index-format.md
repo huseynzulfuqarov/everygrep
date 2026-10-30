@@ -11,6 +11,14 @@ used), otherwise `~/.cache/everygrep/index.bin`. Both programs take
 `--index-file <path>` to use another file. The file is a cache: deleting it
 only makes the next start scan again.
 
+Each removable drive the window indexed has a file of the same format in
+the `volumes` folder next to it, `volumes/<uuid>.bin`, with one root: the
+drive's mount point when it was saved. The index file itself holds only the
+folders to index. Next to each drive file, `volumes/<uuid>.info` is a small
+text file of `key = value` lines (`uuid`, `label`, `path`, `last-seen` in
+seconds since 1970, `entries`; `\\`, `\n` and `\xHH` escapes in values).
+Deleting a drive's files makes the window forget it.
+
 ## Layout
 
 All integers are little-endian. `n` is the number of nodes, `m` the number

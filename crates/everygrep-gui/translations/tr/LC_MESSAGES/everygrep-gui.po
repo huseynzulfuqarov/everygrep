@@ -1051,3 +1051,85 @@ msgid "Exporting {} result…"
 msgid_plural "Exporting {} results…"
 msgstr[0] "{} sonuç dışa aktarılıyor…"
 msgstr[1] "{} sonuç dışa aktarılıyor…"
+
+#: ui/settings.slint
+msgid "Removable drives"
+msgstr "Çıkarılabilir sürücüler"
+
+#: ui/settings.slint
+msgid "Index removable drives automatically"
+msgstr "Çıkarılabilir sürücüleri otomatik dizine ekle"
+
+#: ui/settings.slint
+msgid "Drives the desktop mounts when they are plugged in (under /run/media) are indexed each in a file of their own. Disks the system mounts, such as those listed in /etc/fstab, are never indexed this way."
+msgstr "Takıldığında masaüstünün bağladığı sürücüler (/run/media altında) her biri ayrı bir dosyada dizine eklenir. Sistemin bağladığı diskler, örneğin /etc/fstab içindekiler, bu yolla asla dizine eklenmez."
+
+#: ui/settings.slint
+msgid "When a drive is removed"
+msgstr "Bir sürücü çıkarıldığında"
+
+#: ui/settings.slint
+msgid "No drives yet. Plug one in to index it."
+msgstr "Henüz sürücü yok. Dizine eklemek için bir tane takın."
+
+#: ui/settings.slint
+msgid "Forget"
+msgstr "Unut"
+
+#: src/labels.rs
+msgid "Keep its entries, shown dimmed"
+msgstr "Kayıtlarını tut, soluk göster"
+
+#: src/labels.rs
+msgid "Forget its entries"
+msgstr "Kayıtlarını unut"
+
+#: src/labels.rs
+msgid "Drive {}"
+msgstr "Sürücü {}"
+
+#: src/labels.rs
+msgid "Connected"
+msgstr "Bağlı"
+
+#: src/labels.rs
+msgid "Not connected"
+msgstr "Bağlı değil"
+
+#: src/labels.rs
+msgid "UUID {}"
+msgstr "UUID {}"
+
+#: src/labels.rs
+msgid "Not indexed"
+msgstr "Dizine eklenmiyor"
+
+#: src/labels.rs
+msgid "{} entry"
+msgid_plural "{} entries"
+msgstr[0] "{} kayıt"
+msgstr[1] "{} kayıt"
+
+#: src/labels.rs
+msgid "Last seen {}"
+msgstr "Son görülme: {}"
+
+#: src/labels.rs
+msgid "Index this drive"
+msgstr "Bu sürücüyü dizine ekle"
+
+#: src/labels.rs
+msgid "Don't index this drive"
+msgstr "Bu sürücüyü dizine ekleme"
+
+#: src/labels.rs
+msgid "{} offline"
+msgstr "{} çevrim dışı"
+
+#: src/labels.rs
+msgid "Offline: the drive is not connected"
+msgstr "Çevrim dışı: sürücü bağlı değil"
+
+#: src/labels.rs
+msgid "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first."
+msgstr "Bağlı olmayan bir sürücüdeki öğeler açılamaz, yeniden adlandırılamaz veya silinemez. Önce sürücüyü bağlayın."

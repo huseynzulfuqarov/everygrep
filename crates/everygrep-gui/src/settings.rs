@@ -40,6 +40,7 @@ use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
 use everygrep_core::sort::FolderSize;
 
+use crate::engine::DriveSettings;
 use crate::i18n::{self, Lang};
 
 /// Search history entries kept by default (the number before settings
@@ -195,6 +196,9 @@ pub struct Settings {
     /// program's menu.
     pub menu_bar: bool,
     pub language: LanguageChoice,
+    /// Removable drives: indexed automatically, kept when removed, and the
+    /// drives never indexed.
+    pub drives: DriveSettings,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -218,6 +222,7 @@ impl Default for Settings {
             status_details: true,
             menu_bar: true,
             language: LanguageChoice::System,
+            drives: DriveSettings::default(),
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -330,6 +335,27 @@ impl Settings {
                 .find(|d| d.id() == value)
                 .map(|d| self.density = d)
                 .is_some(),
+            "index-removable-drives" => put_flag(&mut self.drives.auto),
+            "removed-drives" => match value {
+                "keep" => {
+                    self.drives.keep_offline = true;
+                    true
+                }
+                "forget" => {
+                    self.drives.keep_offline = false;
+                    true
+                }
+                _ => false,
+            },
+            "ignore-drive" => {
+                if !everygrep_core::drives::is_safe_uuid(value) {
+                    return false;
+                }
+                if !self.drives.ignored.iter().any(|u| u == value) {
+                    self.drives.ignored.push(value.to_owned());
+                }
+                true
+            }
             "show-type-column" => put_flag(&mut self.columns.show_type),
             "show-extension-column" => put_flag(&mut self.columns.show_ext),
             "name-width" | "size-width" | "modified-width" | "type-width" | "extension-width" => {
@@ -371,6 +397,26 @@ impl Settings {
         }
         for exclude in &self.excludes {
             line(&mut out, "exclude", &escape(exclude.as_os_str().as_bytes()));
+        }
+        flag(
+            &mut out,
+            "index-removable-drives",
+            self.drives.auto,
+            d.drives.auto,
+        );
+        if self.drives.keep_offline != d.drives.keep_offline {
+            line(
+                &mut out,
+                "removed-drives",
+                if self.drives.keep_offline {
+                    "keep"
+                } else {
+                    "forget"
+                },
+            );
+        }
+        for uuid in &self.drives.ignored {
+            line(&mut out, "ignore-drive", uuid);
         }
         let (o, od) = (&self.options, &d.options);
         if o.filter != od.filter {
@@ -467,6 +513,7 @@ impl Settings {
             Page::Indexing => {
                 self.roots = d.roots;
                 self.excludes = d.excludes;
+                self.drives = d.drives;
             }
             Page::Search => {
                 self.options = d.options;
@@ -518,7 +565,7 @@ fn is_known(key: &str) -> bool {
     let mut probe = Settings::default();
     // Every known key accepts at least one of these values.
     [
-        "true", "all", "quit", "total", "system", "compact", "1", "/",
+        "true", "all", "quit", "total", "system", "compact", "1", "/", "keep", "A-1",
     ]
     .iter()
     .any(|v| probe.set(key, v))
@@ -698,10 +745,25 @@ pub(crate) mod tests {
             density: Density::Compact,
             status_details: false,
             menu_bar: false,
+            drives: DriveSettings {
+                auto: false,
+                keep_offline: false,
+                ignored: vec!["1234-ABCD".into(), "c0ffee".into()],
+            },
             ..Settings::default()
         };
         let text = s.to_text();
         assert_eq!(Settings::parse(&text), s, "{text}");
+        assert!(text.contains("index-removable-drives = false\n"));
+        assert!(text.contains("removed-drives = forget\n"));
+        assert!(text.contains("ignore-drive = 1234-ABCD\nignore-drive = c0ffee\n"));
+        // A UUID that could not be a file name is not taken.
+        assert!(
+            Settings::parse("ignore-drive = ../x\n")
+                .drives
+                .ignored
+                .is_empty()
+        );
         assert!(text.contains("theme = dark\n"));
         assert!(text.contains("density = compact\n"));
         assert!(text.contains("status-details = false\n"));
