@@ -14,6 +14,7 @@
 //! folder-size = items
 //! theme = light
 //! density = compact
+//! status-details = false
 //! ```
 //!
 //! Only settings that differ from their defaults are written, so a file
@@ -149,6 +150,9 @@ pub struct Settings {
     pub columns: Columns,
     pub theme: ThemeChoice,
     pub density: Density,
+    /// Whether the status line shows the size, date and path of the selected
+    /// item (and the number and size of several).
+    pub status_details: bool,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -169,6 +173,7 @@ impl Default for Settings {
             columns: Columns::default(),
             theme: ThemeChoice::System,
             density: Density::Comfortable,
+            status_details: true,
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -264,6 +269,7 @@ impl Settings {
                 .find(|t| t.id() == value)
                 .map(|t| self.theme = t)
                 .is_some(),
+            "status-details" => put_flag(&mut self.status_details),
             "density" => Density::ALL
                 .into_iter()
                 .find(|d| d.id() == value)
@@ -351,6 +357,12 @@ impl Settings {
         if self.density != d.density {
             line(&mut out, "density", self.density.id());
         }
+        flag(
+            &mut out,
+            "status-details",
+            self.status_details,
+            d.status_details,
+        );
         let c = &self.columns;
         flag(&mut out, "show-type-column", c.show_type, false);
         flag(&mut out, "show-extension-column", c.show_ext, false);
@@ -390,6 +402,7 @@ impl Settings {
             Page::Appearance => {
                 self.theme = d.theme;
                 self.density = d.density;
+                self.status_details = d.status_details;
             }
             Page::Window => {
                 self.on_close = d.on_close;
@@ -602,12 +615,14 @@ pub(crate) mod tests {
             },
             theme: ThemeChoice::Dark,
             density: Density::Compact,
+            status_details: false,
             ..Settings::default()
         };
         let text = s.to_text();
         assert_eq!(Settings::parse(&text), s, "{text}");
         assert!(text.contains("theme = dark\n"));
         assert!(text.contains("density = compact\n"));
+        assert!(text.contains("status-details = false\n"));
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));

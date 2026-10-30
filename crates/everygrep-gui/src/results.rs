@@ -40,8 +40,13 @@ pub struct ResultsModel {
     indexed: Cell<usize>,
     took: Cell<Duration>,
     folder_size: Cell<FolderSize>,
+    /// Whether the status line describes the selected items.
+    details: Cell<bool>,
     notify: ModelNotify,
 }
+
+/// More selected items than this are counted but not summed up by size.
+const MAX_SUMMED: usize = 100_000;
 
 impl ResultsModel {
     pub fn new(engine: Arc<Engine>) -> Self {
@@ -60,6 +65,7 @@ impl ResultsModel {
             indexed: Cell::new(0),
             took: Cell::new(Duration::ZERO),
             folder_size: Cell::new(FolderSize::default()),
+            details: Cell::new(true),
             notify: ModelNotify::default(),
         }
     }
@@ -209,6 +215,54 @@ impl ResultsModel {
         self.folder_size.get()
     }
 
+    /// Whether the status line describes the selected items.
+    pub fn set_details(&self, on: bool) {
+        self.details.set(on);
+    }
+
+    /// The status line's description of the selection: details of one item,
+    /// or the number and size of several. `None` without a selection.
+    fn selection_text(&self, selected: usize) -> Option<String> {
+        if selected == 0 {
+            return None;
+        }
+        let ids = Arc::clone(&self.ids.borrow());
+        let index = self.engine.index.read().ok()?;
+        let store = index.store();
+        if self.engine.epoch() != self.epoch.get() {
+            return None;
+        }
+        let live = |id: &NodeId| id.index() < store.len() && store.is_live(*id);
+        if selected > MAX_SUMMED {
+            return Some(labels::selection_summary(selected, None));
+        }
+        let picked: Vec<NodeId> = self.selection.borrow().selected(&ids);
+        if let [id] = picked[..] {
+            if !live(&id) {
+                return None;
+            }
+            let meta = store.meta(id);
+            let size = size_text(
+                store.is_dir(id),
+                meta.size,
+                store.items(id),
+                self.folder_size.get(),
+            );
+            let modified = format::timestamp(meta.mtime_ns, &self.zone);
+            let path = store.path(id);
+            return Some(labels::item_details(
+                &size,
+                &modified,
+                &path.to_string_lossy(),
+            ));
+        }
+        let (files, bytes) = picked
+            .iter()
+            .filter(|id| live(id) && !store.is_dir(**id))
+            .fold((0, 0u64), |(n, b), &id| (n + 1, b + store.meta(id).size));
+        Some(labels::selection_summary(selected, Some((files, bytes))))
+    }
+
     pub fn set_state(&self, state: IndexState, indexed: usize) {
         self.state.set(state);
         self.indexed.set(indexed);
@@ -238,13 +292,17 @@ impl ResultsModel {
             IndexState::Watching => "watching for changes",
             IndexState::Static => "not watching changes",
         };
-        let mut left = format!(
-            "{} {}",
-            format::count(results),
-            if results == 1 { "result" } else { "results" },
-        );
+        let mut left = labels::results(results);
         let selected = self.selected_count();
-        if selected > 1 {
+        let described = if self.details.get() {
+            self.selection_text(selected)
+        } else {
+            None
+        };
+        if let Some(text) = described {
+            left.push_str(labels::STATUS_GAP);
+            left.push_str(&text);
+        } else if selected > 1 {
             left.push_str(&format!("  ·  {} selected", format::count(selected)));
         }
         left.push_str(&format!("  ·  {indexed} indexed  ·  {state}"));

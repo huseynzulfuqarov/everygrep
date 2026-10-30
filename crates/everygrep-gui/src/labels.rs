@@ -81,6 +81,53 @@ pub fn mode_badges(o: &QueryOptions) -> Vec<&'static str> {
     .collect()
 }
 
+/// `1 result`, `12 results`.
+pub fn results(n: usize) -> String {
+    format!(
+        "{} {}",
+        format::count(n),
+        if n == 1 { "result" } else { "results" }
+    )
+}
+
+/// Separator between the parts of the status line.
+pub const STATUS_GAP: &str = "  ·  ";
+
+/// Details of one selected item for the status line: its size (empty for a
+/// folder whose size is not shown), modification time and full path.
+pub fn item_details(size: &str, modified: &str, path: &str) -> String {
+    let modified = (!modified.is_empty()).then(|| format!("Modified {modified}"));
+    [Some(size.to_owned()), modified, Some(path.to_owned())]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(STATUS_GAP)
+}
+
+/// Several selected items: their number and, when known, the total size of
+/// the files among them (`None` when it was not counted).
+pub fn selection_summary(n: usize, files: Option<(usize, u64)>) -> String {
+    let mut out = format!("{} items selected", format::count(n));
+    match files {
+        Some((0, _)) | None => {}
+        Some((f, bytes)) if f == n => {
+            out.push_str(STATUS_GAP);
+            out.push_str(&format::size(bytes));
+        }
+        Some((f, bytes)) => {
+            out.push_str(STATUS_GAP);
+            out.push_str(&format!(
+                "{} in {} {}",
+                format::size(bytes),
+                format::count(f),
+                if f == 1 { "file" } else { "files" }
+            ));
+        }
+    }
+    out
+}
+
 /// `1 folder`, `3 folders`.
 pub fn folder_count(n: usize) -> String {
     if n == 1 {
@@ -261,6 +308,36 @@ mod tests {
         );
         assert_ne!(on_close(OnClose::Quit), on_close(OnClose::Hide));
         assert_eq!(bad_lines(1).split(' ').next(), Some("One"));
+    }
+
+    #[test]
+    fn status_details() {
+        assert_eq!(results(1), "1 result");
+        assert_eq!(results(0), "0 results");
+        assert_eq!(
+            item_details("210 KB", "2026-10-25 22:41", "/home/u/a.pdf"),
+            "210 KB  ·  Modified 2026-10-25 22:41  ·  /home/u/a.pdf"
+        );
+        // A folder without a shown size, an unknown time.
+        assert_eq!(item_details("", "", "/srv"), "/srv");
+        assert_eq!(selection_summary(3, None), "3 items selected");
+        assert_eq!(selection_summary(3, Some((0, 0))), "3 items selected");
+        assert_eq!(
+            selection_summary(2, Some((2, 3 << 20))),
+            "2 items selected  ·  3.0 MB"
+        );
+        assert_eq!(
+            selection_summary(3, Some((1, 512))),
+            "3 items selected  ·  512 B in 1 file"
+        );
+        assert_eq!(
+            selection_summary(1500, Some((1200, 2048))),
+            format!(
+                "{} items selected  ·  2.0 KB in {} files",
+                format::count(1500),
+                format::count(1200)
+            )
+        );
     }
 
     #[test]

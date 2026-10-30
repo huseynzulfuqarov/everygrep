@@ -1130,6 +1130,9 @@ export component AppWindow inherits Window {
                     color: Theme.text-muted;
                     vertical-alignment: center;
                     overflow: elide;
+                    // Shrinks (elided) before the badges and the time do.
+                    min-width: 0px;
+                    horizontal-stretch: 1;
                 }
                 // Matching modes that are on.
                 HorizontalLayout {

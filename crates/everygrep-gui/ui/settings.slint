@@ -110,6 +110,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> theme;
     in property <[string]> density-names;
     in-out property <int> density;
+    in-out property <bool> status-details;
     callback appearance-changed();
 
     // Window
@@ -353,6 +354,14 @@ export component SettingsWindow inherits Window {
                         Rectangle { horizontal-stretch: 1; }
                     }
                     Note { text: "Compact shows more rows at once, with smaller icons and text."; }
+                    Rectangle { height: Theme.s2; }
+                    Heading { text: "Status line"; }
+                    CheckBox {
+                        text: "Show details of the selected items";
+                        checked <=> root.status-details;
+                        toggled => { root.appearance-changed(); }
+                    }
+                    Note { text: "One selected item shows its size, modification time and full path; several show their number and the total size of the files among them."; }
                 }
 
                 if root.page == 3: VerticalLayout {

@@ -259,6 +259,15 @@ impl Prefs {
         }
     }
 
+    /// Shows or hides the details of the selection in the status line.
+    pub fn apply_status_details(&self) {
+        let on = self.settings.borrow().status_details;
+        if let Some(m) = self.main.upgrade() {
+            crate::with_model(&m, |model| model.set_details(on));
+            crate::refresh_status(&m);
+        }
+    }
+
     /// Puts the remembered columns into the main window.
     pub fn restore_columns(&self, w: &AppWindow) {
         let s = self.settings.borrow();
@@ -453,6 +462,7 @@ impl Prefs {
             .iter()
             .map(|&d| labels::density(d).into())
             .collect();
+        w.set_status_details(s.status_details);
         w.set_density_names(ModelRc::new(VecModel::from(densities)));
         w.set_density(
             Density::ALL
@@ -563,8 +573,17 @@ impl Prefs {
             .ok()
             .and_then(|i| Density::ALL.get(i).copied())
             .unwrap_or_default();
+        let details = w.get_status_details();
         self.set_theme(theme);
         self.set_density(density);
+        self.set_status_details(details);
+    }
+
+    /// Changes whether the status line describes the selection.
+    pub fn set_status_details(&self, on: bool) {
+        self.change(|s| s.status_details = on);
+        self.apply_status_details();
+        self.refresh();
     }
 
     /// Changes the density setting and repacks the list.
@@ -662,6 +681,7 @@ impl Prefs {
         if page == Page::Appearance {
             self.apply_theme();
             self.apply_density();
+            self.apply_status_details();
         }
         if page == Page::Window {
             self.apply_folder_size();
