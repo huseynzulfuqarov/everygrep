@@ -15,7 +15,7 @@ use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
 use crate::ResultRow;
 use crate::engine::{Engine, IndexState, SearchResult};
-use crate::filetype;
+use crate::filetype::{self, KindIcon};
 use crate::format;
 use crate::selection::{Changed, Selection};
 

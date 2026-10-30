@@ -27,7 +27,8 @@ The app id is **`az.huseynz.EveryGrep`**. It is used, unchanged, for:
 ## File-type icons
 
 Location: `crates/everygrep-gui/ui/icons/types/`. Pick one with
-`filetype::classify(name, is_dir)` and `FileKind::icon_name()`.
+`everygrep_core::kind::classify(name, is_dir)` and `KindIcon::icon_name()` in
+`crates/everygrep-gui/src/filetype.rs`.
 
 ### Style
 
@@ -115,8 +116,9 @@ Notes:
    paths unchanged.
 2. Draw the symbol inside the inner area with one tint. Pick a hue that is not
    yet used and check contrast against both surfaces (at least 3:1).
-3. Add the variant to `FileKind`, its name to `FileKind::icon_name()`, the
-   extensions to `by_extension()`, and a case to the tests in
+3. Add the variant to `FileKind` and `FileKind::ALL`, the extensions to
+   `by_extension()` and a case to the tests in
+   `crates/everygrep-core/src/kind.rs`, and its icon name to `icon_name()` in
    `crates/everygrep-gui/src/filetype.rs`. The test
    `every_kind_has_an_icon_file` fails if the SVG is missing.
 4. Run `scripts/render-icons.sh` and look at `docs/images/icon-sheet.png` at
