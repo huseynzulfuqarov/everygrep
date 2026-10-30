@@ -117,6 +117,10 @@ component SearchField inherits Rectangle {
         input.focus();
         input.select-all();
     }
+    // Puts the text cursor at `offset` (in bytes) with nothing selected.
+    public function place-caret(offset: int) {
+        input.set-selection-offsets(offset, offset);
+    }
 
     height: 34px;
     border-radius: Theme.radius;
@@ -679,6 +683,12 @@ export component AppWindow inherits Window {
 
     public function focus-search() {
         search.focus-and-select();
+    }
+
+    // Puts the search field's text cursor at `offset` (in bytes), nothing
+    // selected; used after the query is set from the history.
+    public function place-search-caret(offset: int) {
+        search.place-caret(offset);
     }
 
     public function focus-list() {

@@ -150,6 +150,9 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             if let Some(text) = next {
                 w.set_query(text.into());
+                // Setting the text keeps the old cursor offset; put the caret
+                // at the end of the restored query instead.
+                w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
                 engine.set_query(text, options(&w));
                 w.set_notice("".into());
             }
