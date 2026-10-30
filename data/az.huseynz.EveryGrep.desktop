@@ -2,11 +2,17 @@
 Type=Application
 Name=EveryGrep
 GenericName=File Search
+GenericName[az]=Fayl axtarışı
+GenericName[tr]=Dosya arama
 Comment=Find files and folders by name as you type
+Comment[az]=Siz yazdıqca faylları və qovluqları adına görə tapın
+Comment[tr]=Siz yazdıkça dosya ve klasörleri adlarına göre bulun
 Exec=everygrep-gui
 Icon=az.huseynz.EveryGrep
 Terminal=false
 Categories=Utility;FileTools;
 Keywords=search;find;file;folder;locate;filename;
+Keywords[az]=axtar;tap;fayl;qovluq;ad;
+Keywords[tr]=ara;bul;dosya;klasör;ad;
 StartupNotify=true
 StartupWMClass=az.huseynz.EveryGrep
