@@ -135,28 +135,50 @@ component SearchField inherits Rectangle {
             height: Theme.icon;
             y: (parent.height - self.height) / 2;
         }
-        input := TextInput {
-            vertical-alignment: center;
-            font-size: Theme.body + 1px;
-            color: Theme.text;
-            selection-background-color: Theme.selection;
-            selection-foreground-color: Theme.selection-text;
-            single-line: true;
-            edited => { root.edited(self.text); }
-            accepted => { root.accepted(); }
-            key-pressed(event) => {
-                if (root.shortcut(event)) {
-                    return accept;
+        // The field takes the width the layout gives it, not the width of the
+        // text: long text scrolls inside the clip instead of pushing the
+        // toggles and the filter selector aside.
+        Rectangle {
+            horizontal-stretch: 1;
+            // A TextInput of width 0 cannot take focus.
+            min-width: 1px;
+            clip: true;
+            input := TextInput {
+                // Scroll offset that keeps the text cursor visible.
+                property <length> scroll-x;
+
+                x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-x));
+                width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                height: 100%;
+                vertical-alignment: center;
+                font-size: Theme.body + 1px;
+                color: Theme.text;
+                selection-background-color: Theme.selection;
+                selection-foreground-color: Theme.selection-text;
+                single-line: true;
+                cursor-position-changed(position) => {
+                    if (position.x + self.scroll-x < 0px) {
+                        self.scroll-x = -position.x;
+                    } else if (position.x + self.scroll-x > parent.width - self.text-cursor-width) {
+                        self.scroll-x = parent.width - position.x - self.text-cursor-width;
+                    }
                 }
-                if (event.text == Key.DownArrow) {
-                    root.down-pressed();
-                    return accept;
+                edited => { root.edited(self.text); }
+                accepted => { root.accepted(); }
+                key-pressed(event) => {
+                    if (root.shortcut(event)) {
+                        return accept;
+                    }
+                    if (event.text == Key.DownArrow) {
+                        root.down-pressed();
+                        return accept;
+                    }
+                    if (event.text == Key.Escape) {
+                        root.escape-pressed();
+                        return accept;
+                    }
+                    reject
                 }
-                if (event.text == Key.Escape) {
-                    root.escape-pressed();
-                    return accept;
-                }
-                reject
             }
         }
         HorizontalLayout {
