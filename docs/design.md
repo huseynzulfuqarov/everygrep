@@ -117,6 +117,23 @@ in the search field, or when a result is opened; a repeat of the current entry
 is skipped, and searching after going back drops the entries ahead, as in a web
 browser. The history lives in memory for the session (up to 200 entries).
 
+### One window
+
+EveryGrep is opened many times a day, usually from a key. Opening it again
+never stacks windows: the open window comes to the front with the search field
+focused and its text selected, so typing starts a new search. Query words and
+options passed to the new launch replace the search and the matching modes in
+that window, as if it had just been started with them, with the caret after
+the new query; a bare launch keeps the search. Closing the window quits the program; there is no background mode.
+
+A window belongs to one index (its roots and index file). A launch for another
+index opens its own window, and `--new-instance` opens one on purpose.
+
+On Wayland a program cannot raise its own window without an activation token,
+and the toolkit cannot pass one to an open window. The window is therefore
+shown again as a new surface, which GNOME focuses; the window keeps its size
+and contents.
+
 Rename refuses a name that already exists in the folder and shows the reason in
 the status line. Moving to the trash asks first only for more than 50 items;
 deleting permanently always asks, because it cannot be undone. Hiding the

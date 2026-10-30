@@ -45,7 +45,7 @@ character that is not a letter or digit.
 ```sh
 everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--case] [--whole-words] [--match-path] [--diacritics]
-              [--columns type,extension] [query words...]
+              [--columns type,extension] [--new-instance] [query words...]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
@@ -77,6 +77,25 @@ column headers to show the Type and Extension columns.
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
 
+### One window
+
+Only one window runs per index. Launching `everygrep-gui` again brings the open
+window to the front with the search field focused; query words, `--filter`,
+the matching mode flags and `--columns` given to the new launch are applied to
+that window (a launch without them leaves the search as it is), and the new
+launch exits at once. Query words are kept in the search history, so
+`Alt+←` returns to the previous search.
+
+A launch with other `--root` folders or another `--index-file` than the open
+window opens a window of its own, which in turn takes later launches for the
+same roots and index file. `--new-instance` always opens a separate window.
+The windows find each other on the D-Bus session bus (name
+`az.huseynz.EveryGrep`); without a session bus every launch opens a window.
+
+To open the window with a key, add a GNOME shortcut: Settings → Keyboard →
+View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,
+command `everygrep-gui`, then press the keys you want.
+
 ## Building
 
 ```sh
@@ -90,6 +109,12 @@ Requires Rust 1.85 or newer.
 
 Run `scripts/check.sh` before every commit. It checks formatting, runs clippy with
 warnings as errors, and runs the test suite.
+
+The single-window test needs a private session bus and is skipped by default:
+
+```sh
+EVERYGREP_PRIVATE_BUS=1 dbus-run-session -- cargo test -p everygrep-gui -- --ignored
+```
 
 ## License
 
