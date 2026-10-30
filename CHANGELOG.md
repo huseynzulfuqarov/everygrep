@@ -1,0 +1,74 @@
+# Changelog
+
+All notable changes to EveryGrep are listed here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+First version, 0.1.0, not released yet.
+
+### Index and engine
+
+- In-memory index of file and folder names in packed columns, with names
+  stored once and a case- and diacritic-folded copy for matching.
+- Parallel search over the name-sorted order on all CPU cores.
+- Directory scanner that never follows symbolic links and does not enter
+  virtual file systems or excluded folders.
+- Live updates with inotify: creations, deletions, renames and moves keep the
+  index current; a queue overflow rebuilds it.
+- Catching up on start with changes made while nothing was watching, by
+  re-reading only folders whose modification time changed.
+- In-memory compaction during long watch sessions.
+- Saved index (format version 4) with full validation and a checksum,
+  written atomically, decoded while it is read.
+- Total size and item count of every folder, kept current on every change.
+- Sorting by name, folder, size, modification time, type or extension.
+
+### Query language
+
+- AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
+- Wildcards `*` and `?` matched against the whole name.
+- Case, whole-word, full-path and diacritic modes, per term (`case:`, `wholeword:`,
+  `path:`, `diacritics:` and their `no…:` forms) or for the whole query.
+- `file:`, `folder:`, `ext:`, `size:` (folders by total size) and
+  `modified:` with ages, local days, months, years and inclusive ranges.
+- Filters for audio, archives, code, documents, executables, folders,
+  pictures and videos, from the name.
+
+### Command line
+
+- `everygrep index`, `search` and `shell` (with `--watch`), reusing the saved
+  index and rescanning when the roots change.
+
+### Window
+
+- Search window with results on every key press, highlighted matches,
+  file-type icons and sortable, resizable columns (Name, Folder, Size,
+  Modified, and optional Type and Extension).
+- Selection with the mouse and keyboard; open, open the containing folder,
+  copy names or paths, rename in place, move to the trash and delete
+  permanently, from keys, a context menu and the menu bar.
+- Filter selector and matching mode toggles, search history with
+  `Alt+←`/`Alt+→`, initial query and options from the command line.
+- One window per index: a later launch hands its query to the open window
+  over the session bus; GNOME keyboard shortcut instructions.
+- Settings window: folders to index and exclude, start options, history,
+  closing the window (quit or hide), remembered columns, folder size
+  (total, item count or nothing), theme, density, selection details, menu bar
+  and language; saved in a small text file.
+- Light and dark themes following the desktop, compact density, details of
+  the selection in the status line.
+- Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is
+  hidden.
+- Translations into Azerbaijani and Turkish, with a language setting that
+  applies at once; translated desktop entry.
+
+### Project
+
+- Licensed under MIT OR Apache-2.0; original icons and app icon.
+- UI design guidelines, architecture, index format and query language
+  documentation.
+- Generated list of third-party crates and their licenses.
+- Arch Linux PKGBUILD.
+

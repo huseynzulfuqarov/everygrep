@@ -194,7 +194,8 @@ window with `Esc` is planned.
 Settings open in a separate window (`Ctrl+,`, File → Settings, the overflow
 menu, or `--settings`): a list of pages on the left (Indexing, Search,
 Appearance, Window, Keyboard shortcut), the page on the right. Appearance
-holds the theme, the density, the selection details and the menu bar. `Ctrl+PgUp`/`Ctrl+PgDn` switch
+holds the language, the theme, the density, the selection details and the
+menu bar. `Ctrl+PgUp`/`Ctrl+PgDn` switch
 pages and `Esc` closes the window.
 
 - Changes apply at once; there is no OK or Apply. Each page has "Reset to
@@ -222,8 +223,17 @@ pages and `Esc` closes the window.
 - Numbers use thin-space grouping (`617 178`). Sizes use KB/MB/GB with 1024
   steps. Dates show `25 Oct` within the current year, otherwise `25 Oct 2025`;
   the full timestamp is in a tooltip.
-- All strings live in one catalog so they can be translated. English comes
-  first; Azerbaijani and Turkish are planned.
+- All strings live in one catalog per language so they can be translated:
+  gettext files in `crates/everygrep-gui/translations/`, used by both the
+  `.slint` files (`@tr`) and the Rust code (`i18n::tr`). English is the
+  source; Azerbaijani and Turkish are complete. The window follows the
+  session's language unless the Language setting picks one, and switching
+  applies at once. Month names in dates are translated (`25 okt`, `25 Eki`);
+  number and size formatting stays the same in every language.
+- Translations use the desktop's own terms for that language (az: Qovluq,
+  Zibil qutusu, Axtarış; tr: Klasör, Çöp kutusu, Arama) and must fit the
+  same space as the English text; key names (`Ctrl`, `Shift`, `Enter`,
+  `Delete`) are not translated.
 
 ## Performance budget
 

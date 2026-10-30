@@ -2,10 +2,77 @@
 
 Instant file name search for Linux.
 
-EveryGrep keeps a compact in-memory index of every file and folder name and finds
-matches anywhere in a name (not only at word starts) as you type.
+EveryGrep keeps a compact in-memory index of every file and folder name below
+the folders you choose and finds matches anywhere in a name (not only at word
+starts) as you type. A desktop window and a command line program share the
+same engine and the same saved index.
 
-**Status:** early development, no release yet.
+**Status:** early development, no release yet (version 0.1.0).
+
+Screenshots: to be added to `docs/images/`.
+
+## Features
+
+- **Instant results.** Results update on every key press; the search runs on
+  all CPU cores over names kept in memory.
+- **Always current.** The index follows file changes with inotify while the
+  window runs, and catches up with changes made while it was closed by
+  re-reading only the folders that changed.
+- **A real query language.** AND, OR, NOT, grouping, quoted text, wildcards,
+  whole words, full paths, extensions, size and date ranges
+  ([query language](docs/query-language.md)).
+- **Forgiving matching.** Case and diacritics are ignored by default, so
+  `sekil` finds `Şəkil` and `cafe` finds `café`.
+- **Folder sizes.** Every folder knows the total size of the files below it,
+  kept current as files change; sort and filter by it.
+- **Keyboard first.** Every action has a key; open, open the containing
+  folder, copy names or paths, rename in place, trash or delete.
+- **Fits the desktop.** Light and dark themes that follow GNOME, one window
+  per index that a desktop shortcut brings forward, a menu bar or a compact
+  `⋯` menu.
+- **Translated.** English, Azerbaijani and Turkish; the window follows the
+  system language or a choice in the settings.
+- **Private.** All data stays on this computer (see [Privacy](#privacy)).
+
+## Installing
+
+There are no packages yet; build from source (see [Building](#building)).
+
+### Into `~/.local`, by hand
+
+After `cargo build --release --locked` in the checkout:
+
+```sh
+install -Dm755 target/release/everygrep target/release/everygrep-gui -t ~/.local/bin/
+install -Dm644 data/az.huseynz.EveryGrep.desktop -t ~/.local/share/applications/
+for icon in data/icons/hicolor/*/apps/az.huseynz.EveryGrep.*; do
+    install -Dm644 "$icon" ~/.local/share/"${icon#data/}"
+done
+```
+
+`~/.local/bin` must be on `PATH` for the desktop entry's `Exec=everygrep-gui`
+to work (on GNOME it usually is). To remove it again, delete those files;
+the index (`~/.cache/everygrep/`) and the settings (`~/.config/everygrep/`)
+are separate and can be deleted too.
+
+### Arch Linux
+
+`packaging/arch/PKGBUILD` builds a package from a git checkout (by default
+the one it lives in, at branch `main`): `cd packaging/arch && makepkg -si`.
+It installs both programs to `/usr/bin`, the desktop entry, the icons, the
+licenses (including `THIRD-PARTY-LICENSES.md`) and the documentation. The
+project's public URL is not set yet; the PKGBUILD has a placeholder for it.
+
+## Quick start
+
+```sh
+everygrep-gui                 # index your home folder and open the window
+everygrep-gui report pdf      # open with a query
+everygrep search 'ext:pdf modified:<7d'
+```
+
+The first start scans the home folder (or the folders set in the settings)
+and saves the index; later starts load it and catch up in a moment.
 
 ## Query syntax
 
@@ -19,28 +86,19 @@ matches anywhere in a name (not only at word starts) as you type.
 | `*.pdf`, `img_??.png` | wildcards, matched against the whole name |
 | `case:Readme` | match case for this term |
 | `wholeword:art` | whole words only: `pop-art.png`, not `party.png` |
-| `diacritics:café` | match diacritics for this term (by default `cafe` finds `café` and `sekil` finds `Şəkil`) |
+| `diacritics:café` | match diacritics for this term |
 | `path:src/main`, `docs/report` | match the full path (any term with `/` does) |
 | `file:`, `folder:` | only files / only folders |
 | `ext:pdf;jpg` | extensions |
-| `size:>10mb`, `size:1kb..2mb`, `size:0` | size (1 kb = 1024 bytes); folders match by their total size, add `file:` for files only |
+| `size:>10mb`, `size:1kb..2mb`, `size:0` | size (1 kb = 1024 bytes); folders match by their total size |
 | `modified:<7d`, `modified:>30d` | changed within / not within a time (`s`, `m`, `h`, `d`, `w`) |
-| `modified:2026-10-25`, `modified:2026-10`, `modified:today`, `modified:yesterday` | changed on that local day, month or year |
-| `modified:>2026-10-25`, `modified:<=2026-10`, `modified:2026-10-01..2026-10-25` | after / up to a whole day, month or year; `..` is inclusive |
+| `modified:2026-10-25`, `modified:2026-10`, `modified:today` | changed on that local day, month or year |
+| `modified:>2026-10-25`, `modified:2026-10-01..2026-10-25` | after a day; ranges are inclusive |
 
-Case and diacritics are ignored unless `case:`/`--case` or
-`diacritics:`/`--diacritics` is used. `nocase:`, `nowholeword:`, `nodiacritics:` and
-`nopath:` turn a mode off for one term. The command line also takes
-`--whole-words`, `--match-path` and `--filter <name>` (`audio`, `archive`,
-`code`, `document`, `executable`, `folder`, `image`, `video`).
+The full syntax, with every modifier and edge case, is in
+[docs/query-language.md](docs/query-language.md).
 
-Ignoring diacritics folds letters with marks to their base letters (Latin-1,
-Latin Extended-A, and Azerbaijani/Turkish/Romanian letters: `ç ş ğ ı ö ü ə` →
-`c s g i o u e`, `ß` → `ss`) and drops combining marks; the table is in
-`crates/everygrep-core/src/fold.rs`. Whole words are separated by any
-character that is not a letter or digit.
-
-## Using the window
+## The window
 
 ```sh
 everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
@@ -107,7 +165,8 @@ the program behaves as before, except that folders show their total size.
 | Search | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | keep the history after EveryGrep closes | off |
-| Appearance | theme: same as the desktop, light or dark | same as the desktop |
+| Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
+| | theme: same as the desktop, light or dark | same as the desktop |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
 | | details of the selected items in the status line | on |
 | | show the menu bar | on |
@@ -169,6 +228,7 @@ size-width = 120
 `root` and `exclude` repeat for each folder. Other keys: `whole-words`,
 `match-path`, `match-diacritics`, `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
+`language` (`system`, `en`, `az`, `tr`),
 `status-details`, `menu-bar`, `remember-columns`,
 `show-extension-column`, `name-width`, `modified-width`, `type-width`,
 `extension-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
@@ -197,25 +257,72 @@ View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,
 command `everygrep-gui`, then press the keys you want. The Keyboard shortcut
 page of the settings shows the same steps and copies the command.
 
+## Command line
+
+```text
+everygrep index [options]            scan and save the index
+everygrep search [options] <query>   print matching paths
+everygrep shell [options]            read one query per line
+```
+
+`search` and `shell` load the saved index; they scan and save it first when
+there is none, when `--root` differs from the saved roots, or with
+`--rescan`. Paths are printed in name order, one per line, at most `--limit`
+(50 by default, `0` for all); counts and timings go to standard error.
+`shell --watch` applies file changes before every query and saves the index
+on exit. Other options: `--root`, `--index-file`, `--exclude`, `--case`,
+`--whole-words`, `--match-path`, `--diacritics`, `--filter`, `--threads`,
+`--no-meta`; `everygrep` without arguments prints them all. The command line
+is English only.
+
+## Languages
+
+The window is available in English, Azerbaijani (Azərbaycanca) and Turkish
+(Türkçe). By default it follows the session's language, read like gettext
+does: `LC_ALL`, `LC_MESSAGES`, then `LANG` give the locale, and unless that is
+`C` or `POSIX`, the list in `LANGUAGE` comes first; other languages fall back
+to English. Settings → Appearance → Language picks one instead and applies at
+once. The command line and its messages stay in English. Adding a language
+is described in [CONTRIBUTING.md](CONTRIBUTING.md#translations).
+
+## Privacy
+
+All data stays on this computer. EveryGrep makes no network connections and
+collects nothing. It stores:
+
+- the index, in `~/.cache/everygrep/index.bin` (names, sizes and modification
+  times of the indexed files, never their contents);
+- the settings, in `~/.config/everygrep/settings`;
+- the search history, in `~/.config/everygrep/history`, only when "Keep the
+  history after EveryGrep closes" is on (it is off by default).
+
+It talks to other programs only on this computer: the session bus (single
+window, desktop portals for the folder chooser and the light or dark style,
+the file manager), `xdg-open` to open files and `gio trash` to move them to
+the trash.
+
 ## Building
 
 ```sh
-cargo build --release
+cargo build --release --locked
 ./target/release/everygrep --version
+./target/release/everygrep-gui --version
 ```
 
-Requires Rust 1.85 or newer.
+Requires Rust 1.85 or newer. The window needs the usual libraries of a
+Wayland desktop at run time (fontconfig, freetype, libxkbcommon, Wayland and
+EGL through libglvnd).
 
-## Development
+## Documentation
 
-Run `scripts/check.sh` before every commit. It checks formatting, runs clippy with
-warnings as errors, and runs the test suite.
-
-The single-window test needs a private session bus and is skipped by default:
-
-```sh
-EVERYGREP_PRIVATE_BUS=1 dbus-run-session -- cargo test -p everygrep-gui -- --ignored
-```
+- [docs/query-language.md](docs/query-language.md): the query language
+- [docs/architecture.md](docs/architecture.md): crates, index, watcher,
+  threads, single instance
+- [docs/index-format.md](docs/index-format.md): the saved index file
+- [docs/design.md](docs/design.md): UI design guidelines
+- [docs/icons.md](docs/icons.md): icons and the app id
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, checks, commits, translations
+- [CHANGELOG.md](CHANGELOG.md)
 
 ## License
 
@@ -229,6 +336,10 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in this project by you, as defined in the Apache-2.0 license, shall
 be dual licensed as above, without any additional terms or conditions.
+
+The crates EveryGrep is built from, with their licenses, are listed in
+[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)
+(regenerate it with `python3 -I scripts/third-party-licenses.py`).
 
 The window is built with [Slint](https://slint.dev), used under its
 royalty-free license, which asks for its attribution in an about dialog
