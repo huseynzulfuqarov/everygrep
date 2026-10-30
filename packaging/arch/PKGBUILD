@@ -1,0 +1,81 @@
+# Maintainer: Huseyn Zulfuqarov
+#
+# Builds EveryGrep from a git checkout: by default the repository this file
+# lives in (two folders up), at the branch or tag in _ref. Only committed
+# work is built. Set EVERYGREP_CHECKOUT to build another checkout, e.g.
+#   EVERYGREP_CHECKOUT=/path/to/everygrep makepkg
+# Once the project is published, use the second source line instead.
+#
+# Dependencies are fetched in prepare() with the versions in Cargo.lock;
+# build() and check() then run offline (--frozen).
+
+pkgname=everygrep
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Instant file name search for Linux, with a desktop window'
+arch=('x86_64')
+# Placeholder: the project's public URL is not decided yet.
+url=''
+license=('MIT OR Apache-2.0')
+depends=(
+  'gcc-libs'
+  'glibc'
+  'fontconfig'
+  'freetype2'
+  # Loaded at run time by the window toolkit.
+  'libglvnd'
+  'libxkbcommon'
+  'wayland'
+)
+makedepends=('cargo' 'git')
+optdepends=(
+  'glib2: Move to trash (runs gio trash)'
+  'xdg-desktop-portal: folder chooser and following the light or dark style'
+  'dbus: one window per index (session bus)'
+)
+
+_checkout="${EVERYGREP_CHECKOUT:-$(realpath "${startdir:-.}/../..")}"
+# For a release: _ref="tag=v$pkgver"
+_ref='branch=main'
+source=("$pkgname::git+file://$_checkout#$_ref")
+# Placeholder for the published repository; replace OWNER/URL first:
+# source=("$pkgname::git+https://PROJECT-URL-PLACEHOLDER/everygrep.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+}
+
+build() {
+  cd "$pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p everygrep-cli -p everygrep-gui
+}
+
+check() {
+  cd "$pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 target/release/everygrep "$pkgdir/usr/bin/everygrep"
+  install -Dm755 target/release/everygrep-gui "$pkgdir/usr/bin/everygrep-gui"
+
+  install -Dm644 data/az.huseynz.EveryGrep.desktop \
+    "$pkgdir/usr/share/applications/az.huseynz.EveryGrep.desktop"
+  local icon
+  for icon in data/icons/hicolor/*/apps/az.huseynz.EveryGrep.*; do
+    install -Dm644 "$icon" "$pkgdir/usr/share/${icon#data/}"
+  done
+
+  install -Dm644 LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md \
+    -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 README.md CHANGELOG.md docs/query-language.md \
+    -t "$pkgdir/usr/share/doc/$pkgname/"
+}
