@@ -36,28 +36,41 @@ pub struct CatchUpStats {
 }
 
 /// Brings `index` up to date with the disk. See the module documentation for
-/// what is and is not detected.
+/// what is and is not detected. Offline roots (see [`Index::set_offline`])
+/// are left as they are.
 pub fn catch_up(index: &mut Index, options: &ScanOptions) -> CatchUpStats {
-    let stats = catch_up_with(index, &skip_set(options), &mut |_: &Index, _| {});
+    let roots = online_roots(index);
+    let stats = catch_up_with(index, &roots, &skip_set(options), &mut |_: &Index, _| {});
     // Nobody keeps per-node state here, so the removal log is not needed.
     index.take_removed();
     stats
 }
 
-/// Catch-up that calls `on_new_dir` for every folder it adds, before reading
-/// that folder. Removed ids are left in the index's removal log.
+/// The roots that are not offline.
+pub(crate) fn online_roots(index: &Index) -> Vec<NodeId> {
+    index
+        .roots()
+        .into_iter()
+        .filter(|r| !index.offline_roots().contains(r))
+        .collect()
+}
+
+/// Catch-up of the folder roots in `roots` that calls `on_new_dir` for every
+/// folder it adds, before reading that folder. Removed ids are left in the
+/// index's removal log.
 pub(crate) fn catch_up_with(
     index: &mut Index,
+    roots: &[NodeId],
     skip: &HashSet<PathBuf>,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
 ) -> CatchUpStats {
     let mut stats = CatchUpStats::default();
 
     let store = index.store();
-    let mut queue: VecDeque<NodeId> = index
-        .order()
+    let mut queue: VecDeque<NodeId> = roots
         .iter()
-        .filter(|&id| store.parent(id).is_none() && store.is_dir(id))
+        .copied()
+        .filter(|&id| store.is_live(id) && store.parent(id).is_none() && store.is_dir(id))
         .collect();
 
     while let Some(dir) = queue.pop_front() {

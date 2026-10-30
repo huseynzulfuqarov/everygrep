@@ -16,6 +16,9 @@ pub struct Index {
     by_name: SortedIds,
     /// Ids removed since the last [`take_removed`](Index::take_removed).
     removed_log: Vec<NodeId>,
+    /// Roots whose folder is not reachable now (a drive that was removed).
+    /// Their nodes stay searchable but are not read, watched or caught up.
+    offline: Vec<NodeId>,
 }
 
 /// Why a rename was refused.
@@ -43,6 +46,7 @@ impl Index {
             store,
             by_name: SortedIds::from_sorted(ids),
             removed_log: Vec::new(),
+            offline: Vec::new(),
         }
     }
 
@@ -69,7 +73,114 @@ impl Index {
             store,
             by_name: SortedIds::from_sorted(by_name),
             removed_log: Vec::new(),
+            offline: Vec::new(),
         })
+    }
+
+    /// The live roots, in name order.
+    pub fn roots(&self) -> Vec<NodeId> {
+        self.by_name
+            .iter()
+            .filter(|&id| self.store.parent(id).is_none())
+            .collect()
+    }
+
+    /// Marks a root as offline (its folder cannot be reached, as for a
+    /// removed drive) or online again. Offline roots keep their nodes; scans,
+    /// catch-ups and watchers leave them alone.
+    pub fn set_offline(&mut self, root: NodeId, offline: bool) {
+        debug_assert!(self.store.parent(root).is_none(), "only roots go offline");
+        self.offline.retain(|&r| r != root);
+        if offline && self.store.is_live(root) {
+            self.offline.push(root);
+        }
+    }
+
+    /// Roots marked offline.
+    pub fn offline_roots(&self) -> &[NodeId] {
+        &self.offline
+    }
+
+    /// Whether a node lies below an offline root (or is one).
+    pub fn is_offline(&self, id: NodeId) -> bool {
+        !self.offline.is_empty() && self.offline.contains(&self.store.root_of(id))
+    }
+
+    /// A new index with only the given roots and the nodes below them, in
+    /// the same name order, plus the map from this index's ids to the new
+    /// ones. Offline marks of those roots are kept.
+    pub fn extract(&self, roots: &[NodeId]) -> (Index, Vec<Option<NodeId>>) {
+        let mut keep = vec![false; self.store.len()];
+        for &root in roots {
+            if self.store.is_live(root) && self.store.parent(root).is_none() {
+                for node in self.subtree(root) {
+                    keep[node.index()] = true;
+                }
+            }
+        }
+        let (store, remap) = self.store.compacted_where(|id| keep[id.index()]);
+        let ids: Vec<NodeId> = self
+            .by_name
+            .iter()
+            .filter_map(|id| remap[id.index()])
+            .collect();
+        let offline = self
+            .offline
+            .iter()
+            .filter_map(|r| remap[r.index()])
+            .collect();
+        let index = Index {
+            store,
+            by_name: SortedIds::from_sorted(ids),
+            removed_log: Vec::new(),
+            offline,
+        };
+        (index, remap)
+    }
+
+    /// Adds all nodes of `other` (built separately, for example a drive's
+    /// saved index) and returns the new ids of its roots. Existing ids keep
+    /// their meaning; the name order is merged in one pass. Offline marks of
+    /// `other` are taken over.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a root of `other` has the same name as a root here, or if
+    /// `other` has removed nodes.
+    pub fn graft(&mut self, other: &Index) -> Vec<NodeId> {
+        let other_roots = other.roots();
+        for &r in &other_roots {
+            assert!(
+                self.find_child(None, other.store.name(r)).is_none(),
+                "graft: a root of that name exists"
+            );
+        }
+        let base = self.store.append(&other.store);
+        let shift = |id: NodeId| NodeId(base + id.0);
+        let mut merged = Vec::with_capacity(self.by_name.len() + other.by_name.len());
+        {
+            let store = &self.store;
+            let mut mine = self.by_name.iter().peekable();
+            let mut theirs = other.by_name.iter().map(shift).peekable();
+            loop {
+                let next = match (mine.peek(), theirs.peek()) {
+                    (Some(&a), Some(&b)) => {
+                        if compare(store, a, b) == Ordering::Greater {
+                            theirs.next()
+                        } else {
+                            mine.next()
+                        }
+                    }
+                    (Some(_), None) => mine.next(),
+                    (None, Some(_)) => theirs.next(),
+                    (None, None) => break,
+                };
+                merged.extend(next);
+            }
+        }
+        self.by_name = SortedIds::from_sorted(merged);
+        self.offline.extend(other.offline.iter().map(|&r| shift(r)));
+        other_roots.into_iter().map(shift).collect()
     }
 
     /// The underlying node storage.
@@ -153,6 +264,7 @@ impl Index {
         for &node in &doomed {
             self.store.remove(node);
         }
+        self.offline.retain(|&r| r != id);
         self.removed_log.extend_from_slice(&doomed);
         doomed
     }
@@ -249,10 +361,16 @@ impl Index {
             .iter()
             .filter_map(|id| remap[id.index()])
             .collect();
+        let offline = self
+            .offline
+            .iter()
+            .filter_map(|r| remap[r.index()])
+            .collect();
         let index = Index {
             store,
             by_name: SortedIds::from_sorted(ids),
             removed_log: Vec::new(),
+            offline,
         };
         (index, remap)
     }
@@ -318,6 +436,7 @@ mod tests {
     use super::*;
     use crate::query::{EvalScratch, Query, QueryOptions};
     use crate::search::search;
+    use std::path::Path;
 
     fn names(index: &Index) -> Vec<Vec<u8>> {
         index
@@ -742,5 +861,96 @@ mod tests {
             .filter(|&id| m.matches(store, id, &mut scratch))
             .collect();
         assert_eq!(search(index, &m, 4), expected);
+    }
+
+    fn tree(root: &[u8], files: &[&[u8]]) -> Index {
+        let mut s = NodeStore::new();
+        let r = s.add(None, root, true, Meta::default());
+        let sub = s.add(Some(r), b"Sub", true, Meta::default());
+        for (i, f) in files.iter().enumerate() {
+            s.add(
+                Some(if i % 2 == 0 { r } else { sub }),
+                f,
+                false,
+                Meta {
+                    size: 10,
+                    mtime_ns: 1,
+                },
+            );
+        }
+        Index::new(s)
+    }
+
+    fn sorted_like_new(index: &Index) {
+        // The order equals a fresh sort of the same store.
+        let ids: Vec<NodeId> = index.order().iter().collect();
+        let mut fresh = ids.clone();
+        fresh.sort_by(|&a, &b| compare(index.store(), a, b));
+        assert_eq!(ids, fresh);
+        assert_eq!(ids.len(), index.store().live_count());
+    }
+
+    #[test]
+    fn graft_merges_another_index_and_extract_takes_it_out() {
+        let mut main = tree(b"/home/u", &[b"a.txt", b"b.txt", b"Zed.md", b"same"]);
+        let drive = tree(
+            b"/run/media/u/USB",
+            &[b"b.txt", b"c.txt", b"same", b"A.TXT"],
+        );
+        let before: Vec<Vec<u8>> = names(&main);
+        let roots = main.graft(&drive);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(main.store().name(roots[0]), b"/run/media/u/USB");
+        assert_eq!(main.len(), 6 + 6);
+        sorted_like_new(&main);
+        // Sizes and child lists came along.
+        assert_eq!(main.store().meta(roots[0]).size, 40);
+        assert_eq!(main.store().items(roots[0]), 3);
+        let usb_b = main.find_child(Some(roots[0]), b"b.txt").unwrap();
+        assert_eq!(
+            main.store().path(usb_b),
+            Path::new("/run/media/u/USB/b.txt")
+        );
+
+        // Taking the drive out again gives the same nodes; the rest stays.
+        let (out, _) = main.extract(&[roots[0]]);
+        assert_eq!(names(&out), names(&drive));
+        sorted_like_new(&out);
+        let home = main.find_child(None, b"/home/u").unwrap();
+        let (home_only, _) = main.extract(&[home]);
+        assert_eq!(names(&home_only), before);
+        assert_eq!(home_only.store().meta(NodeId(0)).size, 40);
+    }
+
+    #[test]
+    #[should_panic(expected = "a root of that name exists")]
+    fn graft_refuses_a_second_root_of_the_same_name() {
+        let mut main = tree(b"/x", &[b"a"]);
+        main.graft(&tree(b"/x", &[b"b"]));
+    }
+
+    #[test]
+    fn offline_roots_survive_compaction_and_go_with_removal() {
+        let mut main = tree(b"/home/u", &[b"a.txt", b"b.txt"]);
+        let usb = main.graft(&tree(b"/media/u/USB", &[b"c.txt", b"d.txt"]))[0];
+        main.set_offline(usb, true);
+        let c = main.find_child(Some(usb), b"c.txt").unwrap();
+        let home = main.find_child(None, b"/home/u").unwrap();
+        assert!(main.is_offline(usb) && main.is_offline(c));
+        assert!(!main.is_offline(home));
+        // Remove something before the drive so ids shift on compaction.
+        let a = main.find_child(Some(home), b"a.txt").unwrap();
+        main.remove(a);
+        main.take_removed();
+        let remap = main.compact_in_place();
+        let usb = remap[usb.index()].unwrap();
+        assert_eq!(main.offline_roots(), [usb]);
+        let (out, map) = main.extract(&[usb]);
+        assert_eq!(out.offline_roots(), [map[usb.index()].unwrap()]);
+        main.set_offline(usb, false);
+        assert!(main.offline_roots().is_empty());
+        main.set_offline(usb, true);
+        main.remove(usb);
+        assert!(main.offline_roots().is_empty());
     }
 }

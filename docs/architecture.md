@@ -38,6 +38,16 @@ Nodes live in parallel columns indexed by a `NodeId` (u32):
 A root's name is its whole path; other names are single components. Removed
 nodes keep their slot (marked removed) until the store is compacted.
 
+An index can hold roots of different origins. `Index::graft` adds another
+index (a drive's saved index) by appending its columns and merging the two
+name orders in one pass; `Index::extract` copies chosen roots with their
+subtrees into an index of their own (to save a drive apart from the rest).
+A root can be marked **offline** (`Index::set_offline`): its nodes stay
+searchable, but catch-ups, watchers (`Watcher::new`, `catch_up`) and
+`Index::is_offline` treat it as unreachable, so nothing below it is read,
+watched or removed. `Watcher::watch_root`, `unwatch_root` and
+`catch_up_roots` bring one root online or take it offline while watching.
+
 ### Index and search (`index.rs`, `order.rs`, `search.rs`)
 
 The index is the store plus all live node ids sorted by folded name

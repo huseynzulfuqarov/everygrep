@@ -20,7 +20,7 @@ use crate::index::Index;
 use crate::inotify::{Event, Inotify, Mask, WatchId};
 use crate::scan::{ScanOptions, skip_set};
 use crate::store::{Meta, NodeId};
-use crate::sync::{CatchUpStats, add_tree, catch_up_with};
+use crate::sync::{CatchUpStats, add_tree, catch_up_with, online_roots};
 
 /// What happened while applying a batch of events.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -102,8 +102,9 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    /// Creates a watcher with a watch on every live folder of `index`. Folders
-    /// that a scan with `options` would not enter are not watched either.
+    /// Creates a watcher with a watch on every live folder of `index` below
+    /// a root that is not offline. Folders that a scan with `options` would
+    /// not enter are not watched either.
     pub fn new(index: &Index, options: &ScanOptions) -> io::Result<Self> {
         let mut w = Self {
             watches: Watches {
@@ -115,24 +116,59 @@ impl Watcher {
             skip: skip_set(options),
             buf: Vec::new(),
         };
-        let dirs: Vec<NodeId> = index
-            .order()
-            .iter()
-            .filter(|&id| index.store().is_dir(id))
-            .collect();
-        for dir in dirs {
-            w.watches.watch(index, dir, &w.skip);
+        for root in online_roots(index) {
+            w.watch_root(index, root);
         }
         Ok(w)
+    }
+
+    /// Watches every folder below `root` (a root that came online, or was
+    /// added with [`Index::graft`]).
+    pub fn watch_root(&mut self, index: &Index, root: NodeId) {
+        let store = index.store();
+        if !store.is_live(root) || !store.is_dir(root) {
+            return;
+        }
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            self.watches.watch(index, dir, &self.skip);
+            stack.extend(store.children(dir).filter(|&k| store.is_dir(k)));
+        }
+    }
+
+    /// Stops watching the folders below `root`, for a root that goes
+    /// offline. Events already read for them are ignored too, since the
+    /// mapping from their watches is gone.
+    pub fn unwatch_root(&mut self, index: &Index, root: NodeId) {
+        let store = index.store();
+        if !store.is_live(root) {
+            return;
+        }
+        let mut stack = vec![root];
+        let mut dirs = Vec::new();
+        while let Some(dir) = stack.pop() {
+            dirs.push(dir);
+            stack.extend(store.children(dir).filter(|&k| store.is_dir(k)));
+        }
+        self.watches.forget(&dirs);
     }
 
     /// Brings `index` up to date with changes made while nothing was watching
     /// (see [`crate::sync`]) and adjusts the watches to match. Call it after
     /// [`new`](Self::new), so changes made during the catch-up are still reported.
+    /// Offline roots are skipped.
     pub fn catch_up(&mut self, index: &mut Index) -> CatchUpStats {
+        let roots = online_roots(index);
+        self.catch_up_roots(index, &roots)
+    }
+
+    /// Like [`catch_up`](Self::catch_up), for the given roots only (for
+    /// example a drive that was plugged in again). Watch them first with
+    /// [`watch_root`](Self::watch_root).
+    pub fn catch_up_roots(&mut self, index: &mut Index, roots: &[NodeId]) -> CatchUpStats {
         let watches = &mut self.watches;
         let skip = &self.skip;
-        let stats = catch_up_with(index, skip, &mut |idx: &Index, dir| {
+        let stats = catch_up_with(index, roots, skip, &mut |idx: &Index, dir| {
             watches.watch(idx, dir, skip)
         });
         self.watches.forget(&index.take_removed());
@@ -591,5 +627,49 @@ mod tests {
         fs::remove_dir_all(f.root().join("docs")).unwrap();
         let root = f.root();
         assert!(f.settle(|i| i.len() == 1 && has(i, &root)));
+    }
+
+    #[test]
+    fn offline_roots_are_not_watched_or_caught_up() {
+        let mut f = Fixture::new("offline-root");
+        // A second root, as a drive would be, then "unplugged".
+        let drive = f.base.join("drive");
+        fs::create_dir_all(drive.join("photos")).unwrap();
+        fs::write(drive.join("photos/p1.jpg"), b"p").unwrap();
+        let mut store = NodeStore::new();
+        scan(
+            &mut store,
+            std::slice::from_ref(&drive),
+            &ScanOptions::default(),
+        );
+        let root = f.index.graft(&Index::new(store))[0];
+        f.watcher.watch_root(&f.index, root);
+        fs::write(drive.join("photos/p2.jpg"), b"p").unwrap();
+        assert!(f.settle(|i| has(i, &drive.join("photos/p2.jpg"))));
+
+        f.watcher.unwatch_root(&f.index, root);
+        f.index.set_offline(root, true);
+        let gone = f.base.join("drive-elsewhere");
+        fs::rename(&drive, &gone).unwrap();
+        // Nothing is removed: no events, and the catch-up skips the root.
+        let stats = f.watcher.catch_up(&mut f.index);
+        assert_eq!(stats.removed, 0);
+        f.settle(|_| false);
+        assert!(has(&f.index, &drive.join("photos/p1.jpg")));
+        assert!(has(&f.index, &drive.join("photos/p2.jpg")));
+        // A new watcher leaves it alone too.
+        let w = Watcher::new(&f.index, &ScanOptions::default()).unwrap();
+        assert_eq!(w.watch_count(), 2, "root and root/docs only");
+
+        // Back at the same place: online again, caught up, watched.
+        fs::rename(&gone, &drive).unwrap();
+        fs::remove_file(drive.join("photos/p1.jpg")).unwrap();
+        f.index.set_offline(root, false);
+        f.watcher.watch_root(&f.index, root);
+        let stats = f.watcher.catch_up_roots(&mut f.index, &[root]);
+        assert_eq!(stats.removed, 1);
+        assert!(!has(&f.index, &drive.join("photos/p1.jpg")));
+        fs::write(drive.join("photos/p3.jpg"), b"p").unwrap();
+        assert!(f.settle(|i| has(i, &drive.join("photos/p3.jpg"))));
     }
 }

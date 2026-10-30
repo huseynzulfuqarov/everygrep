@@ -358,10 +358,24 @@ impl NodeStore {
     ///
     /// Panics if a live node has a removed parent.
     pub fn compacted(&self) -> (NodeStore, Vec<Option<NodeId>>) {
+        self.compacted_where(|id| self.is_live(id))
+    }
+
+    /// Like [`compacted`](Self::compacted), but keeps only the live nodes for
+    /// which `keep` is true. The parent of every kept node must be kept.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a kept node has a parent that is not kept.
+    pub fn compacted_where(
+        &self,
+        keep: impl Fn(NodeId) -> bool,
+    ) -> (NodeStore, Vec<Option<NodeId>>) {
         let mut remap = Vec::with_capacity(self.len());
         let mut next = 0u32;
         for i in 0..self.len() {
-            if self.parent_kind[i] & DEAD_BIT == 0 {
+            let id = NodeId(i as u32);
+            if self.is_live(id) && keep(id) {
                 remap.push(Some(NodeId(next)));
                 next += 1;
             } else {
@@ -373,24 +387,57 @@ impl NodeStore {
         // Folder sizes are copied as they are; the tree of live nodes does not
         // change.
         let mut out = NodeStore::new();
-        for i in 0..self.len() {
-            let id = NodeId(i as u32);
-            if self.is_live(id) {
+        for (i, kept) in remap.iter().enumerate() {
+            if kept.is_some() {
+                let id = NodeId(i as u32);
                 out.push_node(self.name(id), self.is_dir(id), self.meta(id));
             }
         }
         for i in 0..self.len() {
             let id = NodeId(i as u32);
-            if let (Some(new_id), Some(parent)) =
-                (remap[i], self.parent(id).filter(|_| self.is_live(id)))
-            {
-                let new_parent = remap[parent.index()].expect("live node with removed parent");
+            if let (Some(new_id), Some(parent)) = (remap[i], self.parent(id)) {
+                let new_parent = remap[parent.index()].expect("kept node with a dropped parent");
                 out.set_parent_word(new_id, Some(new_parent));
                 out.link(new_id, new_parent);
             }
         }
         out.shrink_to_fit();
         (out, remap)
+    }
+
+    /// Appends every live node of `other` (with its subtree links, folder
+    /// sizes and item counts) and returns the id the first of them got: a
+    /// node `n` of `other` becomes `base + n` when `other` has no removed
+    /// nodes. Roots of `other` stay roots here.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` has removed nodes, or if the store would grow too
+    /// large (see [`add`](Self::add)).
+    pub fn append(&mut self, other: &NodeStore) -> u32 {
+        assert_eq!(other.dead, 0, "append a compacted store");
+        let base = u32::try_from(self.len()).expect("too many nodes");
+        for i in 0..other.len() {
+            let id = NodeId(i as u32);
+            self.push_node(other.name(id), other.is_dir(id), other.meta(id));
+        }
+        for i in 0..other.len() {
+            if let Some(parent) = other.parent(NodeId(i as u32)) {
+                let (new, new_parent) = (NodeId(base + i as u32), NodeId(base + parent.0));
+                self.set_parent_word(new, Some(new_parent));
+                self.link(new, new_parent);
+            }
+        }
+        base
+    }
+
+    /// The root above a node (the node itself for a root).
+    pub fn root_of(&self, id: NodeId) -> NodeId {
+        let mut cur = id;
+        while let Some(p) = self.parent(cur) {
+            cur = p;
+        }
+        cur
     }
 
     /// Releases spare capacity after a bulk build.
