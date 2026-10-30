@@ -123,7 +123,7 @@ command line is English only.
 | search (`engine.rs`) | parses and runs the newest query, sorts it, hands the ids to the UI |
 | index (`engine.rs`) | loads or scans the index, catches up, then watches and applies changes |
 | zbus | the session bus connection for the single instance |
-| short-lived helpers | trash and permanent delete, the folder chooser, the desktop color-scheme watcher |
+| short-lived helpers | trash and permanent delete, the folder chooser, the export, the desktop color-scheme watcher |
 
 The index sits behind a read-write lock. Searches and the result table take
 short read locks; the index thread takes the write lock only while it
@@ -152,8 +152,12 @@ The UI is written in Slint (`ui/app.slint`, `ui/settings.slint`,
 and the femtovg (OpenGL) renderer on the winit Wayland backend. Colors are
 tokens in `theme.slint`; `look.rs` resolves the theme setting, and
 `portal.rs` reads the desktop's light or dark preference
-(`org.freedesktop.portal.Settings`) and opens the folder chooser
-(`org.freedesktop.portal.FileChooser`).
+(`org.freedesktop.portal.Settings`) and opens the folder chooser and the
+save dialog of the export (`org.freedesktop.portal.FileChooser`, `OpenFile`
+and `SaveFile`). `export.rs` writes the CSV or text export on a helper
+thread, reading the index in chunks of 20 000 results under short read
+locks; if the ids change meaning meanwhile (a compaction), it stops and
+asks to export again.
 
 ### Settings (`settings.rs`, `prefs.rs`)
 

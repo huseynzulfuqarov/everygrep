@@ -381,6 +381,7 @@ pub fn shortcuts() -> Vec<(&'static str, &'static str)> {
         ("Alt+U", tr("Ignore punctuation")),
         ("Alt+S", tr("Ignore whitespace")),
         ("Alt+↑ / Alt+↓", tr("Previous / next filter")),
+        ("Ctrl+S", tr("Export results")),
         ("Ctrl+N", tr("New window")),
         ("Ctrl+,", tr("Settings")),
         ("Ctrl+Q", tr("Quit")),

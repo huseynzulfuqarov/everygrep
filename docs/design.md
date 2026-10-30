@@ -40,7 +40,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 ```
 
 - **Menu bar.** On by default, switchable in the View menu and the
-  settings. File (new window, settings, quit), Edit (copy name and path,
+  settings. File (new window, export results, settings, quit), Edit (copy name and path,
   select all, rename, trash, delete), View (optional columns, folder size,
   density, theme, selection details, menu bar), Search (matching modes,
   including prefix, suffix, ignore punctuation and ignore whitespace,
@@ -50,7 +50,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   1.18 draws the bar inside the window on Linux (a native menu bar exists
   only on macOS and Windows), and its item shortcuts are matched before the
   focused widget sees the key. So only keys that mean the same everywhere
-  are given to menu items (`Ctrl+N`, `Ctrl+,`, `Ctrl+Q`, `Ctrl+I`,
+  are given to menu items (`Ctrl+N`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`, `Ctrl+I`,
   `Alt+C/W/P/D/R/B/E/U/S`, `Alt+←/→`); `Ctrl+C`, `Ctrl+A`, `Delete` and `F2` stay with the search
   field when it has focus, and the Edit entries show no key. Help →
   Keyboard shortcuts lists them all. The bar cannot be opened from the
@@ -158,6 +158,7 @@ words.
 | Previous / next filter | `Alt+↑` / `Alt+↓` | filter selector, Search menu |
 | Show or hide the Type and Extension columns | — | header context menu, View menu |
 | New window over the same index | `Ctrl+N` | File menu |
+| Export the results (CSV or text) | `Ctrl+S` | File menu |
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per

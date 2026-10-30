@@ -2,6 +2,7 @@
 
 mod actions;
 mod engine;
+mod export;
 mod filetype;
 mod format;
 mod history;
@@ -20,7 +21,7 @@ use std::cell::RefCell;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use everygrep_core::filter::Filter;
@@ -29,7 +30,7 @@ use everygrep_core::sort::{FolderSize, Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use engine::{Engine, Hooks, IndexState, SearchResult};
-use i18n::{fill, tr};
+use i18n::{fill, tr, trn};
 use prefs::{IndexSetup, Prefs};
 use results::ResultsModel;
 use settings::{Density, ThemeChoice};
@@ -302,6 +303,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move |row| usize::try_from(row).is_ok_and(|r| model.is_selected(r))
     });
     connect_actions(&window, &model);
+    connect_export(&window, &model, &engine);
     ON_PRESENT.with(|p| {
         *p.borrow_mut() = Some(Box::new({
             let (weak, engine, pause, prefs) = (weak.clone(), engine.clone(), pause, prefs.clone());
@@ -696,6 +698,125 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             }
         }
     });
+}
+
+/// File → Export results: asks where to save through the desktop's file
+/// chooser, then writes the shown results on a helper thread.
+fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
+    // One export at a time.
+    static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering::SeqCst;
+    let (weak, model, engine) = (window.as_weak(), model.clone(), engine.clone());
+    window.on_export_results(move || {
+        let Some(w) = weak.upgrade() else { return };
+        let (ids, epoch) = model.snapshot();
+        if ids.is_empty() {
+            error(&w, tr("There are no results to export.").into());
+            return;
+        }
+        if BUSY.swap(true, SeqCst) {
+            return;
+        }
+        let (engine, weak) = (engine.clone(), weak.clone());
+        let title = tr("Export results");
+        let accept = tr("Export");
+        let csv = tr("CSV: name, folder, size, modified");
+        let text = tr("Text: full paths");
+        std::thread::spawn(move || {
+            let filters = [
+                portal::SaveFilter {
+                    name: csv,
+                    pattern: "*.csv",
+                },
+                portal::SaveFilter {
+                    name: text,
+                    pattern: "*.txt",
+                },
+            ];
+            let chosen = portal::save_file(title, accept, "everygrep-results.csv", &filters);
+            let outcome = match chosen {
+                Ok(Some((path, filter))) => {
+                    let format = filter.and_then(|i| export::Format::ALL.get(i).copied());
+                    let (target, format) = export::target(path, format);
+                    exporting_note(&weak, ids.len());
+                    Some(write_export(&engine, &ids, epoch, &target, format).map(|n| (n, target)))
+                }
+                Ok(None) => None,
+                Err(e) => Some(Err(fill(tr("Cannot open the save dialog: {}"), &[&e]))),
+            };
+            BUSY.store(false, SeqCst);
+            let _ = weak.upgrade_in_event_loop(move |w| match outcome {
+                Some(Ok((n, target))) => info(
+                    &w,
+                    fill(
+                        trn("Exported {} result to {}.", "Exported {} results to {}.", n),
+                        &[&format::count(n), &target.display()],
+                    ),
+                ),
+                Some(Err(e)) => error(&w, e),
+                None => {}
+            });
+        });
+    });
+}
+
+/// Shows that an export of `n` results is being written.
+fn exporting_note(weak: &slint::Weak<AppWindow>, n: usize) {
+    let _ = weak.upgrade_in_event_loop(move |w| {
+        info(
+            &w,
+            fill(
+                trn("Exporting {} result…", "Exporting {} results…", n),
+                &[&format::count(n)],
+            ),
+        );
+    });
+}
+
+/// Writes the results `ids` (taken in `epoch`) to `target`. The index is
+/// read in chunks, so file changes are not held up by a long export; if
+/// the ids change meaning meanwhile, the export stops.
+fn write_export(
+    engine: &Engine,
+    ids: &[everygrep_core::store::NodeId],
+    epoch: u64,
+    target: &std::path::Path,
+    format: export::Format,
+) -> Result<usize, String> {
+    use std::os::unix::ffi::OsStrExt;
+    const CHUNK: usize = 20_000;
+    let failed = |e: std::io::Error| fill(tr("Cannot export: {}"), &[&e]);
+    let mut out = export::Writer::create(target, format, everygrep_core::localtime::Zone::local())
+        .map_err(failed)?;
+    for chunk in ids.chunks(CHUNK) {
+        let index = engine.index.read().expect("index lock");
+        if engine.epoch() != epoch {
+            out.abandon();
+            return Err(tr("The results changed while they were exported. Export again.").into());
+        }
+        let store = index.store();
+        for &id in chunk {
+            if id.index() >= store.len() || !store.is_live(id) {
+                continue;
+            }
+            let path = store.path(id);
+            let name = path.file_name().unwrap_or(path.as_os_str()).as_bytes();
+            let folder = path.parent().map_or(&b""[..], |p| p.as_os_str().as_bytes());
+            let meta = store.meta(id);
+            let row = export::Row {
+                name,
+                folder,
+                size: meta.size,
+                mtime_ns: meta.mtime_ns,
+                offline: index.is_offline(id),
+            };
+            if let Err(e) = out.row(&row) {
+                out.abandon();
+                return Err(failed(e));
+            }
+        }
+    }
+    out.finish().map_err(failed)
 }
 
 fn info(w: &AppWindow, text: String) {

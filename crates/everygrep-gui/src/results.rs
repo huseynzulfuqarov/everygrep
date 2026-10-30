@@ -155,6 +155,11 @@ impl ResultsModel {
         self.renaming.get().and_then(|id| self.row_of(id))
     }
 
+    /// The listed ids and the engine epoch they belong to.
+    pub fn snapshot(&self) -> (Arc<Vec<NodeId>>, u64) {
+        (Arc::clone(&self.ids.borrow()), self.epoch.get())
+    }
+
     /// Node id of a row.
     pub fn id(&self, row: usize) -> Option<NodeId> {
         self.ids.borrow().get(row).copied()

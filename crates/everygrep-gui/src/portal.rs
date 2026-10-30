@@ -1,5 +1,5 @@
-//! The XDG desktop portal: choosing folders and following the desktop's
-//! light or dark setting.
+//! The XDG desktop portal: choosing folders, choosing where to save a file
+//! and following the desktop's light or dark setting.
 //!
 //! The folder dialog comes from `org.freedesktop.portal.FileChooser`, so it
 //! is the desktop's own file chooser and needs no toolkit of ours. The color
@@ -82,6 +82,79 @@ pub fn watch_color_scheme(changed: impl Fn(ColorScheme)) -> Result<(), String> {
 /// Asks the user for one or more folders. `Ok(None)` when the dialog was
 /// cancelled; `Err` when the portal is not available.
 pub fn choose_folders(title: &str, accept: &str) -> Result<Option<Vec<PathBuf>>, String> {
+    let options = vec![
+        ("accept_label", Value::from(accept)),
+        ("modal", Value::from(true)),
+        ("multiple", Value::from(true)),
+        ("directory", Value::from(true)),
+    ];
+    let Some(results) = file_chooser("OpenFile", title, options)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        uris(&results).iter().filter_map(|u| file_path(u)).collect(),
+    ))
+}
+
+/// A file type offered by the save dialog: its name and a glob pattern.
+pub struct SaveFilter<'a> {
+    pub name: &'a str,
+    pub pattern: &'a str,
+}
+
+/// Asks the user where to save a file, suggesting `current_name` and
+/// offering `filters` (the first is chosen at the start). Returns the path
+/// and the index of the filter that was chosen when the dialog reports it.
+/// `Ok(None)` when the dialog was cancelled; `Err` when the portal is not
+/// available. The dialog asks before replacing an existing file.
+pub fn save_file(
+    title: &str,
+    accept: &str,
+    current_name: &str,
+    filters: &[SaveFilter],
+) -> Result<Option<(PathBuf, Option<usize>)>, String> {
+    // a(sa(us)): name, then (0 = glob pattern, pattern).
+    let list: Vec<(&str, Vec<(u32, &str)>)> = filters
+        .iter()
+        .map(|f| (f.name, vec![(0u32, f.pattern)]))
+        .collect();
+    let mut options = vec![
+        ("accept_label", Value::from(accept)),
+        ("modal", Value::from(true)),
+        ("current_name", Value::from(current_name)),
+        ("filters", Value::from(list.clone())),
+    ];
+    if let Some(first) = list.first() {
+        options.push(("current_filter", Value::from(first.clone())));
+    }
+    let Some(results) = file_chooser("SaveFile", title, options)? else {
+        return Ok(None);
+    };
+    let Some(path) = uris(&results).first().and_then(|u| file_path(u)) else {
+        return Err("the file chooser gave no local file".into());
+    };
+    let chosen = results
+        .get("current_filter")
+        .and_then(|v| <(String, Vec<(u32, String)>)>::try_from(v.try_clone().ok()?).ok())
+        .and_then(|(name, _)| filters.iter().position(|f| f.name == name));
+    Ok(Some((path, chosen)))
+}
+
+/// The `uris` of a file chooser response.
+fn uris(results: &HashMap<String, OwnedValue>) -> Vec<String> {
+    results
+        .get("uris")
+        .and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok())
+        .unwrap_or_default()
+}
+
+/// Calls `method` of the file chooser portal with `options` and waits for
+/// the dialog. Returns its results, or `None` when it was cancelled.
+fn file_chooser(
+    method: &str,
+    title: &str,
+    mut options: Vec<(&str, Value)>,
+) -> Result<Option<HashMap<String, OwnedValue>>, String> {
     let conn = Connection::session().map_err(|e| e.to_string())?;
     let sender = conn
         .unique_name()
@@ -101,21 +174,14 @@ pub fn choose_folders(title: &str, accept: &str) -> Result<Option<Vec<PathBuf>>,
         .receive_signal("Response")
         .map_err(|e| e.to_string())?;
 
-    let options: HashMap<&str, Value> = [
-        ("handle_token", Value::from(token.as_str())),
-        ("accept_label", Value::from(accept)),
-        ("modal", Value::from(true)),
-        ("multiple", Value::from(true)),
-        ("directory", Value::from(true)),
-    ]
-    .into_iter()
-    .collect();
+    options.push(("handle_token", Value::from(token.clone())));
+    let options: HashMap<&str, Value> = options.into_iter().collect();
     let reply = conn
         .call_method(
             Some(DESTINATION),
             PATH,
             Some(CHOOSER),
-            "OpenFile",
+            method,
             &("", title, options),
         )
         .map_err(|e| e.to_string())?;
@@ -131,14 +197,7 @@ pub fn choose_folders(title: &str, accept: &str) -> Result<Option<Vec<PathBuf>>,
     let message = responses.next().ok_or("the file chooser did not answer")?;
     let (code, results): (u32, HashMap<String, OwnedValue>) =
         message.body().deserialize().map_err(|e| e.to_string())?;
-    if code != 0 {
-        return Ok(None);
-    }
-    let uris: Vec<String> = results
-        .get("uris")
-        .and_then(|v| Vec::<String>::try_from(v.try_clone().ok()?).ok())
-        .unwrap_or_default();
-    Ok(Some(uris.iter().filter_map(|u| file_path(u)).collect()))
+    Ok((code == 0).then_some(results))
 }
 
 /// The local path of a `file://` URI, percent escapes decoded; `None` for

@@ -620,6 +620,8 @@ export component AppWindow inherits Window {
     callback quit();
     // Another window over the same index.
     callback new-window();
+    // Saves the result list to a file.
+    callback export-results();
 
     // Menu bar and the appearance choices in its View menu. The choices
     // are saved as settings; the program sets the lists again after a
@@ -790,6 +792,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == "q" || event.text == "Q") {
                 root.quit();
+                return true;
+            }
+            if ((event.text == "s" || event.text == "S") && !event.modifiers.shift) {
+                root.export-results();
                 return true;
             }
             return false;
@@ -1507,6 +1513,12 @@ export component AppWindow inherits Window {
                 shortcut: @keys(Control + N);
                 enabled: !root.confirm-open;
                 activated => { root.new-window(); }
+            }
+            MenuItem {
+                title: @tr("Export results…");
+                shortcut: @keys(Control + S);
+                enabled: !root.confirm-open && root.results.length > 0;
+                activated => { root.export-results(); }
             }
             MenuSeparator { }
             MenuItem {

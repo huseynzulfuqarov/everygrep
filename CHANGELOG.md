@@ -55,6 +55,9 @@ First version, 0.1.0, not released yet.
   Modified, and optional Type and Extension).
 - Edit → Invert selection (`Ctrl+I`), which costs the same for any number
   of results.
+- File → Export results… (`Ctrl+S`): the results as CSV (name, folder,
+  size, modified, offline) or as a list of full paths, through the
+  desktop's save dialog, written atomically.
 - Selection with the mouse and keyboard; open, open the containing folder,
   copy names or paths, rename in place, move to the trash and delete
   permanently, from keys, a context menu and the menu bar.

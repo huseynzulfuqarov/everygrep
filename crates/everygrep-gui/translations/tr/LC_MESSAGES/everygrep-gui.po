@@ -1003,3 +1003,51 @@ msgstr "Boşluksuz"
 #: ui/app.slint
 msgid "Invert selection"
 msgstr "Seçimi tersine çevir"
+
+#: ui/app.slint
+msgid "Export results…"
+msgstr "Sonuçları dışa aktar…"
+
+#: src/main.rs
+msgid "Export results"
+msgstr "Sonuçları dışa aktar"
+
+#: src/main.rs
+msgid "Export"
+msgstr "Dışa aktar"
+
+#: src/main.rs
+msgid "CSV: name, folder, size, modified"
+msgstr "CSV: ad, klasör, boyut, değiştirme tarihi"
+
+#: src/main.rs
+msgid "Text: full paths"
+msgstr "Metin: tam yollar"
+
+#: src/main.rs
+msgid "There are no results to export."
+msgstr "Dışa aktarılacak sonuç yok."
+
+#: src/main.rs
+msgid "Cannot open the save dialog: {}"
+msgstr "Kaydetme penceresi açılamadı: {}"
+
+#: src/main.rs
+msgid "Cannot export: {}"
+msgstr "Dışa aktarılamadı: {}"
+
+#: src/main.rs
+msgid "The results changed while they were exported. Export again."
+msgstr "Dışa aktarma sırasında sonuçlar değişti. Yeniden dışa aktarın."
+
+#: src/main.rs
+msgid "Exported {} result to {}."
+msgid_plural "Exported {} results to {}."
+msgstr[0] "{} sonuç dışa aktarıldı: {}."
+msgstr[1] "{} sonuç dışa aktarıldı: {}."
+
+#: src/main.rs
+msgid "Exporting {} result…"
+msgid_plural "Exporting {} results…"
+msgstr[0] "{} sonuç dışa aktarılıyor…"
+msgstr[1] "{} sonuç dışa aktarılıyor…"

@@ -143,12 +143,22 @@ column headers to show the Type and Extension columns.
 | `Alt+B`, `Alt+E` | match prefix, match suffix |
 | `Alt+U`, `Alt+S` | ignore punctuation, ignore whitespace |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
+| `Ctrl+S` | export the results to a CSV or text file |
 | `Ctrl+N` | new window over the same index |
 | `Ctrl+,` | settings |
 | `Ctrl+Q` | quit (also when closing only hides the window) |
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
+
+File → Export results… (`Ctrl+S`) saves the listed results, in the shown
+order, through the desktop's save dialog. A name ending in `.csv` (or the
+CSV file type) gives a CSV file with the columns `Name`, `Folder`, `Size`
+(bytes; for a folder the total of the files below it), `Modified` (local
+time, `YYYY-MM-DD HH:MM:SS`) and `Offline` (`yes` for an entry of a drive
+that is not connected); `.txt` gives one full path per line, where an
+offline entry is followed by a tab and `(offline)`. The file is written to
+a temporary file and renamed into place.
 
 The menu bar (File, Edit, View, Search, Help) holds the same actions, the
 appearance choices (optional columns, folder size, density, theme, selection
@@ -310,8 +320,8 @@ collects nothing. It stores:
   history after EveryGrep closes" is on (it is off by default).
 
 It talks to other programs only on this computer: the session bus (single
-window, desktop portals for the folder chooser and the light or dark style,
-the file manager), `xdg-open` to open files and `gio trash` to move them to
+window, desktop portals for the folder chooser, the save dialog of the
+export and the light or dark style, the file manager), `xdg-open` to open files and `gio trash` to move them to
 the trash.
 
 ## Building
