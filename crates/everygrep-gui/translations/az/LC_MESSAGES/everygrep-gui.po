@@ -220,7 +220,7 @@ msgstr "Əlavə et…"
 
 #: ui/settings.slint
 msgid "Remove"
-msgstr "Sil"
+msgstr "Çıxar"
 
 #: ui/settings.slint
 msgid "EveryGrep settings"

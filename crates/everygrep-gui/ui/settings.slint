@@ -1,6 +1,6 @@
 // The settings window. Changes apply at once; each page has a button that
 // puts its settings back to the defaults.
-import { Button, CheckBox, ComboBox, Palette, SpinBox, StandardListView } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 component Heading inherits Text {
@@ -68,7 +68,7 @@ export component SettingsWindow inherits Window {
     title: @tr("EveryGrep settings");
     icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
     preferred-width: 680px;
-    preferred-height: 620px;
+    preferred-height: 600px;
     min-width: 520px;
     min-height: 420px;
     background: Theme.surface;
@@ -196,280 +196,288 @@ export component SettingsWindow inherits Window {
             Rectangle { width: 1px; background: Theme.line; }
 
             VerticalLayout {
-                padding: Theme.s5;
-                spacing: Theme.s4;
-
-                if root.error != "": Text {
-                    text: root.error;
-                    color: Theme.danger;
-                    font-size: Theme.small;
-                    wrap: word-wrap;
-                }
-
-                if root.page == 0: VerticalLayout {
-                    spacing: Theme.s4;
+                // The page scrolls when it is taller than the window (longer
+                // translations wrap to more lines); Reset stays in view.
+                ScrollView {
                     vertical-stretch: 1;
-                    if root.index-note != "": Note { text: root.index-note; }
-                    FolderList {
-                        title: @tr("Folders to index");
-                        count: root.roots-count;
-                        empty-text: @tr("Your home folder");
-                        model: root.roots;
-                        keep: 1;
-                        add => { root.add-roots(); }
-                        remove(i) => { root.remove-root(i); }
-                    }
-                    FolderList {
-                        title: @tr("Excluded folders");
-                        count: root.excludes-count;
-                        empty-text: @tr("None. Folders listed here are shown but not searched inside.");
-                        model: root.excludes;
-                        add => { root.add-excludes(); }
-                        remove(i) => { root.remove-exclude(i); }
-                    }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Button {
-                            text: @tr("Rebuild index now");
-                            clicked => { root.rebuild(); }
-                        }
-                        Note {
-                            text: root.index-status;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
-                    }
-                }
+                    VerticalLayout {
+                        padding: Theme.s5;
+                        spacing: Theme.s4;
 
-                if root.page == 1: VerticalLayout {
-                    spacing: Theme.s3;
-                    alignment: start;
-                    vertical-stretch: 1;
-                    Heading { text: @tr("When EveryGrep starts"); }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Text {
-                            text: @tr("Filter");
-                            color: Theme.text;
-                            vertical-alignment: center;
+                        if root.error != "": Text {
+                            text: root.error;
+                            color: Theme.danger;
+                            font-size: Theme.small;
+                            wrap: word-wrap;
                         }
-                        ComboBox {
-                            width: 180px;
-                            accessible-label: @tr("Default filter");
-                            model: root.filter-names;
-                            current-index <=> root.default-filter;
-                            selected => { root.search-changed(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    CheckBox {
-                        text: @tr("Match case");
-                        checked <=> root.default-case;
-                        toggled => { root.search-changed(); }
-                    }
-                    CheckBox {
-                        text: @tr("Match whole words");
-                        checked <=> root.default-words;
-                        toggled => { root.search-changed(); }
-                    }
-                    CheckBox {
-                        text: @tr("Match the full path");
-                        checked <=> root.default-path;
-                        toggled => { root.search-changed(); }
-                    }
-                    CheckBox {
-                        text: @tr("Match diacritics");
-                        checked <=> root.default-diacritics;
-                        toggled => { root.search-changed(); }
-                    }
-                    Note { text: @tr("Options given on the command line take their place."); }
-                    Rectangle { height: Theme.s2; }
-                    Heading { text: @tr("Search history"); }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Text {
-                            text: @tr("Searches to keep");
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        SpinBox {
-                            width: 140px;
-                            horizontal-stretch: 0;
-                            accessible-label: @tr("Searches to keep");
-                            minimum: 0;
-                            maximum: root.history-max;
-                            value <=> root.history-size;
-                            edited => { root.search-changed(); }
-                        }
-                        Note {
-                            text: @tr("0 turns the history off.");
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
-                    }
-                    CheckBox {
-                        text: @tr("Keep the history after EveryGrep closes");
-                        enabled: root.history-size > 0;
-                        checked <=> root.history-on-disk;
-                        toggled => { root.search-changed(); }
-                    }
-                    Note { text: @tr("Off: the history is forgotten when EveryGrep quits. Turning it off deletes the saved history."); }
-                }
 
-                if root.page == 2: VerticalLayout {
-                    spacing: Theme.s3;
-                    alignment: start;
-                    vertical-stretch: 1;
-                    Heading { text: @tr("Language and colors"); }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Text {
-                            text: @tr("Language");
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        ComboBox {
-                            width: 200px;
-                            accessible-label: @tr("Language");
-                            model: root.language-names;
-                            current-index <=> root.language;
-                            selected => { root.appearance-changed(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Note { text: @tr("Same as the system follows LANGUAGE, LC_ALL, LC_MESSAGES or LANG. The command line stays in English."); }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Text {
-                            text: @tr("Theme");
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        ComboBox {
-                            width: 200px;
-                            accessible-label: @tr("Theme");
-                            model: root.theme-names;
-                            current-index <=> root.theme;
-                            selected => { root.appearance-changed(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Note { text: @tr("Same as the desktop follows the light or dark style chosen in the desktop's settings, also when it changes."); }
-                    Rectangle { height: Theme.s2; }
-                    Heading { text: @tr("Result list"); }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Text {
-                            text: @tr("Density");
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        ComboBox {
-                            width: 200px;
-                            accessible-label: @tr("Density of the result list");
-                            model: root.density-names;
-                            current-index <=> root.density;
-                            selected => { root.appearance-changed(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Note { text: @tr("Compact shows more rows at once, with smaller icons and text."); }
-                    Rectangle { height: Theme.s2; }
-                    Heading { text: @tr("Status line"); }
-                    CheckBox {
-                        text: @tr("Show details of the selected items");
-                        checked <=> root.status-details;
-                        toggled => { root.appearance-changed(); }
-                    }
-                    Note { text: @tr("One selected item shows its size, modification time and full path; several show their number and the total size of the files among them."); }
-                    Rectangle { height: Theme.s2; }
-                    Heading { text: @tr("Menu bar"); }
-                    CheckBox {
-                        text: @tr("Show the menu bar");
-                        checked <=> root.menu-bar;
-                        toggled => { root.appearance-changed(); }
-                    }
-                    Note { text: @tr("Without it, the ⋯ button next to the filter holds Settings, Keyboard shortcuts, About and Quit."); }
-                }
-
-                if root.page == 3: VerticalLayout {
-                    spacing: Theme.s3;
-                    alignment: start;
-                    vertical-stretch: 1;
-                    Heading { text: @tr("Closing the window"); }
-                    HorizontalLayout {
-                        ComboBox {
-                            width: 300px;
-                            accessible-label: @tr("When the window is closed");
-                            model: root.close-names;
-                            current-index <=> root.on-close;
-                            selected => { root.window-changed(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Note { text: root.on-close-note; }
-                    Rectangle { height: Theme.s2; }
-                    Heading { text: @tr("Columns"); }
-                    CheckBox {
-                        text: @tr("Remember the shown columns and their widths");
-                        checked <=> root.remember-columns;
-                        toggled => { root.window-changed(); }
-                    }
-                    Note { text: @tr("Right-click the column headers to show the Type and Extension columns; drag the header borders to resize."); }
-                    Rectangle { height: Theme.s2; }
-                    Heading { text: @tr("Folder size"); }
-                    HorizontalLayout {
-                        spacing: Theme.s3;
-                        Text {
-                            text: @tr("The Size column shows");
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        ComboBox {
-                            width: 180px;
-                            accessible-label: @tr("What the Size column shows for folders");
-                            model: root.folder-size-names;
-                            current-index <=> root.folder-size;
-                            selected => { root.window-changed(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Note { text: root.folder-size-note; }
-                }
-
-                if root.page == 4: VerticalLayout {
-                    spacing: Theme.s3;
-                    alignment: start;
-                    vertical-stretch: 1;
-                    Heading { text: @tr("Open EveryGrep with a key"); }
-                    Note { text: root.shortcut-steps; color: Theme.text; }
-                    HorizontalLayout {
-                        spacing: Theme.s2;
-                        Rectangle {
-                            height: 32px;
-                            horizontal-stretch: 1;
-                            border-radius: Theme.radius;
-                            background: Theme.field;
-                            border-width: 1px;
-                            border-color: Theme.line;
-                            Text {
-                                x: Theme.s3;
-                                text: root.command;
-                                color: Theme.text;
-                                font-family: "monospace";
-                                vertical-alignment: center;
+                        if root.page == 0: VerticalLayout {
+                            spacing: Theme.s4;
+                            vertical-stretch: 1;
+                            if root.index-note != "": Note { text: root.index-note; }
+                            FolderList {
+                                title: @tr("Folders to index");
+                                count: root.roots-count;
+                                empty-text: @tr("Your home folder");
+                                model: root.roots;
+                                keep: 1;
+                                add => { root.add-roots(); }
+                                remove(i) => { root.remove-root(i); }
+                            }
+                            FolderList {
+                                title: @tr("Excluded folders");
+                                count: root.excludes-count;
+                                empty-text: @tr("None. Folders listed here are shown but not searched inside.");
+                                model: root.excludes;
+                                add => { root.add-excludes(); }
+                                remove(i) => { root.remove-exclude(i); }
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Button {
+                                    text: @tr("Rebuild index now");
+                                    clicked => { root.rebuild(); }
+                                }
+                                Note {
+                                    text: root.index-status;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
                             }
                         }
-                        Button {
-                            text: @tr("Copy command");
-                            clicked => { root.copy-command(); }
+
+                        if root.page == 1: VerticalLayout {
+                            spacing: Theme.s3;
+                            alignment: start;
+                            vertical-stretch: 1;
+                            Heading { text: @tr("When EveryGrep starts"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Filter");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 180px;
+                                    accessible-label: @tr("Default filter");
+                                    model: root.filter-names;
+                                    current-index <=> root.default-filter;
+                                    selected => { root.search-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            CheckBox {
+                                text: @tr("Match case");
+                                checked <=> root.default-case;
+                                toggled => { root.search-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Match whole words");
+                                checked <=> root.default-words;
+                                toggled => { root.search-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Match the full path");
+                                checked <=> root.default-path;
+                                toggled => { root.search-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Match diacritics");
+                                checked <=> root.default-diacritics;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("Options given on the command line take their place."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Search history"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Searches to keep");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                SpinBox {
+                                    width: 140px;
+                                    horizontal-stretch: 0;
+                                    accessible-label: @tr("Searches to keep");
+                                    minimum: 0;
+                                    maximum: root.history-max;
+                                    value <=> root.history-size;
+                                    edited => { root.search-changed(); }
+                                }
+                                Note {
+                                    text: @tr("0 turns the history off.");
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            CheckBox {
+                                text: @tr("Keep the history after EveryGrep closes");
+                                enabled: root.history-size > 0;
+                                checked <=> root.history-on-disk;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("Off: the history is forgotten when EveryGrep quits. Turning it off deletes the saved history."); }
+                        }
+
+                        if root.page == 2: VerticalLayout {
+                            spacing: Theme.s3;
+                            alignment: start;
+                            vertical-stretch: 1;
+                            Heading { text: @tr("Language and colors"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Language");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Language");
+                                    model: root.language-names;
+                                    current-index <=> root.language;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("Same as the system follows LANGUAGE, LC_ALL, LC_MESSAGES or LANG. The command line stays in English."); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Theme");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Theme");
+                                    model: root.theme-names;
+                                    current-index <=> root.theme;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("Same as the desktop follows the light or dark style chosen in the desktop's settings, also when it changes."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Result list"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Density");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Density of the result list");
+                                    model: root.density-names;
+                                    current-index <=> root.density;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("Compact shows more rows at once, with smaller icons and text."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Status line"); }
+                            CheckBox {
+                                text: @tr("Show details of the selected items");
+                                checked <=> root.status-details;
+                                toggled => { root.appearance-changed(); }
+                            }
+                            Note { text: @tr("One selected item shows its size, modification time and full path; several show their number and the total size of the files among them."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Menu bar"); }
+                            CheckBox {
+                                text: @tr("Show the menu bar");
+                                checked <=> root.menu-bar;
+                                toggled => { root.appearance-changed(); }
+                            }
+                            Note { text: @tr("Without it, the ⋯ button next to the filter holds Settings, Keyboard shortcuts, About and Quit."); }
+                        }
+
+                        if root.page == 3: VerticalLayout {
+                            spacing: Theme.s3;
+                            alignment: start;
+                            vertical-stretch: 1;
+                            Heading { text: @tr("Closing the window"); }
+                            HorizontalLayout {
+                                ComboBox {
+                                    width: 300px;
+                                    accessible-label: @tr("When the window is closed");
+                                    model: root.close-names;
+                                    current-index <=> root.on-close;
+                                    selected => { root.window-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: root.on-close-note; }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Columns"); }
+                            CheckBox {
+                                text: @tr("Remember the shown columns and their widths");
+                                checked <=> root.remember-columns;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("Right-click the column headers to show the Type and Extension columns; drag the header borders to resize."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Folder size"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("The Size column shows");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 180px;
+                                    accessible-label: @tr("What the Size column shows for folders");
+                                    model: root.folder-size-names;
+                                    current-index <=> root.folder-size;
+                                    selected => { root.window-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: root.folder-size-note; }
+                        }
+
+                        if root.page == 4: VerticalLayout {
+                            spacing: Theme.s3;
+                            alignment: start;
+                            vertical-stretch: 1;
+                            Heading { text: @tr("Open EveryGrep with a key"); }
+                            Note { text: root.shortcut-steps; color: Theme.text; }
+                            HorizontalLayout {
+                                spacing: Theme.s2;
+                                Rectangle {
+                                    height: 32px;
+                                    horizontal-stretch: 1;
+                                    border-radius: Theme.radius;
+                                    background: Theme.field;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    Text {
+                                        x: Theme.s3;
+                                        text: root.command;
+                                        color: Theme.text;
+                                        font-family: "monospace";
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Button {
+                                    text: @tr("Copy command");
+                                    clicked => { root.copy-command(); }
+                                }
+                            }
+                            Note { text: @tr("Pressing the keys again while EveryGrep is open brings its window to the front."); }
                         }
                     }
-                    Note { text: @tr("Pressing the keys again while EveryGrep is open brings its window to the front."); }
                 }
-
                 if root.page < 4: HorizontalLayout {
                     alignment: end;
+                    padding: Theme.s5;
+                    padding-top: Theme.s2;
                     Button {
                         text: @tr("Reset to defaults");
                         clicked => { root.reset-page(root.page); }
