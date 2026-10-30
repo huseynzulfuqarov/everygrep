@@ -53,6 +53,8 @@ First version, 0.1.0, not released yet.
 - Search window with results on every key press, highlighted matches,
   file-type icons and sortable, resizable columns (Name, Folder, Size,
   Modified, and optional Type and Extension).
+- Edit → Invert selection (`Ctrl+I`), which costs the same for any number
+  of results.
 - Selection with the mouse and keyboard; open, open the containing folder,
   copy names or paths, rename in place, move to the trash and delete
   permanently, from keys, a context menu and the menu bar.

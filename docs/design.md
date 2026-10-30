@@ -45,11 +45,12 @@ screen; when a change conflicts with them, the rules win or are changed first.
   density, theme, selection details, menu bar), Search (matching modes,
   including prefix, suffix, ignore punctuation and ignore whitespace,
   filters, previous and next search), Help (keyboard shortcuts, about).
-  Every entry runs the same action as its key or the context menu. Slint
+  Edit also has "Invert selection" (`Ctrl+I`). Every entry runs the same
+  action as its key or the context menu. Slint
   1.18 draws the bar inside the window on Linux (a native menu bar exists
   only on macOS and Windows), and its item shortcuts are matched before the
   focused widget sees the key. So only keys that mean the same everywhere
-  are given to menu items (`Ctrl+N`, `Ctrl+,`, `Ctrl+Q`,
+  are given to menu items (`Ctrl+N`, `Ctrl+,`, `Ctrl+Q`, `Ctrl+I`,
   `Alt+C/W/P/D/R/B/E/U/S`, `Alt+←/→`); `Ctrl+C`, `Ctrl+A`, `Delete` and `F2` stay with the search
   field when it has focus, and the Edit entries show no key. Help →
   Keyboard shortcuts lists them all. The bar cannot be opened from the
@@ -139,6 +140,7 @@ words.
 | Add or remove one row | `Ctrl+Space` | `Ctrl` + click |
 | Extend the selection | `Shift` + movement | `Shift` + click |
 | Select all | `Ctrl+A` | — |
+| Invert the selection | `Ctrl+I` | Edit menu |
 | Open | `Enter` | double-click, context menu |
 | Open the containing folder | `Ctrl+Enter` | context menu |
 | Copy the full path / the name | `Ctrl+Shift+C` / `Ctrl+C` | context menu |

@@ -126,6 +126,16 @@ impl Selection {
         self.replace(ids, Set::AllExcept(HashSet::new()))
     }
 
+    /// Selects the rows that were not selected and unselects the others,
+    /// without listing them.
+    pub fn invert(&mut self, ids: &[NodeId]) -> Changed {
+        let new = match &self.set {
+            Set::Only(s) => Set::AllExcept(s.clone()),
+            Set::AllExcept(s) => Set::Only(s.clone()),
+        };
+        self.replace(ids, new)
+    }
+
     pub fn clear(&mut self, ids: &[NodeId]) -> Changed {
         self.anchor = None;
         self.replace(ids, Set::Only(HashSet::new()))
@@ -193,6 +203,28 @@ mod tests {
 
     fn rows(sel: &Selection, ids: &[NodeId]) -> Vec<usize> {
         (0..ids.len()).filter(|&r| sel.contains(ids[r])).collect()
+    }
+
+    #[test]
+    fn invert_swaps_selected_and_unselected_rows() {
+        let ids = list(6);
+        let mut sel = Selection::default();
+        assert_eq!(sel.invert(&ids), Changed::All);
+        assert_eq!(rows(&sel, &ids), [0, 1, 2, 3, 4, 5]);
+        sel.clear(&ids);
+        sel.select_only(&ids, 1);
+        sel.toggle(&ids, 4);
+        sel.invert(&ids);
+        assert_eq!(rows(&sel, &ids), [0, 2, 3, 5]);
+        assert_eq!(sel.count(ids.len()), 4);
+        sel.invert(&ids);
+        assert_eq!(rows(&sel, &ids), [1, 4]);
+        // After a refresh, inverting covers only the rows still listed.
+        sel.invert(&ids);
+        let fewer: Vec<NodeId> = ids[..3].to_vec();
+        sel.retain(&fewer);
+        sel.invert(&fewer);
+        assert_eq!(rows(&sel, &fewer), [1]);
     }
 
     #[test]

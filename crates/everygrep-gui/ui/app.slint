@@ -676,6 +676,8 @@ export component AppWindow inherits Window {
     in property <string> confirm-text;
     in property <string> confirm-action;
     callback select-all();
+    // Selects the rows that are not selected and unselects the others.
+    callback invert-selection();
     // Returns whether anything was selected.
     callback clear-selection() -> bool;
     pure callback is-selected(int) -> bool;
@@ -777,6 +779,13 @@ export component AppWindow inherits Window {
         if (event.modifiers.control && !event.modifiers.alt) {
             if (event.text == ",") {
                 root.open-settings();
+                return true;
+            }
+            if ((event.text == "i" || event.text == "I") && !event.modifiers.shift) {
+                if (root.results.length > 0) {
+                    root.invert-selection();
+                    keys.focus();
+                }
                 return true;
             }
             if (event.text == "q" || event.text == "Q") {
@@ -1532,6 +1541,15 @@ export component AppWindow inherits Window {
                 enabled: root.results.length > 0;
                 activated => {
                     root.select-all();
+                    keys.focus();
+                }
+            }
+            MenuItem {
+                title: @tr("Invert selection");
+                shortcut: @keys(Control + I);
+                enabled: root.results.length > 0;
+                activated => {
+                    root.invert-selection();
                     keys.focus();
                 }
             }

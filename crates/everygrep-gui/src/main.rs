@@ -276,6 +276,16 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
     });
+    window.on_invert_selection({
+        let weak = weak.clone();
+        let model = model.clone();
+        move || {
+            model.invert_selection();
+            if let Some(w) = weak.upgrade() {
+                refresh_status(&w);
+            }
+        }
+    });
     window.on_clear_selection({
         let weak = weak.clone();
         let model = model.clone();

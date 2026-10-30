@@ -359,6 +359,7 @@ pub fn shortcuts() -> Vec<(&'static str, &'static str)> {
         ),
         ("Ctrl+Space", tr("Add or remove one row")),
         ("Ctrl+A", tr("Select all")),
+        ("Ctrl+I", tr("Invert selection")),
         ("Enter", tr("Open")),
         ("Ctrl+Enter", tr("Open the containing folder")),
         ("Ctrl+C", tr("Copy the name")),

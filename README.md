@@ -128,6 +128,7 @@ column headers to show the Type and Extension columns.
 | `Shift` + movement, `Shift`+click | extend the selection |
 | `Ctrl+Space`, `Ctrl`+click | add or remove one row |
 | `Ctrl+A` | select all |
+| `Ctrl+I` | invert the selection (also from the search field) |
 | `Enter`, double-click | open |
 | `Ctrl+Enter` | open the containing folder |
 | `Ctrl+C` / `Ctrl+Shift+C` | copy the name / the full path (one per line) |

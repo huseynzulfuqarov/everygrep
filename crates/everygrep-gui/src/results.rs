@@ -124,6 +124,10 @@ impl ResultsModel {
         self.change_selection(Selection::select_all);
     }
 
+    pub fn invert_selection(&self) {
+        self.change_selection(Selection::invert);
+    }
+
     /// Clears the selection; returns whether anything was selected.
     pub fn clear_selection(&self) -> bool {
         let had = self.selected_count() > 0;

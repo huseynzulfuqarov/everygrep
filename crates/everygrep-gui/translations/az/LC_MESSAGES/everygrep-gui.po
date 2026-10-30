@@ -999,3 +999,7 @@ msgstr "Durğusuz"
 #: src/labels.rs
 msgid "No whitespace"
 msgstr "Boşluqsuz"
+
+#: ui/app.slint
+msgid "Invert selection"
+msgstr "Seçimi tərsinə çevir"
