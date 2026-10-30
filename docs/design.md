@@ -42,7 +42,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   full path and diacritics; each shows its name and key in a tip on hover. A
   filter selector sits next to the field: all, audio, archives, code,
   documents, executables, folders, pictures, videos. The overflow menu holds
-  settings, help and about.
+  settings and quit; help and about are planned.
 - **Result table.** Default columns are Name, Folder, Size and Modified. Type
   and Extension can be shown from the header's context menu; Created and Full
   path are planned (the index does not keep creation or access times yet).
@@ -115,7 +115,8 @@ or refreshed after file changes, and a new query clears it.
 A search is kept in the history when typing pauses for a second, on `Enter`
 in the search field, or when a result is opened; a repeat of the current entry
 is skipped, and searching after going back drops the entries ahead, as in a web
-browser. The history lives in memory for the session (up to 200 entries).
+browser. The history lives in memory for the session (up to 200 entries by
+default); its size, and whether it is kept on disk, are settings.
 
 ### One window
 
@@ -124,7 +125,11 @@ never stacks windows: the open window comes to the front with the search field
 focused and its text selected, so typing starts a new search. Query words and
 options passed to the new launch replace the search and the matching modes in
 that window, as if it had just been started with them, with the caret after
-the new query; a bare launch keeps the search. Closing the window quits the program; there is no background mode.
+the new query; a bare launch keeps the search. Closing the window quits the
+program by default. A setting makes closing hide the window instead: the
+program keeps the index loaded and watching, and the next launch shows the
+window again through this hand-over, so no tray icon is needed. `Ctrl+Q`
+always quits.
 
 A window belongs to one index (its roots and index file). A launch for another
 index opens its own window, and `--new-instance` opens one on purpose.
@@ -138,6 +143,26 @@ Rename refuses a name that already exists in the folder and shows the reason in
 the status line. Moving to the trash asks first only for more than 50 items;
 deleting permanently always asks, because it cannot be undone. Hiding the
 window with `Esc` is planned.
+
+### Settings
+
+Settings open in a separate window (`Ctrl+,`, the overflow menu, or
+`--settings`): a list of pages on the left (Indexing, Search, Window,
+Keyboard shortcut), the page on the right. `Ctrl+PgUp`/`Ctrl+PgDn` switch
+pages and `Esc` closes the window.
+
+- Changes apply at once; there is no OK or Apply. Each page has "Reset to
+  defaults", which resets that page only.
+- Defaults reproduce the behaviour from before settings existed, so a missing
+  settings file changes nothing.
+- Every behaviour choice is a setting; nothing is fixed in code that a user
+  might want otherwise.
+- Folders are added through the desktop's own folder chooser (the XDG
+  portal), never through a dialog of ours.
+- Changing what is indexed rebuilds the index in the background; the window
+  stays usable and the status line reports the progress.
+- Problems with the settings file are shown at the top of the settings window
+  in plain words; a file that cannot be read is never overwritten.
 
 ## Writing
 

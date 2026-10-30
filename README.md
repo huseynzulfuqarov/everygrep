@@ -45,7 +45,8 @@ character that is not a letter or digit.
 ```sh
 everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--case] [--whole-words] [--match-path] [--diacritics]
-              [--columns type,extension] [--new-instance] [query words...]
+              [--columns type,extension] [--new-instance]
+              [--settings[=indexing|search|window|shortcut]] [query words...]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
@@ -73,9 +74,72 @@ column headers to show the Type and Extension columns.
 | `Alt+←` / `Alt+→` | back / forward through earlier searches |
 | `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | match case, whole words, full path, diacritics |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
+| `Ctrl+,` | settings |
+| `Ctrl+Q` | quit (also when closing only hides the window) |
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
+
+### Settings
+
+Open the settings with `Ctrl+,`, from the `⋯` menu next to the filter
+selector, or with `--settings` (`--settings=search` opens that page; given to
+a later launch, it opens the settings in the running window). Changes apply at
+once; each page has a "Reset to defaults" button. Without a settings file
+the program behaves as before.
+
+| Page | Setting | Default |
+|---|---|---|
+| Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
+| | excluded folders: listed, but not searched inside | none |
+| | "Rebuild index now" | — |
+| Search | filter and matching modes when EveryGrep starts | all, every mode off |
+| | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
+| | keep the history after EveryGrep closes | off |
+| Window | closing the window: quit, or hide it and keep running | quit |
+| | remember the shown columns and their widths | on |
+| Keyboard shortcut | how to open EveryGrep with a key (see below) | — |
+
+Changing the folders rebuilds the index in the background while the window
+stays usable; the status line shows the progress, and the new index is saved
+as soon as it is complete. An excluded folder is matched exactly, and its own
+entry stays in the results. Hidden files are always indexed.
+
+When closing only hides the window, EveryGrep keeps the index in memory and
+keeps watching; starting `everygrep-gui` again (for example with its
+shortcut) shows the window at once through the hand-over described below. No
+tray icon is needed. `Ctrl+Q` or Quit in the `⋯` menu ends the program.
+
+Options on the command line take the place of the saved ones for that start.
+The folders on the Indexing page belong to the default index: a window
+started with `--root` or `--index-file` shows its own folders, and changes
+made there apply to that window only and are never saved.
+
+The settings live in `$XDG_CONFIG_HOME/everygrep/settings` (by default
+`~/.config/everygrep/settings`), a text file with one `key = value` per line
+and only the settings that differ from the defaults:
+
+```text
+root = /home/me
+root = /srv/media
+exclude = /home/me/.cache
+filter = document
+match-case = true
+history-size = 50
+history-on-disk = true
+on-close = hide
+show-type-column = true
+size-width = 120
+```
+
+`root` and `exclude` repeat for each folder. Other keys: `whole-words`,
+`match-path`, `match-diacritics`, `remember-columns`,
+`show-extension-column`, `name-width`, `modified-width`, `type-width`,
+`extension-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
+space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,
+lines that cannot be read are ignored (the settings window says how many),
+and the file is replaced atomically. The search history, when kept, is in
+`history` in the same folder, one query per line.
 
 ### One window
 
@@ -94,7 +158,8 @@ The windows find each other on the D-Bus session bus (name
 
 To open the window with a key, add a GNOME shortcut: Settings → Keyboard →
 View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,
-command `everygrep-gui`, then press the keys you want.
+command `everygrep-gui`, then press the keys you want. The Keyboard shortcut
+page of the settings shows the same steps and copies the command.
 
 ## Building
 
