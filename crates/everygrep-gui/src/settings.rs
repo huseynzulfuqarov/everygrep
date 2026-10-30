@@ -13,6 +13,7 @@
 //! on-close = hide
 //! folder-size = items
 //! theme = light
+//! density = compact
 //! ```
 //!
 //! Only settings that differ from their defaults are written, so a file
@@ -88,6 +89,27 @@ impl ThemeChoice {
     }
 }
 
+/// How tightly the result list is packed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Density {
+    /// 28 px rows (the look before the setting existed).
+    #[default]
+    Comfortable,
+    /// 22 px rows with smaller icons and text, for many rows at once.
+    Compact,
+}
+
+impl Density {
+    pub const ALL: [Density; 2] = [Density::Comfortable, Density::Compact];
+
+    fn id(self) -> &'static str {
+        match self {
+            Density::Comfortable => "comfortable",
+            Density::Compact => "compact",
+        }
+    }
+}
+
 /// Optional columns and column widths as the window last showed them. A width
 /// of `None` means the window's default.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -126,6 +148,7 @@ pub struct Settings {
     pub remember_columns: bool,
     pub columns: Columns,
     pub theme: ThemeChoice,
+    pub density: Density,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -145,6 +168,7 @@ impl Default for Settings {
             remember_columns: true,
             columns: Columns::default(),
             theme: ThemeChoice::System,
+            density: Density::Comfortable,
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -240,6 +264,11 @@ impl Settings {
                 .find(|t| t.id() == value)
                 .map(|t| self.theme = t)
                 .is_some(),
+            "density" => Density::ALL
+                .into_iter()
+                .find(|d| d.id() == value)
+                .map(|d| self.density = d)
+                .is_some(),
             "show-type-column" => put_flag(&mut self.columns.show_type),
             "show-extension-column" => put_flag(&mut self.columns.show_ext),
             "name-width" | "size-width" | "modified-width" | "type-width" | "extension-width" => {
@@ -319,6 +348,9 @@ impl Settings {
         if self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
+        if self.density != d.density {
+            line(&mut out, "density", self.density.id());
+        }
         let c = &self.columns;
         flag(&mut out, "show-type-column", c.show_type, false);
         flag(&mut out, "show-extension-column", c.show_ext, false);
@@ -357,6 +389,7 @@ impl Settings {
             }
             Page::Appearance => {
                 self.theme = d.theme;
+                self.density = d.density;
             }
             Page::Window => {
                 self.on_close = d.on_close;
@@ -395,9 +428,11 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
 fn is_known(key: &str) -> bool {
     let mut probe = Settings::default();
     // Every known key accepts at least one of these values.
-    ["true", "all", "quit", "total", "system", "1", "/"]
-        .iter()
-        .any(|v| probe.set(key, v))
+    [
+        "true", "all", "quit", "total", "system", "compact", "1", "/",
+    ]
+    .iter()
+    .any(|v| probe.set(key, v))
 }
 
 /// Folder of the settings: `$XDG_CONFIG_HOME/everygrep`, falling back to
@@ -566,11 +601,13 @@ pub(crate) mod tests {
                 ext: Some(60.0),
             },
             theme: ThemeChoice::Dark,
+            density: Density::Compact,
             ..Settings::default()
         };
         let text = s.to_text();
         assert_eq!(Settings::parse(&text), s, "{text}");
         assert!(text.contains("theme = dark\n"));
+        assert!(text.contains("density = compact\n"));
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));
@@ -607,10 +644,25 @@ pub(crate) mod tests {
         let s = Settings::parse("theme = light\ntheme = blue\n");
         assert_eq!(s.theme, ThemeChoice::Light);
         assert_eq!(s.problems.len(), 1);
-        let mut s = Settings::parse("theme = dark\nfilter = code\n");
+        let mut s = Settings::parse("theme = dark\ndensity = compact\nfilter = code\n");
         s.reset(Page::Appearance);
         assert_eq!(s.theme, ThemeChoice::System);
+        assert_eq!(s.density, Density::Comfortable);
         assert_eq!(s.options.filter, Filter::Code, "other pages stay");
+    }
+
+    #[test]
+    fn density_defaults_to_comfortable() {
+        assert_eq!(Settings::default().density, Density::Comfortable);
+        assert!(!Settings::default().to_text().contains("density"));
+        for d in Density::ALL {
+            let s = Settings {
+                density: d,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).density, d);
+        }
+        assert_eq!(Settings::parse("density = tiny\n").problems.len(), 1);
     }
 
     #[test]

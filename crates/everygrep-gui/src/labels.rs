@@ -9,7 +9,7 @@ use everygrep_core::sort::FolderSize;
 
 use crate::engine::IndexState;
 use crate::format;
-use crate::settings::{OnClose, ThemeChoice};
+use crate::settings::{Density, OnClose, ThemeChoice};
 
 /// Name of a filter in the filter selector.
 pub fn filter(f: Filter) -> &'static str {
@@ -147,6 +147,14 @@ pub fn theme(t: ThemeChoice) -> &'static str {
         ThemeChoice::System => "Same as the desktop",
         ThemeChoice::Light => "Light",
         ThemeChoice::Dark => "Dark",
+    }
+}
+
+/// Choices for how tightly the result list is packed.
+pub fn density(d: Density) -> &'static str {
+    match d {
+        Density::Comfortable => "Comfortable",
+        Density::Compact => "Compact",
     }
 }
 

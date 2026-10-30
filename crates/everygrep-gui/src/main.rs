@@ -148,6 +148,7 @@ fn main() -> Result<(), slint::PlatformError> {
     );
     prefs.restore_columns(&window);
     prefs.apply_theme();
+    prefs.apply_density();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
         let _ = portal::watch_color_scheme(|scheme| {

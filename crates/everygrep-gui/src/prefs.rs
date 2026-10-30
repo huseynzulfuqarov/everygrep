@@ -20,7 +20,7 @@ use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
 use crate::look::{self, Scheme};
 use crate::portal::ColorScheme;
-use crate::settings::{self, Columns, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice};
+use crate::settings::{self, Columns, Density, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice};
 use crate::{AppWindow, SettingsWindow, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
@@ -251,6 +251,14 @@ impl Prefs {
         }
     }
 
+    /// Packs the main window's list as the density setting says.
+    pub fn apply_density(&self) {
+        let compact = self.settings.borrow().density == Density::Compact;
+        if let Some(m) = self.main.upgrade() {
+            m.invoke_set_compact(compact);
+        }
+    }
+
     /// Puts the remembered columns into the main window.
     pub fn restore_columns(&self, w: &AppWindow) {
         let s = self.settings.borrow();
@@ -441,6 +449,17 @@ impl Prefs {
                 .position(|&t| t == s.theme)
                 .unwrap_or(0) as i32,
         );
+        let densities: Vec<SharedString> = Density::ALL
+            .iter()
+            .map(|&d| labels::density(d).into())
+            .collect();
+        w.set_density_names(ModelRc::new(VecModel::from(densities)));
+        w.set_density(
+            Density::ALL
+                .iter()
+                .position(|&d| d == s.density)
+                .unwrap_or(0) as i32,
+        );
 
         w.set_command(COMMAND.into());
         w.set_shortcut_steps(labels::SHORTCUT_STEPS.into());
@@ -540,7 +559,19 @@ impl Prefs {
             .ok()
             .and_then(|i| ThemeChoice::ALL.get(i).copied())
             .unwrap_or_default();
+        let density = usize::try_from(w.get_density())
+            .ok()
+            .and_then(|i| Density::ALL.get(i).copied())
+            .unwrap_or_default();
         self.set_theme(theme);
+        self.set_density(density);
+    }
+
+    /// Changes the density setting and repacks the list.
+    pub fn set_density(&self, density: Density) {
+        self.change(|s| s.density = density);
+        self.apply_density();
+        self.refresh();
     }
 
     /// Changes the theme setting and recolors the windows.
@@ -630,6 +661,7 @@ impl Prefs {
         }
         if page == Page::Appearance {
             self.apply_theme();
+            self.apply_density();
         }
         if page == Page::Window {
             self.apply_folder_size();

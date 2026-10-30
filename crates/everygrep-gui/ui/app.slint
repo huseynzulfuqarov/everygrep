@@ -123,7 +123,7 @@ component SearchField inherits Rectangle {
         input.set-selection-offsets(offset, offset);
     }
 
-    height: 34px;
+    height: Theme.field-height;
     border-radius: Theme.radius;
     background: Theme.field;
     border-width: input.has-focus ? 2px : 1px;
@@ -329,15 +329,15 @@ component Row inherits Rectangle {
     Image {
         x: Theme.s3;
         source: Icons.types[root.data.kind];
-        width: Theme.icon;
-        height: Theme.icon;
+        width: Theme.row-icon;
+        height: Theme.row-icon;
         y: (parent.height - self.height) / 2;
     }
     // The name as up to three pieces: before, match (bold) and after. Each
     // piece takes its natural width while there is room; the piece that runs
     // out of room is elided, and the cell clips the rest.
     name-cell := Rectangle {
-        x: Theme.s3 + Theme.icon + Theme.s2;
+        x: Theme.s3 + Theme.row-icon + Theme.s2;
         width: max(0px, root.name-width - self.x - Theme.s2);
         height: parent.height;
         clip: true;
@@ -348,7 +348,7 @@ component Row inherits Rectangle {
             height: parent.height;
             text: root.data.name-before;
             color: root.selected ? Theme.selection-text : Theme.text;
-            font-size: Theme.body;
+            font-size: Theme.list-text;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -359,7 +359,7 @@ component Row inherits Rectangle {
             visible: self.text != "";
             text: root.data.name-match;
             color: root.selected ? Theme.selection-text : Theme.text;
-            font-size: Theme.body;
+            font-size: Theme.list-text;
             font-weight: 700;
             vertical-alignment: center;
             overflow: elide;
@@ -371,7 +371,7 @@ component Row inherits Rectangle {
             visible: self.text != "";
             text: root.data.name-after;
             color: root.selected ? Theme.selection-text : Theme.text;
-            font-size: Theme.body;
+            font-size: Theme.list-text;
             vertical-alignment: center;
             overflow: elide;
         }
@@ -392,7 +392,7 @@ component Row inherits Rectangle {
             single-line: true;
             vertical-alignment: center;
             color: Theme.text;
-            font-size: Theme.body;
+            font-size: Theme.list-text;
             selection-background-color: Theme.selection;
             selection-foreground-color: Theme.selection-text;
             init => {
@@ -424,7 +424,7 @@ component Row inherits Rectangle {
         height: parent.height;
         text: root.data.folder;
         color: root.selected ? Theme.selection-text : Theme.text-muted;
-        font-size: Theme.body;
+        font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
     }
@@ -434,7 +434,7 @@ component Row inherits Rectangle {
         height: parent.height;
         text: root.data.size;
         color: root.selected ? Theme.selection-text : Theme.text-muted;
-        font-size: Theme.body;
+        font-size: Theme.list-text;
         vertical-alignment: center;
         horizontal-alignment: right;
     }
@@ -444,7 +444,7 @@ component Row inherits Rectangle {
         height: parent.height;
         text: root.data.modified;
         color: root.selected ? Theme.selection-text : Theme.text-muted;
-        font-size: Theme.body;
+        font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
     }
@@ -455,7 +455,7 @@ component Row inherits Rectangle {
         height: parent.height;
         text: root.data.type-name;
         color: root.selected ? Theme.selection-text : Theme.text-muted;
-        font-size: Theme.body;
+        font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
     }
@@ -465,7 +465,7 @@ component Row inherits Rectangle {
         height: parent.height;
         text: root.data.extension;
         color: root.selected ? Theme.selection-text : Theme.text-muted;
-        font-size: Theme.body;
+        font-size: Theme.list-text;
         vertical-alignment: center;
         overflow: elide;
     }
@@ -711,6 +711,11 @@ export component AppWindow inherits Window {
         Palette.color-scheme = Theme.scheme;
     }
 
+    // Density of the list: compact or comfortable.
+    public function set-compact(compact: bool) {
+        Theme.compact = compact;
+    }
+
     public function focus-search() {
         search.focus-and-select();
     }
@@ -787,8 +792,8 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 padding-left: Theme.s3;
                 padding-right: Theme.s3;
-                padding-top: (Theme.top-bar-height - 34px) / 2;
-                padding-bottom: (Theme.top-bar-height - 34px) / 2;
+                padding-top: (Theme.top-bar-height - Theme.field-height) / 2;
+                padding-bottom: (Theme.top-bar-height - Theme.field-height) / 2;
                 spacing: Theme.s2;
                 search := SearchField {
                     horizontal-stretch: 1;
@@ -1133,7 +1138,7 @@ export component AppWindow inherits Window {
                     for badge in root.badges: VerticalLayout {
                         alignment: center;
                         Rectangle {
-                            height: 18px;
+                            height: Theme.badge-height;
                             width: badge-text.preferred-width + 2 * Theme.s1 + 2px;
                             border-radius: 4px;
                             background: Theme.selection;

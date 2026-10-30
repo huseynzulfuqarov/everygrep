@@ -108,6 +108,8 @@ export component SettingsWindow inherits Window {
     // Appearance
     in property <[string]> theme-names;
     in-out property <int> theme;
+    in property <[string]> density-names;
+    in-out property <int> density;
     callback appearance-changed();
 
     // Window
@@ -332,6 +334,25 @@ export component SettingsWindow inherits Window {
                         Rectangle { horizontal-stretch: 1; }
                     }
                     Note { text: "Same as the desktop follows the light or dark style chosen in the desktop's settings, also when it changes."; }
+                    Rectangle { height: Theme.s2; }
+                    Heading { text: "Result list"; }
+                    HorizontalLayout {
+                        spacing: Theme.s3;
+                        Text {
+                            text: "Density";
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        ComboBox {
+                            width: 200px;
+                            accessible-label: "Density of the result list";
+                            model: root.density-names;
+                            current-index <=> root.density;
+                            selected => { root.appearance-changed(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Note { text: "Compact shows more rows at once, with smaller icons and text."; }
                 }
 
                 if root.page == 3: VerticalLayout {
