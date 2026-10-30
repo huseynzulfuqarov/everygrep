@@ -11,7 +11,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
    keeps up with a 120 Hz display. Nothing animates that the user has to wait
    for.
 2. **Content first.** Most of the window shows file names. The chrome around
-   them is a search field, column headers and one status line.
+   them is a menu bar, a search field, column headers and one status line;
+   the menu bar can be turned off.
 3. **Quiet surfaces.** Flat neutral backgrounds and one accent color. No
    gradients, glows or decorative illustrations. Shadows appear only under
    floating elements such as menus and popups.
@@ -26,7 +27,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ [ search field ............... Aa ab a/b é ] [filter ▾] [⋯]  │  top bar 48 px
+│ File  Edit  View  Search  Help                               │  menu bar 40 px
+│ [ search field ............... Aa ab a/b é ] [filter ▾]      │  top bar 48 px
 ├──────────────────────────────────────────────────────────────┤
 │ Name ▲               │ Folder                │ Size │ Modified│  header 30 px
 │ ▢ report-2026.pdf    │ ~/Documents/work      │ 3 MB │ 25 Oct  │  rows 28 px
@@ -37,12 +39,29 @@ screen; when a change conflicts with them, the rules win or are changed first.
 └──────────────────────────────────────────────────────────────┘
 ```
 
+- **Menu bar.** On by default, switchable in the View menu and the
+  settings. File (new window, settings, quit), Edit (copy name and path,
+  select all, rename, trash, delete), View (optional columns, folder size,
+  density, theme, selection details, menu bar), Search (matching modes,
+  filters, previous and next search), Help (keyboard shortcuts, about).
+  Every entry runs the same action as its key or the context menu. Slint
+  1.18 draws the bar inside the window on Linux (a native menu bar exists
+  only on macOS and Windows), and its item shortcuts are matched before the
+  focused widget sees the key. So only keys that mean the same everywhere
+  are given to menu items (`Ctrl+N`, `Ctrl+,`, `Ctrl+Q`, `Alt+C/W/P/D`,
+  `Alt+←/→`); `Ctrl+C`, `Ctrl+A`, `Delete` and `F2` stay with the search
+  field when it has focus, and the Edit entries show no key. Help →
+  Keyboard shortcuts lists them all. The bar cannot be opened from the
+  keyboard yet (no `F10`), which is fine because every entry has a key or
+  is in the settings.
 - **Top bar.** The search field takes all the remaining width. Four small
   toggles at its right end switch the matching modes: match case, whole words,
   full path and diacritics; each shows its name and key in a tip on hover. A
   filter selector sits next to the field: all, audio, archives, code,
-  documents, executables, folders, pictures, videos. The overflow menu holds
-  settings and quit; help and about are planned.
+  documents, executables, folders, pictures, videos. When the menu bar is
+  hidden, an overflow button (`⋯`) after the filter holds settings,
+  keyboard shortcuts, about, "show the menu bar" and quit; with the menu
+  bar shown it is left out, so no entry has two homes on screen.
 - **Result table.** Default columns are Name, Folder, Size and Modified. Type
   and Extension can be shown from the header's context menu; Created and Full
   path are planned (the index does not keep creation or access times yet).
@@ -53,7 +72,12 @@ screen; when a change conflicts with them, the rules win or are changed first.
   nothing instead); sorting by Size mixes folders and files by that total,
   as every other column does, since folders are never forced first.
 - **Status line.** Result count, index size, index state, small badges for the
-  matching modes that are on, and query time.
+  matching modes that are on, and query time. With one item selected the
+  details of that item follow the count: size (for a folder as the folder
+  size setting says), modification time and full path; with several, their
+  number and the total size of the files among them (summed up to 100 000
+  selected items). A setting turns the details off. The left part is elided
+  first, so badges and time stay visible.
 - **Optional panes,** hidden by default: a preview pane on the right and a
   sidebar of saved searches on the left.
 
@@ -65,14 +89,31 @@ screen; when a change conflicts with them, the rules win or are changed first.
 | Corner radius | 6 px for fields and buttons, 8 px for popups, 0 for table rows |
 | Font | System UI font. Body 13 px, header 12 px semibold, status 12 px |
 | Numbers | Tabular figures. Sizes are right-aligned |
-| Row height | 28 px (compact 24 px, comfortable 32 px) |
+| Row height | Comfortable 28 px; compact 22 px with 14 px icons, 12 px row text, 24 px header, 40 px top bar, 22 px status line |
 | Accent | One color, used for focus rings, the selection and the active sort column |
 | Lines | 1 px hairlines in a low-contrast neutral color, no heavy borders |
-| Themes | Light and dark, following the system setting by default |
+| Themes | Light and dark, following the desktop setting by default |
 
-Colors are defined once as named tokens (`surface`, `surface-alt`, `text`,
-`text-muted`, `line`, `accent`, `accent-text`, `selection`, `danger`) for each
-theme. Components use only the tokens, never raw colors.
+Colors are defined once as named tokens (`surface`, `surface-alt`, `field`,
+`field-line`, `text`, `text-muted`, `line`, `accent`, `accent-text`,
+`selection`, `selection-text`, `hover`, `danger`) for each theme. Components
+use only the tokens, never raw colors.
+
+The theme setting is "same as the desktop", light or dark. "Same as the
+desktop" reads `color-scheme` from the XDG settings portal
+(`org.freedesktop.portal.Settings`, `ReadOne`, falling back to `Read`) and
+follows its `SettingChanged` signal, so the window recolors live; "no
+preference" counts as light. Until the portal answers, the toolkit's own
+reading of the same setting is used, so the first frame never flashes. The
+chosen scheme is also given to the standard widgets (`Palette.color-scheme`),
+so menus, combo boxes and buttons match. The window frame drawn by the
+toolkit keeps the desktop's scheme.
+
+Light palette: white surface, `#f5f6f8` for the header and status line, text
+`#16171a` (17.9:1), muted text `#545862` (7.1:1 on white, 6.3:1 on hover),
+accent `#1f5fd6` (5.7:1), selection `#d3e2fd` with `#0b1b3d` text (13:1),
+hover `#eef1f5`, danger `#b42323`. The search field is white like the
+surface, so it gets a visible `#c5cad2` border (`field-line`).
 
 Contrast: body text at least 7:1 against its background, muted text at least
 4.5:1.
@@ -106,8 +147,9 @@ words.
 | Clear the search | `Esc` in the search field | — |
 | Back / forward through earlier searches | `Alt+←` / `Alt+→` | — |
 | Match case, whole words, full path, diacritics | `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | toggles in the search field |
-| Previous / next filter | `Alt+↑` / `Alt+↓` | filter selector |
-| Show or hide the Type and Extension columns | — | header context menu |
+| Previous / next filter | `Alt+↑` / `Alt+↓` | filter selector, Search menu |
+| Show or hide the Type and Extension columns | — | header context menu, View menu |
+| New window over the same index | `Ctrl+N` | File menu |
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per
@@ -149,9 +191,10 @@ window with `Esc` is planned.
 
 ### Settings
 
-Settings open in a separate window (`Ctrl+,`, the overflow menu, or
-`--settings`): a list of pages on the left (Indexing, Search, Window,
-Keyboard shortcut), the page on the right. `Ctrl+PgUp`/`Ctrl+PgDn` switch
+Settings open in a separate window (`Ctrl+,`, File → Settings, the overflow
+menu, or `--settings`): a list of pages on the left (Indexing, Search,
+Appearance, Window, Keyboard shortcut), the page on the right. Appearance
+holds the theme, the density, the selection details and the menu bar. `Ctrl+PgUp`/`Ctrl+PgDn` switch
 pages and `Esc` closes the window.
 
 - Changes apply at once; there is no OK or Apply. Each page has "Reset to
@@ -159,7 +202,11 @@ pages and `Esc` closes the window.
 - Defaults reproduce the behaviour from before settings existed, so a missing
   settings file changes nothing. One exception was chosen on purpose: folder
   sizes (Window page) default to the total size, where folders used to show
-  an empty Size; "nothing" restores the old look.
+  an empty Size; "nothing" restores the old look. The menu bar and the
+  selection details (Appearance page) are also on by default; turning them
+  off restores the earlier look.
+- Choices that also appear in a menu (View and Search) and in the settings
+  are the same setting: changing one place changes the other at once.
 - Every behaviour choice is a setting; nothing is fixed in code that a user
   might want otherwise.
 - Folders are added through the desktop's own folder chooser (the XDG

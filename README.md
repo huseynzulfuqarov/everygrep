@@ -46,7 +46,7 @@ character that is not a letter or digit.
 everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--case] [--whole-words] [--match-path] [--diacritics]
               [--columns type,extension] [--new-instance]
-              [--settings[=indexing|search|window|shortcut]] [query words...]
+              [--settings[=indexing|search|appearance|window|shortcut]] [query words...]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
@@ -74,16 +74,27 @@ column headers to show the Type and Extension columns.
 | `Alt+←` / `Alt+→` | back / forward through earlier searches |
 | `Alt+C`, `Alt+W`, `Alt+P`, `Alt+D` | match case, whole words, full path, diacritics |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
+| `Ctrl+N` | new window over the same index |
 | `Ctrl+,` | settings |
 | `Ctrl+Q` | quit (also when closing only hides the window) |
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
 
+The menu bar (File, Edit, View, Search, Help) holds the same actions, the
+appearance choices (optional columns, folder size, density, theme, selection
+details, the menu bar itself), the matching modes with their `Alt` keys, the
+filters and the search history. Help → Keyboard shortcuts lists every key;
+Help → About shows the version and the license. The Edit actions show no
+key in the menu, because menu keys would take `Ctrl+C`, `Delete` or `F2` away
+from the search field; their keys are in the table above. With the menu bar
+hidden, the `⋯` button next to the filter selector holds settings, keyboard
+shortcuts, about and quit.
+
 ### Settings
 
-Open the settings with `Ctrl+,`, from the `⋯` menu next to the filter
-selector, or with `--settings` (`--settings=search` opens that page; given to
+Open the settings with `Ctrl+,`, File → Settings (or the `⋯` menu when the
+menu bar is hidden), or with `--settings` (`--settings=search` opens that page; given to
 a later launch, it opens the settings in the running window). Changes apply at
 once; each page has a "Reset to defaults" button. Without a settings file
 the program behaves as before, except that folders show their total size.
@@ -96,10 +107,21 @@ the program behaves as before, except that folders show their total size.
 | Search | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | keep the history after EveryGrep closes | off |
+| Appearance | theme: same as the desktop, light or dark | same as the desktop |
+| | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
+| | details of the selected items in the status line | on |
+| | show the menu bar | on |
 | Window | closing the window: quit, or hide it and keep running | quit |
 | | remember the shown columns and their widths | on |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
 | Keyboard shortcut | how to open EveryGrep with a key (see below) | — |
+
+"Same as the desktop" follows the desktop's light or dark style (the
+`color-scheme` of the XDG settings portal) and recolors the window when it
+changes. With one item selected, the status line shows its size (for a folder
+as the folder size setting says), modification time and full path; with
+several, their number and the total size of the files among them. The menu
+bar is new and on by default; turning it off brings back the earlier look.
 
 Changing the folders rebuilds the index in the background while the window
 stays usable; the status line shows the progress, and the new index is saved
@@ -146,7 +168,8 @@ size-width = 120
 
 `root` and `exclude` repeat for each folder. Other keys: `whole-words`,
 `match-path`, `match-diacritics`, `folder-size` (`total`, `items`, `none`),
-`remember-columns`,
+`theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
+`status-details`, `menu-bar`, `remember-columns`,
 `show-extension-column`, `name-width`, `modified-width`, `type-width`,
 `extension-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
 space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,
@@ -206,3 +229,8 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in this project by you, as defined in the Apache-2.0 license, shall
 be dual licensed as above, without any additional terms or conditions.
+
+The window is built with [Slint](https://slint.dev), used under its
+royalty-free license, which asks for its attribution in an about dialog
+reachable from the top-level menu: Help → About EveryGrep (or `⋯` → About
+when the menu bar is hidden).
