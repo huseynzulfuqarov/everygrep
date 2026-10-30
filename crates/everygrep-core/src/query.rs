@@ -28,7 +28,9 @@
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::filter::Filter;
 use crate::fold::fold;
+use crate::kind::classify;
 use crate::localtime::{Zone, civil_from_days, days_from_civil, days_in_month};
 use crate::store::{NodeId, NodeStore};
 
@@ -37,6 +39,8 @@ use crate::store::{NodeId, NodeStore};
 pub struct QueryOptions {
     /// Compare text exactly instead of case-insensitively.
     pub case_sensitive: bool,
+    /// Only entries of this kind match, in addition to the query text.
+    pub filter: Filter,
 }
 
 /// Why a query could not be parsed.
@@ -72,6 +76,8 @@ enum Pred {
     Text(TextPred),
     IsFile,
     IsDir,
+    /// Entries that pass a result filter.
+    Kind(Filter),
     /// Folded extensions without the leading dot (may contain dots, such as
     /// `tar.gz`); `none` also accepts files that have no extension.
     Ext {
@@ -129,9 +135,12 @@ impl Query {
             now_ns,
             zone,
         };
-        let root = p.parse_and(false)?.unwrap_or(Node::All);
+        let mut root = p.parse_and(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
             return Err(ParseError("unexpected '>'".into()));
+        }
+        if options.filter != Filter::All {
+            root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
         }
         Ok(Self {
             root,
@@ -154,6 +163,18 @@ impl Query {
     }
 }
 
+/// `node` and `extra` together, keeping cheap conditions first.
+fn and_also(node: Node, extra: Node) -> Node {
+    let mut items = match node {
+        Node::All => return extra,
+        Node::And(items) => items,
+        other => vec![other],
+    };
+    items.push(extra);
+    items.sort_by_key(cost);
+    Node::And(items)
+}
+
 fn eval(node: &Node, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
     match node {
         Node::All => true,
@@ -168,6 +189,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
     match pred {
         Pred::IsFile => !store.is_dir(id),
         Pred::IsDir => store.is_dir(id),
+        Pred::Kind(filter) => filter.accepts(classify(store.name(id), store.is_dir(id))),
         Pred::Ext { exts, none } => {
             if store.is_dir(id) {
                 return false;
@@ -597,6 +619,8 @@ fn cost(node: &Node) -> u8 {
         Node::All => 0,
         Node::Leaf(Pred::Text(t)) if t.on_path => 3,
         Node::Leaf(Pred::Text(_)) => 1,
+        // Classifying looks at the name; let text terms narrow first.
+        Node::Leaf(Pred::Kind(_)) => 2,
         Node::Leaf(_) => 0,
         Node::Not(inner) => cost(inner),
         Node::And(items) | Node::Or(items) => items.iter().map(cost).max().unwrap_or(0),
@@ -993,7 +1017,8 @@ mod tests {
             t.find_with(
                 "README",
                 QueryOptions {
-                    case_sensitive: true
+                    case_sensitive: true,
+                    ..QueryOptions::default()
                 }
             ),
             ["README"]
@@ -1023,6 +1048,30 @@ mod tests {
         assert_eq!(t.find("photo size:0"), ["photo (1).png"]);
         assert_eq!(t.find("pdf modified:<7d"), ["Report-2026.PDF"]);
         assert_eq!(t.find("pdf modified:>30d"), ["draft report.pdf"]);
+    }
+
+    #[test]
+    fn filters_combine_with_the_query() {
+        let t = Tree::new();
+        let with = |filter| QueryOptions {
+            filter,
+            ..QueryOptions::default()
+        };
+        assert_eq!(
+            t.find_with("photo", with(Filter::Picture)),
+            ["photo (1).png", "photo.jpg"]
+        );
+        assert_eq!(
+            t.find_with("report", with(Filter::Document)),
+            ["Report-2026.PDF", "draft report.pdf"]
+        );
+        assert_eq!(t.find_with("report", with(Filter::Folder)), ["report"]);
+        assert_eq!(t.find_with("", with(Filter::Code)), ["main.rs"]);
+        assert_eq!(t.find_with("report|main", with(Filter::Code)), ["main.rs"]);
+        assert!(t.find_with("!photo", with(Filter::Picture)).is_empty());
+        assert_eq!(t.find_with("", with(Filter::All)).len(), t.store.len());
+        let q = Query::parse("", with(Filter::Video)).unwrap();
+        assert!(!q.matches_all());
     }
 
     #[test]

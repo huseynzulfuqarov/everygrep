@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
+use everygrep_core::filter::Filter;
 use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::query::{Query, QueryOptions};
@@ -37,6 +38,8 @@ options:
                      the index on exit
   --exclude <path>   folder not to enter (repeatable)
   --case             match case exactly
+  --filter <name>    only all, audio, archive, code, document, executable,
+                     folder, picture or video entries
   --threads <n>      search threads (default: number of CPUs)
   --limit <n>        print at most n results (default: 50, 0 = all)
   --no-meta          do not read size and modification time";
@@ -79,6 +82,11 @@ fn parse_args() -> Result<Args, String> {
             "--watch" => args.watch = true,
             "--exclude" => args.scan.exclude.push(PathBuf::from(value("--exclude")?)),
             "--case" => args.matching.case_sensitive = true,
+            "--filter" => {
+                let name = value("--filter")?;
+                args.matching.filter =
+                    Filter::from_id(&name).ok_or(format!("unknown filter {name}"))?;
+            }
             "--threads" => args.threads = parse_num(&value("--threads")?)?,
             "--limit" => args.limit = parse_num(&value("--limit")?)?,
             "--no-meta" => args.scan.with_metadata = false,

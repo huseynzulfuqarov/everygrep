@@ -85,6 +85,38 @@ fn rescan_reflects_changes() {
 }
 
 #[test]
+fn filter_limits_results_to_a_kind() {
+    let dir = temp_dir("filter");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+    let search = |filter: &str| {
+        run(&[
+            "search",
+            "--root",
+            tree_s,
+            "--index-file",
+            index_s,
+            "--filter",
+            filter,
+        ])
+    };
+    let pictures = search("image");
+    let folders = search("folder");
+    let bad = search("images");
+    fs::remove_dir_all(&dir).unwrap();
+
+    assert!(pictures.status.success());
+    let stdout = String::from_utf8(pictures.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    assert!(stdout.contains("Holiday-Photo.JPG"));
+    let stdout = String::from_utf8(folders.stdout).unwrap();
+    assert!(stdout.lines().all(|l| !l.contains('.')), "{stdout}");
+    assert!(stdout.contains("sub"));
+    assert!(!bad.status.success());
+}
+
+#[test]
 fn unknown_command_fails_with_usage() {
     let out = run(&["frobnicate"]);
     assert_eq!(out.status.code(), Some(2));
