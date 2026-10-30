@@ -23,7 +23,7 @@ matches anywhere in a name (not only at word starts) as you type.
 | `path:src/main`, `docs/report` | match the full path (any term with `/` does) |
 | `file:`, `folder:` | only files / only folders |
 | `ext:pdf;jpg` | extensions |
-| `size:>10mb`, `size:1kb..2mb`, `size:0` | file size (1 kb = 1024 bytes) |
+| `size:>10mb`, `size:1kb..2mb`, `size:0` | size (1 kb = 1024 bytes); folders match by their total size, add `file:` for files only |
 | `modified:<7d`, `modified:>30d` | changed within / not within a time (`s`, `m`, `h`, `d`, `w`) |
 | `modified:2026-10-25`, `modified:2026-10`, `modified:today`, `modified:yesterday` | changed on that local day, month or year |
 | `modified:>2026-10-25`, `modified:<=2026-10`, `modified:2026-10-01..2026-10-25` | after / up to a whole day, month or year; `..` is inclusive |
@@ -86,7 +86,7 @@ Open the settings with `Ctrl+,`, from the `⋯` menu next to the filter
 selector, or with `--settings` (`--settings=search` opens that page; given to
 a later launch, it opens the settings in the running window). Changes apply at
 once; each page has a "Reset to defaults" button. Without a settings file
-the program behaves as before.
+the program behaves as before, except that folders show their total size.
 
 | Page | Setting | Default |
 |---|---|---|
@@ -98,12 +98,24 @@ the program behaves as before.
 | | keep the history after EveryGrep closes | off |
 | Window | closing the window: quit, or hide it and keep running | quit |
 | | remember the shown columns and their widths | on |
+| | what the Size column shows for folders: total size, number of items, or nothing | total size |
 | Keyboard shortcut | how to open EveryGrep with a key (see below) | — |
 
 Changing the folders rebuilds the index in the background while the window
 stays usable; the status line shows the progress, and the new index is saved
 as soon as it is complete. An excluded folder is matched exactly, and its own
 entry stays in the results. Hidden files are always indexed.
+
+A folder's total size is the sum of the sizes of all files below it, at any
+depth, and is kept up to date as files change. Each file counts with its own
+size: a file with several hard links counts once per link, a symbolic link
+counts with the length of its target and is never followed, and excluded
+folders count as empty. Sorting by Size puts folders among the files by their
+total; with "number of items" folders sort by that number, before the files
+(after them when the order is reversed); with "nothing" they sort as empty,
+as before. Folder sizes are the one setting whose default changes the
+earlier look: until they existed the Size of a folder was empty, which
+"nothing" brings back.
 
 When closing only hides the window, EveryGrep keeps the index in memory and
 keeps watching; starting `everygrep-gui` again (for example with its
@@ -133,7 +145,8 @@ size-width = 120
 ```
 
 `root` and `exclude` repeat for each folder. Other keys: `whole-words`,
-`match-path`, `match-diacritics`, `remember-columns`,
+`match-path`, `match-diacritics`, `folder-size` (`total`, `items`, `none`),
+`remember-columns`,
 `show-extension-column`, `name-width`, `modified-width`, `type-width`,
 `extension-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
 space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,

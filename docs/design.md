@@ -48,7 +48,10 @@ screen; when a change conflicts with them, the rules win or are changed first.
   path are planned (the index does not keep creation or access times yet).
   Columns can be resized, hidden and sorted by clicking the header; reordering
   is planned. Sorting by Type groups by kind, then extension. The match is
-  highlighted inside the name.
+  highlighted inside the name. A folder's Size is the total size of all
+  files below it, at any depth (a setting can show the number of items or
+  nothing instead); sorting by Size mixes folders and files by that total,
+  as every other column does, since folders are never forced first.
 - **Status line.** Result count, index size, index state, small badges for the
   matching modes that are on, and query time.
 - **Optional panes,** hidden by default: a preview pane on the right and a
@@ -154,7 +157,9 @@ pages and `Esc` closes the window.
 - Changes apply at once; there is no OK or Apply. Each page has "Reset to
   defaults", which resets that page only.
 - Defaults reproduce the behaviour from before settings existed, so a missing
-  settings file changes nothing.
+  settings file changes nothing. One exception was chosen on purpose: folder
+  sizes (Window page) default to the total size, where folders used to show
+  an empty Size; "nothing" restores the old look.
 - Every behaviour choice is a setting; nothing is fixed in code that a user
   might want otherwise.
 - Folders are added through the desktop's own folder chooser (the XDG
