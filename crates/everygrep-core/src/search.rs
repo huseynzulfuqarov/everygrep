@@ -126,7 +126,7 @@ mod tests {
         }
         let index = Index::new(s);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let cases: [(&str, QueryOptions); 7] = [
+        let cases: [(&str, QueryOptions); 12] = [
             ("draft", QueryOptions::default()),
             (
                 "draft",
@@ -161,6 +161,29 @@ mod tests {
                 "r",
                 QueryOptions {
                     match_path: true,
+                    ..QueryOptions::default()
+                },
+            ),
+            (
+                "report",
+                QueryOptions {
+                    prefix: true,
+                    ..QueryOptions::default()
+                },
+            ),
+            (
+                "reportdraft",
+                QueryOptions {
+                    ignore_punctuation: true,
+                    ..QueryOptions::default()
+                },
+            ),
+            ("regex:draft-[0-9a-f]+\\.pdf$", QueryOptions::default()),
+            ("regex:^şəkil", QueryOptions::default()),
+            (
+                "dr.ft",
+                QueryOptions {
+                    regex: true,
                     ..QueryOptions::default()
                 },
             ),

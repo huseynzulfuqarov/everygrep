@@ -51,14 +51,75 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `wholeword:` / `nowholeword:` | whole words only: `wholeword:art` finds `pop-art.png` but not `party.png` |
 | `diacritics:` / `nodiacritics:` | match diacritics: `diacritics:café` does not find `cafe` |
 | `path:` / `nopath:` | match the full path instead of the name |
+| `prefix:` / `noprefix:` | the term must match at the start of the name: `prefix:rep` finds `report.pdf`, not `draft report.pdf` |
+| `suffix:` / `nosuffix:` | the term must match at the end of the name: `suffix:.tar.gz` |
+| `nopunct:` / `punct:` | ignore punctuation / match it: `nopunct:foo-bar` finds `foo_bar.txt`, `foo-bar.txt` and `foobar.txt` |
+| `nospace:` / `space:` | ignore whitespace / match it: `nospace:myfile` finds `my file.txt` |
+| `regex:` / `noregex:` | a regular expression, see below |
 | `file:`, `files:` | only files; `file:report` = files whose name contains `report` |
 | `folder:`, `folders:`, `dir:` | only folders; `folder:src` likewise |
 | `ext:` | extensions, see below |
 | `size:` | size, see below |
 | `modified:` | modification time, see below |
 
-The `no…:` forms turn off a mode that the window's toggles or the command
-line options turned on, for one term.
+The `no…:` forms (and `punct:`, `space:`) turn off a mode that the window's
+toggles or the command line options turned on, for one term.
+
+### Prefix and suffix
+
+`prefix:` anchors the term at the start of the name, `suffix:` at its end;
+both together make the term equal the whole name (as it is compared: case,
+diacritics and the ignore modes still apply). With the full path they anchor
+at the start or end of the path. With whole words only the open side is
+checked: `prefix:wholeword:art` finds `art.png`, not `artist.png`. A wildcard
+pattern always matches the whole name; with `prefix:` it no longer has to
+reach the end (`prefix:img_??` finds `img_01.png`), with `suffix:` it no
+longer has to start at the beginning (`suffix:?.png`).
+
+### Ignoring punctuation and whitespace
+
+`nopunct:` leaves punctuation out of the name and the term before comparing:
+ASCII punctuation (``!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~``) and the common
+punctuation of Latin-1 (`« » ¡ ¿ · § ¶`), the General Punctuation block
+(dashes, quotation marks, `…`, `‰`, …) and CJK texts. `nospace:` leaves out
+whitespace (Unicode `White_Space`). In a wildcard pattern `*` and `?` keep
+their meaning. Word boundaries for `wholeword:` and the start and end for
+`prefix:`/`suffix:` are those of the name after the characters were left
+out, so punctuation no longer separates words: `nopunct:wholeword:art` does not
+find `pop-art` (compared as `popart`). A `/` in the term still
+switches it to the full path, whose `/` are then left out too. A term with
+nothing left (`nopunct:-`) is no condition.
+
+### Regular expressions
+
+`regex:` makes the rest of the word a regular expression in the syntax of
+the Rust [`regex`](https://docs.rs/regex/1.13/regex/#syntax) crate. The
+expression runs to the next space: `|`, `<` and `>` in it belong to it
+(`regex:(jpg|png)$`); quote it to include spaces (`regex:"^my file"`), and
+put a space before a closing `>` of a group. It matches anywhere in the
+name unless anchored with `^` and `$`.
+
+- It is matched against the name as it is stored (not folded), or against
+  the full path with `path:` or the full path mode. A `/` in the expression
+  does not switch to the full path.
+- Case is ignored (Unicode case folding: `regex:^şə` finds `Şəkil.png`)
+  unless `case:` or the match case mode is on.
+- Diacritics are not folded: `regex:^se` does not find `Şəkil.png`; write
+  the letters (`[sş]`) or a class.
+- Whole words, prefix, suffix and the ignore modes do not apply; use `\b`,
+  `^`, `$` instead.
+- A name that is not valid UTF-8 is matched byte by byte; `.` does not
+  match a byte that is not part of a valid character.
+- An invalid expression is an error (`bad regular expression: unclosed
+  group`), shown under the search field.
+
+The expression is compiled once per query and is as fast as plain text on
+typical patterns (see the timing test in `crates/everygrep-core/src/search.rs`).
+
+In **regex mode** (`Alt+R` in the window, `--regex` on the command line) the
+whole query is one regular expression: blanks at both ends are dropped,
+spaces, `|`, `!`, `<`, `>` and quotes are part of it, and modifiers are not
+read. The filter, match case and full path still apply.
 
 A term that contains `/` always matches the full path: `docs/report` finds
 `/home/me/docs/report.pdf`.
@@ -141,6 +202,10 @@ the index keeps no permission bits, so a Linux program without an extension
 is not found by `executable`.
 
 The matching modes can be turned on for the whole query: in the window with
-the toggles in the search field (`Alt+C`, `Alt+W`, `Alt+P`, `Alt+D`), on the
-command line with `--case`, `--whole-words`, `--match-path` and
-`--diacritics`. Modifiers in the query then override them per term.
+the toggles in the search field (`Alt+C`, `Alt+W`, `Alt+P`, `Alt+D`) and the
+Search menu (`Alt+B` prefix, `Alt+E` suffix, `Alt+U` ignore punctuation,
+`Alt+S` ignore whitespace, `Alt+R` regex), on the command line with
+`--case`, `--whole-words`, `--match-path`, `--diacritics`, `--prefix`,
+`--suffix`, `--ignore-punctuation`, `--ignore-whitespace` and `--regex`.
+Modifiers in the query then override them per term (except in regex mode,
+where the query is not split into terms).

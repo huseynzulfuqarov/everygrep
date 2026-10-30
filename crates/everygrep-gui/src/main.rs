@@ -899,6 +899,7 @@ fn options(w: &AppWindow) -> QueryOptions {
             .ok()
             .and_then(|i| Filter::ALL.get(i).copied())
             .unwrap_or_default(),
+        ..QueryOptions::default()
     }
 }
 

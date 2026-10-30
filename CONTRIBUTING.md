@@ -40,8 +40,8 @@ XDG_CONFIG_HOME=/tmp/eg-config cargo run -p everygrep-gui -- \
 
 ## Dependencies
 
-`everygrep-core` has no dependencies and should stay that way. The window
-uses Slint and zbus. **Do not add a crate, or a feature that pulls in new
+`everygrep-core` depends only on `regex` (for regular expressions in
+queries) and should stay that way. The window uses Slint and zbus. **Do not add a crate, or a feature that pulls in new
 crates, without discussing it first**; `git diff Cargo.lock` should normally
 be empty. When the dependencies do change, regenerate the license list:
 

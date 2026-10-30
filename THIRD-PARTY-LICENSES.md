@@ -10,13 +10,13 @@ The window uses the [Slint](https://slint.dev) toolkit under its
 royalty-free license (`LicenseRef-Slint-Royalty-free-2.0`), whose
 attribution is shown in Help → About EveryGrep.
 
-Crates: 332 (265 linked into the programs). Distinct license texts: 183.
+Crates: 336 (269 linked into the programs). Distinct license texts: 183.
 
 ## License expressions
 
 | Expression | Crates |
 |---|---|
-| MIT OR Apache-2.0 | 137 |
+| MIT OR Apache-2.0 | 140 |
 | MIT | 68 |
 | Apache-2.0 OR MIT | 42 |
 | Unicode-3.0 | 25 |
@@ -26,12 +26,12 @@ Crates: 332 (265 linked into the programs). Distinct license texts: 183.
 | MIT/Apache-2.0 | 5 |
 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | 4 |
 | BSD-3-Clause | 4 |
+| Unlicense OR MIT | 3 |
 | Zlib | 3 |
 | Zlib OR Apache-2.0 OR MIT | 3 |
 | BSD-3-Clause OR Apache-2.0 | 2 |
 | BSD-3-Clause OR MIT OR Apache-2.0 | 2 |
 | MIT OR Zlib OR Apache-2.0 | 2 |
-| Unlicense OR MIT | 2 |
 | (MIT OR Apache-2.0) AND Unicode-3.0 | 1 |
 | 0BSD OR MIT OR Apache-2.0 | 1 |
 | Apache-2.0 / MIT | 1 |
@@ -58,6 +58,7 @@ procedural macros and their dependencies, which run only while building.
 | accesskit_winit | 0.33.2 | Apache-2.0 | linked | https://github.com/AccessKit/accesskit | standard text of the license |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | linked | https://github.com/oyvindln/adler2 | [a21c914647d3](#license-a21c914647d3), [1bc86297d032](#license-1bc86297d032), [30fefc3a7d6a](#license-30fefc3a7d6a) |
 | ahash | 0.8.12 | MIT OR Apache-2.0 | linked | https://github.com/tkaitchuck/ahash | [954f335b8baf](#license-954f335b8baf), [d03325792f3d](#license-d03325792f3d) |
+| aho-corasick | 1.1.5 | Unlicense OR MIT | linked | https://github.com/BurntSushi/aho-corasick | [65314a6c9668](#license-65314a6c9668), [154c1af2b38e](#license-154c1af2b38e), [ca2abdf69588](#license-ca2abdf69588) |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | linked | https://github.com/zakarumych/allocator-api2 | [85ad950cce87](#license-85ad950cce87), [30fefc3a7d6a](#license-30fefc3a7d6a) |
 | annotate-snippets | 0.12.16 | MIT OR Apache-2.0 | compile time | https://github.com/rust-lang/annotate-snippets-rs | [6dc0e068dcf3](#license-6dc0e068dcf3), [4498464c2864](#license-4498464c2864) |
 | anstyle | 1.0.14 | MIT OR Apache-2.0 | compile time | https://github.com/rust-cli/anstyle.git | [6dc0e068dcf3](#license-6dc0e068dcf3), [4498464c2864](#license-4498464c2864) |
@@ -254,6 +255,9 @@ procedural macros and their dependencies, which run only while building.
 | rayon | 1.12.0 | MIT OR Apache-2.0 | compile time | https://github.com/rayon-rs/rayon | [954f335b8baf](#license-954f335b8baf), [9e0027807b0c](#license-9e0027807b0c) |
 | rayon-core | 1.13.0 | MIT OR Apache-2.0 | compile time | https://github.com/rayon-rs/rayon | [954f335b8baf](#license-954f335b8baf), [9e0027807b0c](#license-9e0027807b0c) |
 | read-fonts | 0.41.0 | MIT OR Apache-2.0 | linked | https://github.com/googlefonts/fontations | [af2a770a058a](#license-af2a770a058a), [f03893164caa](#license-f03893164caa) |
+| regex | 1.13.1 | MIT OR Apache-2.0 | linked | https://github.com/rust-lang/regex | [954f335b8baf](#license-954f335b8baf), [14435fbcd271](#license-14435fbcd271) |
+| regex-automata | 0.4.18 | MIT OR Apache-2.0 | linked | https://github.com/rust-lang/regex | [954f335b8baf](#license-954f335b8baf), [14435fbcd271](#license-14435fbcd271) |
+| regex-syntax | 0.8.11 | MIT OR Apache-2.0 | linked | https://github.com/rust-lang/regex | [954f335b8baf](#license-954f335b8baf), [14435fbcd271](#license-14435fbcd271) |
 | resvg | 0.48.1 | Apache-2.0 OR MIT | linked | https://github.com/linebender/resvg | [4bf96504d6e8](#license-4bf96504d6e8), [bf23df5f4fa1](#license-bf23df5f4fa1) |
 | rgb | 0.8.53 | MIT | linked | https://github.com/kornelski/rust-rgb | [c7d50fa44b04](#license-c7d50fa44b04) |
 | rowan | 0.17.0 | MIT OR Apache-2.0 | compile time | https://github.com/rust-analyzer/rowan | [954f335b8baf](#license-954f335b8baf), [30fefc3a7d6a](#license-30fefc3a7d6a) |
@@ -645,7 +649,7 @@ option.
 <a id="license-65314a6c9668"></a>
 ### COPYING: This project is dual-licensed under the Unlicense and MIT licenses.
 
-Used by: memchr 2.8.3
+Used by: aho-corasick 1.1.5, memchr 2.8.3
 
 ```text
 This project is dual-licensed under the Unlicense and MIT licenses.
@@ -3760,7 +3764,7 @@ END OF TERMS AND CONDITIONS
 <a id="license-954f335b8baf"></a>
 ### LICENSE-APACHE: Apache License
 
-Used by: ahash 0.8.12, arrayvec 0.7.8, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, atomic-waker 1.1.2, base64 0.23.1, bitflags 2.13.2, blocking 1.7.0, by_address 1.2.1, cfg-if 1.0.5, concurrent-queue 2.5.0, countme 3.0.1, critical-section 1.2.0, crossbeam-deque 0.8.8, crossbeam-epoch 0.9.21, crossbeam-utils 0.8.23, data-url 0.3.2, displaydoc 0.2.7, either 1.19.0, equivalent 1.0.3, errno 0.3.14, euclid 0.22.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, fixedbitset 0.5.7, flate2 1.1.10, fnv 1.0.7, fontique 0.11.1, form_urlencoded 1.2.2, futures-lite 2.6.1, gethostname 1.1.0, gif 0.14.2, glow 0.18.0, hashbrown 0.14.5, hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.1, heck 0.5.0, htmlparser 0.2.1, idna 1.1.0, idna_adapter 1.2.1, indexmap 2.14.2, itertools 0.15.0, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lock_api 0.4.14, log 0.4.34, num-traits 0.2.19, once_cell 1.21.4, ordered-stream 0.2.0, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, parlance 0.1.1, parley 0.11.1, parley_data 0.11.1, percent-encoding 2.3.2, petgraph 0.8.3, piper 0.2.5, png 0.18.1, polling 3.11.0, rayon 1.12.0, rayon-core 1.13.0, rowan 0.17.0, roxmltree 0.21.2, rustc-hash 1.1.0, rustix 0.38.44, rustix 1.1.5, scoped-tls 1.0.1, scoped-tls-hkt 0.1.5, scopeguard 1.2.0, signal-hook-registry 1.4.8, simplecss 0.2.2, smallvec 1.16.4, smol_str 0.2.2, smol_str 0.3.2, spin_on 0.1.1, stable_deref_trait 1.2.1, svgtypes 0.16.1, swash 0.2.10, text-size 1.1.1, ttf-parser 0.25.1, unicase 2.10.0, unicode-bidi 0.3.18, unicode-segmentation 1.13.3, unicode-vo 0.1.0, unicode-width 0.2.2, unicode-xid 0.2.6, url 2.5.8, uuid 1.26.1, weezl 0.1.12, wl-clipboard-rs 0.9.4, yazi 0.2.1, zeno 0.3.3
+Used by: ahash 0.8.12, arrayvec 0.7.8, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, atomic-waker 1.1.2, base64 0.23.1, bitflags 2.13.2, blocking 1.7.0, by_address 1.2.1, cfg-if 1.0.5, concurrent-queue 2.5.0, countme 3.0.1, critical-section 1.2.0, crossbeam-deque 0.8.8, crossbeam-epoch 0.9.21, crossbeam-utils 0.8.23, data-url 0.3.2, displaydoc 0.2.7, either 1.19.0, equivalent 1.0.3, errno 0.3.14, euclid 0.22.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, fixedbitset 0.5.7, flate2 1.1.10, fnv 1.0.7, fontique 0.11.1, form_urlencoded 1.2.2, futures-lite 2.6.1, gethostname 1.1.0, gif 0.14.2, glow 0.18.0, hashbrown 0.14.5, hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.1, heck 0.5.0, htmlparser 0.2.1, idna 1.1.0, idna_adapter 1.2.1, indexmap 2.14.2, itertools 0.15.0, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lock_api 0.4.14, log 0.4.34, num-traits 0.2.19, once_cell 1.21.4, ordered-stream 0.2.0, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, parlance 0.1.1, parley 0.11.1, parley_data 0.11.1, percent-encoding 2.3.2, petgraph 0.8.3, piper 0.2.5, png 0.18.1, polling 3.11.0, rayon 1.12.0, rayon-core 1.13.0, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, rowan 0.17.0, roxmltree 0.21.2, rustc-hash 1.1.0, rustix 0.38.44, rustix 1.1.5, scoped-tls 1.0.1, scoped-tls-hkt 0.1.5, scopeguard 1.2.0, signal-hook-registry 1.4.8, simplecss 0.2.2, smallvec 1.16.4, smol_str 0.2.2, smol_str 0.3.2, spin_on 0.1.1, stable_deref_trait 1.2.1, svgtypes 0.16.1, swash 0.2.10, text-size 1.1.1, ttf-parser 0.25.1, unicase 2.10.0, unicode-bidi 0.3.18, unicode-segmentation 1.13.3, unicode-vo 0.1.0, unicode-width 0.2.2, unicode-xid 0.2.6, url 2.5.8, uuid 1.26.1, weezl 0.1.12, wl-clipboard-rs 0.9.4, yazi 0.2.1, zeno 0.3.3
 
 ```text
 Apache License
@@ -6269,7 +6273,7 @@ DEALINGS IN THE SOFTWARE.
 <a id="license-14435fbcd271"></a>
 ### LICENSE-MIT: Copyright (c) 2014 The Rust Project Developers
 
-Used by: bitflags 2.13.2, log 0.4.34, num-traits 0.2.19
+Used by: bitflags 2.13.2, log 0.4.34, num-traits 0.2.19, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -8219,7 +8223,7 @@ SOFTWARE.
 <a id="license-154c1af2b38e"></a>
 ### LICENSE-MIT: The MIT License (MIT)
 
-Used by: byteorder-lite 0.1.0, memchr 2.8.3
+Used by: aho-corasick 1.1.5, byteorder-lite 0.1.0, memchr 2.8.3
 
 ```text
 The MIT License (MIT)
@@ -11147,7 +11151,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 <a id="license-ca2abdf69588"></a>
 ### UNLICENSE: This is free and unencumbered software released into the public domain
 
-Used by: byteorder-lite 0.1.0, memchr 2.8.3
+Used by: aho-corasick 1.1.5, byteorder-lite 0.1.0, memchr 2.8.3
 
 ```text
 This is free and unencumbered software released into the public domain.

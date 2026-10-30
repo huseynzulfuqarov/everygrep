@@ -9,12 +9,13 @@ connections, has no telemetry and runs no service besides the window itself.
 
 | Crate | Kind | Role |
 |---|---|---|
-| `everygrep-core` | library, no dependencies | index, scanner, watcher, query language, search, sorting, saved index |
+| `everygrep-core` | library, one dependency (`regex`) | index, scanner, watcher, query language, search, sorting, saved index |
 | `everygrep-cli` | binary `everygrep` | `index`, `search` and `shell` commands over the core |
 | `everygrep-gui` | binary `everygrep-gui` | the window: Slint UI, settings, single instance, file actions |
 
-The core uses only the standard library and hand-written bindings for the few
-Linux calls it needs (`inotify.rs`). The window adds Slint (UI toolkit) and
+The core uses the standard library, the `regex` crate for regular expressions
+in queries, and hand-written bindings for the few Linux calls it needs
+(`inotify.rs`). The window adds Slint (UI toolkit) and
 zbus (session bus); see `THIRD-PARTY-LICENSES.md` for the full list.
 
 ## Core
@@ -53,7 +54,11 @@ modified, type, extension) with a stable sort, so equal keys keep name order.
 ### Query language (`query.rs`, `fold.rs`, `filter.rs`, `kind.rs`)
 
 `Query::parse` turns the text into a tree of AND, OR and NOT nodes over
-predicates (text, wildcard, extension, size, time, file/folder, kind filter).
+predicates (text, wildcard, regular expression, extension, size, time,
+file/folder, kind filter). A text predicate carries its prepared pattern and
+its modes (case, diacritics, whole word, prefix, suffix, characters to leave
+out); regular expressions are compiled once, when the query is parsed, and
+shared by the search threads.
 AND terms are ordered by a rough cost so cheap tests run first. The syntax is
 described in [query-language.md](query-language.md). Dates use the local
 time zone read by `localtime.rs` (TZif files and POSIX TZ strings).

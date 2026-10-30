@@ -7,5 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[dependencies]
+# Regular expressions in queries. The locked version and default features
+# add no crates that were not in Cargo.lock already.
+regex = "1.13.1"
+
 [lints]
 workspace = true

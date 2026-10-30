@@ -606,6 +606,7 @@ impl Prefs {
                 .ok()
                 .and_then(|i| Filter::ALL.get(i).copied())
                 .unwrap_or_default(),
+            ..self.settings.borrow().options
         };
         let size = usize::try_from(w.get_history_size())
             .unwrap_or(0)

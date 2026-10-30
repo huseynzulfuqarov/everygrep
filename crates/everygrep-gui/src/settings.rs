@@ -654,6 +654,7 @@ pub(crate) mod tests {
                 match_path: true,
                 match_diacritics: true,
                 filter: Filter::Picture,
+                ..QueryOptions::default()
             },
             history_size: 0,
             history_on_disk: true,

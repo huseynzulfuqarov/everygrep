@@ -20,6 +20,11 @@
 //! modified:2026-10-25 changed on that local day (also 2026-10, 2026,
 //!                     today, yesterday); >, >=, <, <= compare whole days,
 //!                     months or years; 2026-10-01..2026-10-25 is inclusive
+//! prefix:rep          the name starts with the term
+//! suffix:.tar.gz      the name ends with the term
+//! nopunct:foo-bar     punctuation is ignored: "foo_bar", "foobar"
+//! nospace:"my file"   whitespace is ignored: "myfile", "my  file"
+//! regex:^img_\d+$     a regular expression (to the next space)
 //! ```
 //!
 //! Dates use the local time zone (see [`crate::localtime`]); a day starts at
@@ -29,7 +34,13 @@
 //! and diacritics (`é` = `e`, `ş` = `s`, `ə` = `e`; see
 //! [`crate::fold::strip_diacritics_into`]) unless `case:`, `diacritics:` or the
 //! matching options are used. `nocase:`, `nowholeword:`, `nodiacritics:` and `nopath:`
-//! turn an option off for one term.
+//! turn an option off for one term, as do `noprefix:`, `nosuffix:`, `punct:`,
+//! `space:` and `noregex:`.
+//!
+//! A regular expression ([`regex`] syntax) is matched against the raw name, or
+//! the raw full path in path mode, ignoring case unless case is matched.
+//! Diacritics, whole words, prefix, suffix and the ignore modes do not apply
+//! to it. With [`QueryOptions::regex`] the whole query is one expression.
 
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -52,6 +63,21 @@ pub struct QueryOptions {
     /// Letters with diacritics differ from their base letters. Off by default:
     /// `cafe` finds `café`.
     pub match_diacritics: bool,
+    /// Text terms must match at the start of the name (or path). Wildcard
+    /// patterns then need not reach the end of the name.
+    pub prefix: bool,
+    /// Text terms must match at the end of the name (or path). Wildcard
+    /// patterns then need not start at the beginning of the name.
+    pub suffix: bool,
+    /// Punctuation in names and terms is left out before comparing, so
+    /// `foo-bar` finds `foo_bar.txt` and `foobar`.
+    pub ignore_punctuation: bool,
+    /// Whitespace in names and terms is left out before comparing, so
+    /// `myfile` finds `my file.txt`.
+    pub ignore_whitespace: bool,
+    /// The whole query is one regular expression; operators and modifiers
+    /// are not read.
+    pub regex: bool,
     /// Only entries of this kind match, in addition to the query text.
     pub filter: Filter,
 }
@@ -87,6 +113,7 @@ enum Node {
 #[derive(Clone, Debug)]
 enum Pred {
     Text(TextPred),
+    Regex(RegexPred),
     IsFile,
     IsDir,
     /// Entries that pass a result filter.
@@ -118,6 +145,73 @@ struct TextPred {
     glob: bool,
     whole_word: bool,
     diacritics: bool,
+    /// Anchored at the start / end of the subject. For a wildcard pattern the
+    /// anchors are already in the pattern (a `*` is added on the open side).
+    prefix: bool,
+    suffix: bool,
+    /// Characters left out of the subject before comparing (the pattern
+    /// was prepared the same way).
+    squeeze: Squeeze,
+}
+
+/// A compiled regular expression, matched against the raw name or path.
+#[derive(Clone, Debug)]
+struct RegexPred {
+    re: regex::bytes::Regex,
+    on_path: bool,
+}
+
+/// Which characters the ignore-punctuation and ignore-whitespace modes leave
+/// out.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Squeeze {
+    pub punctuation: bool,
+    pub whitespace: bool,
+}
+
+impl Squeeze {
+    fn any(self) -> bool {
+        self.punctuation || self.whitespace
+    }
+
+    /// Whether `c` is left out.
+    fn drops(self, c: char) -> bool {
+        (self.punctuation && is_punctuation(c)) || (self.whitespace && c.is_whitespace())
+    }
+}
+
+/// Punctuation for the ignore-punctuation mode: ASCII punctuation (which
+/// includes `_`, `-`, `.`, `/` and brackets) and the common punctuation of
+/// Latin-1, the General Punctuation block and CJK texts.
+pub fn is_punctuation(c: char) -> bool {
+    c.is_ascii_punctuation()
+        || matches!(c,
+            '\u{a1}' | '\u{a7}' | '\u{ab}' | '\u{b6}' | '\u{b7}' | '\u{bb}' | '\u{bf}'
+            | '\u{2010}'..='\u{2027}'
+            | '\u{2030}'..='\u{205e}'
+            | '\u{3001}'..='\u{3003}'
+            | '\u{3008}'..='\u{3011}'
+            | '\u{ff01}'..='\u{ff0f}')
+}
+
+/// Appends `text` to `out` without the characters `squeeze` drops. With
+/// `keep_wildcards`, `*` and `?` stay (for wildcard patterns). Bytes that are
+/// not UTF-8 are kept.
+pub fn squeeze_into(text: &[u8], squeeze: Squeeze, keep_wildcards: bool, out: &mut Vec<u8>) {
+    let keep = |c: char| (keep_wildcards && (c == '*' || c == '?')) || !squeeze.drops(c);
+    if text.is_ascii() {
+        out.extend(text.iter().copied().filter(|&b| keep(b as char)));
+        return;
+    }
+    let mut buf = [0u8; 4];
+    for chunk in text.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            if keep(c) {
+                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            }
+        }
+        out.extend_from_slice(chunk.invalid());
+    }
 }
 
 /// Per-node scratch space for predicates that need the full path or a name
@@ -129,6 +223,7 @@ pub struct EvalScratch {
     for_node: Option<NodeId>,
     folded_for_node: Option<NodeId>,
     stripped: Vec<u8>,
+    squeezed: Vec<u8>,
 }
 
 impl Query {
@@ -145,6 +240,9 @@ impl Query {
         now_ns: i64,
         zone: Option<Zone>,
     ) -> Result<Self, ParseError> {
+        if options.regex {
+            return Self::parse_regex(text, options);
+        }
         let tokens = lex(text)?;
         let mut p = Parser {
             tokens,
@@ -165,6 +263,25 @@ impl Query {
             root,
             uses_path: p.uses_path,
         })
+    }
+
+    /// The whole text as one regular expression (regex mode). Blanks at both
+    /// ends are dropped; an empty text matches every node.
+    fn parse_regex(text: &str, options: QueryOptions) -> Result<Self, ParseError> {
+        let text = text.trim();
+        let mut root = if text.is_empty() {
+            Node::All
+        } else {
+            Node::Leaf(Pred::Regex(RegexPred {
+                re: build_regex(text, options.case_sensitive)?,
+                on_path: options.match_path,
+            }))
+        };
+        let uses_path = options.match_path && !text.is_empty();
+        if options.filter != Filter::All {
+            root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
+        }
+        Ok(Self { root, uses_path })
     }
 
     /// Whether the query accepts every node.
@@ -235,8 +352,16 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             let t = store.meta(id).mtime_ns;
             *min <= t && t <= *max
         }
+        Pred::Regex(r) => {
+            if r.on_path {
+                r.re.is_match(path_bytes(store, id, scratch))
+            } else {
+                r.re.is_match(store.name(id))
+            }
+        }
         Pred::Text(t) => {
             let mut stripped = std::mem::take(&mut scratch.stripped);
+            let mut squeezed = std::mem::take(&mut scratch.squeezed);
             let matched = {
                 let subject: &[u8] = if t.on_path {
                     if t.case {
@@ -257,9 +382,17 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                     strip_diacritics_into(subject, &mut stripped);
                     &stripped
                 };
+                let subject = if t.squeeze.any() {
+                    squeezed.clear();
+                    squeeze_into(subject, t.squeeze, false, &mut squeezed);
+                    &squeezed
+                } else {
+                    subject
+                };
                 text_matches(t, subject)
             };
             scratch.stripped = stripped;
+            scratch.squeezed = squeezed;
             matched
         }
     }
@@ -268,10 +401,42 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
 fn text_matches(t: &TextPred, subject: &[u8]) -> bool {
     if t.glob {
         glob_match(&t.pattern, subject)
-    } else if t.whole_word {
-        find_word(subject, &t.pattern).is_some()
     } else {
-        contains(subject, &t.pattern)
+        find_term(subject, &t.pattern, t.whole_word, t.prefix, t.suffix).is_some()
+    }
+}
+
+/// Start of the first occurrence of `needle` in `haystack` that is a whole
+/// word when `whole_word` is set (see [`find_word`]), at the very start with
+/// `prefix` and at the very end with `suffix` (both: the whole haystack).
+pub fn find_term(
+    haystack: &[u8],
+    needle: &[u8],
+    whole_word: bool,
+    prefix: bool,
+    suffix: bool,
+) -> Option<usize> {
+    let (check_start, check_end) = if whole_word {
+        (
+            first_char(needle).is_some_and(is_word_char),
+            last_char(needle).is_some_and(is_word_char),
+        )
+    } else {
+        (false, false)
+    };
+    match (prefix, suffix) {
+        (true, true) => (haystack == needle).then_some(0),
+        (true, false) => (haystack.starts_with(needle)
+            && !(check_end && first_char(&haystack[needle.len()..]).is_some_and(is_word_char)))
+        .then_some(0),
+        (false, true) => {
+            let at = haystack.len().checked_sub(needle.len())?;
+            (haystack.ends_with(needle)
+                && !(check_start && last_char(&haystack[..at]).is_some_and(is_word_char)))
+            .then_some(at)
+        }
+        (false, false) if whole_word => find_word(haystack, needle),
+        (false, false) => find(haystack, needle),
     }
 }
 
@@ -372,7 +537,8 @@ fn last_char(bytes: &[u8]) -> Option<char> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NameTerm {
     /// The text, prepared as for matching: folded unless `case` is set, without
-    /// diacritics unless `diacritics` is set.
+    /// diacritics unless `diacritics` is set, without the characters the
+    /// ignore modes leave out.
     pub pattern: Vec<u8>,
     /// Whether the term matches case exactly.
     pub case: bool,
@@ -380,7 +546,28 @@ pub struct NameTerm {
     pub whole_word: bool,
     /// Whether the term matches diacritics exactly.
     pub diacritics: bool,
+    /// Whether the term must be at the start / the end of the name.
+    pub prefix: bool,
+    pub suffix: bool,
+    /// Characters left out before comparing.
+    pub squeeze: Squeeze,
+    /// A regular expression term, matched against the raw name; `pattern` is
+    /// empty then.
+    pub regex: Option<RegexTerm>,
 }
+
+/// A compiled regular expression in a [`NameTerm`]. Two are equal when their
+/// expressions are.
+#[derive(Clone, Debug)]
+pub struct RegexTerm(pub regex::bytes::Regex);
+
+impl PartialEq for RegexTerm {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl Eq for RegexTerm {}
 
 impl Query {
     /// The plain text terms that are not negated, in query order.
@@ -404,8 +591,23 @@ fn collect_name_terms(node: &Node, out: &mut Vec<NameTerm>) {
                 case: t.case,
                 whole_word: t.whole_word,
                 diacritics: t.diacritics,
+                // The start of a path is not the start of the name.
+                prefix: t.prefix && !t.on_path,
+                suffix: t.suffix,
+                squeeze: t.squeeze,
+                regex: None,
             });
         }
+        Node::Leaf(Pred::Regex(r)) if !r.on_path => out.push(NameTerm {
+            pattern: Vec::new(),
+            case: true,
+            whole_word: false,
+            diacritics: true,
+            prefix: false,
+            suffix: false,
+            squeeze: Squeeze::default(),
+            regex: Some(RegexTerm(r.re.clone())),
+        }),
         Node::All | Node::Not(_) | Node::Leaf(_) => {}
     }
 }
@@ -415,25 +617,40 @@ fn collect_name_terms(node: &Node, out: &mut Vec<NameTerm>) {
 /// whole characters of `name`, also when folding changes byte lengths (`İ`,
 /// `ß`, `ə`).
 pub fn match_span(name: &str, terms: &[NameTerm]) -> Option<std::ops::Range<usize>> {
-    // One prepared form of the name per (case, diacritics) combination.
-    let mut forms: Vec<((bool, bool), Mapped)> = Vec::new();
+    // One prepared form of the name per (case, diacritics, squeeze) combination.
+    type Key = (bool, bool, Squeeze);
+    let mut forms: Vec<(Key, Mapped)> = Vec::new();
     for term in terms {
+        if let Some(RegexTerm(re)) = &term.regex {
+            let found = re.find(name.as_bytes()).filter(|m| {
+                !m.is_empty() && name.is_char_boundary(m.start()) && name.is_char_boundary(m.end())
+            });
+            if let Some(m) = found {
+                return Some(m.range());
+            }
+            continue;
+        }
         if term.pattern.is_empty() {
             continue;
         }
-        let key = (term.case, term.diacritics);
+        let key = (term.case, term.diacritics, term.squeeze);
         let form = match forms.iter().position(|(k, _)| *k == key) {
             Some(i) => &forms[i].1,
             None => {
-                forms.push((key, Mapped::new(name, !term.case, !term.diacritics)));
+                forms.push((
+                    key,
+                    Mapped::new(name, !term.case, !term.diacritics, term.squeeze),
+                ));
                 &forms[forms.len() - 1].1
             }
         };
-        let found = if term.whole_word {
-            find_word(&form.bytes, &term.pattern)
-        } else {
-            find(&form.bytes, &term.pattern)
-        };
+        let found = find_term(
+            &form.bytes,
+            &term.pattern,
+            term.whole_word,
+            term.prefix,
+            term.suffix,
+        );
         if let Some(start) = found {
             return Some(form.original(start..start + term.pattern.len()));
         }
@@ -441,8 +658,9 @@ pub fn match_span(name: &str, terms: &[NameTerm]) -> Option<std::ops::Range<usiz
     None
 }
 
-/// A name as it is matched (folded and/or without diacritics), with the byte
-/// range of the original character behind each of its bytes.
+/// A name as it is matched (folded, without diacritics and/or without the
+/// characters an ignore mode leaves out), with the byte range of the original
+/// character behind each of its bytes.
 struct Mapped {
     bytes: Vec<u8>,
     /// Per byte of `bytes`: start and end of its character in the name.
@@ -450,12 +668,17 @@ struct Mapped {
 }
 
 impl Mapped {
-    fn new(name: &str, fold_case: bool, strip: bool) -> Self {
+    fn new(name: &str, fold_case: bool, strip: bool, squeeze: Squeeze) -> Self {
         let mut bytes = Vec::with_capacity(name.len());
         let mut spans: Vec<(usize, usize)> = Vec::with_capacity(name.len());
         let mut folded = Vec::new();
         let mut buf = [0u8; 4];
         for (at, c) in name.char_indices() {
+            // Left out entirely; a match around it still covers it, since
+            // a range runs from its first to its last character.
+            if squeeze.drops(c) {
+                continue;
+            }
             let len = bytes.len();
             let raw = c.encode_utf8(&mut buf).as_bytes();
             match (fold_case, strip) {
@@ -560,6 +783,8 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
         }
         match c {
             c if c.is_whitespace() => flush(&mut word, &mut tokens),
+            // The rest of a `regex:` word belongs to the expression.
+            '|' | '<' | '>' if word_is_regex(&word) => word.push(c),
             '|' => {
                 flush(&mut word, &mut tokens);
                 tokens.push(Token::Or);
@@ -581,6 +806,24 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
     }
     flush(&mut word, &mut tokens);
     Ok(tokens)
+}
+
+/// Whether `word` starts a regular expression: it has a `regex:` modifier
+/// (possibly after other modifiers), so `|`, `<` and `>` up to the next space
+/// are part of the expression.
+fn word_is_regex(word: &str) -> bool {
+    let mut rest = word;
+    while let Some((head, tail)) = rest.split_once(':') {
+        let head = head.trim_start_matches('\u{0}');
+        if head.eq_ignore_ascii_case("regex") {
+            return true;
+        }
+        if !KNOWN_MODIFIERS.contains(&head.to_ascii_lowercase().as_str()) {
+            return false;
+        }
+        rest = tail;
+    }
+    false
 }
 
 /// `size:>1mb` and `modified:>7d` use `<`/`>` as comparisons, not grouping.
@@ -682,6 +925,13 @@ impl Parser {
         let mut on_path = self.options.match_path;
         let mut whole_word = self.options.whole_words;
         let mut diacritics = self.options.match_diacritics;
+        let mut prefix = self.options.prefix;
+        let mut suffix = self.options.suffix;
+        let mut squeeze = Squeeze {
+            punctuation: self.options.ignore_punctuation,
+            whitespace: self.options.ignore_whitespace,
+        };
+        let mut regex = false;
         let mut rest = raw;
         // Modifiers can be stacked: case:path:Src/Main
         while let Some((head, tail)) = split_modifier(rest) {
@@ -696,6 +946,16 @@ impl Parser {
                 "nowholeword" => whole_word = false,
                 "diacritics" => diacritics = true,
                 "nodiacritics" => diacritics = false,
+                "prefix" => prefix = true,
+                "noprefix" => prefix = false,
+                "suffix" => suffix = true,
+                "nosuffix" => suffix = false,
+                "nopunct" => squeeze.punctuation = true,
+                "punct" => squeeze.punctuation = false,
+                "nospace" => squeeze.whitespace = true,
+                "space" => squeeze.whitespace = false,
+                "regex" => regex = true,
+                "noregex" => regex = false,
                 "file" | "files" => return Ok(Some(self.with_rest(Pred::IsFile, tail)?)),
                 "folder" | "folders" | "dir" => {
                     return Ok(Some(self.with_rest(Pred::IsDir, tail)?));
@@ -714,6 +974,14 @@ impl Parser {
         if text.is_empty() {
             return Ok(None);
         }
+        if regex {
+            // A `/` does not switch a regular expression to the full path.
+            self.uses_path |= on_path;
+            return Ok(Some(Node::Leaf(Pred::Regex(RegexPred {
+                re: build_regex(&text, case)?,
+                on_path,
+            }))));
+        }
         let glob = !quoted && (text.contains('*') || text.contains('?'));
         let on_path = on_path || text.contains('/');
         self.uses_path |= on_path;
@@ -725,6 +993,24 @@ impl Parser {
         if !diacritics {
             pattern = crate::fold::strip_diacritics(&pattern);
         }
+        if squeeze.any() {
+            let mut kept = Vec::with_capacity(pattern.len());
+            squeeze_into(&pattern, squeeze, glob, &mut kept);
+            // Nothing left (`nopunct:-`): no condition, like an empty term.
+            if kept.is_empty() {
+                return Ok(None);
+            }
+            pattern = kept;
+        }
+        if glob && prefix != suffix {
+            // A pattern matches the whole name; open the side that is not
+            // anchored.
+            if prefix {
+                pattern.push(b'*');
+            } else {
+                pattern.insert(0, b'*');
+            }
+        }
         Ok(Some(Node::Leaf(Pred::Text(TextPred {
             pattern,
             case,
@@ -732,6 +1018,9 @@ impl Parser {
             glob,
             whole_word,
             diacritics,
+            prefix,
+            suffix,
+            squeeze,
         }))))
     }
 
@@ -760,6 +1049,8 @@ fn cost(node: &Node) -> u8 {
         Node::All => 0,
         Node::Leaf(Pred::Text(t)) if t.on_path => 3,
         Node::Leaf(Pred::Text(_)) => 1,
+        Node::Leaf(Pred::Regex(r)) if r.on_path => 4,
+        Node::Leaf(Pred::Regex(_)) => 3,
         // Classifying looks at the name; let text terms narrow first.
         Node::Leaf(Pred::Kind(_)) => 2,
         Node::Leaf(_) => 0,
@@ -772,26 +1063,65 @@ fn cost(node: &Node) -> u8 {
 fn split_modifier(word: &str) -> Option<(String, &str)> {
     let (head, tail) = word.split_once(':')?;
     let head = head.to_ascii_lowercase();
-    const KNOWN: &[&str] = &[
-        "case",
-        "nocase",
-        "path",
-        "nopath",
-        "wholeword",
-        "nowholeword",
-        "diacritics",
-        "nodiacritics",
-        "file",
-        "files",
-        "folder",
-        "folders",
-        "dir",
-        "ext",
-        "size",
-        "modified",
-    ];
-    KNOWN.contains(&head.as_str()).then_some((head, tail))
+    KNOWN_MODIFIERS
+        .contains(&head.as_str())
+        .then_some((head, tail))
 }
+
+/// Compiles a regular expression; case is ignored unless `case` is set.
+fn build_regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, ParseError> {
+    regex::bytes::RegexBuilder::new(pattern)
+        .case_insensitive(!case)
+        .build()
+        .map_err(|e| ParseError(format!("bad regular expression: {}", regex_error(&e))))
+}
+
+/// The one-line reason of a regular expression error. Syntax errors come as
+/// several lines (the pattern, a caret and `error: ...`); only the reason is
+/// kept.
+fn regex_error(e: &regex::Error) -> String {
+    match e {
+        regex::Error::Syntax(text) => text
+            .lines()
+            .rev()
+            .find_map(|l| l.trim().strip_prefix("error: "))
+            .unwrap_or_else(|| text.lines().last().unwrap_or("syntax error"))
+            .trim()
+            .to_owned(),
+        regex::Error::CompiledTooBig(_) => "the expression is too large".to_owned(),
+        other => other.to_string(),
+    }
+}
+
+/// Names of the modifiers, lowercase.
+const KNOWN_MODIFIERS: &[&str] = &[
+    "case",
+    "nocase",
+    "path",
+    "nopath",
+    "wholeword",
+    "nowholeword",
+    "diacritics",
+    "nodiacritics",
+    "file",
+    "files",
+    "folder",
+    "folders",
+    "dir",
+    "ext",
+    "size",
+    "modified",
+    "prefix",
+    "noprefix",
+    "suffix",
+    "nosuffix",
+    "nopunct",
+    "punct",
+    "nospace",
+    "space",
+    "regex",
+    "noregex",
+];
 
 /// `ext:pdf;jpg`. Empty entries (as in a trailing `;`) are ignored; `ext:` on its
 /// own matches files without an extension.
@@ -1588,5 +1918,174 @@ mod tests {
         assert_eq!(t.find("sud"), ["Süd", "sud.txt"]);
         assert_eq!(t.find_with("sud", path), ["Süd", "a.txt", "sud.txt"]);
         assert_eq!(t.find_with("nopath:sud", path), ["Süd", "sud.txt"]);
+    }
+
+    #[test]
+    fn prefix_and_suffix_anchor_the_term() {
+        let t = named(&[
+            "report.pdf",
+            "draft report.txt",
+            "reports.tar.gz",
+            "old.tar.gz.bak",
+            "Rep",
+        ]);
+        assert_eq!(
+            t.find("prefix:rep"),
+            ["Rep", "report.pdf", "reports.tar.gz"]
+        );
+        assert_eq!(t.find("suffix:.tar.gz"), ["reports.tar.gz"]);
+        assert_eq!(t.find("prefix:suffix:rep"), ["Rep"]);
+        // The option, and the `no…:` forms that undo it per term.
+        let pre = with(|o| o.prefix = true);
+        assert_eq!(t.find_with("report", pre), ["report.pdf", "reports.tar.gz"]);
+        assert_eq!(t.find_with("noprefix:report", pre).len(), 3);
+        let suf = with(|o| o.suffix = true);
+        assert_eq!(t.find_with("txt", suf), ["draft report.txt"]);
+        assert_eq!(t.find_with("nosuffix:txt", suf), ["draft report.txt"]);
+        assert_eq!(t.find_with("gz", suf), ["reports.tar.gz"]);
+    }
+
+    #[test]
+    fn prefix_and_suffix_with_whole_words_and_wildcards() {
+        let t = named(&["art.png", "artist.png", "pop-art", "popart", "img_01.png"]);
+        // Whole words check the open side only.
+        assert_eq!(t.find("prefix:wholeword:art"), ["art.png"]);
+        assert_eq!(t.find("suffix:wholeword:art"), ["pop-art"]);
+        assert_eq!(t.find("suffix:art"), ["pop-art", "popart"]);
+        // A wildcard pattern matches the whole name; prefix or suffix opens
+        // the other end.
+        assert_eq!(t.find("img_??"), Vec::<String>::new());
+        assert_eq!(t.find("prefix:img_??"), ["img_01.png"]);
+        assert_eq!(
+            t.find("suffix:*.png"),
+            ["art.png", "artist.png", "img_01.png"]
+        );
+        assert_eq!(
+            t.find("suffix:?.png"),
+            ["art.png", "artist.png", "img_01.png"]
+        );
+        assert_eq!(t.find("prefix:suffix:art*"), ["art.png", "artist.png"]);
+    }
+
+    #[test]
+    fn punctuation_and_whitespace_can_be_ignored() {
+        let t = named(&[
+            "foo_bar.txt",
+            "foo-bar.txt",
+            "foobar.txt",
+            "foo bar.txt",
+            "foo\u{2013}bar.txt",
+            "my  file.txt",
+            "Ş-ə.txt",
+        ]);
+        assert_eq!(t.find("foo-bar"), ["foo-bar.txt"]);
+        assert_eq!(
+            t.find("nopunct:foo-bar"),
+            [
+                "foo-bar.txt",
+                "foo_bar.txt",
+                "foobar.txt",
+                "foo\u{2013}bar.txt"
+            ]
+        );
+        let punct = with(|o| o.ignore_punctuation = true);
+        assert_eq!(t.find_with("foobartxt", punct).len(), 4);
+        assert_eq!(t.find_with("punct:foo_bar", punct), ["foo_bar.txt"]);
+        assert_eq!(t.find_with("se", punct), ["Ş-ə.txt"]);
+        assert_eq!(t.find("nospace:myfile"), ["my  file.txt"]);
+        assert_eq!(t.find("nospace:\"foo bar\""), ["foo bar.txt", "foobar.txt"]);
+        let space = with(|o| o.ignore_whitespace = true);
+        assert_eq!(t.find_with("space:\"foo bar\"", space), ["foo bar.txt"]);
+        // Both modes, with wildcards kept as wildcards.
+        assert_eq!(
+            t.find("nopunct:nospace:foo?bar*").len(),
+            0,
+            "the dash is gone, so ? has nothing to match"
+        );
+        assert_eq!(t.find("nopunct:nospace:foobar*").len(), 5);
+        // Punctuation no longer separates words.
+        let art = named(&["pop-art", "pop art"]);
+        assert_eq!(art.find("nopunct:wholeword:art"), ["pop art"]);
+        assert_eq!(art.find("wholeword:art").len(), 2);
+        // A term with nothing left is no condition.
+        assert_eq!(t.find("nopunct:-").len(), t.find("").len());
+    }
+
+    #[test]
+    fn regular_expressions() {
+        let t = named(&["IMG_0042.JPG", "img_7.png", "notes.md", "Şəkil.png", "a|b"]);
+        assert_eq!(t.find(r"regex:^img_\d+\."), ["IMG_0042.JPG", "img_7.png"]);
+        // Case: ignored by default, matched with case: or the option.
+        assert_eq!(t.find(r"case:regex:^img_\d+"), ["img_7.png"]);
+        let case = with(|o| o.case_sensitive = true);
+        assert_eq!(t.find_with(r"regex:^IMG", case), ["IMG_0042.JPG"]);
+        // `|`, `<` and `>` belong to the expression up to the next space.
+        assert_eq!(t.find(r"regex:(jpg|md)$"), ["IMG_0042.JPG", "notes.md"]);
+        assert_eq!(t.find(r"regex:^a\|b$"), ["a|b"]);
+        assert_eq!(
+            t.find(r"regex:md$|png$ !regex:^img"),
+            ["notes.md", "Şəkil.png"]
+        );
+        // Unicode case folding, but no diacritic folding.
+        assert_eq!(t.find("regex:^şə"), ["Şəkil.png"]);
+        assert_eq!(t.find("regex:^se").len(), 0);
+        // In the full path, and a `/` alone does not switch to it.
+        assert_eq!(t.find("path:regex:/Süd/notes"), ["notes.md"]);
+        assert_eq!(t.find("regex:/Süd/notes").len(), 0);
+        // Bad expressions are errors with a one-line reason.
+        let e = Query::parse("regex:(abc", QueryOptions::default()).unwrap_err();
+        assert!(e.0.starts_with("bad regular expression: "), "{e}");
+        assert!(!e.0.contains('\n'), "{e}");
+        assert!(Query::parse("regex:a{99999999}", QueryOptions::default()).is_err());
+        assert_eq!(t.find("noregex:a|b"), ["a|b"]);
+    }
+
+    #[test]
+    fn regex_mode_takes_the_whole_query() {
+        let t = named(&["IMG_0042.JPG", "img_7.png", "notes.md", "my report.pdf"]);
+        let re = with(|o| o.regex = true);
+        assert_eq!(
+            t.find_with(r"(jpg|png)$", re),
+            ["IMG_0042.JPG", "img_7.png"]
+        );
+        assert_eq!(t.find_with("y r", re), ["my report.pdf"]);
+        assert_eq!(t.find_with("  ", re).len(), t.find("").len());
+        let re_case = with(|o| {
+            o.regex = true;
+            o.case_sensitive = true;
+        });
+        assert_eq!(t.find_with("^img", re_case), ["img_7.png"]);
+        let re_path = with(|o| {
+            o.regex = true;
+            o.match_path = true;
+        });
+        assert_eq!(t.find_with("^/r/Süd/n", re_path), ["notes.md"]);
+        let re_filter = with(|o| {
+            o.regex = true;
+            o.filter = Filter::Picture;
+        });
+        assert_eq!(t.find_with("g", re_filter), ["IMG_0042.JPG", "img_7.png"]);
+        assert!(Query::parse("(", re).is_err());
+    }
+
+    #[test]
+    fn match_span_follows_the_new_modes() {
+        let span_with = |name: &str, q: &str, o: QueryOptions| {
+            let query = Query::parse(q, o).unwrap();
+            match_span(name, &query.name_terms()).map(|r| (r.start, r.end))
+        };
+        assert_eq!(span("art-art", "suffix:art"), Some((4, 7)));
+        assert_eq!(span("art-art", "prefix:art"), Some((0, 3)));
+        // The dash in the middle is covered, the ones outside are not.
+        assert_eq!(span("x-foo_bar-y", "nopunct:foobar"), Some((2, 9)));
+        assert_eq!(span("my  file", "nospace:yf"), Some((1, 5)));
+        assert_eq!(span("IMG_0042.JPG", r"regex:\d+"), Some((4, 8)));
+        assert_eq!(span("şəkil", "regex:Ə"), Some((2, 4)));
+        // An empty match is no highlight.
+        assert_eq!(span("abc", "regex:x*"), None);
+        assert_eq!(
+            span_with("IMG_7.png", "7", with(|o| o.regex = true)),
+            Some((4, 5))
+        );
     }
 }
