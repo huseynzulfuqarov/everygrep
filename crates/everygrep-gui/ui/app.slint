@@ -61,6 +61,33 @@ global Icons {
 }
 
 // A small on/off button for a matching mode, shown inside the search field.
+// A small flat button in the status line (Cancel).
+component StatusButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+
+    width: label.preferred-width + 2 * Theme.s2;
+    height: Theme.badge-height + 2px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.accent : Theme.line;
+    background: touch.pressed ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+
+    label := Text {
+        text: root.text;
+        font-size: Theme.small;
+        color: Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 component ModeToggle inherits Rectangle {
     in property <string> glyph;
     // Draws a line under the glyph (the whole-words look).
@@ -593,6 +620,11 @@ export component AppWindow inherits Window {
     in property <[ResultRow]> results;
     in property <string> status-left;
     in property <string> status-right;
+    // A long operation ("Indexing: 42%"), empty when none is shown, and
+    // whether it can be cancelled with cancel-task().
+    in property <string> progress-text;
+    in property <bool> can-cancel;
+    callback cancel-task();
     in property <string> message;
     in-out property <int> current: -1;
     // Text of the search field.
@@ -1307,6 +1339,20 @@ export component AppWindow inherits Window {
                     // Shrinks (elided) before the badges and the time do.
                     min-width: 0px;
                     horizontal-stretch: 1;
+                }
+                // The long operation running, and its Cancel button.
+                if root.progress-text != "": Text {
+                    text: root.progress-text;
+                    font-size: Theme.small;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                if root.can-cancel: VerticalLayout {
+                    alignment: center;
+                    StatusButton {
+                        text: @tr("Cancel");
+                        clicked => { root.cancel-task(); }
+                    }
                 }
                 // Matching modes that are on.
                 HorizontalLayout {

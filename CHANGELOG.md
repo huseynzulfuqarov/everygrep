@@ -24,6 +24,9 @@ First version, 0.1.0, not released yet.
   written atomically, decoded while it is read.
 - Total size and item count of every folder, kept current on every change.
 - Sorting by name, folder, size, modification time, type or extension.
+- Progress counters and cooperative cancelling for scans, searches, sorts
+  and catch-ups, and an estimate of a scan's size from the used inodes of
+  the file systems it reads.
 
 ### Query language
 
@@ -86,6 +89,13 @@ First version, 0.1.0, not released yet.
   table at no idle cost; fstab mounts are never indexed this way.
 - Translations into Azerbaijani and Turkish, with a language setting that
   applies at once; translated desktop entry.
+- Progress of long operations in the status line ("Indexing: 42%",
+  rescanning, reading a drive, catching up, searching, sorting), shown
+  after 300 ms and updated ten times a second; a count instead of a
+  percentage when the file systems give no estimate (btrfs). A Cancel button
+  stops indexing, rescans, a drive's first reading, searches and sorts; a
+  cancelled first index is never saved, a cancelled rescan keeps the
+  previous index and folders, a cancelled sort keeps the previous order.
 
 ### Project
 

@@ -1133,3 +1133,86 @@ msgstr "Çevrim dışı: sürücü bağlı değil"
 #: src/labels.rs
 msgid "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first."
 msgstr "Bağlı olmayan bir sürücüdeki öğeler açılamaz, yeniden adlandırılamaz veya silinemez. Önce sürücüyü bağlayın."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Indexing: {}%"
+msgstr "Indexing: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Indexing: {} item"
+msgid_plural "Indexing: {} items"
+msgstr[0] "Indexing: {} item"
+msgstr[1] "Indexing: {} items"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Rescanning: {}%"
+msgstr "Rescanning: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Rescanning: {} item"
+msgid_plural "Rescanning: {} items"
+msgstr[0] "Rescanning: {} item"
+msgstr[1] "Rescanning: {} items"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Indexing {0}: {1}%"
+msgstr "Indexing {0}: {1}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Indexing {0}: {1} item"
+msgid_plural "Indexing {0}: {1} items"
+msgstr[0] "Indexing {0}: {1} item"
+msgstr[1] "Indexing {0}: {1} items"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Updating: {}%"
+msgstr "Updating: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Updating: {} folder"
+msgid_plural "Updating: {} folders"
+msgstr[0] "Updating: {} folder"
+msgstr[1] "Updating: {} folders"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Searching: {}%"
+msgstr "Searching: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Sorting: {}%"
+msgstr "Sorting: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Indexing cancelled. Nothing was saved; use Rebuild index now in the settings to index again."
+msgstr "Indexing cancelled. Nothing was saved; use Rebuild index now in the settings to index again."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Rescan cancelled. The previous index is kept."
+msgstr "Rescan cancelled. The previous index is kept."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Indexing {} cancelled. It is read again when it is connected again."
+msgstr "Indexing {} cancelled. It is read again when it is connected again."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Search cancelled. The list shows the previous results."
+msgstr "Search cancelled. The list shows the previous results."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Sort cancelled. The previous order is kept."
+msgstr "Sort cancelled. The previous order is kept."

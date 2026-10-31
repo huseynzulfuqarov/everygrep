@@ -6,6 +6,13 @@
 //! short read locks; the watcher takes the write lock only while it applies a
 //! batch of changes, never while it waits for them.
 //!
+//! Long operations (the first index, indexing again, reading a drive,
+//! catching up, a search or a sort) are listed as tasks with a
+//! [`Progress`]. The window asks for the one to show ([`Engine::busy`]) a few
+//! times a second while any runs, and can cancel it ([`Engine::cancel`]);
+//! a cancelled operation keeps what was there before and is reported
+//! through [`Hooks::on_stopped`].
+//!
 //! Removable drives (see [`everygrep_core::drives`]) are roots of the same
 //! index, so they are searched, sorted and shown like any folder. Each is
 //! saved to a file of its own and loaded at the start as offline; when it is
@@ -24,11 +31,13 @@ use std::time::{Duration, Instant};
 use everygrep_core::drives::{self, Drive, DriveEnv, DriveInfo, MountWatch};
 use everygrep_core::index::Index;
 use everygrep_core::persist;
+use everygrep_core::progress::{self, Progress};
 use everygrep_core::query::{NameTerm, Query, QueryOptions};
-use everygrep_core::scan::{ScanOptions, normalize_roots, scan};
-use everygrep_core::search::search;
-use everygrep_core::sort::{Sort, sort};
+use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
+use everygrep_core::search::search_with_progress;
+use everygrep_core::sort::{Sort, sort_with_progress};
 use everygrep_core::store::{NodeId, NodeStore};
+use everygrep_core::sync::folders_below;
 use everygrep_core::watch::Watcher;
 
 /// What the index is doing, for the status line.
@@ -61,6 +70,154 @@ pub struct SearchResult {
 pub struct Hooks {
     pub on_results: Box<dyn Fn(SearchResult) + Send + Sync>,
     pub on_state: Box<dyn Fn(IndexState, usize) + Send + Sync>,
+    /// A task started while none was running: time to ask [`Engine::busy`]
+    /// again and again until [`Engine::is_busy`] is false.
+    pub on_busy: Box<dyn Fn() + Send + Sync>,
+    /// A task was cancelled.
+    pub on_stopped: Box<dyn Fn(Stopped) + Send + Sync>,
+}
+
+/// A long operation, as the status line names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaskKind {
+    /// The first index of the folders to index.
+    Indexing,
+    /// Indexing them again; the old index stays until the new one is done.
+    Rescanning,
+    /// Reading a removable drive for the first time (its name).
+    Drive(String),
+    /// Catching up with changes made while nothing watched.
+    Updating,
+    Searching,
+    Sorting,
+}
+
+/// The long operation the status line shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Busy {
+    /// For [`Engine::cancel`].
+    pub id: u64,
+    pub kind: TaskKind,
+    /// Entries, folders or names done.
+    pub done: u64,
+    /// `None` when the amount of work is not known.
+    pub percent: Option<u8>,
+    pub cancellable: bool,
+}
+
+/// A cancelled operation, and what was kept.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Stopped {
+    /// The first index: nothing is saved; the index stays empty until it is
+    /// built again.
+    Index,
+    /// Indexing again: the previous index and its folders stay.
+    Rescan,
+    /// A drive's first reading (its name): the drive is not indexed until
+    /// it is connected again.
+    Drive(String),
+    /// A search: the previous results stay.
+    Search,
+    /// A new order: the previous results stay in this, their order.
+    Sort(Sort),
+}
+
+/// Tasks younger than this are not shown, so quick ones do not flicker.
+pub const SHOW_AFTER: Duration = Duration::from_millis(300);
+/// How often the window asks for the progress: at most ten times a second.
+pub const PROGRESS_EVERY: Duration = Duration::from_millis(100);
+
+struct Task {
+    id: u64,
+    kind: Mutex<TaskKind>,
+    started: Instant,
+    progress: Progress,
+    cancellable: bool,
+}
+
+/// The long operations running now, oldest first.
+struct Tasks {
+    list: Mutex<Vec<Arc<Task>>>,
+    next_id: AtomicU64,
+    on_busy: Box<dyn Fn() + Send + Sync>,
+}
+
+impl Tasks {
+    fn new(on_busy: Box<dyn Fn() + Send + Sync>) -> Arc<Self> {
+        Arc::new(Self {
+            list: Mutex::new(Vec::new()),
+            next_id: AtomicU64::new(1),
+            on_busy,
+        })
+    }
+
+    /// Lists a task until the returned guard is dropped.
+    fn begin(self: &Arc<Self>, kind: TaskKind, cancellable: bool) -> TaskGuard {
+        let task = Arc::new(Task {
+            id: self.next_id.fetch_add(1, Ordering::Relaxed),
+            kind: Mutex::new(kind),
+            started: Instant::now(),
+            progress: Progress::new(),
+            cancellable,
+        });
+        let first = {
+            let mut list = self.list.lock().expect("lock");
+            list.push(Arc::clone(&task));
+            list.len() == 1
+        };
+        if first {
+            (self.on_busy)();
+        }
+        TaskGuard {
+            tasks: Arc::clone(self),
+            task,
+        }
+    }
+
+    /// The oldest task that has run for [`SHOW_AFTER`] at `now`.
+    fn shown(&self, now: Instant) -> Option<Busy> {
+        let list = self.list.lock().expect("lock");
+        let task = list
+            .iter()
+            .find(|t| now.saturating_duration_since(t.started) >= SHOW_AFTER)?;
+        Some(Busy {
+            id: task.id,
+            kind: task.kind.lock().expect("lock").clone(),
+            done: task.progress.done(),
+            percent: task.progress.percent(),
+            cancellable: task.cancellable,
+        })
+    }
+
+    fn cancel(&self, id: u64) {
+        let list = self.list.lock().expect("lock");
+        if let Some(task) = list.iter().find(|t| t.id == id && t.cancellable) {
+            task.progress.cancel();
+        }
+    }
+}
+
+/// A running task; dropping it ends the task.
+struct TaskGuard {
+    tasks: Arc<Tasks>,
+    task: Arc<Task>,
+}
+
+impl TaskGuard {
+    fn progress(&self) -> &Progress {
+        &self.task.progress
+    }
+
+    fn set_kind(&self, kind: TaskKind) {
+        *self.task.kind.lock().expect("lock") = kind;
+    }
+}
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        let mut list = self.tasks.list.lock().expect("lock");
+        list.retain(|t| t.id != self.task.id);
+    }
 }
 
 /// How removable drives are handled.
@@ -122,10 +279,11 @@ enum DriveCommand {
     Ignore(String, bool),
 }
 
-/// A drive read for the first time on a helper thread, waiting to be added.
+/// A drive read for the first time on a helper thread, waiting to be added;
+/// `None` when the reading was cancelled.
 struct Scanned {
     drive: Drive,
-    index: Index,
+    index: Option<Index>,
 }
 
 /// Shared engine state.
@@ -159,7 +317,21 @@ pub struct Engine {
     drive_commands: Mutex<Vec<DriveCommand>>,
     scanned: Arc<Mutex<Vec<Scanned>>>,
     scanning: Mutex<HashSet<String>>,
+    /// Drives whose first reading was cancelled: not read again until they
+    /// are connected again (or asked for in the settings).
+    not_now: Mutex<HashSet<String>>,
     mounts_changed: Arc<AtomicBool>,
+    tasks: Arc<Tasks>,
+    /// The folders to index and the excludes the index was built with (or,
+    /// after a cancelled first index, was to be built with); a cancelled
+    /// new index goes back to them.
+    indexed_with: Mutex<(Vec<PathBuf>, Vec<PathBuf>)>,
+    /// The first index was cancelled: the index of the folders is not
+    /// complete and must not be saved.
+    incomplete: AtomicBool,
+    /// The query that gave the results shown; a cancelled search goes back
+    /// to it.
+    applied: Mutex<QueryState>,
 }
 
 /// What the search thread runs: the query text, its options and the result order.
@@ -182,8 +354,9 @@ impl Engine {
         exclude: Vec<PathBuf>,
         index_file: Option<PathBuf>,
         drives: Option<(DriveEnv, DriveSettings)>,
-        hooks: Hooks,
+        mut hooks: Hooks,
     ) -> Arc<Self> {
+        let on_busy = std::mem::replace(&mut hooks.on_busy, Box::new(|| {}));
         let (drive_env, drive_settings) = match drives {
             Some((env, settings)) => (Some(env), settings),
             None => (None, DriveSettings::default()),
@@ -212,7 +385,12 @@ impl Engine {
             drive_commands: Mutex::new(Vec::new()),
             scanned: Arc::new(Mutex::new(Vec::new())),
             scanning: Mutex::new(HashSet::new()),
+            not_now: Mutex::new(HashSet::new()),
             mounts_changed: Arc::new(AtomicBool::new(false)),
+            tasks: Tasks::new(on_busy),
+            indexed_with: Mutex::new((Vec::new(), Vec::new())),
+            incomplete: AtomicBool::new(false),
+            applied: Mutex::new(QueryState::default()),
         });
         let (tx, rx) = mpsc::channel();
         *engine.searches.lock().expect("lock") = Some(tx);
@@ -266,6 +444,32 @@ impl Engine {
     /// Whether removable drives are handled at all.
     pub fn drives_enabled(&self) -> bool {
         self.drive_env.is_some()
+    }
+
+    /// The long operation to show in the status line: the oldest that has
+    /// run for [`SHOW_AFTER`].
+    pub fn busy(&self) -> Option<Busy> {
+        self.tasks.shown(Instant::now())
+    }
+
+    /// Whether any long operation runs, shown or not yet.
+    pub fn is_busy(&self) -> bool {
+        !self.tasks.list.lock().expect("lock").is_empty()
+    }
+
+    /// Asks the operation [`Busy::id`] to stop, if it can.
+    pub fn cancel(&self, id: u64) {
+        self.tasks.cancel(id);
+    }
+
+    /// Cancels every task that can be cancelled.
+    #[cfg(test)]
+    fn cancel_all(&self) {
+        for task in self.tasks.list.lock().expect("lock").iter() {
+            if task.cancellable {
+                task.progress.cancel();
+            }
+        }
     }
 
     /// The known drives, connected ones first, then by name.
@@ -340,18 +544,18 @@ impl Engine {
 
     /// Runs `text` as the current query. Returns the generation of the request.
     pub fn set_query(&self, text: &str, options: QueryOptions) -> u64 {
-        {
-            let mut q = self.query.lock().expect("lock");
-            q.text = text.to_owned();
-            q.options = options;
-        }
+        let mut q = self.query.lock().expect("lock");
+        q.text = text.to_owned();
+        q.options = options;
+        // Under the lock, so a cancelled search never undoes this request.
         self.request_search()
     }
 
     /// Changes the result order and runs the current query again. The order
     /// stays for later queries. Returns the generation of the request.
     pub fn set_sort(&self, sort: Sort) -> u64 {
-        self.query.lock().expect("lock").sort = sort;
+        let mut q = self.query.lock().expect("lock");
+        q.sort = sort;
         self.request_search()
     }
 
@@ -397,15 +601,36 @@ impl Engine {
                     let index = self.index.read().expect("index lock");
                     epoch = self.epoch();
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-                    let mut ids = search(&index, &query, threads);
-                    if self.is_current(generation) {
-                        sort(&index, &mut ids, state.sort, threads);
+                    let task = self.tasks.begin(TaskKind::Searching, true);
+                    let found = search_with_progress(&index, &query, threads, task.progress())
+                        .and_then(|mut ids| {
+                            if self.is_current(generation) {
+                                task.set_kind(TaskKind::Sorting);
+                                task.progress().restart(None);
+                                sort_with_progress(
+                                    &index,
+                                    &mut ids,
+                                    state.sort,
+                                    threads,
+                                    task.progress(),
+                                )?;
+                            }
+                            Ok(ids)
+                        });
+                    drop(task);
+                    drop(index);
+                    match found {
+                        Ok(ids) => (ids, None),
+                        Err(progress::Cancelled) => {
+                            self.search_cancelled(generation, &state);
+                            continue;
+                        }
                     }
-                    (ids, None)
                 }
                 Err(e) => (Vec::new(), Some(e.to_string())),
             };
             if self.is_current(generation) {
+                *self.applied.lock().expect("lock") = state.clone();
                 (self.hooks.on_results)(SearchResult {
                     ids: Arc::new(ids),
                     terms: Arc::new(terms),
@@ -416,6 +641,24 @@ impl Engine {
                 });
             }
         }
+    }
+
+    /// A search or sort for `state` was cancelled: the results shown stay,
+    /// and so does the query that gave them, unless a newer request came.
+    fn search_cancelled(&self, generation: u64, state: &QueryState) {
+        let mut q = self.query.lock().expect("lock");
+        if !self.is_current(generation) {
+            return;
+        }
+        let applied = self.applied.lock().expect("lock").clone();
+        let stopped = if state.sort == applied.sort {
+            Stopped::Search
+        } else {
+            Stopped::Sort(applied.sort)
+        };
+        *q = applied;
+        drop(q);
+        (self.hooks.on_stopped)(stopped);
     }
 
     /// Swaps in a new index; ids of the old one become invalid.
@@ -438,13 +681,19 @@ impl Engine {
                 let mut roots = self.roots.lock().expect("lock");
                 if roots.is_empty() || *roots == saved.roots {
                     *roots = saved.roots;
+                    *self.indexed_with.lock().expect("lock") =
+                        (roots.clone(), self.scan_options().exclude);
                     self.replace_index(saved.index);
                     loaded = true;
                 }
             }
         }
-        if !loaded {
-            self.scan_fresh();
+        if !loaded && !self.scan_fresh(TaskKind::Indexing) {
+            // Nothing is saved until a new index is complete; the next
+            // start indexes again.
+            self.incomplete.store(true, Ordering::SeqCst);
+            *self.indexed_with.lock().expect("lock") = (self.roots(), self.scan_options().exclude);
+            (self.hooks.on_stopped)(Stopped::Index);
         }
         self.load_drives();
         let (_, mut drives_to_catch_up) = self.sync_drives(None);
@@ -460,13 +709,19 @@ impl Engine {
                 Ok(mut watcher) => {
                     if catch_up || !drives_to_catch_up.is_empty() {
                         self.report(IndexState::CatchingUp);
+                        let task = self.tasks.begin(TaskKind::Updating, false);
                         let mut index = self.index.write().expect("index lock");
-                        let stats = if catch_up {
-                            watcher.catch_up(&mut index)
+                        let roots = if catch_up {
+                            online_roots(&index)
                         } else {
-                            watcher.catch_up_roots(&mut index, &drives_to_catch_up)
+                            std::mem::take(&mut drives_to_catch_up)
                         };
+                        task.progress()
+                            .set_total(Some(folders_below(&index, &roots)));
+                        let stats =
+                            watcher.catch_up_with_progress(&mut index, &roots, task.progress());
                         drop(index);
+                        drop(task);
                         if stats.added + stats.removed + stats.updated > 0 {
                             self.dirty.store(true, Ordering::SeqCst);
                             self.request_search();
@@ -491,18 +746,28 @@ impl Engine {
                 }
             }
             if self.rescan.swap(false, Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst) {
-                self.scan_fresh();
-                *self.shown.lock().expect("lock") = Arc::new(Vec::new());
-                self.request_search();
-                self.save();
-                catch_up = false;
+                if self.scan_fresh(TaskKind::Rescanning) {
+                    *self.shown.lock().expect("lock") = Arc::new(Vec::new());
+                    self.request_search();
+                    self.save();
+                    catch_up = false;
+                } else {
+                    // The previous index stays, with its folders; nothing
+                    // watched it during the scan, so it is caught up.
+                    let (roots, exclude) = self.indexed_with.lock().expect("lock").clone();
+                    *self.roots.lock().expect("lock") = roots;
+                    self.options.lock().expect("lock").exclude = exclude;
+                    catch_up = true;
+                    (self.hooks.on_stopped)(Stopped::Rescan);
+                }
             }
         }
     }
 
     /// Builds the index from scratch over the current roots (the home
-    /// folder when there are none) and swaps it in.
-    fn scan_fresh(&self) {
+    /// folder when there are none) and swaps it in. Returns false, with the
+    /// index as it was, when the task (shown as `kind`) is cancelled.
+    fn scan_fresh(&self, kind: TaskKind) -> bool {
         self.report(IndexState::Scanning);
         let roots = {
             let mut roots = self.roots.lock().expect("lock");
@@ -514,11 +779,46 @@ impl Engine {
             }
             roots.clone()
         };
+        let options = self.scan_options();
+        let task = self.tasks.begin(kind, true);
+        task.progress().set_total(self.estimate(&roots, &options));
         let mut store = NodeStore::new();
-        scan(&mut store, &roots, &self.scan_options());
+        if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
+            return false;
+        }
         let fresh = self.with_drives(Index::new(store));
+        if task.progress().is_cancelled() {
+            return false;
+        }
         self.replace_index(fresh);
+        *self.indexed_with.lock().expect("lock") = (roots, options.exclude);
+        self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
+        true
+    }
+
+    /// The expected number of entries of a scan of `roots`: as many as the
+    /// index has now when it covers the same folders, otherwise what the
+    /// file systems say (see [`progress::estimate_scan`]).
+    fn estimate(&self, roots: &[PathBuf], options: &ScanOptions) -> Option<u64> {
+        let same = {
+            let (indexed, _) = &*self.indexed_with.lock().expect("lock");
+            !self.incomplete.load(Ordering::SeqCst) && indexed.as_slice() == roots
+        };
+        if same {
+            let volumes = self.volumes.lock().expect("lock");
+            let drives: u64 = volumes
+                .iter()
+                .filter(|v| v.root.is_some())
+                .map(|v| v.info.entries)
+                .sum();
+            let all = self.index.read().expect("index lock").len() as u64;
+            if all > drives {
+                return Some(all - drives);
+            }
+        }
+        let skip: HashSet<PathBuf> = options.exclude.iter().cloned().collect();
+        progress::estimate_scan(roots, &skip)
     }
 
     /// Applies file changes until the engine stops or a rescan is asked for.
@@ -576,8 +876,20 @@ impl Engine {
         self.report(IndexState::Scanning);
         let roots = self.roots.lock().expect("lock").clone();
         let options = self.scan_options();
+        let task = self.tasks.begin(TaskKind::Rescanning, true);
+        task.progress().set_total(self.estimate(&roots, &options));
         let mut store = NodeStore::new();
-        scan(&mut store, &roots, &options);
+        if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
+            drop(task);
+            // The previous index stays and is caught up instead, which
+            // finds added and removed entries.
+            self.report(IndexState::CatchingUp);
+            watcher.catch_up(&mut self.index.write().expect("index lock"));
+            self.report(IndexState::Watching);
+            (self.hooks.on_stopped)(Stopped::Rescan);
+            return;
+        }
+        drop(task);
         let fresh = self.with_drives(Index::new(store));
         let mut index = self.index.write().expect("index lock");
         *index = fresh;
@@ -604,7 +916,12 @@ impl Engine {
             .filter_map(|v| root_id(&index, v.root.as_deref()?))
             .collect();
         let mut ok = true;
-        if let Some(path) = &self.index_file {
+        // An index cancelled before it was complete is never saved.
+        let own_file = self
+            .index_file
+            .as_ref()
+            .filter(|_| !self.incomplete.load(Ordering::SeqCst));
+        if let Some(path) = own_file {
             ok = if drive_roots.is_empty() {
                 persist::save(&index, &roots, path).is_ok()
             } else {
@@ -704,6 +1021,7 @@ impl Engine {
                         volumes.remove(i);
                     }
                     let _ = drives::forget(env, &uuid, true);
+                    self.not_now.lock().expect("lock").remove(&uuid);
                 }
                 DriveCommand::Ignore(uuid, true) => {
                     if let Some(v) = volumes.iter_mut().find(|v| v.info.uuid == uuid) {
@@ -721,6 +1039,7 @@ impl Engine {
                     if let Some(v) = volumes.iter().find(|v| v.info.uuid == uuid) {
                         let _ = v.info.save(env);
                     }
+                    self.not_now.lock().expect("lock").remove(&uuid);
                 }
             }
         }
@@ -748,6 +1067,7 @@ impl Engine {
                 continue;
             }
             changed = true;
+            self.not_now.lock().expect("lock").remove(&v.info.uuid);
             let v = &mut volumes[i];
             v.online = false;
             v.info.last_seen = now;
@@ -770,6 +1090,15 @@ impl Engine {
         // Drives read for the first time on a helper thread.
         for Scanned { drive, index: new } in scanned {
             self.scanning.lock().expect("lock").remove(&drive.uuid);
+            let Some(new) = new else {
+                self.not_now
+                    .lock()
+                    .expect("lock")
+                    .insert(drive.uuid.clone());
+                (self.hooks.on_stopped)(Stopped::Drive(drive_name(&drive)));
+                changed = true;
+                continue;
+            };
             let Some(v) = volumes.iter_mut().find(|v| v.info.uuid == drive.uuid) else {
                 continue;
             };
@@ -850,7 +1179,9 @@ impl Engine {
                     }
                     None => to_catch_up.push(root),
                 }
-            } else if settings.auto || env.info_path(&drive.uuid).exists() {
+            } else if (settings.auto || env.info_path(&drive.uuid).exists())
+                && !self.not_now.lock().expect("lock").contains(&drive.uuid)
+            {
                 // Not in the index: read it when drives are indexed
                 // automatically, or when this one was indexed before or
                 // asked for (it has notes then).
@@ -884,16 +1215,20 @@ impl Engine {
         }
         let options = self.scan_options();
         let (scanned, changed) = (Arc::clone(&self.scanned), Arc::clone(&self.mounts_changed));
+        let tasks = Arc::clone(&self.tasks);
         let _ = std::thread::Builder::new()
             .name("drive scan".into())
             .spawn(move || {
+                let task = tasks.begin(TaskKind::Drive(drive_name(&drive)), true);
+                let roots = std::slice::from_ref(&drive.mount_point);
+                let skip: HashSet<PathBuf> = options.exclude.iter().cloned().collect();
+                task.progress()
+                    .set_total(progress::estimate_scan(roots, &skip));
                 let mut store = NodeStore::new();
-                scan(
-                    &mut store,
-                    std::slice::from_ref(&drive.mount_point),
-                    &options,
-                );
-                let index = Index::new(store);
+                let index = scan_with_progress(&mut store, roots, &options, task.progress())
+                    .ok()
+                    .map(|_| Index::new(store));
+                drop(task);
                 scanned.lock().expect("lock").push(Scanned { drive, index });
                 changed.store(true, Ordering::SeqCst);
             });
@@ -964,6 +1299,24 @@ impl Engine {
         }
         drop(threads);
         self.save();
+    }
+}
+
+/// The roots of `index` whose drive is connected.
+fn online_roots(index: &Index) -> Vec<NodeId> {
+    index
+        .roots()
+        .into_iter()
+        .filter(|&r| !index.is_offline(r))
+        .collect()
+}
+
+/// A drive's name for the status line: its label, or where it is mounted.
+fn drive_name(drive: &Drive) -> String {
+    if drive.label.is_empty() {
+        drive.mount_point.display().to_string()
+    } else {
+        drive.label.clone()
     }
 }
 
@@ -1048,11 +1401,20 @@ mod tests {
         engine: Arc<Engine>,
         states: mpsc::Receiver<IndexState>,
         results: mpsc::Receiver<SearchResult>,
+        stopped: mpsc::Receiver<Stopped>,
+        /// While set, the next task to begin when none runs is cancelled at
+        /// once.
+        armed: Arc<AtomicBool>,
     }
 
     impl Probe {
         fn start(roots: Vec<PathBuf>, exclude: Vec<PathBuf>, index: PathBuf) -> Self {
             Self::start_with(roots, exclude, index, None)
+        }
+
+        /// Like [`start`](Self::start), cancelling the first task at once.
+        fn start_armed(roots: Vec<PathBuf>, index: PathBuf) -> Self {
+            Self::start_full(roots, Vec::new(), index, None, true)
         }
 
         fn start_with(
@@ -1061,10 +1423,24 @@ mod tests {
             index: PathBuf,
             drives: Option<(DriveEnv, DriveSettings)>,
         ) -> Self {
+            Self::start_full(roots, exclude, index, drives, false)
+        }
+
+        fn start_full(
+            roots: Vec<PathBuf>,
+            exclude: Vec<PathBuf>,
+            index: PathBuf,
+            drives: Option<(DriveEnv, DriveSettings)>,
+            armed: bool,
+        ) -> Self {
             let (state_tx, states) = mpsc::channel();
             let (result_tx, results) = mpsc::channel();
+            let (stopped_tx, stopped) = mpsc::channel();
             let state_tx = Mutex::new(state_tx);
             let result_tx = Mutex::new(result_tx);
+            let stopped_tx = Mutex::new(stopped_tx);
+            let armed = Arc::new(AtomicBool::new(armed));
+            let slot: Arc<std::sync::OnceLock<std::sync::Weak<Engine>>> = Arc::default();
             let hooks = Hooks {
                 on_results: Box::new(move |r| {
                     let _ = result_tx.lock().unwrap().send(r);
@@ -1072,12 +1448,43 @@ mod tests {
                 on_state: Box::new(move |s, _| {
                     let _ = state_tx.lock().unwrap().send(s);
                 }),
+                on_busy: Box::new({
+                    let (armed, slot) = (Arc::clone(&armed), Arc::clone(&slot));
+                    move || {
+                        if !armed.swap(false, Ordering::SeqCst) {
+                            return;
+                        }
+                        // The first task may begin before `start` returns.
+                        let engine = loop {
+                            if let Some(e) = slot.get() {
+                                break e.upgrade();
+                            }
+                            std::thread::sleep(Duration::from_millis(1));
+                        };
+                        if let Some(engine) = engine {
+                            engine.cancel_all();
+                        }
+                    }
+                }),
+                on_stopped: Box::new(move |s| {
+                    let _ = stopped_tx.lock().unwrap().send(s);
+                }),
             };
+            let engine = Engine::start(roots, exclude, Some(index), drives, hooks);
+            let _ = slot.set(Arc::downgrade(&engine));
             Self {
-                engine: Engine::start(roots, exclude, Some(index), drives, hooks),
+                engine,
                 states,
                 results,
+                stopped,
+                armed,
             }
+        }
+
+        fn wait_stopped(&self) -> Stopped {
+            self.stopped
+                .recv_timeout(Duration::from_secs(20))
+                .expect("a cancel")
         }
 
         fn wait_for(&self, state: IndexState) {
@@ -1148,6 +1555,148 @@ mod tests {
         // The new index was saved at once, with its roots.
         let saved = persist::load(&index).unwrap();
         assert_eq!(saved.roots, roots);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn tasks_show_after_a_while_and_only_cancellable_ones_stop() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let tasks = Tasks::new(Box::new({
+            let calls = Arc::clone(&calls);
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+            }
+        }));
+        let a = tasks.begin(TaskKind::Indexing, true);
+        let b = tasks.begin(TaskKind::Updating, false);
+        // Only the first of tasks running together wakes the window.
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // Quick tasks are never shown.
+        assert_eq!(tasks.shown(a.task.started), None);
+        assert_eq!(
+            tasks.shown(a.task.started + SHOW_AFTER - Duration::from_millis(1)),
+            None
+        );
+        a.progress().set_total(Some(200));
+        a.progress().add(100);
+        let later = b.task.started + SHOW_AFTER;
+        assert_eq!(
+            tasks.shown(later),
+            Some(Busy {
+                id: a.task.id,
+                kind: TaskKind::Indexing,
+                done: 100,
+                percent: Some(50),
+                cancellable: true,
+            })
+        );
+        tasks.cancel(b.task.id);
+        assert!(!b.progress().is_cancelled());
+        tasks.cancel(a.task.id);
+        assert!(a.progress().is_cancelled());
+        drop(a);
+        let shown = tasks.shown(later).unwrap();
+        assert_eq!((shown.kind, shown.cancellable), (TaskKind::Updating, false));
+        drop(b);
+        assert_eq!(tasks.shown(later + SHOW_AFTER), None);
+        let _c = tasks.begin(TaskKind::Searching, true);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn cancelled_first_index_is_never_saved() {
+        let dir = Scratch::new("cancel-first");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "").unwrap();
+        let index = dir.0.join("index.bin");
+        let probe = Probe::start_armed(vec![root.clone()], index.clone());
+        assert_eq!(probe.wait_stopped(), Stopped::Index);
+        probe.wait_for(IndexState::Watching);
+        assert!(probe.names("txt").is_empty());
+        // Neither a save now nor one after other changes writes the index.
+        probe.engine.dirty.store(true, Ordering::SeqCst);
+        probe.engine.save();
+        assert!(!index.exists());
+
+        // Built again, it is complete and saved.
+        probe.engine.reindex(&probe.engine.roots(), Vec::new());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        let saved = persist::load(&index).unwrap();
+        assert_eq!(saved.index.len(), 2);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn cancelled_rescan_keeps_the_previous_index_and_folders() {
+        let dir = Scratch::new("cancel-rescan");
+        let root = |p: &str| dir.0.join(p);
+        for f in ["a/one.txt", "b/two.txt"] {
+            fs::create_dir_all(root(f).parent().unwrap()).unwrap();
+            fs::write(root(f), "").unwrap();
+        }
+        let index = root("index.bin");
+        let probe = Probe::start(vec![root("a")], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        probe.engine.dirty.store(true, Ordering::SeqCst);
+        probe.engine.save();
+        let before = fs::read(&index).unwrap();
+        let roots = probe.engine.roots();
+
+        probe.armed.store(true, Ordering::SeqCst);
+        probe.engine.reindex(&[root("b")], vec![root("a/never")]);
+        assert_eq!(probe.wait_stopped(), Stopped::Rescan);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        assert_eq!(probe.engine.roots(), roots);
+        assert!(probe.engine.scan_options().exclude.is_empty());
+        probe.engine.save();
+        assert_eq!(fs::read(&index).unwrap(), before);
+        // Still watched: a new file shows up.
+        fs::write(root("a/three.txt"), "").unwrap();
+        until(&probe.engine, "the new file", |i| {
+            find(i, &fs::canonicalize(root("a")).unwrap().join("three.txt")).is_some()
+        });
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn cancelled_sort_keeps_the_previous_order() {
+        let dir = Scratch::new("cancel-sort");
+        fs::create_dir_all(dir.0.join("a")).unwrap();
+        fs::write(dir.0.join("a/one.txt"), "").unwrap();
+        let probe = Probe::start(vec![dir.0.join("a")], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        while probe.results.try_recv().is_ok() {}
+
+        probe.armed.store(true, Ordering::SeqCst);
+        let by_size = Sort {
+            key: everygrep_core::sort::SortKey::Size,
+            descending: true,
+            ..Sort::default()
+        };
+        probe.engine.set_sort(by_size);
+        assert_eq!(probe.wait_stopped(), Stopped::Sort(Sort::default()));
+        assert_eq!(probe.engine.query.lock().unwrap().sort, Sort::default());
+        assert!(
+            probe
+                .results
+                .recv_timeout(Duration::from_millis(200))
+                .is_err(),
+            "a cancelled sort sends no results"
+        );
+
+        // A cancelled search keeps the query that gave the results.
+        probe.armed.store(true, Ordering::SeqCst);
+        probe
+            .engine
+            .set_query("nothing-like-this", QueryOptions::default());
+        assert_eq!(probe.wait_stopped(), Stopped::Search);
+        assert_eq!(probe.engine.query.lock().unwrap().text, "txt");
         probe.engine.shutdown();
     }
 

@@ -85,7 +85,11 @@ screen; when a change conflicts with them, the rules win or are changed first.
   size setting says), modification time and full path; with several, their
   number and the total size of the files among them (summed up to 100 000
   selected items). A setting turns the details off. The left part is elided
-  first, so badges and time stay visible.
+  first, so badges and time stay visible. A long operation that has run for
+  300 ms shows its progress after the left part ("Indexing: 42%", or a count
+  when there is no estimate), updated at most ten times a second, with a
+  small Cancel button when it can be cancelled. Cancel keeps the earlier
+  state and says so in the note. Its key is not decided yet.
 - **Optional panes,** hidden by default: a preview pane on the right and a
   sidebar of saved searches on the left.
 

@@ -211,7 +211,20 @@ bar is new and on by default; turning it off brings back the earlier look.
 
 Changing the folders rebuilds the index in the background while the window
 stays usable; the status line shows the progress, and the new index is saved
-as soon as it is complete. An excluded folder is matched exactly, and its own
+as soon as it is complete.
+
+Long operations show their progress in the status line once they take
+more than 300 ms: indexing, rescanning, reading a drive, catching up,
+searching and sorting ("Indexing: 42%"). The percentage of a scan is
+estimated from the used inodes of the file systems it reads, or from the
+size of the previous index of the same folders; file systems that report
+no inodes (btrfs, FAT) give a count instead ("Indexing: 123 456 items").
+The Cancel button next to it stops the operation and keeps what was there
+before: a cancelled first index is not saved (the next start, or "Rebuild
+index now", indexes again), a cancelled rescan keeps the previous index and
+folders, a cancelled sort or search keeps the results and order shown, and
+a drive whose first reading was cancelled is read again when it is plugged
+in again. Catching up cannot be cancelled. Cancel has no key yet. An excluded folder is matched exactly, and its own
 entry stays in the results. Hidden files are always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any

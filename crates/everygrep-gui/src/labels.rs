@@ -7,7 +7,7 @@ use everygrep_core::kind::FileKind;
 use everygrep_core::query::QueryOptions;
 use everygrep_core::sort::FolderSize;
 
-use crate::engine::IndexState;
+use crate::engine::{Busy, IndexState, Stopped, TaskKind};
 use crate::format;
 use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
@@ -334,6 +334,53 @@ pub fn index_status(state: IndexState, indexed: usize) -> String {
     fill(text, &[&entries])
 }
 
+/// The long operation in the status line: `Indexing: 42%`, or what has
+/// been done so far when the amount of work is not known.
+pub fn busy(b: &Busy) -> String {
+    let n = usize::try_from(b.done).unwrap_or(usize::MAX);
+    let done = format::count(n);
+    match (&b.kind, b.percent) {
+        (TaskKind::Indexing, Some(p)) => fill(tr("Indexing: {}%"), &[&p]),
+        (TaskKind::Indexing, None) => {
+            fill(trn("Indexing: {} item", "Indexing: {} items", n), &[&done])
+        }
+        (TaskKind::Rescanning, Some(p)) => fill(tr("Rescanning: {}%"), &[&p]),
+        (TaskKind::Rescanning, None) => fill(
+            trn("Rescanning: {} item", "Rescanning: {} items", n),
+            &[&done],
+        ),
+        (TaskKind::Drive(name), Some(p)) => fill(tr("Indexing {0}: {1}%"), &[name, &p]),
+        (TaskKind::Drive(name), None) => fill(
+            trn("Indexing {0}: {1} item", "Indexing {0}: {1} items", n),
+            &[name, &done],
+        ),
+        (TaskKind::Updating, Some(p)) => fill(tr("Updating: {}%"), &[&p]),
+        (TaskKind::Updating, None) => fill(
+            trn("Updating: {} folder", "Updating: {} folders", n),
+            &[&done],
+        ),
+        (TaskKind::Searching, p) => fill(tr("Searching: {}%"), &[&p.unwrap_or(0)]),
+        (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
+    }
+}
+
+/// The note in the status line after a long operation was cancelled.
+pub fn stopped(s: &Stopped) -> String {
+    match s {
+        Stopped::Index => tr(
+            "Indexing cancelled. Nothing was saved; use Rebuild index now in the settings to index again.",
+        )
+        .to_owned(),
+        Stopped::Rescan => tr("Rescan cancelled. The previous index is kept.").to_owned(),
+        Stopped::Drive(name) => fill(
+            tr("Indexing {} cancelled. It is read again when it is connected again."),
+            &[name],
+        ),
+        Stopped::Search => tr("Search cancelled. The list shows the previous results.").to_owned(),
+        Stopped::Sort(_) => tr("Sort cancelled. The previous order is kept.").to_owned(),
+    }
+}
+
 /// The message over the empty result list while the index is not ready.
 pub fn loading_message(state: IndexState) -> Option<&'static str> {
     match state {
@@ -513,6 +560,45 @@ mod tests {
         );
         assert_ne!(on_close(OnClose::Quit), on_close(OnClose::Hide));
         assert_eq!(bad_lines(1).split(' ').next(), Some("One"));
+    }
+
+    #[test]
+    fn progress_texts() {
+        let busy_with = |kind: TaskKind, done: u64, percent: Option<u8>| {
+            busy(&Busy {
+                id: 1,
+                kind,
+                done,
+                percent,
+                cancellable: true,
+            })
+        };
+        assert_eq!(busy_with(TaskKind::Indexing, 5, Some(42)), "Indexing: 42%");
+        // No estimate (btrfs): the count instead.
+        assert_eq!(
+            busy_with(TaskKind::Indexing, 123_456, None),
+            format!("Indexing: {} items", format::count(123_456))
+        );
+        assert_eq!(busy_with(TaskKind::Indexing, 1, None), "Indexing: 1 item");
+        assert_eq!(
+            busy_with(TaskKind::Rescanning, 9, Some(99)),
+            "Rescanning: 99%"
+        );
+        assert_eq!(
+            busy_with(TaskKind::Drive("USB".into()), 3, Some(7)),
+            "Indexing USB: 7%"
+        );
+        assert_eq!(
+            busy_with(TaskKind::Drive("USB".into()), 3, None),
+            "Indexing USB: 3 items"
+        );
+        assert_eq!(
+            busy_with(TaskKind::Updating, 2, None),
+            "Updating: 2 folders"
+        );
+        assert_eq!(busy_with(TaskKind::Sorting, 0, Some(50)), "Sorting: 50%");
+        assert_eq!(busy_with(TaskKind::Searching, 0, None), "Searching: 0%");
+        assert!(stopped(&Stopped::Drive("USB".into())).contains("USB"));
     }
 
     #[test]

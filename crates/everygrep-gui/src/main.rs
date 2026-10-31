@@ -17,10 +17,10 @@ mod results;
 mod selection;
 mod settings;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ use everygrep_core::query::QueryOptions;
 use everygrep_core::sort::{FolderSize, Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
-use engine::{Engine, Hooks, IndexState, SearchResult};
+use engine::{Engine, Hooks, IndexState, SearchResult, Stopped};
 use i18n::{fill, tr, trn};
 use prefs::{IndexSetup, Prefs};
 use results::ResultsModel;
@@ -122,6 +122,20 @@ fn main() -> Result<(), slint::PlatformError> {
                 });
             }
         }),
+        on_busy: Box::new(|| {
+            let _ = slint::invoke_from_event_loop(run_on_busy);
+        }),
+        on_stopped: Box::new({
+            let weak = weak.clone();
+            move |stopped: Stopped| {
+                let weak = weak.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = weak.upgrade() {
+                        show_stopped(&w, &stopped);
+                    }
+                });
+            }
+        }),
     };
     let window_args = new_window_args(&args.roots, args.index_file.as_deref());
     let drives =
@@ -135,6 +149,25 @@ fn main() -> Result<(), slint::PlatformError> {
     );
     let model = Rc::new(ResultsModel::new(engine.clone()));
     window.set_results(ModelRc::from(model.clone()));
+    let progress_timer = Rc::new(Timer::default());
+    let shown_task = Rc::new(Cell::new(None));
+    ON_BUSY.with(|f| {
+        let (weak, engine) = (weak.clone(), engine.clone());
+        let (timer, shown) = (progress_timer.clone(), shown_task.clone());
+        *f.borrow_mut() = Some(Box::new(move || {
+            watch_progress(&weak, &engine, &timer, &shown);
+        }));
+    });
+    // Tasks may have begun before the event loop could hear of them.
+    run_on_busy();
+    window.on_cancel_task({
+        let (engine, shown) = (engine.clone(), shown_task.clone());
+        move || {
+            if let Some(id) = shown.get() {
+                engine.cancel(id);
+            }
+        }
+    });
     set_filter_names(&window);
     set_options(&window, start_options);
     window.set_show_type(args.show_type);
@@ -437,6 +470,62 @@ type Presenter = Box<dyn Fn(instance::Request)>;
 thread_local! {
     /// Set once the window is ready.
     static ON_PRESENT: RefCell<Option<Presenter>> = RefCell::default();
+}
+
+thread_local! {
+    /// Starts showing the long operations; set once the window is ready.
+    static ON_BUSY: RefCell<Option<Box<dyn Fn()>>> = RefCell::default();
+}
+
+/// Runs on the UI thread when a long operation begins.
+fn run_on_busy() {
+    ON_BUSY.with(|f| {
+        if let Some(f) = &*f.borrow() {
+            f();
+        }
+    });
+}
+
+/// Shows the long operation in the status line, every
+/// [`engine::PROGRESS_EVERY`] until none runs. `shown` keeps the one shown,
+/// for its Cancel button.
+fn watch_progress(
+    weak: &slint::Weak<AppWindow>,
+    engine: &Arc<Engine>,
+    timer: &Rc<Timer>,
+    shown: &Rc<Cell<Option<u64>>>,
+) {
+    if timer.running() {
+        return;
+    }
+    let tick = {
+        let (weak, engine, shown) = (weak.clone(), engine.clone(), shown.clone());
+        let timer: Weak<Timer> = Rc::downgrade(timer);
+        move || {
+            let Some(w) = weak.upgrade() else { return };
+            let busy = engine.busy();
+            shown.set(busy.as_ref().map(|b| b.id));
+            let text = busy.as_ref().map(labels::busy).unwrap_or_default();
+            w.set_progress_text(text.into());
+            w.set_can_cancel(busy.as_ref().is_some_and(|b| b.cancellable));
+            if busy.is_none() && !engine.is_busy() {
+                if let Some(t) = timer.upgrade() {
+                    t.stop();
+                }
+            }
+        }
+    };
+    timer.start(TimerMode::Repeated, engine::PROGRESS_EVERY, tick);
+}
+
+/// Says in the status line what a cancel kept; a cancelled sort puts the
+/// column header back to the order shown.
+fn show_stopped(w: &AppWindow, stopped: &Stopped) {
+    if let Stopped::Sort(sort) = stopped {
+        w.set_sort_column(column_of(sort.key));
+        w.set_sort_descending(sort.descending);
+    }
+    info(w, labels::stopped(stopped));
 }
 
 /// Called on the bus thread: queues the request and wakes the UI thread.
@@ -1059,6 +1148,19 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
     }
 }
 
+/// The column of the result table that sorts by `key`; the reverse of
+/// [`sort_for_column`].
+fn column_of(key: SortKey) -> i32 {
+    match key {
+        SortKey::Name => 0,
+        SortKey::Path => 1,
+        SortKey::Size => 2,
+        SortKey::Modified => 3,
+        SortKey::Type => 4,
+        SortKey::Extension => 5,
+    }
+}
+
 /// Shows folder sizes as `folders` says and sorts by them; the rows change
 /// with the new result.
 fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
@@ -1194,6 +1296,14 @@ mod tests {
         match parse(list) {
             Ok(Command::Run(a)) => a,
             other => panic!("{list:?} gave {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sort_columns_round_trip() {
+        for column in 0..6 {
+            let sort = sort_for_column(column, false, FolderSize::default());
+            assert_eq!(column_of(sort.key), column);
         }
     }
 
