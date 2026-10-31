@@ -132,9 +132,17 @@ side where it has a word character.
 ## Extensions
 
 `ext:pdf;jpg` matches **files** whose name ends in `.pdf` or `.jpg` (case and
-a leading dot are ignored: `ext:.PDF` works too). `ext:` on its own matches
+a leading dot are ignored: `ext:.PDF` works too). `|` separates the list like
+`;`: `ext:jpg|png` is one list, not `ext:jpg` OR the text `png` (a `|` with
+spaces around it, `ext:jpg | png`, is still an OR). `ext:` on its own matches
 files without an extension. A dot at the very start of a name does not begin
 an extension: `.bashrc` has none. Folders never match `ext:`.
+
+An entry with `*` or `?` is a wildcard pattern for the extension: `ext:jp*`
+finds `.jpg` and `.jpeg`, `ext:jp?` only `.jpg`, `ext:*` any file that has an
+extension. A pattern with dots is matched against as many parts of the name
+as it has: `ext:t*.gz` finds `x.tar.gz`, `ext:*.*` any name with two
+extensions.
 
 ## Size
 

@@ -51,6 +51,8 @@ First version, 0.1.0, not released yet.
   start or end of the name, also for wildcard patterns.
 - Modes that ignore punctuation (`nopunct:`) or whitespace (`nospace:`) in
   names and terms.
+- `ext:` lists separated by `;` or `|` (`ext:jpg|png` is one list, no
+  longer `ext:jpg` OR the text `png`), with wildcard entries (`ext:jp*`).
 - Regular expressions with `regex:` or for the whole query in regex mode,
   compiled once per query; case is ignored unless matched, invalid
   expressions are reported in one line.

@@ -12,7 +12,7 @@
 //! diacritics:café     match diacritics: "café" but not "cafe"
 //! path:src/main       match against the full path instead of the name
 //! file:  folder:      only files / only folders
-//! ext:pdf;jpg         extension list (files only)
+//! ext:pdf;jpg         extension list (files only); also ext:pdf|jpg, ext:jp*
 //! size:>10mb  size:1kb..2mb  size:0
 //!                     folders match by the total size of the files below them
 //! modified:<7d        changed within the last 7 days (also h, m, s);
@@ -119,9 +119,11 @@ enum Pred {
     /// Entries that pass a result filter.
     Kind(Filter),
     /// Folded extensions without the leading dot (may contain dots, such as
-    /// `tar.gz`); `none` also accepts files that have no extension.
+    /// `tar.gz`), wildcard patterns for an extension (`jp*`), and `none`,
+    /// which also accepts files that have no extension.
     Ext {
         exts: Vec<Vec<u8>>,
+        globs: Vec<Vec<u8>>,
         none: bool,
     },
     Size {
@@ -326,7 +328,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
         Pred::IsFile => !store.is_dir(id),
         Pred::IsDir => store.is_dir(id),
         Pred::Kind(filter) => filter.accepts(classify(store.name(id), store.is_dir(id))),
-        Pred::Ext { exts, none } => {
+        Pred::Ext { exts, globs, none } => {
             if store.is_dir(id) {
                 return false;
             }
@@ -341,6 +343,10 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                     name.len() > e.len() + 1
                         && name.ends_with(e)
                         && name[name.len() - e.len() - 1] == b'.'
+                })
+                || globs.iter().any(|g| {
+                    let parts = g.iter().filter(|&&b| b == b'.').count() + 1;
+                    extension_parts(name, parts).is_some_and(|ext| glob_match(g, ext))
                 })
         }
         Pred::Size { min, max } => {
@@ -396,6 +402,20 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             matched
         }
     }
+}
+
+/// The last `parts` dot-separated parts of `name` (`tar.gz` for 2 parts of
+/// `x.tar.gz`), when the name has that many after a non-empty start.
+fn extension_parts(name: &[u8], parts: usize) -> Option<&[u8]> {
+    let mut end = name.len();
+    let mut dot = None;
+    for _ in 0..parts {
+        let at = name[..end].iter().rposition(|&b| b == b'.')?;
+        dot = Some(at);
+        end = at;
+    }
+    let dot = dot?;
+    (dot > 0).then(|| &name[dot + 1..])
 }
 
 fn text_matches(t: &TextPred, subject: &[u8]) -> bool {
@@ -900,6 +920,8 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
             c if c.is_whitespace() => flush(&mut word, &mut tokens),
             // The rest of a `regex:` word belongs to the expression.
             '|' | '<' | '>' if word_is_regex(&word) => word.push(c),
+            // `ext:jpg|png` is one list.
+            '|' if word_starts_function(&word, "ext") => word.push(c),
             '|' => {
                 flush(&mut word, &mut tokens);
                 tokens.push(Token::Or);
@@ -927,10 +949,16 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
 /// (possibly after other modifiers), so `|`, `<` and `>` up to the next space
 /// are part of the expression.
 fn word_is_regex(word: &str) -> bool {
+    word_starts_function(word, "regex")
+}
+
+/// Whether `word` has the modifier or function `name:` (possibly after other
+/// modifiers).
+fn word_starts_function(word: &str, name: &str) -> bool {
     let mut rest = word;
     while let Some((head, tail)) = rest.split_once(':') {
         let head = head.trim_start_matches('\u{0}');
-        if head.eq_ignore_ascii_case("regex") {
+        if head.eq_ignore_ascii_case(name) {
             return true;
         }
         if !KNOWN_MODIFIERS.contains(&head.to_ascii_lowercase().as_str()) {
@@ -1238,17 +1266,18 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "noregex",
 ];
 
-/// `ext:pdf;jpg`. Empty entries (as in a trailing `;`) are ignored; `ext:` on its
-/// own matches files without an extension.
+/// `ext:pdf;jpg` or `ext:pdf|jpg`; `ext:jp*` with wildcards. Empty entries (as
+/// in a trailing `;`) are ignored; `ext:` on its own matches files without an
+/// extension.
 fn parse_ext(list: &str) -> Pred {
-    let exts: Vec<Vec<u8>> = list
-        .split(';')
+    let (globs, exts): (Vec<Vec<u8>>, Vec<Vec<u8>>) = list
+        .split([';', '|'])
         .map(|e| e.trim().trim_start_matches('.'))
         .filter(|e| !e.is_empty())
         .map(|e| fold(e.as_bytes()))
-        .collect();
-    let none = exts.is_empty();
-    Pred::Ext { exts, none }
+        .partition(|e| e.contains(&b'*') || e.contains(&b'?'));
+    let none = exts.is_empty() && globs.is_empty();
+    Pred::Ext { exts, globs, none }
 }
 
 fn parse_size(spec: &str) -> Result<Pred, ParseError> {
@@ -1736,6 +1765,42 @@ mod tests {
         assert_eq!(t.find("ext:gz"), [".tar.gz", "archive.tar.gz", "x.gz"]);
         assert_eq!(t.find("ext:"), [".bashrc", "notes"]);
         assert!(t.find("ext:bashrc").is_empty());
+    }
+
+    #[test]
+    fn extension_lists_take_bars_and_wildcards() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        for name in [
+            &b"a.jpg"[..],
+            b"b.PNG",
+            b"c.jpeg",
+            b"pngcrush.c",
+            b"archive.tar.gz",
+            b"notes",
+        ] {
+            store.add(Some(root), name, false, Meta::default());
+        }
+        store.add(Some(root), b"png-icons", true, Meta::default());
+        let t = Tree { store };
+        // `|` separates extensions like `;`, it is not an OR with text.
+        assert_eq!(t.find("ext:jpg|png"), ["a.jpg", "b.PNG"]);
+        assert_eq!(t.find("ext:jpg;png"), ["a.jpg", "b.PNG"]);
+        assert_eq!(t.find("ext:.jpg|.png;"), ["a.jpg", "b.PNG"]);
+        assert_eq!(t.find("<ext:jpg|png>"), ["a.jpg", "b.PNG"]);
+        assert_eq!(t.find("case:ext:jpg|png"), ["a.jpg", "b.PNG"]);
+        assert_eq!(t.find("ext:jpg|png !b"), ["a.jpg"]);
+        // A spaced `|` is still an OR.
+        assert_eq!(t.find("ext:jpg | notes"), ["a.jpg", "notes"]);
+        // Wildcards match the extension, not the whole name.
+        assert_eq!(t.find("ext:jp*"), ["a.jpg", "c.jpeg"]);
+        assert_eq!(t.find("ext:JP?"), ["a.jpg"]);
+        assert_eq!(t.find("ext:p*|c"), ["b.PNG", "pngcrush.c"]);
+        assert_eq!(t.find("ext:t*.gz"), ["archive.tar.gz"]);
+        assert_eq!(t.find("ext:*.*"), ["archive.tar.gz"]);
+        // `*` is any extension; files without one and folders stay out.
+        assert_eq!(t.find("ext:*").len(), 5);
+        assert!(t.find("ext:*").iter().all(|n| n != "notes"));
     }
 
     /// Nanoseconds of a local time with a known UTC offset in hours.
