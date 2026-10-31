@@ -192,6 +192,9 @@ pub struct Settings {
     pub watch_changes: bool,
     /// Filter and matching modes for a new start.
     pub options: QueryOptions,
+    /// Whether the results follow every change of the search; off searches
+    /// when Enter is pressed.
+    pub as_you_type: bool,
     /// Searches kept for Back and Forward; 0 turns the history off.
     pub history_size: usize,
     /// Whether the search history is saved between sessions.
@@ -233,6 +236,7 @@ impl Default for Settings {
             exclude_files: String::new(),
             watch_changes: true,
             options: QueryOptions::default(),
+            as_you_type: true,
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             on_close: OnClose::Quit,
@@ -380,6 +384,7 @@ impl Settings {
             "ignore-punctuation" => put_flag(&mut self.options.ignore_punctuation),
             "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
             "regex" => put_flag(&mut self.options.regex),
+            "search-as-you-type" => put_flag(&mut self.as_you_type),
             "history-size" => value
                 .parse::<usize>()
                 .ok()
@@ -557,6 +562,12 @@ impl Settings {
             od.ignore_whitespace,
         );
         flag(&mut out, "regex", o.regex, od.regex);
+        flag(
+            &mut out,
+            "search-as-you-type",
+            self.as_you_type,
+            d.as_you_type,
+        );
         if self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
@@ -638,6 +649,7 @@ impl Settings {
             }
             Page::Search => {
                 self.options = d.options;
+                self.as_you_type = d.as_you_type;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
             }
@@ -852,6 +864,7 @@ pub(crate) mod tests {
                 regex: true,
                 filter: Filter::Picture,
             },
+            as_you_type: false,
             history_size: 0,
             history_on_disk: true,
             on_close: OnClose::Hide,
@@ -904,6 +917,7 @@ pub(crate) mod tests {
         assert!(text.contains("folder-size = items\n"));
         assert!(text.contains("use-exclude-list = false\n"));
         assert!(text.contains("watch-changes = false\n"));
+        assert!(text.contains("search-as-you-type = false\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
     }
@@ -1074,9 +1088,11 @@ root = broken\\q
     #[test]
     fn reset_touches_one_page_only() {
         let mut s = Settings::parse(
-            "root = /a\nexclude = /a/b\nfilter = code\nhistory-size = 5\non-close = hide\nfolder-size = none\n",
+            "root = /a\nexclude = /a/b\nfilter = code\nhistory-size = 5\non-close = hide\nfolder-size = none\nsearch-as-you-type = no\n",
         );
+        assert!(!s.as_you_type);
         s.reset(Page::Search);
+        assert!(s.as_you_type);
         assert_eq!(s.options, QueryOptions::default());
         assert_eq!(s.history_size, DEFAULT_HISTORY);
         assert_eq!(s.roots, [PathBuf::from("/a")]);

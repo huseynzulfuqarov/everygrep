@@ -605,6 +605,7 @@ impl Prefs {
         w.set_default_punctuation(o.ignore_punctuation);
         w.set_default_whitespace(o.ignore_whitespace);
         w.set_default_regex(o.regex);
+        w.set_as_you_type(s.as_you_type);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
@@ -817,12 +818,23 @@ impl Prefs {
             .unwrap_or(0)
             .min(MAX_HISTORY);
         let on_disk = w.get_history_on_disk();
+        let as_you_type = w.get_as_you_type();
         self.change(|s| {
             s.options = options;
+            s.as_you_type = as_you_type;
             s.history_size = size;
             s.history_on_disk = on_disk;
         });
         self.apply_history();
+        self.apply_as_you_type();
+    }
+
+    /// Gives the main window the "search as you type" setting.
+    pub fn apply_as_you_type(&self) {
+        let on = self.settings.borrow().as_you_type;
+        if let Some(m) = self.main.upgrade() {
+            crate::set_as_you_type(&m, &self.engine, on);
+        }
     }
 
     fn appearance_changed(&self) {
@@ -996,6 +1008,7 @@ impl Prefs {
         self.change(|s| s.reset(page));
         if page == Page::Search {
             self.apply_history();
+            self.apply_as_you_type();
         }
         if page == Page::Appearance {
             self.apply_look();

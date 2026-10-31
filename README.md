@@ -230,7 +230,8 @@ the program behaves as before, except that folders show their total size.
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
 | | "Rebuild index now" | — |
-| Search | filter and matching modes when EveryGrep starts | all, every mode off |
+| Search | search as you type (off: the search runs when Enter is pressed in the search field) | on |
+| | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | keep the history after EveryGrep closes | off |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
@@ -332,7 +333,8 @@ size-width = 120
 ```
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
-`watch-changes` turns watching off (`false`).
+`watch-changes` turns watching off (`false`), `search-as-you-type` the
+search at every key press.
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
 and the file pattern lists; a pattern that does not compile is reported and
 ignored. Other keys: `whole-words`,

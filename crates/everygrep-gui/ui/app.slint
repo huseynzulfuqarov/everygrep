@@ -779,6 +779,10 @@ export component AppWindow inherits Window {
     // query. history-record() keeps the current query.
     callback history-step(int);
     callback history-record();
+    // Search as you type is off and the search field changed: Enter runs
+    // the search (search-now) instead of opening the current row.
+    in property <bool> search-pending;
+    callback search-now();
 
     // The settings window, and ending the program (also when closing the
     // window only hides it).
@@ -1176,9 +1180,13 @@ export component AppWindow inherits Window {
                     modes-changed => { root.options-edited(); }
                     shortcut(event) => { root.shortcut(event) }
                     accepted => {
-                        root.history-record();
-                        if (root.current >= 0) {
-                            root.activate(root.current);
+                        if (root.search-pending) {
+                            root.search-now();
+                        } else {
+                            root.history-record();
+                            if (root.current >= 0) {
+                                root.activate(root.current);
+                            }
                         }
                     }
                     down-pressed => {

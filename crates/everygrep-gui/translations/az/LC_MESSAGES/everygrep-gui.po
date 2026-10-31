@@ -1513,3 +1513,18 @@ msgid "{} entry · watching for changes is off"
 msgid_plural "{} entries · watching for changes is off"
 msgstr[0] "{} entry · watching for changes is off"
 msgstr[1] "{} entries · watching for changes is off"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Search as you type"
+msgstr "Search as you type"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Off: the results change only when you press Enter in the search field."
+msgstr "Off: the results change only when you press Enter in the search field."
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "Press Enter to search."
+msgstr "Press Enter to search."

@@ -18,6 +18,7 @@ mod results;
 mod selection;
 mod settings;
 mod transfer;
+mod typing;
 mod x11clip;
 
 use std::cell::{Cell, RefCell};
@@ -202,6 +203,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     prefs.apply_look();
+    prefs.apply_as_you_type();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
         let _ = portal::watch_color_scheme(|scheme| {
@@ -224,6 +226,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
         move |text| {
             let Some(w) = weak.upgrade() else { return };
+            if !typing::with(|t| t.edited()) {
+                wait_for_enter(&w);
+                return;
+            }
             engine.set_query(&text, options(&w));
             w.set_notice("".into());
             pause.start(TimerMode::SingleShot, HISTORY_PAUSE, move || {
@@ -235,8 +241,22 @@ fn main() -> Result<(), slint::PlatformError> {
         let (engine, weak) = (engine.clone(), weak.clone());
         move || {
             if let Some(w) = weak.upgrade() {
-                engine.set_query(&w.get_query(), options(&w));
+                if typing::with(|t| t.edited()) {
+                    engine.set_query(&w.get_query(), options(&w));
+                } else {
+                    wait_for_enter(&w);
+                }
                 show_badges(&w);
+            }
+        }
+    });
+    window.on_search_now({
+        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
+        move || {
+            let Some(w) = weak.upgrade() else { return };
+            if typing::with(|t| t.enter()) == typing::Enter::Search {
+                pause.stop();
+                search_now(&w, &engine);
             }
         }
     });
@@ -273,6 +293,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 // at the end of the restored query instead.
                 w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
                 engine.set_query(&text, options(&w));
+                typing::with(|t| t.searched());
+                w.set_search_pending(false);
                 w.set_notice("".into());
             }
         }
@@ -1411,6 +1433,31 @@ fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
 }
 
 /// The matching modes and filter set in the window.
+/// Notes that the changed search waits for Enter (search as you type is
+/// off).
+fn wait_for_enter(w: &AppWindow) {
+    w.set_search_pending(true);
+    w.set_notice_error(false);
+    w.set_notice(tr("Press Enter to search.").into());
+}
+
+/// Runs the search in the field now and keeps it in the history.
+pub fn search_now(w: &AppWindow, engine: &Engine) {
+    let query = w.get_query();
+    engine.set_query(&query, options(w));
+    w.set_search_pending(false);
+    w.set_notice("".into());
+    prefs::with(|p| p.record(&query));
+}
+
+/// Changes whether the search follows every change; a search that was
+/// waiting for Enter runs when it does again.
+pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool) {
+    if typing::with(|t| t.set_as_you_type(on)) {
+        search_now(w, engine);
+    }
+}
+
 fn options(w: &AppWindow) -> QueryOptions {
     QueryOptions {
         case_sensitive: w.get_match_case(),

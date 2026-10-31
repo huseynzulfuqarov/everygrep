@@ -7,7 +7,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
 ## Principles
 
 1. **Speed is the design.** The first frame appears in under 200 ms. Results
-   update on every key press, within one frame for typical queries. Scrolling
+   update on every key press, within one frame for typical queries (a
+   setting can make the search wait for Enter instead). Scrolling
    keeps up with a 120 Hz display. Nothing animates that the user has to wait
    for.
 2. **Content first.** Most of the window shows file names. The chrome around
