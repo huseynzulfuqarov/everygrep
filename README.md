@@ -87,7 +87,7 @@ and saves the index; later starts load it and catch up in a moment.
 | `!draft` | names without the word |
 | `<draft\|final> pdf` | grouping |
 | `"two words"` | literal text, including spaces and operators |
-| `*.pdf`, `img_??.png` | wildcards, matched against the whole name |
+| `*.pdf`, `img_??.png` | wildcards, matched against the whole name (in a path `*` stops at `/`, `**` does not) |
 | `case:Readme` | match case for this term |
 | `wholeword:art` | whole words only: `pop-art.png`, not `party.png` |
 | `prefix:rep`, `suffix:.tar.gz` | the term at the start / end of the name |
@@ -96,8 +96,9 @@ and saves the index; later starts load it and catch up in a moment.
 | `diacritics:café` | match diacritics for this term |
 | `path:src/main`, `docs/report` | match the full path (any term with `/` does) |
 | `file:`, `folder:` | only files / only folders |
-| `ext:pdf;jpg` | extensions |
-| `size:>10mb`, `size:1kb..2mb`, `size:0` | size (1 kb = 1024 bytes); folders match by their total size |
+| `audio:`, `archive:`, `code:`, `document:`, `executable:`, `image:`, `video:` | the filters, as query words: `image: beach`, `!video:` |
+| `ext:pdf;jpg`, `ext:jpg\|png`, `ext:jp*` | extensions |
+| `size:>10mb`, `size:1kb..2mb`, `size:0`, `size:large` | size (1 kb = 1 kib = 1024 bytes; `size:1mb` = 1 MB up to just under 2 MB, `size:=1mb` exactly); folders match by their total size |
 | `modified:<7d`, `modified:>30d` | changed within / not within a time (`s`, `m`, `h`, `d`, `w`) |
 | `modified:2026-10-25`, `modified:2026-10`, `modified:today` | changed on that local day, month or year |
 | `modified:>2026-10-25`, `modified:2026-10-01..2026-10-25` | after a day; ranges are inclusive |
