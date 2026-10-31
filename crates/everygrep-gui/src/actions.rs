@@ -56,9 +56,18 @@ fn join_lines<'a>(items: impl Iterator<Item = &'a OsStr>) -> String {
     out
 }
 
-/// Length in bytes of the part of a name before its extension, so a rename
-/// field can preselect it. Folders and names without an extension are
-/// selected whole.
+/// Length in bytes of the part of a name a rename field preselects: the
+/// part before the extension with `name_only`, otherwise the whole name.
+pub fn rename_selection(name: &str, is_dir: bool, name_only: bool) -> usize {
+    if name_only {
+        stem_len(name, is_dir)
+    } else {
+        name.len()
+    }
+}
+
+/// Length in bytes of the part of a name before its extension. Folders and
+/// names without an extension are taken whole.
 pub fn stem_len(name: &str, is_dir: bool) -> usize {
     if is_dir {
         return name.len();
@@ -259,6 +268,14 @@ mod tests {
         assert_eq!(stem_len("notes", false), 5);
         assert_eq!(stem_len("photos.2026", true), 11);
         assert_eq!(stem_len("şəkil.png", false), "şəkil".len());
+    }
+
+    #[test]
+    fn rename_selects_the_name_or_all_of_it() {
+        assert_eq!(rename_selection("report.pdf", false, true), 6);
+        assert_eq!(rename_selection("report.pdf", false, false), 10);
+        assert_eq!(rename_selection("photos.2026", true, true), 11);
+        assert_eq!(rename_selection(".bashrc", false, false), 7);
     }
 
     #[test]

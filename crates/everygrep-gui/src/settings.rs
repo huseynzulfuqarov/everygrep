@@ -208,6 +208,9 @@ pub struct Settings {
     /// sessions.
     pub remember_columns: bool,
     pub columns: Columns,
+    /// Whether renaming preselects the name without its extension; off
+    /// selects the whole name.
+    pub rename_name_only: bool,
     pub theme: ThemeChoice,
     pub density: Density,
     /// Whether the status line shows the size, date and path of the selected
@@ -243,6 +246,7 @@ impl Default for Settings {
             folder_size: FolderSize::Total,
             remember_columns: true,
             columns: Columns::default(),
+            rename_name_only: true,
             theme: ThemeChoice::System,
             density: Density::Comfortable,
             status_details: true,
@@ -401,6 +405,7 @@ impl Settings {
                 .map(|f| self.folder_size = f)
                 .is_some(),
             "remember-columns" => put_flag(&mut self.remember_columns),
+            "rename-select-name-only" => put_flag(&mut self.rename_name_only),
             "theme" => ThemeChoice::ALL
                 .into_iter()
                 .find(|t| t.id() == value)
@@ -589,6 +594,12 @@ impl Settings {
             self.remember_columns,
             d.remember_columns,
         );
+        flag(
+            &mut out,
+            "rename-select-name-only",
+            self.rename_name_only,
+            d.rename_name_only,
+        );
         if self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
@@ -665,6 +676,7 @@ impl Settings {
                 self.folder_size = d.folder_size;
                 self.remember_columns = d.remember_columns;
                 self.columns = d.columns;
+                self.rename_name_only = d.rename_name_only;
             }
         }
     }
@@ -870,6 +882,7 @@ pub(crate) mod tests {
             on_close: OnClose::Hide,
             folder_size: FolderSize::Items,
             remember_columns: false,
+            rename_name_only: false,
             columns: Columns {
                 show_type: true,
                 show_ext: true,
@@ -918,6 +931,7 @@ pub(crate) mod tests {
         assert!(text.contains("use-exclude-list = false\n"));
         assert!(text.contains("watch-changes = false\n"));
         assert!(text.contains("search-as-you-type = false\n"));
+        assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
     }
@@ -936,6 +950,10 @@ pub(crate) mod tests {
         let d = Settings::default();
         assert!(d.use_excludes, "the exclude list is used by default");
         assert!(d.watch_changes, "changes are watched by default");
+        assert!(
+            d.rename_name_only,
+            "the extension is not selected by default"
+        );
         assert_eq!(d.rule_spec(), RuleSpec::default());
     }
 

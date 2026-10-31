@@ -1528,3 +1528,13 @@ msgstr "Off: the results change only when you press Enter in the search field."
 #: src/main.rs
 msgid "Press Enter to search."
 msgstr "Press Enter to search."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Leave the extension unselected when renaming"
+msgstr "Leave the extension unselected when renaming"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Off: the whole name is selected, extension included."
+msgstr "Off: the whole name is selected, extension included."

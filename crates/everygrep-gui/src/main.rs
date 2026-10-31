@@ -800,7 +800,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 return;
             };
             model.set_renaming(model.id(r));
-            w.set_rename_stem(actions::stem_len(&name, is_dir) as i32);
+            let mut name_only = true;
+            prefs::with(|p| name_only = p.rename_name_only());
+            w.set_rename_stem(actions::rename_selection(&name, is_dir, name_only) as i32);
             w.set_rename_text(name.into());
             w.set_rename_row(r as i32);
             w.set_notice("".into());

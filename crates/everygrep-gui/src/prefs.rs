@@ -635,6 +635,7 @@ impl Prefs {
         );
         w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
         w.set_remember_columns(s.remember_columns);
+        w.set_rename_name_only(s.rename_name_only);
 
         let themes: Vec<SharedString> = ThemeChoice::ALL
             .iter()
@@ -950,10 +951,12 @@ impl Prefs {
             .and_then(|i| FolderSize::ALL.get(i).copied())
             .unwrap_or_default();
         let remember = w.get_remember_columns();
+        let name_only = w.get_rename_name_only();
         self.change(|s| {
             s.on_close = on_close;
             s.folder_size = folder_size;
             s.remember_columns = remember;
+            s.rename_name_only = name_only;
             if !remember {
                 s.columns = Columns::default();
             }
@@ -1063,6 +1066,11 @@ impl Prefs {
             }
         }
         self.set_index(list_roots, rules);
+    }
+
+    /// Whether renaming preselects the name without its extension.
+    pub fn rename_name_only(&self) -> bool {
+        self.settings.borrow().rename_name_only
     }
 
     /// Whether closing the main window should only hide it.

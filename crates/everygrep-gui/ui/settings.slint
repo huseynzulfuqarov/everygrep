@@ -160,6 +160,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> on-close;
     in property <string> on-close-note;
     in-out property <bool> remember-columns;
+    in-out property <bool> rename-name-only;
     in property <[string]> folder-size-names;
     in-out property <int> folder-size;
     in property <string> folder-size-note;
@@ -623,6 +624,14 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.window-changed(); }
                             }
                             Note { text: @tr("Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Rename"); }
+                            CheckBox {
+                                text: @tr("Leave the extension unselected when renaming");
+                                checked <=> root.rename-name-only;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("Off: the whole name is selected, extension included."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Folder size"); }
                             HorizontalLayout {

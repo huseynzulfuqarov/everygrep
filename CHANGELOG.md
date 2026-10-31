@@ -100,6 +100,8 @@ First version, 0.1.0, not released yet.
 - "Search as you type" setting: off, changes of the search text and the
   matching options wait for Enter (the status line says so), and Enter
   opens the current row once the results are up to date.
+- Setting to select the whole name, extension included, when renaming
+  (by default only the part before the extension is selected).
 - Light and dark themes following the desktop, compact density, details of
   the selection in the status line.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is

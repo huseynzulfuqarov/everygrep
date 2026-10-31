@@ -241,6 +241,7 @@ the program behaves as before, except that folders show their total size.
 | | show the menu bar | on |
 | Window | closing the window: quit, or hide it and keep running | quit |
 | | remember the shown columns and their widths | on |
+| | leave the extension unselected when renaming (off: the whole name is selected) | on |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
 | Keyboard shortcut | how to open EveryGrep with a key (see below) | — |
 
@@ -334,7 +335,8 @@ size-width = 120
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
-search at every key press.
+search at every key press, `rename-select-name-only` the selection of
+the name without its extension when renaming.
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
 and the file pattern lists; a pattern that does not compile is reported and
 ignored. Other keys: `whole-words`,
