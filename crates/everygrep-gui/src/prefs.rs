@@ -28,13 +28,22 @@ use crate::portal::ColorScheme;
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
-use crate::{AppWindow, DriveRow, SettingsWindow, labels};
+use crate::{AppWindow, DriveRow, SettingsWindow, ShortcutCommand, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
 pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "shortcut"];
 
-/// The command a desktop shortcut runs.
+/// The command a desktop shortcut runs, and the flags of its variants.
 const COMMAND: &str = "everygrep-gui";
+
+/// The commands on the Keyboard shortcut page: plain, toggle, new window.
+fn shortcut_commands() -> [String; 3] {
+    [
+        COMMAND.to_owned(),
+        format!("{COMMAND} --toggle"),
+        format!("{COMMAND} --new-window"),
+    ]
+}
 
 /// Default widths of the main window's columns, in pixels (see app.slint).
 const SIZE_WIDTH: f32 = 96.0;
@@ -677,7 +686,16 @@ impl Prefs {
                 .unwrap_or(0) as i32,
         );
 
-        w.set_command(COMMAND.into());
+        let commands: Vec<ShortcutCommand> = shortcut_commands()
+            .into_iter()
+            .zip(labels::shortcut_commands())
+            .map(|(command, (title, note))| ShortcutCommand {
+                title: title.into(),
+                command: command.into(),
+                note: note.into(),
+            })
+            .collect();
+        w.set_commands(ModelRc::new(VecModel::from(commands)));
         w.set_shortcut_steps(labels::shortcut_steps().into());
         w.set_error(self.error.borrow().as_str().into());
     }
@@ -754,9 +772,12 @@ impl Prefs {
             }
         });
         w.on_appearance_changed(on(|p| p.appearance_changed()));
-        w.on_copy_command(on(|p| {
+        w.on_copy_command(on_index(|p, i| {
+            let Some(command) = shortcut_commands().into_iter().nth(i) else {
+                return;
+            };
             if let Some(w) = p.window.borrow().as_ref() {
-                w.invoke_copy_text(COMMAND.into());
+                w.invoke_copy_text(command.into());
             }
             if let Some(m) = p.main.upgrade() {
                 m.set_notice_error(false);

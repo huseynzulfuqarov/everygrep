@@ -495,8 +495,29 @@ pub fn no_settings_folder() -> &'static str {
 /// How to add a GNOME shortcut that opens the window.
 pub fn shortcut_steps() -> &'static str {
     tr(
-        "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter the name EveryGrep and the command below, then press the keys you want (for example Super+F).",
+        "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want.",
     )
+}
+
+/// Title and note of the commands on the Keyboard shortcut page: show,
+/// toggle, new window.
+pub fn shortcut_commands() -> [(&'static str, &'static str); 3] {
+    [
+        (
+            tr("Show the window"),
+            tr("Starts EveryGrep, or brings its window to the front with the search field ready."),
+        ),
+        (
+            tr("Show or hide the window"),
+            tr(
+                "Like Show, but when the window is already in front it closes it, as the close button does (it hides or quits, as set on the Window page).",
+            ),
+        ),
+        (
+            tr("Open a new window"),
+            tr("Opens another window over the same index, even when one is open."),
+        ),
+    ]
 }
 
 pub fn command_copied() -> &'static str {

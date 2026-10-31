@@ -231,6 +231,25 @@ login start off.
 A window belongs to one index (its roots and index file). A launch for another
 index opens its own window, and `--new-instance` opens one on purpose.
 
+Keys that open the window are desktop shortcuts that run a command; a
+program cannot grab keys on GNOME without the GlobalShortcuts portal, and
+the program may not be running when the key is pressed. The Keyboard
+shortcut page lists three commands with Copy buttons and the steps for
+Settings → Keyboard → Custom Shortcuts; EveryGrep never writes the
+desktop's settings itself.
+
+| Shortcut | Command | Does |
+|---|---|---|
+| Show | `everygrep-gui` | starts, or brings the window forward |
+| Show or hide | `everygrep-gui --toggle` | the same, but a window in front is closed as its close button closes it: hidden when closing hides, otherwise the program quits |
+| New window | `everygrep-gui --new-window` | opens another window over the same index (another process, like `Ctrl+N`); it takes the bus name when none is held |
+
+"In front" means the search field or the list has the keyboard focus: Slint
+1.18 does not say whether a window is active, but the focused item loses
+the focus when another window becomes active. While a rename, a dialog or a
+menu holds the focus, a toggle brings the window forward instead of
+closing it.
+
 On Wayland a program cannot raise its own window without an activation token,
 and the toolkit cannot pass one to an open window. The window is therefore
 shown again as a new surface, which GNOME focuses; the window keeps its size

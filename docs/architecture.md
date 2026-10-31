@@ -222,7 +222,11 @@ launch calls `Present` on interface `az.huseynz.EveryGrep.Window1` at
 exits. The running window applies the query, filter, modes and columns and
 shows itself again. A window that does not answer within 5 seconds is
 treated as gone. `--new-instance` skips the bus; without a session bus every
-launch opens its own window. A `--background` launch (from the autostart
+launch opens its own window. A `--toggle` launch adds `toggle = true` to
+the platform data; the running window then closes itself when it is in
+front, and an older window that does not know the key simply shows itself.
+A `--new-window` launch that finds the name taken runs without a name
+instead of calling `Present`. A `--background` launch (from the autostart
 entry, see `autostart.rs`) that finds the name taken exits without calling
 `Present`; owning the name, it skips showing the window when closing only
 hides it.

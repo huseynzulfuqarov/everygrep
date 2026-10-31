@@ -1,6 +1,6 @@
 import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-export { SettingsWindow, DriveRow } from "settings.slint";
+export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
 
 // A text with up to four highlighted runs: plain and bold pieces in turn,
 // p0 b0 p1 b1 ... p4. Without a highlight all of it is in p0; runs after the
@@ -152,6 +152,7 @@ component ModeToggle inherits Rectangle {
 
 component SearchField inherits Rectangle {
     in-out property <string> text <=> input.text;
+    out property <bool> focused: input.has-focus;
     // Matching modes, changed by the toggles at the right end.
     in-out property <bool> match-case;
     in-out property <bool> whole-words;
@@ -739,6 +740,12 @@ export component AppWindow inherits Window {
     min-height: 320px;
     background: Theme.surface;
     default-font-size: Theme.body;
+
+    // Whether the search field or the list has the keyboard focus. The
+    // focused item loses it when another window becomes active, so this
+    // also says the window is in front (a rename, a dialog or a menu that
+    // has the focus counts as not in front).
+    out property <bool> typing-here: search.focused || keys.has-focus;
 
     in property <[ResultRow]> results;
     in property <string> status-left;

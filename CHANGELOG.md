@@ -105,6 +105,10 @@ First version, 0.1.0, not released yet.
 - "Start EveryGrep when I log in" setting: an XDG autostart entry that
   runs the program with `--background`, which keeps the index loaded
   without a window when closing hides it (the window opens otherwise).
+- `--toggle` (show the window, or close it when it is in front) and
+  `--new-window` (another window over the same index) for desktop
+  shortcuts; the Keyboard shortcut page lists the three commands with Copy
+  buttons.
 - Setting to keep the focus where it was when a later launch shows the
   window (by default the search field is focused and its text selected).
 - Light and dark themes following the desktop, compact density, details of

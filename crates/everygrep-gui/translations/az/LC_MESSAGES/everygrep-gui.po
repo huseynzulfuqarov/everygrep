@@ -371,10 +371,6 @@ msgid "Copy command"
 msgstr "Komandanı kopyala"
 
 #: ui/settings.slint
-msgid "Pressing the keys again while EveryGrep is open brings its window to the front."
-msgstr "EveryGrep açıq olanda düymələri yenidən basmaq onun pəncərəsini öndə gətirir."
-
-#: ui/settings.slint
 msgid "Reset to defaults"
 msgstr "Standart ayarlara qaytar"
 
@@ -757,10 +753,6 @@ msgstr "{} oxunmadı: {}. Oxuna bilənə qədər dəyişikliklər saxlanmır."
 #: src/labels.rs
 msgid "Neither XDG_CONFIG_HOME nor HOME is set, so settings cannot be saved."
 msgstr "Nə XDG_CONFIG_HOME, nə də HOME təyin olunub, ona görə ayarlar saxlanıla bilməz."
-
-#: src/labels.rs
-msgid "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter the name EveryGrep and the command below, then press the keys you want (for example Super+F)."
-msgstr "GNOME-da: Ayarlar → Klaviatura → Qısayollara bax və fərdiləşdir → Fərdi qısayollar bölməsini açın, + düyməsini basın, ad olaraq EveryGrep və aşağıdakı komandanı yazın, sonra istədiyiniz düymələri basın (məsələn, Super+F)."
 
 #: src/labels.rs
 msgid "Copied the command."
@@ -1578,3 +1570,38 @@ msgstr "EveryGrep starts without a window, loads the index and watches for chang
 #: src/labels.rs
 msgid "Cannot change starting on login: {}"
 msgstr "Cannot change starting on login: {}"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want."
+msgstr "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Show the window"
+msgstr "Show the window"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Starts EveryGrep, or brings its window to the front with the search field ready."
+msgstr "Starts EveryGrep, or brings its window to the front with the search field ready."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Show or hide the window"
+msgstr "Show or hide the window"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Like Show, but when the window is already in front it closes it, as the close button does (it hides or quits, as set on the Window page)."
+msgstr "Like Show, but when the window is already in front it closes it, as the close button does (it hides or quits, as set on the Window page)."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Open a new window"
+msgstr "Open a new window"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Opens another window over the same index, even when one is open."
+msgstr "Opens another window over the same index, even when one is open."

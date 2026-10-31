@@ -84,6 +84,10 @@ fn main() -> Result<(), slint::PlatformError> {
         );
         let launch = if args.background {
             instance::Launch::Background
+        } else if args.new_window {
+            instance::Launch::NewWindow
+        } else if args.toggle {
+            instance::Launch::Toggle
         } else {
             instance::Launch::Show
         };
@@ -405,15 +409,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let (weak, engine, prefs) = (weak.clone(), engine.clone(), prefs.clone());
         move || {
             if let Some(w) = weak.upgrade() {
-                prefs.save_columns(&w);
-            }
-            if prefs.hide_on_close() {
-                // Keep the index on disk current in case the session ends
-                // while the window is hidden.
-                let engine = engine.clone();
-                std::thread::spawn(move || engine.save());
-            } else {
-                let _ = slint::quit_event_loop();
+                close_window(&w, &engine, &prefs, prefs.hide_on_close());
             }
             slint::CloseRequestResponse::HideWindow
         }
@@ -633,15 +629,76 @@ fn presentation(args: &[String]) -> Presentation {
     }
 }
 
+/// Closes the main window: hides it (`hide`) or quits. The columns are
+/// saved either way.
+fn close_window(w: &AppWindow, engine: &Arc<Engine>, prefs: &Prefs, hide: bool) {
+    prefs.save_columns(w);
+    if hide {
+        let _ = w.window().hide();
+        // Keep the index on disk current in case the session ends while
+        // the window is hidden.
+        let engine = engine.clone();
+        std::thread::spawn(move || engine.save());
+    } else {
+        let _ = slint::quit_event_loop();
+    }
+}
+
+/// What a later launch does with the window.
+#[derive(Debug, PartialEq, Eq)]
+enum PresentAction {
+    /// Apply the launch's arguments and bring the window forward.
+    Show,
+    /// Hide the window, as closing it does when it only hides.
+    Hide,
+    /// End the program, as closing the window does by default.
+    Quit,
+}
+
+/// A toggle closes a window that is shown and has the keyboard focus, the
+/// way closing it would; anything else (a plain launch, a hidden window,
+/// a window behind others) shows it.
+fn present_action(
+    toggle: bool,
+    visible: bool,
+    focused: bool,
+    hide_on_close: bool,
+) -> PresentAction {
+    match (toggle && visible && focused, hide_on_close) {
+        (false, _) => PresentAction::Show,
+        (true, true) => PresentAction::Hide,
+        (true, false) => PresentAction::Quit,
+    }
+}
+
+/// Whether the main window has the keyboard focus, judged by the search
+/// field and the list (Slint 1.18 does not tell whether a window is active;
+/// the focused item loses the focus when another window gets it).
+fn has_focus(w: &AppWindow) -> bool {
+    w.get_typing_here()
+}
+
 /// Applies a later launch's request and brings the window forward, with the
-/// search field focused unless the settings say otherwise.
+/// search field focused unless the settings say otherwise; a toggle closes
+/// a window that is in front instead.
 fn present(
     w: &AppWindow,
-    engine: &Engine,
+    engine: &Arc<Engine>,
     pause: &Timer,
     prefs: &Rc<Prefs>,
     request: instance::Request,
 ) {
+    let action = present_action(
+        request.toggle,
+        w.window().is_visible(),
+        has_focus(w),
+        prefs.hide_on_close(),
+    );
+    match action {
+        PresentAction::Show => {}
+        PresentAction::Hide => return close_window(w, engine, prefs, true),
+        PresentAction::Quit => return close_window(w, engine, prefs, false),
+    }
     let p = presentation(&request.args);
     if let Some(o) = p.options {
         set_options(w, o);
@@ -1288,6 +1345,11 @@ struct Args {
     /// index and wait without showing it; do nothing when a window for
     /// the index runs already.
     background: bool,
+    /// Show the window, or hide it when it is in front (see
+    /// [`instance::Launch::Toggle`]).
+    toggle: bool,
+    /// Open another window over the same index even when one runs.
+    new_window: bool,
     /// Open the settings window at this page (see [`prefs::PAGES`]).
     settings_page: Option<usize>,
 }
@@ -1315,6 +1377,9 @@ options:
   --columns <list>       show optional columns: type, extension, created,
                          accessed, attributes (comma separated)
   --new-instance         open another window even if one is already open
+  --toggle               show the window, or hide it when it is in front
+                         (quit instead when closing the window quits)
+  --new-window           open another window over the same index
   --background           start without a window when closing only hides it
                          (used when starting on login); nothing happens when
                          EveryGrep already runs
@@ -1378,6 +1443,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
             }
             "--new-instance" => out.new_instance = true,
             "--background" => out.background = true,
+            "--toggle" => out.toggle = true,
+            "--new-window" => out.new_window = true,
             "--settings" => out.settings_page = Some(0),
             _ if a.starts_with("--settings=") => {
                 let name = &a["--settings=".len()..];
@@ -1784,6 +1851,31 @@ mod tests {
         };
         assert!(a.new_instance && a.query.is_empty());
         assert_eq!(a.roots, [PathBuf::from("/a b"), PathBuf::from("/c")]);
+    }
+
+    #[test]
+    fn a_toggle_closes_only_a_window_in_front() {
+        use PresentAction::*;
+        // (toggle, visible, focused, hide on close)
+        assert_eq!(present_action(false, true, true, true), Show);
+        assert_eq!(present_action(false, false, false, false), Show);
+        assert_eq!(present_action(true, true, true, true), Hide);
+        assert_eq!(present_action(true, true, true, false), Quit);
+        // Hidden, or behind other windows: brought forward.
+        assert_eq!(present_action(true, false, false, true), Show);
+        assert_eq!(present_action(true, true, false, true), Show);
+        assert_eq!(present_action(true, true, false, false), Show);
+    }
+
+    #[test]
+    fn toggle_and_new_window_flags() {
+        assert!(args(&["--toggle"]).toggle);
+        assert!(args(&["--new-window"]).new_window);
+        let a = args(&["x"]);
+        assert!(!a.toggle && !a.new_window);
+        // The window being toggled ignores the flags themselves.
+        assert_eq!(present_args(&["--toggle"]), Presentation::default());
+        assert_eq!(present_args(&["--new-window"]), Presentation::default());
     }
 
     #[test]

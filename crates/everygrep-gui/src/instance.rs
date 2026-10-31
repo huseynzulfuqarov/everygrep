@@ -24,6 +24,10 @@ const METHOD: &str = "Present";
 /// Keys of the platform data, as `org.freedesktop.Application` names them.
 const KEY_ACTIVATION_TOKEN: &str = "activation-token";
 const KEY_STARTUP_ID: &str = "desktop-startup-id";
+/// Our own key: `true` asks the window to hide when it is in front (see
+/// [`Launch::Toggle`]). A window of an older version ignores it and shows
+/// itself, as for a plain launch.
+const KEY_TOGGLE: &str = "toggle";
 
 /// A running window that does not answer within this time is treated as
 /// gone, and the new launch opens its own window.
@@ -34,6 +38,12 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 pub enum Launch {
     /// Show the window: the running one, or a new one.
     Show,
+    /// Like `Show`, but a running window that is in front hides (or quits,
+    /// when closing quits) instead.
+    Toggle,
+    /// Open another window over the same index, even when one runs; it
+    /// takes the name only when none does.
+    NewWindow,
     /// Started on login: a running window is left alone.
     Background,
 }
@@ -46,6 +56,8 @@ pub struct Request {
     /// Wayland activation token (or X11 startup id) the later launch was
     /// given by the shell, if any.
     pub activation_token: Option<String>,
+    /// Whether the launch was a [`Launch::Toggle`].
+    pub toggle: bool,
 }
 
 /// Called on the bus thread for every request.
@@ -143,6 +155,12 @@ pub fn platform_data(env: impl Fn(&str) -> Option<String>) -> HashMap<&'static s
     data
 }
 
+/// Whether received platform data asks for a toggle.
+fn toggle(data: &HashMap<String, OwnedValue>) -> bool {
+    data.get(KEY_TOGGLE)
+        .is_some_and(|v| matches!(&**v, Value::Bool(true)))
+}
+
 /// The activation token in received platform data.
 fn token(data: &HashMap<String, OwnedValue>) -> Option<String> {
     [KEY_ACTIVATION_TOKEN, KEY_STARTUP_ID]
@@ -167,13 +185,15 @@ impl Window {
         (self.handler)(Request {
             args,
             activation_token: token(&platform_data),
+            toggle: toggle(&platform_data),
         });
     }
 }
 
 /// Claims `name`, or hands `args` to the window that already owns it. A
 /// [`Launch::Background`] launch hands nothing over: the running window
-/// stays as it is.
+/// stays as it is. A [`Launch::NewWindow`] launch that finds the name taken
+/// runs on its own.
 ///
 /// The name is requested without queueing, so of two launches at the same
 /// moment the bus lets exactly one become the owner; the other hands over.
@@ -199,11 +219,19 @@ pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> R
         {
             Role::HandedOver
         }
+        Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken)
+            if launch == Launch::NewWindow =>
+        {
+            Role::Alone
+        }
         Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken) => {
-            let data: HashMap<&str, Value> = platform_data(|k| std::env::var(k).ok())
+            let mut data: HashMap<&str, Value> = platform_data(|k| std::env::var(k).ok())
                 .into_iter()
                 .map(|(k, v)| (k, Value::from(v)))
                 .collect();
+            if launch == Launch::Toggle {
+                data.insert(KEY_TOGGLE, Value::from(true));
+            }
             match connection.call_method(
                 Some(name),
                 OBJECT_PATH,
@@ -301,6 +329,19 @@ mod tests {
         );
         assert!(platform_data(env(&[("XDG_ACTIVATION_TOKEN", "")])).is_empty());
         assert!(platform_data(env(&[])).is_empty());
+    }
+
+    #[test]
+    fn toggle_is_read_from_platform_data() {
+        let mut data = HashMap::new();
+        assert!(!toggle(&data));
+        data.insert(KEY_TOGGLE.to_owned(), OwnedValue::from(true));
+        assert!(toggle(&data));
+        data.insert(KEY_TOGGLE.to_owned(), OwnedValue::from(false));
+        assert!(!toggle(&data));
+        // Another type is not taken for a toggle.
+        data.insert(KEY_TOGGLE.to_owned(), OwnedValue::from(1u32));
+        assert!(!toggle(&data));
     }
 
     #[test]

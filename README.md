@@ -113,7 +113,7 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--prefix] [--suffix] [--ignore-punctuation]
               [--ignore-whitespace] [--regex]
               [--columns type,extension,created,accessed,attributes]
-              [--new-instance] [--background]
+              [--new-instance] [--new-window] [--toggle] [--background]
               [--settings[=indexing|search|appearance|window|shortcut]] [query words...]
 ```
 
@@ -406,13 +406,22 @@ launch exits at once. Query words are kept in the search history, so
 A launch with other `--root` folders or another `--index-file` than the open
 window opens a window of its own, which in turn takes later launches for the
 same roots and index file. `--new-instance` always opens a separate window.
+`--new-window` does too, but it takes over the name when no window runs, so
+later launches find it. `--toggle` shows the window like a plain launch,
+except that a window already in front (the search field or the list has
+the keyboard focus) is closed the way its close button closes it: hidden
+when closing hides, otherwise the program quits.
 The windows find each other on the D-Bus session bus (name
 `az.huseynz.EveryGrep`); without a session bus every launch opens a window.
 
 To open the window with a key, add a GNOME shortcut: Settings → Keyboard →
 View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,
-command `everygrep-gui`, then press the keys you want. The Keyboard shortcut
-page of the settings shows the same steps and copies the command.
+command `everygrep-gui` (show), `everygrep-gui --toggle` (show or hide) or
+`everygrep-gui --new-window` (new window), then press the keys you want; one
+shortcut per command. The Keyboard shortcut page of the settings shows the
+same steps and copies each command. EveryGrep does not grab keys itself: the
+desktop runs the command, so the keys work even when EveryGrep is not
+running.
 
 ## Command line
 

@@ -3,6 +3,15 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
+// A command for a keyboard shortcut, on the Keyboard shortcut page.
+export struct ShortcutCommand {
+    // What the shortcut does: "Show the window", ...
+    title: string,
+    command: string,
+    // When to choose it.
+    note: string,
+}
+
 // One known removable drive in the Drives list.
 export struct DriveRow {
     // The label, or the UUID when it has none.
@@ -171,9 +180,9 @@ export component SettingsWindow inherits Window {
     callback window-changed();
 
     // Keyboard shortcut
-    in property <string> command;
+    in property <[ShortcutCommand]> commands;
     in property <string> shortcut-steps;
-    callback copy-command();
+    callback copy-command(int);
 
     // Puts the settings of the page back to their defaults.
     callback reset-page(int);
@@ -679,29 +688,41 @@ export component SettingsWindow inherits Window {
                             vertical-stretch: 1;
                             Heading { text: @tr("Open EveryGrep with a key"); }
                             Note { text: root.shortcut-steps; color: Theme.text; }
-                            HorizontalLayout {
-                                spacing: Theme.s2;
-                                Rectangle {
-                                    height: 32px;
-                                    horizontal-stretch: 1;
-                                    border-radius: Theme.radius;
-                                    background: Theme.field;
-                                    border-width: 1px;
-                                    border-color: Theme.line;
-                                    Text {
-                                        x: Theme.s3;
-                                        text: root.command;
-                                        color: Theme.text;
-                                        font-family: "monospace";
-                                        vertical-alignment: center;
+                            for c[i] in root.commands: VerticalLayout {
+                                spacing: Theme.s1;
+                                padding-top: Theme.s2;
+                                Text {
+                                    text: c.title;
+                                    color: Theme.text;
+                                    font-weight: 600;
+                                }
+                                HorizontalLayout {
+                                    spacing: Theme.s2;
+                                    Rectangle {
+                                        height: 32px;
+                                        horizontal-stretch: 1;
+                                        border-radius: Theme.radius;
+                                        background: Theme.field;
+                                        border-width: 1px;
+                                        border-color: Theme.line;
+                                        Text {
+                                            x: Theme.s3;
+                                            width: parent.width - 2 * Theme.s3;
+                                            text: c.command;
+                                            color: Theme.text;
+                                            font-family: "monospace";
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    Button {
+                                        text: @tr("Copy command");
+                                        accessible-label: c.title;
+                                        clicked => { root.copy-command(i); }
                                     }
                                 }
-                                Button {
-                                    text: @tr("Copy command");
-                                    clicked => { root.copy-command(); }
-                                }
+                                Note { text: c.note; }
                             }
-                            Note { text: @tr("Pressing the keys again while EveryGrep is open brings its window to the front."); }
                         }
                     }
                 }
