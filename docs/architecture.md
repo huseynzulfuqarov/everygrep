@@ -220,8 +220,29 @@ The first window for an index owns a name on the session bus:
 launch calls `Present` on interface `az.huseynz.EveryGrep.Window1` at
 `/az/huseynz/EveryGrep` with its arguments and the activation token, then
 exits. The running window applies the query, filter, modes and columns and
-shows itself again. A window that does not answer within 5 seconds is
-treated as gone. `--new-instance` skips the bus; without a session bus every
+shows itself again.
+
+When the call fails, the launch decides by the error (`next_step`, unit
+tested):
+
+| Answer | Next |
+|---|---|
+| reply | exit (handed over) |
+| `az.huseynz.EveryGrep.Error.ShuttingDown`: the window's event loop has ended and it is saving the index (`set_closing`); the name is released when the process exits | wait up to 1.5 s for the name to be released and claim it; still held, show the dialog |
+| `ServiceUnknown` / `NameHasNoOwner`: the owner went away meanwhile | claim the name again, at most 3 times, then run without a name |
+| no reply within 5 seconds (or the bus's `NoReply`) | show the dialog |
+| anything else | run without a name, as before |
+
+The dialog (`stalled.rs`, `ui/stalled.slint`) runs before the main window,
+in its own pass of the event loop. It says the window is still shutting
+down or does not answer, polls `NameHasOwner` every 200 ms and closes by
+itself once the name is free, so the launch claims it and opens its
+window. "Terminate" sends `SIGTERM` to the owner's process
+(`GetConnectionUnixProcessID`), only when `/proc/<pid>/comm` equals this
+program's and the process is not this one; after 5 seconds without an end
+the dialog says it timed out and offers only Close. Cancel or Close ends
+the launch. A launch never opens a second window next to one that is
+closing. `--new-instance` skips the bus; without a session bus every
 launch opens its own window. A `--toggle` launch adds `toggle = true` to
 the platform data; the running window then closes itself when it is in
 front, and an older window that does not know the key simply shows itself.

@@ -18,6 +18,7 @@ mod prefs;
 mod results;
 mod selection;
 mod settings;
+mod stalled;
 mod transfer;
 mod typing;
 mod x11clip;
@@ -72,6 +73,9 @@ fn main() -> Result<(), slint::PlatformError> {
             std::process::exit(2);
         }
     };
+    // Read first: a dialog about a stalled window (below) is shown in the
+    // chosen language.
+    let (settings_path, settings, settings_error) = prefs::load();
     // Held until the window closes: dropping it releases the bus name.
     let _instance = if args.new_instance {
         None
@@ -91,13 +95,22 @@ fn main() -> Result<(), slint::PlatformError> {
         } else {
             instance::Launch::Show
         };
-        match instance::start(&name, &raw, launch, Box::new(queue_present)) {
-            instance::Role::Primary(connection) => Some(connection),
-            instance::Role::HandedOver => return Ok(()),
-            instance::Role::Alone => None,
+        let mut role = instance::start(&name, &raw, launch, Box::new(queue_present));
+        loop {
+            role = match role {
+                instance::Role::Primary(connection) => break Some(connection),
+                instance::Role::HandedOver => return Ok(()),
+                instance::Role::Alone => break None,
+                instance::Role::Stalled(s) => {
+                    eprintln!("everygrep-gui: {}", stalled::describe(s.stall));
+                    match stalled::resolve(s)? {
+                        Some(next) => next,
+                        None => return Ok(()),
+                    }
+                }
+            }
         }
     };
-    let (settings_path, settings, settings_error) = prefs::load();
     let setup = IndexSetup::new(&args.roots, args.index_file.as_deref(), &settings);
     // Options given on the command line take the place of the saved ones.
     let start_options = if args.options_given {
@@ -428,6 +441,8 @@ fn main() -> Result<(), slint::PlatformError> {
         Timer::single_shot(SETTINGS_DELAY, move || prefs.open(Some(page)));
     }
     slint::run_event_loop_until_quit()?;
+    // Later launches wait for this process to end instead of handing over.
+    instance::set_closing();
     // Gives the clipboard up and closes the XWayland connection.
     X11.with(|x| x.borrow_mut().take());
     window.hide()?;

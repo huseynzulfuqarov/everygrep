@@ -1605,3 +1605,48 @@ msgstr "Open a new window"
 #: src/labels.rs
 msgid "Opens another window over the same index, even when one is open."
 msgstr "Opens another window over the same index, even when one is open."
+
+# TODO: translate (English for now)
+#: ui/stalled.slint
+msgid "Terminate"
+msgstr "Terminate"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "The previous EveryGrep window is still closing"
+msgstr "The previous EveryGrep window is still closing"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance."
+msgstr "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "The open EveryGrep window does not answer"
+msgstr "The open EveryGrep window does not answer"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Terminate the existing instance? EveryGrep opens as soon as it has ended."
+msgstr "Terminate the existing instance? EveryGrep opens as soon as it has ended."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Waiting for EveryGrep to close…"
+msgstr "Waiting for EveryGrep to close…"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "The previous EveryGrep window did not close in time"
+msgstr "The previous EveryGrep window did not close in time"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Try again in a moment, or end it in System Monitor."
+msgstr "Try again in a moment, or end it in System Monitor."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Cannot terminate the existing instance: {}"
+msgstr "Cannot terminate the existing instance: {}"

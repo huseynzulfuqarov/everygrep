@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use zbus::blocking::Connection;
@@ -29,8 +30,8 @@ const KEY_STARTUP_ID: &str = "desktop-startup-id";
 /// itself, as for a plain launch.
 const KEY_TOGGLE: &str = "toggle";
 
-/// A running window that does not answer within this time is treated as
-/// gone, and the new launch opens its own window.
+/// A running window that does not answer within this time is taken to
+/// hang (see [`Stall::NoAnswer`]).
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How this launch was started.
@@ -71,9 +72,11 @@ pub enum Role {
     /// The running window took over, or has nothing to do; this process
     /// should exit.
     HandedOver,
-    /// No session bus, or the running window did not answer: run on our own,
-    /// without a name.
+    /// No session bus, or the bus refused the name or the call: run on our
+    /// own, without a name.
     Alone,
+    /// The running window is closing or hangs; ask the user what to do.
+    Stalled(Stalled),
 }
 
 /// The bus name for a window over `roots` with index file `index_file`.
@@ -172,6 +175,30 @@ fn token(data: &HashMap<String, OwnedValue>) -> Option<String> {
         })
 }
 
+/// Set once the window is closing: requests are refused from then on, so a
+/// later launch knows to wait instead of handing over to a window that will
+/// never show.
+static CLOSING: AtomicBool = AtomicBool::new(false);
+
+/// Marks this process as closing (see [`CLOSING`]). The name stays taken
+/// until the process ends, while the index is saved.
+pub fn set_closing() {
+    CLOSING.store(true, Ordering::SeqCst);
+}
+
+/// Errors `Present` replies with.
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "az.huseynz.EveryGrep.Error")]
+enum WindowError {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    /// The window is closing and saving the index.
+    ShuttingDown(String),
+}
+
+/// D-Bus name of [`WindowError::ShuttingDown`].
+const ERROR_SHUTTING_DOWN: &str = "az.huseynz.EveryGrep.Error.ShuttingDown";
+
 /// The object a later launch calls.
 struct Window {
     handler: Handler,
@@ -181,12 +208,160 @@ struct Window {
 impl Window {
     /// Raises the window and applies `args` (query words, filter and
     /// matching modes) as if they had been given at its start.
-    fn present(&self, args: Vec<String>, platform_data: HashMap<String, OwnedValue>) {
+    fn present(
+        &self,
+        args: Vec<String>,
+        platform_data: HashMap<String, OwnedValue>,
+    ) -> Result<(), WindowError> {
+        if CLOSING.load(Ordering::SeqCst) {
+            return Err(WindowError::ShuttingDown("the window is closing".into()));
+        }
         (self.handler)(Request {
             args,
             activation_token: token(&platform_data),
             toggle: toggle(&platform_data),
         });
+        Ok(())
+    }
+}
+
+/// What came of calling `Present` on the window that holds the name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    /// It took the request.
+    Done,
+    /// It is closing (a window of this version says so).
+    ShuttingDown,
+    /// The name had no owner any more when the call arrived.
+    Gone,
+    /// No reply within [`CALL_TIMEOUT`]: the window hangs.
+    Silent,
+    /// Any other failure.
+    Failed,
+}
+
+/// Why a launch cannot reach the running window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stall {
+    /// It is closing and saving the index.
+    ShuttingDown,
+    /// It does not answer.
+    NoAnswer,
+}
+
+/// What a launch does after its call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    HandedOver,
+    /// Request the name again: its owner just went away.
+    ClaimAgain,
+    /// Wait for the window to go, and let the user decide meanwhile.
+    Wait(Stall),
+    /// Run without a name, as before this logic existed.
+    Alone,
+}
+
+/// Launches give up claiming a name that keeps changing hands after this
+/// many tries, and run on their own.
+const MAX_CLAIMS: usize = 3;
+
+/// A window that says it is closing usually releases the name within this
+/// time; only after it does the launch ask the user.
+const QUIET_WAIT: Duration = Duration::from_millis(1500);
+
+/// What came of a `Present` call.
+fn answer(result: &zbus::Result<zbus::Message>) -> Answer {
+    match result {
+        Ok(_) => Answer::Done,
+        Err(zbus::Error::MethodError(name, _, _)) => match name.as_str() {
+            ERROR_SHUTTING_DOWN => Answer::ShuttingDown,
+            "org.freedesktop.DBus.Error.ServiceUnknown"
+            | "org.freedesktop.DBus.Error.NameHasNoOwner" => Answer::Gone,
+            "org.freedesktop.DBus.Error.NoReply" | "org.freedesktop.DBus.Error.Timeout" => {
+                Answer::Silent
+            }
+            _ => Answer::Failed,
+        },
+        Err(zbus::Error::InputOutput(e)) if e.kind() == std::io::ErrorKind::TimedOut => {
+            Answer::Silent
+        }
+        Err(_) => Answer::Failed,
+    }
+}
+
+/// The step after answer `a`, at the `claims`-th claim of the name.
+fn next_step(a: Answer, claims: usize) -> Step {
+    match a {
+        Answer::Done => Step::HandedOver,
+        Answer::Gone if claims < MAX_CLAIMS => Step::ClaimAgain,
+        Answer::Gone | Answer::Failed => Step::Alone,
+        Answer::ShuttingDown => Step::Wait(Stall::ShuttingDown),
+        Answer::Silent => Step::Wait(Stall::NoAnswer),
+    }
+}
+
+/// A launch that found the name held by a window that cannot take its
+/// request. The caller asks the user, then calls [`Stalled::retry`] once
+/// the window is gone (see [`Stalled::owner_gone`], [`Stalled::terminate`]).
+pub struct Stalled {
+    connection: Connection,
+    name: String,
+    args: Vec<String>,
+    launch: Launch,
+    claims: usize,
+    pub stall: Stall,
+}
+
+impl Stalled {
+    /// Whether the name is free now.
+    pub fn owner_gone(&self) -> bool {
+        zbus::blocking::fdo::DBusProxy::new(&self.connection)
+            .and_then(|bus| Ok(bus.name_has_owner(self.name.as_str().try_into()?)?))
+            .is_ok_and(|has| !has)
+    }
+
+    /// Asks the process that holds the name to end (`SIGTERM`). Only a
+    /// process of this same program is signalled.
+    pub fn terminate(&self) -> std::io::Result<()> {
+        let pid = zbus::blocking::fdo::DBusProxy::new(&self.connection)
+            .and_then(|bus| Ok(bus.get_connection_unix_process_id(self.name.as_str().try_into()?)?))
+            .map_err(std::io::Error::other)?;
+        let comm = |pid: &str| std::fs::read_to_string(format!("/proc/{pid}/comm"));
+        if comm(&pid.to_string())? != comm("self")? {
+            return Err(std::io::Error::other("the name is held by another program"));
+        }
+        let pid = i32::try_from(pid).map_err(std::io::Error::other)?;
+        if pid <= 1 || pid == std::process::id() as i32 {
+            return Err(std::io::Error::other("refusing to signal this process"));
+        }
+        terminate_process(pid)
+    }
+
+    /// Claims the name again, or hands over to whoever holds it now.
+    pub fn retry(self) -> Role {
+        settle(
+            self.connection,
+            &self.name,
+            &self.args,
+            self.launch,
+            self.claims + 1,
+        )
+    }
+}
+
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+const SIGTERM: i32 = 15;
+
+fn terminate_process(pid: i32) -> std::io::Result<()> {
+    // SAFETY: kill takes plain integers and touches no memory of ours.
+    let rc = unsafe { kill(pid, SIGTERM) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
     }
 }
 
@@ -197,6 +372,7 @@ impl Window {
 ///
 /// The name is requested without queueing, so of two launches at the same
 /// moment the bus lets exactly one become the owner; the other hands over.
+/// A window that is closing or hangs gives [`Role::Stalled`].
 pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> Role {
     let connection = Builder::session()
         .map(|b| b.method_timeout(CALL_TIMEOUT))
@@ -209,22 +385,28 @@ pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> R
             return Role::Alone;
         }
     };
+    settle(connection, name, args, launch, 1)
+}
+
+/// One claim of `name`; `claims` counts them.
+fn settle(
+    connection: Connection,
+    name: &str,
+    args: &[String],
+    launch: Launch,
+    claims: usize,
+) -> Role {
     match connection.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into()) {
         Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {
             Role::Primary(connection)
         }
         // zbus reports `Exists` as the `NameTaken` error.
-        Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken)
-            if launch == Launch::Background =>
-        {
-            Role::HandedOver
-        }
-        Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken)
-            if launch == Launch::NewWindow =>
-        {
-            Role::Alone
-        }
         Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken) => {
+            match launch {
+                Launch::Background => return Role::HandedOver,
+                Launch::NewWindow => return Role::Alone,
+                Launch::Show | Launch::Toggle => {}
+            }
             let mut data: HashMap<&str, Value> = platform_data(|k| std::env::var(k).ok())
                 .into_iter()
                 .map(|(k, v)| (k, Value::from(v)))
@@ -232,18 +414,36 @@ pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> R
             if launch == Launch::Toggle {
                 data.insert(KEY_TOGGLE, Value::from(true));
             }
-            match connection.call_method(
+            let result = connection.call_method(
                 Some(name),
                 OBJECT_PATH,
                 Some(INTERFACE),
                 METHOD,
                 &(args, data),
-            ) {
-                Ok(_) => Role::HandedOver,
-                Err(e) => {
-                    eprintln!(
-                        "everygrep-gui: the open window did not answer, opening another: {e}"
-                    );
+            );
+            match next_step(answer(&result), claims) {
+                Step::HandedOver => Role::HandedOver,
+                Step::ClaimAgain => settle(connection, name, args, launch, claims + 1),
+                Step::Wait(stall) => {
+                    let stalled = Stalled {
+                        connection,
+                        name: name.to_owned(),
+                        args: args.to_vec(),
+                        launch,
+                        claims,
+                        stall,
+                    };
+                    if stall == Stall::ShuttingDown && wait_until_gone(&stalled, QUIET_WAIT) {
+                        return stalled.retry();
+                    }
+                    Role::Stalled(stalled)
+                }
+                Step::Alone => {
+                    if let Err(e) = result {
+                        eprintln!(
+                            "everygrep-gui: the open window did not answer, opening another: {e}"
+                        );
+                    }
                     Role::Alone
                 }
             }
@@ -252,6 +452,20 @@ pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> R
             eprintln!("everygrep-gui: cannot claim {name}, opening a separate window: {e}");
             Role::Alone
         }
+    }
+}
+
+/// Waits up to `limit` for the name to be released.
+fn wait_until_gone(stalled: &Stalled, limit: Duration) -> bool {
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        if stalled.owner_gone() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -331,6 +545,72 @@ mod tests {
         assert!(platform_data(env(&[])).is_empty());
     }
 
+    fn method_error(name: &str) -> zbus::Result<zbus::Message> {
+        let reply = zbus::Message::method_call("/", "x")
+            .unwrap()
+            .build(&())
+            .unwrap();
+        Err(zbus::Error::MethodError(
+            zbus::names::OwnedErrorName::try_from(name).unwrap(),
+            None,
+            reply,
+        ))
+    }
+
+    #[test]
+    fn answers_are_told_apart() {
+        let timed_out = std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out");
+        let cases = [
+            (method_error(ERROR_SHUTTING_DOWN), Answer::ShuttingDown),
+            (
+                method_error("org.freedesktop.DBus.Error.ServiceUnknown"),
+                Answer::Gone,
+            ),
+            (
+                method_error("org.freedesktop.DBus.Error.NameHasNoOwner"),
+                Answer::Gone,
+            ),
+            (
+                method_error("org.freedesktop.DBus.Error.NoReply"),
+                Answer::Silent,
+            ),
+            (Err(zbus::Error::from(timed_out)), Answer::Silent),
+            (
+                method_error("org.freedesktop.DBus.Error.UnknownMethod"),
+                Answer::Failed,
+            ),
+            (Err(zbus::Error::InvalidReply), Answer::Failed),
+        ];
+        for (result, expected) in cases {
+            assert_eq!(answer(&result), expected, "{result:?}");
+        }
+        let reply = zbus::Message::method_call("/", "x")
+            .unwrap()
+            .build(&())
+            .unwrap();
+        assert_eq!(answer(&Ok(reply)), Answer::Done);
+    }
+
+    #[test]
+    fn a_closing_or_hanging_window_is_waited_for() {
+        assert_eq!(next_step(Answer::Done, 1), Step::HandedOver);
+        assert_eq!(
+            next_step(Answer::ShuttingDown, 1),
+            Step::Wait(Stall::ShuttingDown)
+        );
+        // Asked again after the user waited: still a wait, never a second
+        // window next to one that is closing.
+        assert_eq!(
+            next_step(Answer::ShuttingDown, 9),
+            Step::Wait(Stall::ShuttingDown)
+        );
+        assert_eq!(next_step(Answer::Silent, 1), Step::Wait(Stall::NoAnswer));
+        // An owner that went away is claimed again, a few times at most.
+        assert_eq!(next_step(Answer::Gone, 1), Step::ClaimAgain);
+        assert_eq!(next_step(Answer::Gone, MAX_CLAIMS), Step::Alone);
+        assert_eq!(next_step(Answer::Failed, 1), Step::Alone);
+    }
+
     #[test]
     fn toggle_is_read_from_platform_data() {
         let mut data = HashMap::new();
@@ -361,6 +641,62 @@ mod tests {
         assert_eq!(token(&other), None);
     }
 
+    /// The bus tests share [`CLOSING`], so they run one at a time.
+    static BUS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A window that is closing refuses requests with its own error, which
+    /// the later launch recognises. Runs only on a private bus, like the
+    /// test below.
+    #[test]
+    #[ignore = "needs a private session bus, see the doc comment"]
+    fn a_closing_window_refuses_requests() {
+        if std::env::var_os("EVERYGREP_PRIVATE_BUS").is_none() {
+            panic!("refusing to run on the real session bus; see the doc comment");
+        }
+        let _one = BUS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let name = "az.huseynz.EveryGrep.TestClosing";
+        let handler: Handler = Box::new(|_| {});
+        let Role::Primary(owner) = start(name, &[], Launch::Show, handler) else {
+            panic!("the first launch owns the name");
+        };
+        let caller = Builder::session().unwrap().build().unwrap();
+        let call = || {
+            caller.call_method(
+                Some(name),
+                OBJECT_PATH,
+                Some(INTERFACE),
+                METHOD,
+                &(Vec::<String>::new(), HashMap::<&str, Value>::new()),
+            )
+        };
+        assert_eq!(answer(&call()), Answer::Done);
+        set_closing();
+        assert_eq!(answer(&call()), Answer::ShuttingDown);
+        // A launch waits quietly and takes over once the window has gone.
+        let closer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(owner);
+        });
+        let Role::Primary(second) = start(name, &[], Launch::Show, Box::new(|_| {})) else {
+            panic!("the launch takes over from the closed window");
+        };
+        closer.join().unwrap();
+        // One that stays closing longer is reported, and retried once gone.
+        let Role::Stalled(stalled) = start(name, &[], Launch::Show, Box::new(|_| {})) else {
+            panic!("a window closing for long is reported");
+        };
+        assert_eq!(stalled.stall, Stall::ShuttingDown);
+        assert!(!stalled.owner_gone());
+        // The holder is this very process, which is never signalled.
+        assert!(stalled.terminate().is_err());
+        drop(second);
+        assert!(wait_until_gone(&stalled, Duration::from_secs(2)));
+        assert!(matches!(stalled.retry(), Role::Primary(_)));
+        // Without an owner the bus answers for it.
+        assert_eq!(answer(&call()), Answer::Gone);
+        CLOSING.store(false, Ordering::SeqCst);
+    }
+
     /// Runs only on a private bus:
     /// `EVERYGREP_PRIVATE_BUS=1 dbus-run-session -- cargo test -p everygrep-gui -- --ignored`
     #[test]
@@ -369,6 +705,7 @@ mod tests {
         if std::env::var_os("EVERYGREP_PRIVATE_BUS").is_none() {
             panic!("refusing to run on the real session bus; see the doc comment");
         }
+        let _one = BUS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         use std::sync::mpsc;
         let (tx, rx) = mpsc::channel();
         let name = "az.huseynz.EveryGrep.Test";

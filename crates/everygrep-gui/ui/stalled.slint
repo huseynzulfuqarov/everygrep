@@ -1,0 +1,62 @@
+// Shown by a launch that finds the open EveryGrep closing or not answering,
+// before any other window. It closes by itself as soon as the open one is
+// gone.
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component StalledDialog inherits Window {
+    title: "EveryGrep";
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 440px;
+    min-width: 360px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+
+    in property <string> heading;
+    in property <string> message;
+    // Whether "Terminate" is offered; false once it was pressed or timed out.
+    in property <bool> can-terminate: true;
+    callback terminate();
+    callback cancel();
+
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.cancel();
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: Theme.s5;
+            spacing: Theme.s3;
+            Text {
+                text: root.heading;
+                color: Theme.text;
+                font-weight: 600;
+                wrap: word-wrap;
+            }
+            Text {
+                text: root.message;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: Theme.s2;
+                padding-top: Theme.s2;
+                if root.can-terminate: Button {
+                    text: @tr("Terminate");
+                    clicked => { root.terminate(); }
+                }
+                Button {
+                    text: root.can-terminate ? @tr("Cancel") : @tr("Close");
+                    primary: !root.can-terminate;
+                    clicked => { root.cancel(); }
+                }
+            }
+        }
+    }
+}

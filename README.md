@@ -413,6 +413,9 @@ the keyboard focus) is closed the way its close button closes it: hidden
 when closing hides, otherwise the program quits.
 The windows find each other on the D-Bus session bus (name
 `az.huseynz.EveryGrep`); without a session bus every launch opens a window.
+A launch that finds the open window still shutting down, or not answering,
+waits for it with a small dialog that offers to terminate it, and opens the
+window as soon as the old one has ended.
 
 To open the window with a key, add a GNOME shortcut: Settings → Keyboard →
 View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,

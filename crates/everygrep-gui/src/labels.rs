@@ -291,6 +291,38 @@ pub fn cannot_change_start_on_login(e: &std::io::Error) -> String {
     fill(tr("Cannot change starting on login: {}"), &[e])
 }
 
+/// Heading and message of the dialog a launch shows when the open window
+/// cannot take its request.
+pub fn stalled(stall: crate::instance::Stall) -> (&'static str, &'static str) {
+    match stall {
+        crate::instance::Stall::ShuttingDown => (
+            tr("The previous EveryGrep window is still closing"),
+            tr(
+                "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance.",
+            ),
+        ),
+        crate::instance::Stall::NoAnswer => (
+            tr("The open EveryGrep window does not answer"),
+            tr("Terminate the existing instance? EveryGrep opens as soon as it has ended."),
+        ),
+    }
+}
+
+pub fn stalled_terminating() -> &'static str {
+    tr("Waiting for EveryGrep to close…")
+}
+
+pub fn stalled_timed_out() -> (&'static str, &'static str) {
+    (
+        tr("The previous EveryGrep window did not close in time"),
+        tr("Try again in a moment, or end it in System Monitor."),
+    )
+}
+
+pub fn cannot_terminate(e: &std::io::Error) -> String {
+    fill(tr("Cannot terminate the existing instance: {}"), &[e])
+}
+
 /// What the chosen close behaviour means.
 pub fn on_close_note(o: OnClose) -> &'static str {
     match o {

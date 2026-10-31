@@ -228,6 +228,15 @@ icon, so the window simply opens on login. A background start when the
 program runs already does nothing. Resetting the Window page turns the
 login start off.
 
+A launch that finds the open window closing (still saving the index) or
+not answering for 5 seconds does not open a second window next to it and
+does not wait silently. A window that is closing usually ends within a
+moment, and the launch goes on by itself. Otherwise a small dialog says
+"The previous EveryGrep window is still closing" or "The open EveryGrep window does not
+answer", with "Terminate" and "Cancel"; it closes by itself and the window
+opens as soon as the old one has ended. If a terminated window has not
+ended after 5 seconds, the dialog says so and offers only Close.
+
 A window belongs to one index (its roots and index file). A launch for another
 index opens its own window, and `--new-instance` opens one on purpose.
 
