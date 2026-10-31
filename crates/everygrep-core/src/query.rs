@@ -23,8 +23,10 @@
 //! modified:<7d        changed within the last 7 days (also h, m, s);
 //!                     modified:>30d = not changed for 30 days
 //! modified:2026-10-25 changed on that local day (also 2026-10, 2026,
-//!                     today, yesterday); >, >=, <, <= compare whole days,
+//!                     today, yesterday, tomorrow, thisweek, lastmonth,
+//!                     nextyear, ...); >, >=, <, <= compare whole days, weeks,
 //!                     months or years; 2026-10-01..2026-10-25 is inclusive
+//! created:today  accessed:>30d   creation / access time, read from disk while searching
 //! prefix:rep          the name starts with the term
 //! suffix:.tar.gz      the name ends with the term
 //! nopunct:foo-bar     punctuation is ignored: "foo_bar", "foobar"
@@ -48,6 +50,7 @@
 //! to it. With [`QueryOptions::regex`] the whole query is one expression.
 
 use std::fmt;
+use std::os::unix::ffi::OsStrExt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::filter::Filter;
@@ -140,6 +143,21 @@ enum Pred {
         min: i64,
         max: i64,
     },
+    /// Inclusive range of creation or access times in nanoseconds, which
+    /// the index does not keep: read from disk.
+    DiskTime {
+        field: DiskTime,
+        min: i64,
+        max: i64,
+    },
+}
+
+/// A time of an entry that is read from disk while searching.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiskTime {
+    /// Birth time (`statx`); entries on file systems without one never match.
+    Created,
+    Accessed,
 }
 
 #[derive(Clone, Debug)]
@@ -372,6 +390,18 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             let t = store.meta(id).mtime_ns;
             *min <= t && t <= *max
         }
+        Pred::DiskTime { field, min, max } => {
+            let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
+            let Ok(meta) = std::fs::symlink_metadata(path) else {
+                return false;
+            };
+            let details = crate::details::Details::from_metadata(store.name(id), &meta);
+            let t = match field {
+                DiskTime::Created => details.created_ns,
+                DiskTime::Accessed => details.accessed_ns,
+            };
+            t.is_some_and(|t| *min <= t && t <= *max)
+        }
         Pred::Regex(r) => {
             if r.on_path {
                 r.re.is_match(path_bytes(store, id, scratch))
@@ -478,7 +508,6 @@ pub fn find_term(
 /// disk (`lstat`: a link is not followed). Entries that cannot be read (gone,
 /// offline drive) are not.
 fn executable_on_disk(store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
     let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
     std::fs::symlink_metadata(path)
@@ -1120,7 +1149,17 @@ fn word_starts_function(word: &str, name: &str) -> bool {
 /// not grouping.
 fn word_takes_comparison(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
-    ["size:", "modified:"].iter().any(|m| {
+    [
+        "size:",
+        "modified:",
+        "modified:",
+        "created:",
+        "created:",
+        "accessed:",
+        "accessed:",
+    ]
+    .iter()
+    .any(|m| {
         lower.ends_with(m)
             || ["=", "<"]
                 .iter()
@@ -1266,6 +1305,20 @@ impl Parser {
                 "modified" => {
                     return self.parse_modified(&value).map(|p| Some(Node::Leaf(p)));
                 }
+                "created" | "accessed" => {
+                    let field = if head == "created" {
+                        DiskTime::Created
+                    } else {
+                        DiskTime::Accessed
+                    };
+                    self.reads_disk = true;
+                    return self.parse_modified(&value).map(|p| match p {
+                        Pred::Modified { min, max } => {
+                            Some(Node::Leaf(Pred::DiskTime { field, min, max }))
+                        }
+                        other => Some(Node::Leaf(other)),
+                    });
+                }
                 _ => break,
             }
             rest = tail;
@@ -1352,8 +1405,10 @@ fn cost(node: &Node) -> u8 {
         Node::Leaf(Pred::Text(_)) => 1,
         Node::Leaf(Pred::Regex(r)) if r.on_path => 4,
         Node::Leaf(Pred::Regex(_)) => 3,
-        // Executables may be looked up on disk: last.
+        // Executables may be looked up on disk, and these times always are:
+        // last.
         Node::Leaf(Pred::Kind(Filter::Executable)) => 5,
+        Node::Leaf(Pred::DiskTime { .. }) => 6,
         // Classifying looks at the name; let text terms narrow first.
         Node::Leaf(Pred::Kind(_)) => 2,
         Node::Leaf(_) => 0,
@@ -1418,6 +1473,8 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "ext",
     "size",
     "modified",
+    "created",
+    "accessed",
     "prefix",
     "noprefix",
     "suffix",
@@ -1626,6 +1683,8 @@ struct Period {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Unit {
     Day,
+    /// A week from Monday (the period's day) to Sunday.
+    Week,
     Month,
     Year,
 }
@@ -1635,6 +1694,7 @@ impl Period {
     fn next(self) -> Self {
         let (year, month, day) = match self.unit {
             Unit::Day => civil_from_days(days_from_civil(self.year, self.month, self.day) + 1),
+            Unit::Week => civil_from_days(days_from_civil(self.year, self.month, self.day) + 7),
             Unit::Month if self.month == 12 => (self.year + 1, 1, 1),
             Unit::Month => (self.year, self.month + 1, 1),
             Unit::Year => (self.year + 1, 1, 1),
@@ -1688,27 +1748,79 @@ fn parse_dates(spec: &str, now_ns: i64, zone: &Zone) -> Result<Pred, ParseError>
     Ok(Pred::Modified { min, max })
 }
 
-/// One date of a `modified:` value; `today` is the current local day number.
-fn parse_period(s: &str, today: i64, spec: &str) -> Result<Period, ParseError> {
-    let s = s.trim().to_ascii_lowercase();
-    let day = |days: i64| {
+/// `today`, `yesterday`, `tomorrow`, and `this`/`current`, `last`/`previous`/
+/// `prev` or `next`/`coming` with `week`, `month` or `year`, written as one
+/// word (`lastweek`) or with `-` or `_` (`last-week`). `s` is lowercase.
+fn parse_relative_period(s: &str, today: i64) -> Option<Period> {
+    let word: String = s.chars().filter(|&c| c != '-' && c != '_').collect();
+    let day = |days: i64, unit: Unit| {
         let (year, month, day) = civil_from_days(days);
         Period {
             year,
             month,
             day,
-            unit: Unit::Day,
+            unit,
         }
     };
-    match s.as_str() {
-        "today" => return Ok(day(today)),
-        "yesterday" => return Ok(day(today - 1)),
+    match word.as_str() {
+        "today" => return Some(day(today, Unit::Day)),
+        "yesterday" => return Some(day(today - 1, Unit::Day)),
+        "tomorrow" => return Some(day(today + 1, Unit::Day)),
         _ => {}
+    }
+    const STEPS: [(&str, i64); 7] = [
+        ("this", 0),
+        ("current", 0),
+        ("last", -1),
+        ("previous", -1),
+        ("prev", -1),
+        ("next", 1),
+        ("coming", 1),
+    ];
+    let (step, unit) = STEPS.iter().find_map(|&(prefix, step)| {
+        let unit = match word.strip_prefix(prefix)? {
+            "week" => Unit::Week,
+            "month" => Unit::Month,
+            "year" => Unit::Year,
+            _ => return None,
+        };
+        Some((step, unit))
+    })?;
+    let (year, month, _) = civil_from_days(today);
+    Some(match unit {
+        Unit::Week => {
+            // Day 0 (1970-01-01) was a Thursday; Monday is 0 here.
+            let monday = today - (today + 3).rem_euclid(7);
+            day(monday + 7 * step, Unit::Week)
+        }
+        Unit::Month => {
+            let index = year * 12 + i64::from(month) - 1 + step;
+            Period {
+                year: index.div_euclid(12),
+                month: index.rem_euclid(12) as u32 + 1,
+                day: 1,
+                unit,
+            }
+        }
+        _ => Period {
+            year: year + step,
+            month: 1,
+            day: 1,
+            unit,
+        },
+    })
+}
+
+/// One date of a `modified:` value; `today` is the current local day number.
+fn parse_period(s: &str, today: i64, spec: &str) -> Result<Period, ParseError> {
+    let s = s.trim().to_ascii_lowercase();
+    if let Some(p) = parse_relative_period(&s, today) {
+        return Ok(p);
     }
     let looks_like_date = !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b'-');
     if !looks_like_date {
         return Err(ParseError(format!(
-            "bad time: {spec} (use for example <7d, >2h, 2026-10-25, 2026-10, today)"
+            "bad time: {spec} (use for example <7d, >2h, 2026-10-25, 2026-10, today, lastweek)"
         )));
     }
     let bad = || ParseError(format!("bad date: {s} (use YYYY, YYYY-MM or YYYY-MM-DD)"));
@@ -2326,6 +2438,131 @@ mod tests {
     }
 
     #[test]
+    fn tomorrow_and_this_last_next_week_month_year() {
+        let zone = Zone::from_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+        // Sunday 2026-10-25 12:00 local; weeks start on Monday.
+        let now = at(2026, 10, 25, 12, 0, 1);
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/d", true, Meta::default());
+        for (name, mtime_ns) in [
+            ("w-mon", at(2026, 10, 19, 0, 30, 2)),
+            ("w-prev-sun", at(2026, 10, 18, 23, 0, 2)),
+            ("w-last-mon", at(2026, 10, 12, 0, 0, 2)),
+            ("w-older", at(2026, 10, 11, 23, 0, 2)),
+            ("tomorrow", at(2026, 10, 26, 10, 0, 1)),
+            ("nw", at(2026, 11, 1, 23, 0, 1)),
+            ("nw2", at(2026, 11, 2, 0, 0, 1)),
+            ("sep", at(2026, 9, 15, 12, 0, 2)),
+            ("y2025", at(2025, 6, 1, 0, 0, 2)),
+            ("y2027", at(2027, 1, 1, 0, 0, 1)),
+        ] {
+            store.add(
+                Some(root),
+                name.as_bytes(),
+                false,
+                Meta { size: 1, mtime_ns },
+            );
+        }
+        let find = |q: &str| -> Vec<String> {
+            let query = Query::parse_with(q, QueryOptions::default(), now, Some(zone.clone()))
+                .unwrap_or_else(|e| panic!("{q}: {e}"));
+            let mut scratch = EvalScratch::default();
+            let mut out: Vec<String> = (1..store.len())
+                .map(|i| NodeId(i as u32))
+                .filter(|&id| query.matches(&store, id, &mut scratch))
+                .map(|id| String::from_utf8_lossy(store.name(id)).into_owned())
+                .collect();
+            out.sort();
+            out
+        };
+        assert_eq!(find("modified:tomorrow"), ["tomorrow"]);
+        assert_eq!(find("modified:thisweek"), ["w-mon"]);
+        assert_eq!(find("modified:this-week"), ["w-mon"]);
+        assert_eq!(find("modified:currentweek"), ["w-mon"]);
+        assert_eq!(find("modified:lastweek"), ["w-last-mon", "w-prev-sun"]);
+        assert_eq!(find("modified:previous-week"), find("modified:lastweek"));
+        assert_eq!(find("modified:prevweek"), find("modified:lastweek"));
+        assert_eq!(find("modified:nextweek"), ["nw", "tomorrow"]);
+        assert_eq!(find("modified:coming-week"), ["nw", "tomorrow"]);
+        assert_eq!(
+            find("modified:thismonth"),
+            ["tomorrow", "w-last-mon", "w-mon", "w-older", "w-prev-sun"]
+        );
+        assert_eq!(find("modified:LastMonth"), ["sep"]);
+        assert_eq!(find("modified:nextmonth"), ["nw", "nw2"]);
+        assert_eq!(find("modified:lastyear"), ["y2025"]);
+        assert_eq!(find("modified:nextyear"), ["y2027"]);
+        assert_eq!(find("modified:thisyear").len(), 8);
+        assert_eq!(
+            find("modified:>=lastweek"),
+            [
+                "nw",
+                "nw2",
+                "tomorrow",
+                "w-last-mon",
+                "w-mon",
+                "w-prev-sun",
+                "y2027"
+            ]
+        );
+        assert_eq!(find("modified:<thisweek").len(), 5);
+        assert_eq!(find("modified:lastweek..thisweek").len(), 3);
+        for bad in [
+            "modified:lastweekend",
+            "modified:thisday",
+            "modified:next",
+            "modified:week",
+        ] {
+            let q = Query::parse_with(bad, QueryOptions::default(), now, Some(zone.clone()));
+            assert!(q.is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn created_and_accessed_are_read_from_disk() {
+        let dir = std::env::temp_dir().join(format!("everygrep-times-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let new = dir.join("new.txt");
+        let old = dir.join("old.txt");
+        std::fs::write(&new, "x").unwrap();
+        std::fs::write(&old, "x").unwrap();
+        let ten_days = std::time::Duration::from_secs(10 * 86_400);
+        let times = std::fs::FileTimes::new().set_accessed(SystemTime::now() - ten_days);
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_times(times)
+            .unwrap();
+        let mut store = NodeStore::new();
+        let root = store.add(
+            None,
+            dir.as_os_str().as_encoded_bytes(),
+            true,
+            Meta::default(),
+        );
+        for name in ["new.txt", "old.txt", "gone.txt"] {
+            store.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        let t = Tree { store };
+        assert_eq!(t.find("accessed:today file:"), ["new.txt"]);
+        assert_eq!(t.find("accessed:>7d"), ["old.txt"]);
+        assert_eq!(t.find("accessed:<1h txt"), ["new.txt"]);
+        // The birth time, where the file system keeps one.
+        let created = std::fs::metadata(&new).unwrap().created().is_ok();
+        let expected: &[&str] = if created {
+            &["new.txt", "old.txt"]
+        } else {
+            &[]
+        };
+        assert_eq!(t.find("created:today file:"), expected);
+        assert_eq!(t.find("created:<1h file:"), expected);
+        assert!(t.find("created:<2000").is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn invalid_dates_are_errors() {
         for q in [
             "modified:2026-13-01",
@@ -2338,7 +2575,7 @@ mod tests {
             "modified:2026-10-01..",
             "modified:..2026",
             "modified:>",
-            "modified:tomorrow",
+            "modified:overmorrow",
             "modified:7d..3d",
         ] {
             assert!(dated_error(q), "{q}");

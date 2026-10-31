@@ -102,6 +102,8 @@ and saves the index; later starts load it and catch up in a moment.
 | `modified:<7d`, `modified:>30d` | changed within / not within a time (`s`, `m`, `h`, `d`, `w`) |
 | `modified:2026-10-25`, `modified:2026-10`, `modified:today` | changed on that local day, month or year |
 | `modified:>2026-10-25`, `modified:2026-10-01..2026-10-25` | after a day; ranges are inclusive |
+| `modified:lastweek`, `modified:thismonth`, `modified:tomorrow` | calendar weeks (from Monday), months, years |
+| `created:today`, `accessed:>30d` | created / accessed (read from disk while searching) |
 
 The full syntax, with every modifier and edge case, is in
 [docs/query-language.md](docs/query-language.md).

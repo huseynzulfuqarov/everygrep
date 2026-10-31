@@ -57,6 +57,9 @@ First version, 0.1.0, not released yet.
   start or end of the name, also for wildcard patterns.
 - Modes that ignore punctuation (`nopunct:`) or whitespace (`nospace:`) in
   names and terms.
+- Dates: `tomorrow` and this, last and next week (Monday to Sunday), month
+  and year (`modified:lastweek`, `modified:>=thismonth`); `created:` and
+  `accessed:` with the same values, read from disk while searching.
 - Filter words in the query, the filter names with a colon: `audio:`,
   `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`,
   `video:` and `code:`, sharing the extension lists of the filter selector

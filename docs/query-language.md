@@ -70,6 +70,7 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `audio:`, `archive:`, `code:`, `document:`, `executable:`, `image:`, `video:` | filter words, see "Filter words" below |
 | `size:` | size, see below |
 | `modified:` | modification time, see below |
+| `created:` / `accessed:` | creation / access time, see below |
 
 The `no…:` forms (and `punct:`, `space:`) turn off a mode that the window's
 toggles or the command line options turned on, for one term.
@@ -210,18 +211,40 @@ Calendar dates, in the local time zone:
 |---|---|
 | `modified:2026-10-25` | changed on that local day |
 | `modified:2026-10`, `modified:2026` | in that month, that year |
-| `modified:today`, `modified:yesterday` | today, yesterday |
+| `modified:today`, `modified:yesterday`, `modified:tomorrow` | today, yesterday, tomorrow |
+| `modified:thisweek`, `modified:lastweek`, `modified:nextweek` | this, last, next calendar week (Monday to Sunday) |
+| `modified:thismonth`, `modified:lastmonth`, `modified:nextmonth` | this, last, next calendar month |
+| `modified:thisyear`, `modified:lastyear`, `modified:nextyear` | this, last, next calendar year |
 | `modified:>2026-10-25` | after that day (from the next midnight) |
 | `modified:>=2026-10` | from the start of October 2026 |
 | `modified:<2026` | before 2026 |
 | `modified:<=2026-10` | up to the end of October 2026 |
 | `modified:2026-10-01..2026-10-25` | from the start of the first to the end of the last, inclusive |
 
+The words may be written with `-` or `_` (`last-week`); they
+work with the comparisons and ranges like dates (`modified:>=lastmonth`,
+`modified:lastweek..thisweek`). A week starts on Monday.
+
 Months and days may have one or two digits (`2026-1-5`); years have four. A
 day starts at local midnight, so days with a daylight saving change are 23 or
 25 hours long. The zone comes from `$TZ` or `/etc/localtime` (see
 `crates/everygrep-core/src/localtime.rs`). 
 Invalid dates (`2026-02-30`) are errors.
+
+## Creation and access time
+
+`created:` and `accessed:` take the same values as
+`modified:`: `created:today`, `accessed:>30d`, `created:2026-10`, `created:lastweek`. The index
+does not keep these times, so they are read from disk while searching
+(`statx`, links are not followed), one lookup per entry that the other
+terms of the query let through; they are checked last. Combine them with
+other terms on large indexes (`created:today ext:pdf` is cheaper than `created:today`).
+
+- The creation time is the birth time; entries on file systems that do not
+  record it (and entries that cannot be read: removed, on a drive that is not
+  plugged in) never match `created:`.
+- The access time is coarse on most systems (`relatime` updates it at most
+  once a day); entries that cannot be read never match `accessed:`.
 
 ## Filters and options outside the query
 
