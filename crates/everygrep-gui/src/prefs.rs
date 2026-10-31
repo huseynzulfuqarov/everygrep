@@ -19,6 +19,7 @@ use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem, VecMod
 
 use crate::MenuChoice;
 
+use crate::autostart;
 use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
 use crate::i18n;
@@ -622,6 +623,8 @@ impl Prefs {
                 .unwrap_or(0) as i32,
         );
         w.set_on_close_note(labels::on_close_note(s.on_close).into());
+        w.set_start_on_login(autostart::path().is_some_and(|p| autostart::is_enabled(&p)));
+        w.set_start_on_login_note(labels::start_on_login_note(s.on_close).into());
         let sizes: Vec<SharedString> = FolderSize::ALL
             .iter()
             .map(|&f| labels::folder_size(f).into())
@@ -742,6 +745,14 @@ impl Prefs {
         }));
         w.on_search_changed(on(|p| p.search_changed()));
         w.on_window_changed(on(|p| p.window_changed()));
+        w.on_start_on_login_changed({
+            let me = me.clone();
+            move |on| {
+                if let Some(p) = me.upgrade() {
+                    p.set_start_on_login(on);
+                }
+            }
+        });
         w.on_appearance_changed(on(|p| p.appearance_changed()));
         w.on_copy_command(on(|p| {
             if let Some(w) = p.window.borrow().as_ref() {
@@ -968,6 +979,25 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Writes or removes the login start entry. The switch then shows
+    /// whether the entry exists, so a failure leaves it as it was.
+    fn set_start_on_login(&self, on: bool) {
+        let result = match autostart::path() {
+            Some(path) if on => {
+                autostart::current_exe().and_then(|exe| autostart::enable(&path, &exe))
+            }
+            Some(path) => autostart::disable(&path),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no home folder",
+            )),
+        };
+        match result {
+            Ok(()) => self.refresh(),
+            Err(e) => self.set_error(Some(labels::cannot_change_start_on_login(&e))),
+        }
+    }
+
     /// Shows the chosen folder size in the main window, when it changed.
     fn apply_folder_size(&self) {
         self.fill_menus();
@@ -1021,6 +1051,7 @@ impl Prefs {
         }
         if page == Page::Window {
             self.apply_folder_size();
+            self.set_start_on_login(false);
         }
         self.refresh();
     }

@@ -222,7 +222,22 @@ launch calls `Present` on interface `az.huseynz.EveryGrep.Window1` at
 exits. The running window applies the query, filter, modes and columns and
 shows itself again. A window that does not answer within 5 seconds is
 treated as gone. `--new-instance` skips the bus; without a session bus every
-launch opens its own window.
+launch opens its own window. A `--background` launch (from the autostart
+entry, see `autostart.rs`) that finds the name taken exits without calling
+`Present`; owning the name, it skips showing the window when closing only
+hides it.
+
+### Starting on login (`autostart.rs`)
+
+The setting is the file `$XDG_CONFIG_HOME/autostart/az.huseynz.EveryGrep.desktop`
+(a relative `XDG_CONFIG_HOME` is ignored, as the base directory
+specification says), written atomically with
+`Exec=<current executable> --background` and
+`X-GNOME-Autostart-enabled=true`. The path is quoted by the Desktop Entry
+rules: an argument with a reserved character goes in double quotes with
+`"`, `` ` ``, `$` and `\` escaped, `%` is doubled, and the string escapes
+(`\\`, `\n`, `\t`) are applied on top. A path that is not UTF-8 is refused.
+Nothing else is stored, so the switch is the file's existence.
 
 ### Removable drives in the window (`engine.rs`)
 

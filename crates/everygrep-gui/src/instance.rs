@@ -29,6 +29,15 @@ const KEY_STARTUP_ID: &str = "desktop-startup-id";
 /// gone, and the new launch opens its own window.
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How this launch was started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// Show the window: the running one, or a new one.
+    Show,
+    /// Started on login: a running window is left alone.
+    Background,
+}
+
 /// What a later launch asks the running window to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -47,7 +56,8 @@ pub enum Role {
     /// This process owns the name. Keep the connection alive as long as the
     /// window is open; dropping it releases the name.
     Primary(Connection),
-    /// The running window took over; this process should exit.
+    /// The running window took over, or has nothing to do; this process
+    /// should exit.
     HandedOver,
     /// No session bus, or the running window did not answer: run on our own,
     /// without a name.
@@ -161,11 +171,13 @@ impl Window {
     }
 }
 
-/// Claims `name`, or hands `args` to the window that already owns it.
+/// Claims `name`, or hands `args` to the window that already owns it. A
+/// [`Launch::Background`] launch hands nothing over: the running window
+/// stays as it is.
 ///
 /// The name is requested without queueing, so of two launches at the same
 /// moment the bus lets exactly one become the owner; the other hands over.
-pub fn start(name: &str, args: &[String], handler: Handler) -> Role {
+pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> Role {
     let connection = Builder::session()
         .map(|b| b.method_timeout(CALL_TIMEOUT))
         .and_then(|b| b.serve_at(OBJECT_PATH, Window { handler }))
@@ -182,6 +194,11 @@ pub fn start(name: &str, args: &[String], handler: Handler) -> Role {
             Role::Primary(connection)
         }
         // zbus reports `Exists` as the `NameTaken` error.
+        Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken)
+            if launch == Launch::Background =>
+        {
+            Role::HandedOver
+        }
         Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken) => {
             let data: HashMap<&str, Value> = platform_data(|k| std::env::var(k).ok())
                 .into_iter()
@@ -320,7 +337,7 @@ mod tests {
                 let tx = tx.clone();
                 std::thread::spawn(move || {
                     let handler: Handler = Box::new(move |r| tx.send(r).unwrap());
-                    start(name, &[format!("w{i}")], handler)
+                    start(name, &[format!("w{i}")], Launch::Show, handler)
                 })
             })
             .collect();

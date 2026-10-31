@@ -162,6 +162,9 @@ export component SettingsWindow inherits Window {
     in-out property <bool> remember-columns;
     in-out property <bool> rename-name-only;
     in-out property <bool> focus-on-show;
+    in-out property <bool> start-on-login;
+    in property <string> start-on-login-note;
+    callback start-on-login-changed(bool);
     in property <[string]> folder-size-names;
     in-out property <int> folder-size;
     in property <string> folder-size-note;
@@ -617,6 +620,14 @@ export component SettingsWindow inherits Window {
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Note { text: root.on-close-note; }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Starting"); }
+                            CheckBox {
+                                text: @tr("Start EveryGrep when I log in");
+                                checked <=> root.start-on-login;
+                                toggled => { root.start-on-login-changed(self.checked); }
+                            }
+                            Note { text: root.start-on-login-note; }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Showing the window"); }
                             CheckBox {

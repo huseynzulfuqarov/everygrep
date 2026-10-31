@@ -113,7 +113,7 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--prefix] [--suffix] [--ignore-punctuation]
               [--ignore-whitespace] [--regex]
               [--columns type,extension,created,accessed,attributes]
-              [--new-instance]
+              [--new-instance] [--background]
               [--settings[=indexing|search|appearance|window|shortcut]] [query words...]
 ```
 
@@ -240,6 +240,7 @@ the program behaves as before, except that folders show their total size.
 | | details of the selected items in the status line | on |
 | | show the menu bar | on |
 | Window | closing the window: quit, or hide it and keep running | quit |
+| | start EveryGrep when I log in | off |
 | | remember the shown columns and their widths | on |
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
 | | focus the search field and select its text when the window is shown again | on |
@@ -311,6 +312,16 @@ When closing only hides the window, EveryGrep keeps the index in memory and
 keeps watching; starting `everygrep-gui` again (for example with its
 shortcut) shows the window at once through the hand-over described below. No
 tray icon is needed. `Ctrl+Q` or Quit in the `⋯` menu ends the program.
+
+"Start EveryGrep when I log in" writes the autostart entry
+`$XDG_CONFIG_HOME/autostart/az.huseynz.EveryGrep.desktop` (by default under
+`~/.config`) and removes it when turned off; the switch shows whether the
+entry exists. The entry runs this program by its full path with
+`--background`: when closing only hides the window, EveryGrep then loads the
+index and watches without showing a window, and the next launch shows it at
+once. When closing quits, a window without a way back would make no sense,
+so the window opens on login. `--background` does nothing when EveryGrep
+already runs.
 
 Options on the command line take the place of the saved ones for that start.
 The folders on the Indexing page belong to the default index: a window

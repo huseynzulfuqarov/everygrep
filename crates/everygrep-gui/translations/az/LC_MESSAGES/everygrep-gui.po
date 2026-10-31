@@ -1553,3 +1553,28 @@ msgstr "Focus the search field when the window is shown"
 #: ui/settings.slint
 msgid "Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."
 msgstr "Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Starting"
+msgstr "Starting"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Start EveryGrep when I log in"
+msgstr "Start EveryGrep when I log in"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "The window opens when you log in. To start without a window, choose \"Hide the window and keep running\" above."
+msgstr "The window opens when you log in. To start without a window, choose \"Hide the window and keep running\" above."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "EveryGrep starts without a window, loads the index and watches for changes; starting it again shows the window at once."
+msgstr "EveryGrep starts without a window, loads the index and watches for changes; starting it again shows the window at once."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Cannot change starting on login: {}"
+msgstr "Cannot change starting on login: {}"

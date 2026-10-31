@@ -275,6 +275,22 @@ pub fn on_close(o: OnClose) -> &'static str {
     }
 }
 
+/// What starting on login does with the chosen close behaviour.
+pub fn start_on_login_note(o: OnClose) -> &'static str {
+    match o {
+        OnClose::Quit => tr(
+            "The window opens when you log in. To start without a window, choose \"Hide the window and keep running\" above.",
+        ),
+        OnClose::Hide => tr(
+            "EveryGrep starts without a window, loads the index and watches for changes; starting it again shows the window at once.",
+        ),
+    }
+}
+
+pub fn cannot_change_start_on_login(e: &std::io::Error) -> String {
+    fill(tr("Cannot change starting on login: {}"), &[e])
+}
+
 /// What the chosen close behaviour means.
 pub fn on_close_note(o: OnClose) -> &'static str {
     match o {

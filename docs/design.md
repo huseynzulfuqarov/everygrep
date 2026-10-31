@@ -218,6 +218,16 @@ program keeps the index loaded and watching, and the next launch shows the
 window again through this hand-over, so no tray icon is needed. `Ctrl+Q`
 always quits.
 
+"Start EveryGrep when I log in" (Window page, off by default) writes an XDG
+autostart entry and removes it when turned off; the switch reads the entry's
+existence, so it stays true when other tools remove it. The entry starts the
+program with `--background`. With closing set to hide, that start loads the
+index and keeps watching without a window, ready for the next launch. With
+closing set to quit, a hidden window could never come back without a tray
+icon, so the window simply opens on login. A background start when the
+program runs already does nothing. Resetting the Window page turns the
+login start off.
+
 A window belongs to one index (its roots and index file). A launch for another
 index opens its own window, and `--new-instance` opens one on purpose.
 

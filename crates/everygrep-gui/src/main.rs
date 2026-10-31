@@ -1,6 +1,7 @@
 //! EveryGrep desktop window.
 
 mod actions;
+mod autostart;
 mod clipboard;
 mod engine;
 mod export;
@@ -81,7 +82,12 @@ fn main() -> Result<(), slint::PlatformError> {
             file.as_deref(),
             instance::default_index().as_deref(),
         );
-        match instance::start(&name, &raw, Box::new(queue_present)) {
+        let launch = if args.background {
+            instance::Launch::Background
+        } else {
+            instance::Launch::Show
+        };
+        match instance::start(&name, &raw, launch, Box::new(queue_present)) {
             instance::Role::Primary(connection) => Some(connection),
             instance::Role::HandedOver => return Ok(()),
             instance::Role::Alone => None,
@@ -412,7 +418,13 @@ fn main() -> Result<(), slint::PlatformError> {
             slint::CloseRequestResponse::HideWindow
         }
     });
-    window.show()?;
+    // Started on login with closing set to hide: the window is shown by
+    // the next launch. Without the bus name no launch could reach it, and
+    // with closing set to quit hiding makes no sense, so it is shown.
+    let hidden = args.background && _instance.is_some() && prefs.hide_on_close();
+    if !hidden {
+        window.show()?;
+    }
     if let Some(page) = args.settings_page {
         // Opened once the main window is on screen, so the settings window
         // is mapped after it and stays in front.
@@ -1272,6 +1284,10 @@ struct Args {
     show_attrs: bool,
     /// Open a window of its own instead of handing over to a running one.
     new_instance: bool,
+    /// Started on login: when closing only hides the window, load the
+    /// index and wait without showing it; do nothing when a window for
+    /// the index runs already.
+    background: bool,
     /// Open the settings window at this page (see [`prefs::PAGES`]).
     settings_page: Option<usize>,
 }
@@ -1299,6 +1315,9 @@ options:
   --columns <list>       show optional columns: type, extension, created,
                          accessed, attributes (comma separated)
   --new-instance         open another window even if one is already open
+  --background           start without a window when closing only hides it
+                         (used when starting on login); nothing happens when
+                         EveryGrep already runs
   --settings[=<page>]    open the settings window too, at a page: indexing,
                          search, appearance, window, shortcut
   -h, --help             print this help
@@ -1358,6 +1377,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                 out.options_given = true;
             }
             "--new-instance" => out.new_instance = true,
+            "--background" => out.background = true,
             "--settings" => out.settings_page = Some(0),
             _ if a.starts_with("--settings=") => {
                 let name = &a["--settings=".len()..];
@@ -1764,6 +1784,13 @@ mod tests {
         };
         assert!(a.new_instance && a.query.is_empty());
         assert_eq!(a.roots, [PathBuf::from("/a b"), PathBuf::from("/c")]);
+    }
+
+    #[test]
+    fn background_flag() {
+        assert!(args(&["--background"]).background);
+        assert!(!args(&["x"]).background);
+        assert_eq!(args(&["--", "--background"]).query, "--background");
     }
 
     #[test]

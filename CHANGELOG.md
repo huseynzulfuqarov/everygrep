@@ -102,6 +102,9 @@ First version, 0.1.0, not released yet.
   opens the current row once the results are up to date.
 - Setting to select the whole name, extension included, when renaming
   (by default only the part before the extension is selected).
+- "Start EveryGrep when I log in" setting: an XDG autostart entry that
+  runs the program with `--background`, which keeps the index loaded
+  without a window when closing hides it (the window opens otherwise).
 - Setting to keep the focus where it was when a later launch shows the
   window (by default the search field is focused and its text selected).
 - Light and dark themes following the desktop, compact density, details of
