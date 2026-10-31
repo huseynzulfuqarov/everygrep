@@ -40,8 +40,9 @@ screen; when a change conflicts with them, the rules win or are changed first.
 ```
 
 - **Menu bar.** On by default, switchable in the View menu and the
-  settings. File (new window, export results, settings, quit), Edit (copy name and path,
-  select all, rename, trash, delete), View (optional columns, folder size,
+  settings. File (new window, export results, settings, quit), Edit (cut, copy,
+  paste into folder, copy name, path and full path, select all, rename,
+  trash, delete), View (optional columns, folder size,
   density, theme, selection details, menu bar), Search (matching modes,
   including prefix, suffix, ignore punctuation and ignore whitespace,
   filters, previous and next search), Help (keyboard shortcuts, about).
@@ -51,7 +52,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   only on macOS and Windows), and its item shortcuts are matched before the
   focused widget sees the key. So only keys that mean the same everywhere
   are given to menu items (`Ctrl+N`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`, `Ctrl+I`,
-  `Alt+C/W/P/D/R/B/E/U/S`, `Alt+←/→`); `Ctrl+C`, `Ctrl+A`, `Delete` and `F2` stay with the search
+  `Alt+C/W/P/D/R/B/E/U/S`, `Alt+←/→`); `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Delete` and `F2` stay with the search
   field when it has focus, and the Edit entries show no key. Help →
   Keyboard shortcuts lists them all. The bar cannot be opened from the
   keyboard yet (no `F10`), which is fine because every entry has a key or
@@ -151,8 +152,11 @@ words.
 | Select all | `Ctrl+A` | — |
 | Invert the selection | `Ctrl+I` | Edit menu |
 | Open | `Enter` | double-click, context menu |
+| Open with another application | `Shift+Enter` | context menu |
 | Open the containing folder | `Ctrl+Enter` | context menu |
-| Copy the full path / the name | `Ctrl+Shift+C` / `Ctrl+C` | context menu |
+| Cut / copy the items (as files) | `Ctrl+X` / `Ctrl+C` | context menu |
+| Paste into the selected folder | `Ctrl+V` | context menu |
+| Copy the full path / the name / the containing folder | `Ctrl+Shift+C` / `Ctrl+Alt+C` / `Ctrl+Alt+Shift+C` | context menu |
 | Rename | `F2`; `Enter` renames, `Esc` or a click elsewhere cancels | context menu |
 | Move to trash | `Delete` | context menu |
 | Delete permanently | `Shift+Delete` | context menu |
@@ -201,6 +205,17 @@ On Wayland a program cannot raise its own window without an activation token,
 and the toolkit cannot pass one to an open window. The window is therefore
 shown again as a new surface, which GNOME focuses; the window keeps its size
 and contents.
+
+`Ctrl+C` copies the items as files, as in a file manager; their names and
+paths have keys of their own. Paste needs one folder selected in the
+results and pastes into it. It never replaces anything: a taken name gets
+the first free `name (N).ext`, from 2. Copies are written under a temporary
+name and renamed into place when complete; a move across file systems
+copies first and then removes only what was copied. A cut is pasted once.
+Slint 1.18 puts only text on the clipboard and cannot start a drag to
+other programs, so other programs get the full paths as text and dragging
+results out is planned. "Open with" shows the desktop's own application
+chooser (the OpenURI portal with `ask`), never a list of ours.
 
 Rename refuses a name that already exists in the folder and shows the reason in
 the status line. Moving to the trash asks first only for more than 50 items;

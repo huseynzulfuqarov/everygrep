@@ -7,10 +7,12 @@ use everygrep_core::kind::FileKind;
 use everygrep_core::query::QueryOptions;
 use everygrep_core::sort::FolderSize;
 
+use crate::clipboard::Operation;
 use crate::engine::{Busy, IndexState, Stopped, TaskKind};
 use crate::format;
 use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
+use crate::transfer::Outcome;
 
 /// Name of a filter in the filter selector.
 pub fn filter(f: Filter) -> &'static str {
@@ -361,6 +363,10 @@ pub fn busy(b: &Busy) -> String {
         ),
         (TaskKind::Searching, p) => fill(tr("Searching: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
+        (TaskKind::Copying, Some(p)) => fill(tr("Copying: {}%"), &[&p]),
+        (TaskKind::Copying, None) => tr("Copying…").to_owned(),
+        (TaskKind::Moving, Some(p)) => fill(tr("Moving: {}%"), &[&p]),
+        (TaskKind::Moving, None) => tr("Moving…").to_owned(),
     }
 }
 
@@ -469,6 +475,103 @@ pub fn copied_paths(n: usize) -> String {
     )
 }
 
+pub fn copied_folders(n: usize) -> String {
+    fill(
+        trn("Copied the folder path.", "Copied {} folder paths.", n),
+        &[&format::count(n)],
+    )
+}
+
+/// Cut or Copy put `n` items on the clipboard.
+pub fn on_clipboard(op: Operation, n: usize) -> String {
+    let count = format::count(n);
+    match op {
+        Operation::Copy => fill(
+            trn(
+                "Copied {} item. Paste it into a folder to copy it there.",
+                "Copied {} items. Paste them into a folder to copy them there.",
+                n,
+            ),
+            &[&count],
+        ),
+        Operation::Cut => fill(
+            trn(
+                "Cut {} item. Paste it into a folder to move it there.",
+                "Cut {} items. Paste them into a folder to move them there.",
+                n,
+            ),
+            &[&count],
+        ),
+    }
+}
+
+/// The note after a paste into `folder` (its name).
+pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
+    let n = out.done.len();
+    let tried = n + out.failed.len() + out.unchanged;
+    let mut parts = Vec::new();
+    if out.cancelled {
+        parts.push(fill(
+            trn(
+                "Paste cancelled after {0} item into {1}.",
+                "Paste cancelled after {0} items into {1}.",
+                n,
+            ),
+            &[&format::count(n), &folder],
+        ));
+    } else if n > 0 || out.failed.is_empty() {
+        let text = match op {
+            Operation::Copy => trn("Copied {0} item into {1}.", "Copied {0} items into {1}.", n),
+            Operation::Cut => trn("Moved {0} item into {1}.", "Moved {0} items into {1}.", n),
+        };
+        parts.push(fill(text, &[&format::count(n), &folder]));
+    }
+    if out.renamed > 0 {
+        parts.push(fill(
+            trn(
+                "{} got a new name because the name was taken.",
+                "{} got new names because the names were taken.",
+                out.renamed,
+            ),
+            &[&items(out.renamed)],
+        ));
+    }
+    if out.unchanged > 0 {
+        parts.push(fill(
+            trn(
+                "{} was already in this folder.",
+                "{} were already in this folder.",
+                out.unchanged,
+            ),
+            &[&items(out.unchanged)],
+        ));
+    }
+    if out.skipped_special > 0 {
+        let k = usize::try_from(out.skipped_special).unwrap_or(usize::MAX);
+        parts.push(fill(
+            trn(
+                "{} special file (pipe, socket or device) was left out.",
+                "{} special files (pipes, sockets or devices) were left out.",
+                k,
+            ),
+            &[&format::count(k)],
+        ));
+    }
+    if let Some((path, why)) = out.failed.first() {
+        parts.push(fill(
+            tr("Could not paste {0} of {1}: {2}: {3}."),
+            &[
+                &format::count(out.failed.len()),
+                &format::count(tried),
+                &path.display(),
+                why,
+            ],
+        ));
+    }
+    let error = !out.failed.is_empty() || out.skipped_special > 0;
+    (parts.join(" "), error)
+}
+
 /// The keyboard shortcuts dialog: keys and what they do.
 pub fn shortcuts() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -486,8 +589,16 @@ pub fn shortcuts() -> Vec<(&'static str, &'static str)> {
         ("Ctrl+I", tr("Invert selection")),
         ("Enter", tr("Open")),
         ("Ctrl+Enter", tr("Open the containing folder")),
-        ("Ctrl+C", tr("Copy the name")),
+        ("Shift+Enter", tr("Open with another application")),
+        ("Ctrl+X", tr("Cut the items")),
+        ("Ctrl+C", tr("Copy the items")),
+        ("Ctrl+V", tr("Paste into the selected folder")),
         ("Ctrl+Shift+C", tr("Copy the full path")),
+        ("Ctrl+Alt+C", tr("Copy the name")),
+        (
+            "Ctrl+Alt+Shift+C",
+            tr("Copy the path of the containing folder"),
+        ),
         ("F2", tr("Rename")),
         ("Delete", tr("Move to the trash")),
         ("Shift+Delete", tr("Delete permanently")),

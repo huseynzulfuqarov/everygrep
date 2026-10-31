@@ -1,0 +1,228 @@
+//! Files on the clipboard: Cut, Copy and Paste of result items.
+//!
+//! File managers put files on the clipboard in two formats:
+//! `x-special/gnome-copied-files` (`copy` or `cut`, then one `file://` URI
+//! per line) and `text/uri-list` (RFC 2483: one URI per line, each ended by
+//! CR LF). Slint 1.18 can only put plain text on the clipboard, so Cut and
+//! Copy put the full paths there as text and remember the files and the
+//! operation here; Paste in this window uses what was remembered while the
+//! clipboard still holds that text. Text from elsewhere is accepted when
+//! every line is a file: an absolute path, a `file://` URI, or one of the
+//! two formats above written as text.
+
+use std::path::PathBuf;
+
+use crate::open::file_uri;
+use crate::portal::file_path;
+
+/// What pasting does with the files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Operation {
+    /// Copies them; the originals stay.
+    Copy,
+    /// Moves them; the clipboard is emptied afterwards.
+    Cut,
+}
+
+/// The `x-special/gnome-copied-files` payload: `copy` or `cut`, then one
+/// URI per line, with no line end after the last.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the clipboard takes text only so far")
+)]
+pub fn gnome_copied_files(op: Operation, paths: &[PathBuf]) -> Vec<u8> {
+    let mut out = String::from(match op {
+        Operation::Copy => "copy",
+        Operation::Cut => "cut",
+    });
+    for path in paths {
+        out.push('\n');
+        out.push_str(&file_uri(path));
+    }
+    out.into_bytes()
+}
+
+/// The `text/uri-list` payload: one URI per line, each ended by CR LF.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the clipboard takes text only so far")
+)]
+pub fn uri_list(paths: &[PathBuf]) -> Vec<u8> {
+    let mut out = String::new();
+    for path in paths {
+        out.push_str(&file_uri(path));
+        out.push_str("\r\n");
+    }
+    out.into_bytes()
+}
+
+/// Files read from clipboard text, and what pasting them does. `None` when
+/// the text is not a list of files: some line is neither an absolute path
+/// nor a `file://` URI, or there is no file at all.
+///
+/// Understood: plain absolute paths, `text/uri-list` (lines starting with
+/// `#` are comments), and `x-special/gnome-copied-files`, also behind the
+/// `x-special/nautilus-clipboard` line older file managers put in text. A
+/// leading `cut` line is the only way to get [`Operation::Cut`].
+pub fn parse(text: &str) -> Option<(Operation, Vec<PathBuf>)> {
+    let mut lines = text
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .filter(|l| !l.is_empty())
+        .peekable();
+    if lines.peek() == Some(&"x-special/nautilus-clipboard") {
+        lines.next();
+    }
+    let op = match lines.peek() {
+        Some(&"copy") => Some(Operation::Copy),
+        Some(&"cut") => Some(Operation::Cut),
+        _ => None,
+    };
+    if op.is_some() {
+        lines.next();
+    }
+    let mut paths = Vec::new();
+    for line in lines {
+        if line.starts_with('#') {
+            continue;
+        }
+        let path = if line.starts_with('/') {
+            PathBuf::from(line)
+        } else {
+            file_path(line)?
+        };
+        paths.push(path);
+    }
+    (!paths.is_empty()).then(|| (op.unwrap_or(Operation::Copy), paths))
+}
+
+/// Files this window put on the clipboard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Held {
+    pub op: Operation,
+    pub paths: Vec<PathBuf>,
+    /// The text put on the clipboard with them.
+    pub text: String,
+}
+
+/// What to paste, given the files this window put on the clipboard and the
+/// text the clipboard holds now. The remembered files count only while the
+/// clipboard still holds their text; something copied since replaces them.
+pub fn to_paste(held: Option<&Held>, clipboard_text: &str) -> Option<(Operation, Vec<PathBuf>)> {
+    match held {
+        Some(h) if h.text == clipboard_text && !h.paths.is_empty() => Some((h.op, h.paths.clone())),
+        _ => parse(clipboard_text),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    fn paths() -> Vec<PathBuf> {
+        vec![
+            PathBuf::from("/home/u/My Files/it's #1.txt"),
+            PathBuf::from("/tmp/şəkil.png"),
+            PathBuf::from(OsStr::from_bytes(b"/x/\xff%")),
+        ]
+    }
+
+    #[test]
+    fn gnome_copied_files_bytes() {
+        assert_eq!(
+            gnome_copied_files(Operation::Copy, &paths()),
+            b"copy\n\
+              file:///home/u/My%20Files/it%27s%20%231.txt\n\
+              file:///tmp/%C5%9F%C9%99kil.png\n\
+              file:///x/%FF%25"
+        );
+        assert_eq!(
+            gnome_copied_files(Operation::Cut, &paths()[1..2]),
+            b"cut\nfile:///tmp/%C5%9F%C9%99kil.png"
+        );
+        assert_eq!(gnome_copied_files(Operation::Copy, &[]), b"copy");
+    }
+
+    #[test]
+    fn uri_list_bytes() {
+        assert_eq!(
+            uri_list(&paths()),
+            b"file:///home/u/My%20Files/it%27s%20%231.txt\r\n\
+              file:///tmp/%C5%9F%C9%99kil.png\r\n\
+              file:///x/%FF%25\r\n"
+        );
+        assert_eq!(uri_list(&[]), b"");
+    }
+
+    #[test]
+    fn payloads_read_back_as_the_same_files() {
+        let p = paths();
+        for (bytes, op) in [
+            (gnome_copied_files(Operation::Cut, &p), Operation::Cut),
+            (gnome_copied_files(Operation::Copy, &p), Operation::Copy),
+            (uri_list(&p), Operation::Copy),
+        ] {
+            let text = String::from_utf8(bytes).unwrap();
+            assert_eq!(parse(&text), Some((op, p.clone())), "{text}");
+        }
+    }
+
+    #[test]
+    fn text_forms_that_are_files() {
+        assert_eq!(
+            parse("/a/b c\n/d\n"),
+            Some((
+                Operation::Copy,
+                vec![PathBuf::from("/a/b c"), PathBuf::from("/d")]
+            ))
+        );
+        assert_eq!(
+            parse("x-special/nautilus-clipboard\ncut\nfile:///a%20b\n"),
+            Some((Operation::Cut, vec![PathBuf::from("/a b")]))
+        );
+        assert_eq!(
+            parse("# a comment\r\nfile://localhost/srv\r\n"),
+            Some((Operation::Copy, vec![PathBuf::from("/srv")]))
+        );
+    }
+
+    #[test]
+    fn text_that_is_not_files() {
+        for text in [
+            "",
+            "\n\n",
+            "copy",
+            "cut\n",
+            "hello",
+            "/a\nrelative/b",
+            "https://example.org/x",
+            "file://server/share",
+            "file:///bad%zz",
+            "/a\nhttps://example.org/",
+        ] {
+            assert_eq!(parse(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn held_files_count_while_the_clipboard_has_their_text() {
+        let held = Held {
+            op: Operation::Cut,
+            paths: vec![PathBuf::from("/a")],
+            text: "/a".into(),
+        };
+        assert_eq!(
+            to_paste(Some(&held), "/a"),
+            Some((Operation::Cut, vec![PathBuf::from("/a")]))
+        );
+        // Copied elsewhere since: the clipboard text wins, as a copy.
+        assert_eq!(
+            to_paste(Some(&held), "/b"),
+            Some((Operation::Copy, vec![PathBuf::from("/b")]))
+        );
+        assert_eq!(to_paste(Some(&held), "some words"), None);
+        assert_eq!(to_paste(None, ""), None);
+    }
+}

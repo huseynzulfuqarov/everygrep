@@ -690,6 +690,8 @@ export component AppWindow inherits Window {
     callback query-edited(string);
     callback sort-changed(int, bool);
     callback activate(int);
+    // Asks the desktop which application to open the item with.
+    callback open-with(int);
     callback open-folder(int);
     // Selection: mode 0 selects only the row, 1 toggles it, 2 extends the
     // range from the anchor to it.
@@ -697,6 +699,12 @@ export component AppWindow inherits Window {
     // Actions on the selection, or on the given row when it is not selected.
     callback copy-names(int);
     callback copy-paths(int);
+    // The containing folders.
+    callback copy-folders(int);
+    // Files to the clipboard, and pasting them into the given folder row.
+    callback cut-items(int);
+    callback copy-items(int);
+    callback paste-items(int);
     callback rename-start(int);
     callback rename-commit(string);
     callback rename-cancel();
@@ -916,6 +924,15 @@ export component AppWindow inherits Window {
         clip.select-all();
         clip.copy();
         clip.text = "";
+    }
+
+    // The text on the clipboard, read through the same hidden field.
+    public function paste-text() -> string {
+        clip.text = "";
+        clip.paste();
+        let text = clip.text;
+        clip.text = "";
+        return text;
     }
 
     // Opens the context menu next to the current row.
@@ -1203,7 +1220,13 @@ export component AppWindow inherits Window {
                 }
                 if (event.text == Key.Return) {
                     if (root.current >= 0) {
-                        if (event.modifiers.control) { root.open-folder(root.current); } else { root.activate(root.current); }
+                        if (event.modifiers.control) {
+                            root.open-folder(root.current);
+                        } else if (event.modifiers.shift) {
+                            root.open-with(root.current);
+                        } else {
+                            root.activate(root.current);
+                        }
                     }
                     return accept;
                 }
@@ -1217,10 +1240,31 @@ export component AppWindow inherits Window {
                     }
                     return accept;
                 }
+                // Ctrl+C copies the items as files, as in a file manager;
+                // with Shift the full path, with Alt the name, with both
+                // the containing folder, all as text.
                 if (event.modifiers.control && (event.text == "c" || event.text == "C")) {
                     if (root.current >= 0) {
-                        if (event.modifiers.shift) { root.copy-paths(root.current); } else { root.copy-names(root.current); }
+                        if (event.modifiers.alt && event.modifiers.shift) {
+                            root.copy-folders(root.current);
+                        } else if (event.modifiers.alt) {
+                            root.copy-names(root.current);
+                        } else if (event.modifiers.shift) {
+                            root.copy-paths(root.current);
+                        } else {
+                            root.copy-items(root.current);
+                        }
                     }
+                    return accept;
+                }
+                if (event.modifiers.control && !event.modifiers.alt && !event.modifiers.shift
+                        && (event.text == "x" || event.text == "X")) {
+                    if (root.current >= 0) { root.cut-items(root.current); }
+                    return accept;
+                }
+                if (event.modifiers.control && !event.modifiers.alt && !event.modifiers.shift
+                        && (event.text == "v" || event.text == "V")) {
+                    if (root.current >= 0) { root.paste-items(root.current); }
                     return accept;
                 }
                 if (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift)) {
@@ -1248,14 +1292,39 @@ export component AppWindow inherits Window {
                         activated => { root.activate(root.current); }
                     }
                     MenuItem {
+                        title: @tr("Open with…");
+                        enabled: !root.current-offline;
+                        activated => { root.open-with(root.current); }
+                    }
+                    MenuItem {
                         title: @tr("Open containing folder");
                         enabled: !root.current-offline;
                         activated => { root.open-folder(root.current); }
                     }
                     MenuSeparator { }
                     MenuItem {
+                        title: @tr("Cut");
+                        enabled: !root.current-offline;
+                        activated => { root.cut-items(root.current); }
+                    }
+                    MenuItem {
+                        title: @tr("Copy");
+                        enabled: !root.current-offline;
+                        activated => { root.copy-items(root.current); }
+                    }
+                    MenuItem {
+                        title: @tr("Paste into folder");
+                        enabled: !root.current-offline;
+                        activated => { root.paste-items(root.current); }
+                    }
+                    MenuSeparator { }
+                    MenuItem {
                         title: @tr("Copy name");
                         activated => { root.copy-names(root.current); }
+                    }
+                    MenuItem {
+                        title: @tr("Copy path");
+                        activated => { root.copy-folders(root.current); }
                     }
                     MenuItem {
                         title: @tr("Copy full path");
@@ -1423,7 +1492,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Hidden text field used by copy-text().
+    // Hidden text field used by copy-text() and paste-text().
     clip := TextInput {
         x: 0;
         y: 0;
@@ -1604,9 +1673,30 @@ export component AppWindow inherits Window {
         Menu {
             title: @tr("Edit");
             MenuItem {
+                title: @tr("Cut");
+                enabled: root.current >= 0 && !root.current-offline;
+                activated => { root.cut-items(root.current); }
+            }
+            MenuItem {
+                title: @tr("Copy");
+                enabled: root.current >= 0 && !root.current-offline;
+                activated => { root.copy-items(root.current); }
+            }
+            MenuItem {
+                title: @tr("Paste into folder");
+                enabled: root.current >= 0 && !root.current-offline;
+                activated => { root.paste-items(root.current); }
+            }
+            MenuSeparator { }
+            MenuItem {
                 title: @tr("Copy name");
                 enabled: root.current >= 0;
                 activated => { root.copy-names(root.current); }
+            }
+            MenuItem {
+                title: @tr("Copy path");
+                enabled: root.current >= 0;
+                activated => { root.copy-folders(root.current); }
             }
             MenuItem {
                 title: @tr("Copy full path");

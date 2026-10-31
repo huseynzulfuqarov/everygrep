@@ -89,6 +89,16 @@ First version, 0.1.0, not released yet.
   table at no idle cost; fstab mounts are never indexed this way.
 - Translations into Azerbaijani and Turkish, with a language setting that
   applies at once; translated desktop entry.
+- Cut, copy and paste of files (`Ctrl+X`, `Ctrl+C`, `Ctrl+V`) into a
+  folder of the results: never replaces (a taken name becomes
+  `name (2).ext`), copies through a temporary name, moves across file
+  systems by copying and then removing only what was copied, with progress
+  and Cancel in the status line. Other programs get the full paths as
+  text. The name moved to `Ctrl+Alt+C`.
+- Copy path: the containing folders (`Ctrl+Alt+Shift+C`), next to copy
+  name and copy full path.
+- Open with… (`Shift+Enter`): the desktop's application chooser, through
+  the OpenURI portal.
 - Progress of long operations in the status line ("Indexing: 42%",
   rescanning, reading a drive, catching up, searching, sorting), shown
   after 300 ms and updated ten times a second; a count instead of a

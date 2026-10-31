@@ -1,22 +1,28 @@
-//! The XDG desktop portal: choosing folders, choosing where to save a file
-//! and following the desktop's light or dark setting.
+//! The XDG desktop portal: choosing folders, choosing where to save a file,
+//! choosing the application to open a file with, and following the
+//! desktop's light or dark setting.
 //!
 //! The folder dialog comes from `org.freedesktop.portal.FileChooser`, so it
-//! is the desktop's own file chooser and needs no toolkit of ours. The color
-//! scheme comes from `org.freedesktop.portal.Settings`. Both calls block;
-//! run them off the UI thread.
+//! is the desktop's own file chooser and needs no toolkit of ours. "Open
+//! with" is `org.freedesktop.portal.OpenURI` with `ask`, which shows the
+//! desktop's own application chooser. The color scheme comes from
+//! `org.freedesktop.portal.Settings`. All calls block; run them off the UI
+//! thread.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fs::File;
 use std::os::unix::ffi::OsStringExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use zbus::blocking::{Connection, Proxy};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::message::Message;
+use zbus::zvariant::{Fd, OwnedObjectPath, OwnedValue, Value};
 
 const DESTINATION: &str = "org.freedesktop.portal.Desktop";
 const PATH: &str = "/org/freedesktop/portal/desktop";
 const CHOOSER: &str = "org.freedesktop.portal.FileChooser";
+const OPEN_URI: &str = "org.freedesktop.portal.OpenURI";
 const REQUEST: &str = "org.freedesktop.portal.Request";
 const SETTINGS: &str = "org.freedesktop.portal.Settings";
 const APPEARANCE: &str = "org.freedesktop.appearance";
@@ -153,7 +159,51 @@ fn uris(results: &HashMap<String, OwnedValue>) -> Vec<String> {
 fn file_chooser(
     method: &str,
     title: &str,
+    options: Vec<(&str, Value)>,
+) -> Result<Option<HashMap<String, OwnedValue>>, String> {
+    request(options, |conn, options| {
+        conn.call_method(
+            Some(DESTINATION),
+            PATH,
+            Some(CHOOSER),
+            method,
+            &("", title, options),
+        )
+    })
+}
+
+/// Shows the desktop's application chooser for `path` and opens it with
+/// the application picked there. Returns `Ok(false)` when the chooser was
+/// cancelled; `Err` when the portal is not available or the item cannot
+/// be opened. Only files and folders can be opened this way.
+pub fn open_with(path: &Path) -> Result<bool, String> {
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() && !meta.is_dir() {
+        // Opening a pipe or a device to pass it could block or have effects.
+        return Err("not a file or folder".into());
+    }
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let options = vec![("ask", Value::from(true))];
+    let results = request(options, |conn, options| {
+        conn.call_method(
+            Some(DESTINATION),
+            PATH,
+            Some(OPEN_URI),
+            "OpenFile",
+            &("", Fd::from(&file), options),
+        )
+    })?;
+    Ok(results.is_some())
+}
+
+/// Makes a portal request: `call` sends it with `options`, to which a
+/// handle token is added, and this waits for its `Response` signal. Returns
+/// the results, or `None` when the user cancelled. The connection stays
+/// open until the answer, since the portal closes the dialog of a caller
+/// that leaves the bus.
+fn request(
     mut options: Vec<(&str, Value)>,
+    call: impl FnOnce(&Connection, HashMap<&str, Value>) -> zbus::Result<Message>,
 ) -> Result<Option<HashMap<String, OwnedValue>>, String> {
     let conn = Connection::session().map_err(|e| e.to_string())?;
     let sender = conn
@@ -176,15 +226,7 @@ fn file_chooser(
 
     options.push(("handle_token", Value::from(token.clone())));
     let options: HashMap<&str, Value> = options.into_iter().collect();
-    let reply = conn
-        .call_method(
-            Some(DESTINATION),
-            PATH,
-            Some(CHOOSER),
-            method,
-            &("", title, options),
-        )
-        .map_err(|e| e.to_string())?;
+    let reply = call(&conn, options).map_err(|e| e.to_string())?;
     let handle: OwnedObjectPath = reply.body().deserialize().map_err(|e| e.to_string())?;
     // Older portals choose the path themselves; follow the one they name.
     if handle.as_str() != request_path {
@@ -194,7 +236,7 @@ fn file_chooser(
             .receive_signal("Response")
             .map_err(|e| e.to_string())?;
     }
-    let message = responses.next().ok_or("the file chooser did not answer")?;
+    let message = responses.next().ok_or("the portal did not answer")?;
     let (code, results): (u32, HashMap<String, OwnedValue>) =
         message.body().deserialize().map_err(|e| e.to_string())?;
     Ok((code == 0).then_some(results))

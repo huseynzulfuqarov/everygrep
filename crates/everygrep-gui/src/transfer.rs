@@ -1,0 +1,814 @@
+//! Pasting files into a folder: copying or moving them.
+//!
+//! Nothing is ever replaced. When a name is taken in the folder, the item
+//! gets the first free name of the form `name (2).ext`, `name (3).ext`, …
+//! A copy is written under a temporary name in the target folder and gets
+//! its real name only when it is complete, so a failure or a cancel leaves
+//! no partial item. A move is a rename when the folder is on the same file
+//! system; otherwise the item is copied the same way and only the entries
+//! that were copied are removed from the source afterwards, so the source
+//! is never deleted when the move fails. Links are copied as links; special
+//! files (sockets, pipes, devices) are skipped and stay in the source.
+
+use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_uint};
+use std::fmt;
+use std::fs::{self, File, Metadata, OpenOptions};
+use std::io::{self, Read, Write};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use everygrep_core::progress::Progress;
+
+use crate::clipboard::Operation;
+use crate::i18n::{fill, tr};
+
+/// Size of one read when copying a file; cancel is checked between reads.
+const CHUNK: usize = 1 << 20;
+
+/// Why an item was not pasted.
+#[derive(Debug)]
+pub enum Failure {
+    /// A folder pasted into itself or into a folder inside it.
+    IntoItself,
+    Io(io::Error),
+    /// Moved by copying, but some of the original could not be removed;
+    /// the copy is complete and nothing was lost.
+    NotRemoved(io::Error),
+}
+
+impl fmt::Display for Failure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Failure::IntoItself => f.write_str(tr("A folder cannot be pasted into itself.")),
+            Failure::Io(e) => write!(f, "{e}"),
+            Failure::NotRemoved(e) => f.write_str(&fill(
+                tr("copied, but the original could not be removed: {}"),
+                &[e],
+            )),
+        }
+    }
+}
+
+/// What a paste did.
+#[derive(Debug, Default)]
+pub struct Outcome {
+    /// The new items, in the order of the sources.
+    pub done: Vec<PathBuf>,
+    /// How many of them got another name because theirs was taken.
+    pub renamed: usize,
+    /// Items moved into the folder they are already in: left as they are.
+    pub unchanged: usize,
+    pub failed: Vec<(PathBuf, Failure)>,
+    /// Special files left out of copied folders.
+    pub skipped_special: u64,
+    /// The paste was cancelled; the item in progress was not pasted and the
+    /// rest were not tried.
+    pub cancelled: bool,
+}
+
+/// Why copying stopped.
+#[derive(Debug)]
+enum Stop {
+    Cancelled,
+    Io(io::Error),
+}
+
+impl From<io::Error> for Stop {
+    fn from(e: io::Error) -> Self {
+        Stop::Io(e)
+    }
+}
+
+/// Copies (`Operation::Copy`) or moves (`Operation::Cut`) `sources` into
+/// the folder `dest`. Progress is counted in bytes copied; cancel through
+/// `progress` stops at the next read.
+pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progress) -> Outcome {
+    let mut out = Outcome::default();
+    let dest = match fs::canonicalize(dest) {
+        Ok(d) => d,
+        Err(e) => {
+            out.failed = sources
+                .iter()
+                .map(|s| {
+                    (
+                        s.clone(),
+                        Failure::Io(io::Error::new(e.kind(), e.to_string())),
+                    )
+                })
+                .collect();
+            return out;
+        }
+    };
+    let dest_dev = fs::metadata(&dest).map(|m| m.dev()).ok();
+    let total: u64 = sources
+        .iter()
+        .filter(|s| {
+            op == Operation::Copy || fs::symlink_metadata(s).map(|m| m.dev()).ok() != dest_dev
+        })
+        .map(|s| tree_size(s, progress))
+        .sum();
+    progress.restart(Some(total));
+
+    for src in sources {
+        if progress.is_cancelled() {
+            out.cancelled = true;
+            break;
+        }
+        match paste_one(op, src, &dest, progress, &mut out.skipped_special) {
+            Ok(Pasted::New(target)) => {
+                if target.file_name() != src.file_name() {
+                    out.renamed += 1;
+                }
+                out.done.push(target);
+            }
+            Ok(Pasted::Unchanged) => out.unchanged += 1,
+            Ok(Pasted::Failed(f)) => out.failed.push((src.clone(), f)),
+            Err(Stop::Cancelled) => {
+                out.cancelled = true;
+                break;
+            }
+            Err(Stop::Io(e)) => out.failed.push((src.clone(), Failure::Io(e))),
+        }
+    }
+    out
+}
+
+/// What became of one item.
+enum Pasted {
+    New(PathBuf),
+    /// Moved into the folder it is already in.
+    Unchanged,
+    Failed(Failure),
+}
+
+fn paste_one(
+    op: Operation,
+    src: &Path,
+    dest: &Path,
+    progress: &Progress,
+    special: &mut u64,
+) -> Result<Pasted, Stop> {
+    let meta = fs::symlink_metadata(src)?;
+    let name = src
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    if meta.is_dir() && dest.starts_with(fs::canonicalize(src)?) {
+        return Ok(Pasted::Failed(Failure::IntoItself));
+    }
+    let parent = src.parent().map(fs::canonicalize).transpose()?;
+    if op == Operation::Cut && parent.as_deref() == Some(dest) {
+        return Ok(Pasted::Unchanged);
+    }
+    match op {
+        Operation::Copy => {
+            let (target, _) = copy_in(src, &meta, dest, name, progress, false, special)?;
+            Ok(Pasted::New(target))
+        }
+        Operation::Cut => move_in(src, &meta, dest, name, progress, special),
+    }
+}
+
+/// Moves `src` into `dest` by renaming, or by copying and then removing
+/// what was copied when the folder is on another file system.
+fn move_in(
+    src: &Path,
+    meta: &Metadata,
+    dest: &Path,
+    name: &OsStr,
+    progress: &Progress,
+    special: &mut u64,
+) -> Result<Pasted, Stop> {
+    loop {
+        let target = free_name(dest, name, meta.is_dir());
+        match rename_noreplace(src, &target) {
+            Ok(()) => return Ok(Pasted::New(target)),
+            // Taken since we looked: try the next free name.
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) if e.kind() == io::ErrorKind::CrossesDevices => break,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let (target, copied) = copy_in(src, meta, dest, name, progress, true, special)?;
+    match remove_copied(&copied) {
+        None => Ok(Pasted::New(target)),
+        Some(e) => Ok(Pasted::Failed(Failure::NotRemoved(e))),
+    }
+}
+
+/// Removes the source entries that were copied, deepest first. A folder
+/// that still holds something (a special file, or a file added meanwhile)
+/// stays. Returns the first error.
+fn remove_copied(copied: &[(PathBuf, bool)]) -> Option<io::Error> {
+    let mut first_error = None;
+    for (path, is_dir) in copied.iter().rev() {
+        let removed = if *is_dir {
+            fs::remove_dir(path)
+        } else {
+            fs::remove_file(path)
+        };
+        if let Err(e) = removed {
+            first_error.get_or_insert(e);
+        }
+    }
+    first_error
+}
+
+/// Copies `src` into `dest` under a temporary name, then gives it the first
+/// free name. Returns the new path and the source entries copied (with
+/// whether each is a folder), parents before their contents.
+fn copy_in(
+    src: &Path,
+    meta: &Metadata,
+    dest: &Path,
+    name: &OsStr,
+    progress: &Progress,
+    sync: bool,
+    special: &mut u64,
+) -> Result<(PathBuf, Vec<(PathBuf, bool)>), Stop> {
+    let temp = temp_name(dest);
+    let mut copied = Vec::new();
+    let mut buf = vec![0; CHUNK];
+    let mut copier = Copier {
+        progress,
+        sync,
+        buf: &mut buf,
+        copied: &mut copied,
+        special,
+    };
+    if let Err(stop) = copier.tree(src, meta, &temp) {
+        remove_partial(&temp);
+        return Err(stop);
+    }
+    loop {
+        let target = free_name(dest, name, meta.is_dir());
+        match rename_noreplace(&temp, &target) {
+            Ok(()) => return Ok((target, copied)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                remove_partial(&temp);
+                return Err(e.into());
+            }
+        }
+    }
+}
+
+/// Removes a temporary copy of ours.
+fn remove_partial(temp: &Path) {
+    let _ = match fs::symlink_metadata(temp) {
+        Ok(m) if m.is_dir() => fs::remove_dir_all(temp),
+        Ok(_) => fs::remove_file(temp),
+        Err(_) => Ok(()),
+    };
+}
+
+struct Copier<'a> {
+    progress: &'a Progress,
+    /// Flush every file to disk before it counts as copied (for moves,
+    /// whose source is removed afterwards).
+    sync: bool,
+    buf: &'a mut Vec<u8>,
+    copied: &'a mut Vec<(PathBuf, bool)>,
+    special: &'a mut u64,
+}
+
+impl Copier<'_> {
+    /// Copies the entry `src` (described by `meta`, links not followed) to
+    /// `dst`, which must not exist.
+    fn tree(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
+        let kind = meta.file_type();
+        if kind.is_symlink() {
+            std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
+            self.copied.push((src.to_owned(), false));
+        } else if kind.is_file() {
+            self.file(src, meta, dst)?;
+            self.copied.push((src.to_owned(), false));
+        } else if kind.is_dir() {
+            fs::create_dir(dst)?;
+            self.copied.push((src.to_owned(), true));
+            for entry in fs::read_dir(src)? {
+                let entry = entry?;
+                // DirEntry::metadata does not follow links.
+                let m = entry.metadata()?;
+                self.tree(&entry.path(), &m, &dst.join(entry.file_name()))?;
+            }
+            // Last, so a read-only folder can still be filled.
+            fs::set_permissions(dst, fs::Permissions::from_mode(mode(meta)))?;
+            if let Ok(t) = meta.modified() {
+                let _ = File::open(dst).and_then(|d| d.set_modified(t));
+            }
+        } else {
+            *self.special += 1;
+        }
+        Ok(())
+    }
+
+    fn file(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
+        let mut from = File::open(src)?;
+        let mut to = OpenOptions::new().write(true).create_new(true).open(dst)?;
+        loop {
+            if self.progress.is_cancelled() {
+                return Err(Stop::Cancelled);
+            }
+            let n = match from.read(self.buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
+            };
+            to.write_all(&self.buf[..n])?;
+            self.progress.add(n as u64);
+        }
+        to.set_permissions(fs::Permissions::from_mode(mode(meta)))?;
+        if let Ok(t) = meta.modified() {
+            to.set_modified(t)?;
+        }
+        if self.sync {
+            to.sync_all()?;
+        }
+        Ok(())
+    }
+}
+
+/// The permission bits to give a copy: those of the source without
+/// set-user-ID and set-group-ID.
+fn mode(meta: &Metadata) -> u32 {
+    meta.permissions().mode() & 0o1777
+}
+
+/// Bytes of the files in `path`, links not followed. Stops counting once
+/// the paste is cancelled.
+fn tree_size(path: &Path, progress: &Progress) -> u64 {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_file() {
+        return meta.len();
+    }
+    if !meta.is_dir() || progress.is_cancelled() {
+        return 0;
+    }
+    fs::read_dir(path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| tree_size(&e.path(), progress))
+        .sum()
+}
+
+/// `dir/name` when nothing has that name, else the first free
+/// `stem (N)ext` with N from 2. Folders have no extension. A dangling link
+/// counts as taken.
+pub fn free_name(dir: &Path, name: &OsStr, is_dir: bool) -> PathBuf {
+    let first = dir.join(name);
+    if fs::symlink_metadata(&first).is_err() {
+        return first;
+    }
+    let bytes = name.as_bytes();
+    let (stem, ext) = match bytes.iter().rposition(|&b| b == b'.') {
+        Some(dot) if dot > 0 && !is_dir => bytes.split_at(dot),
+        _ => (bytes, &b""[..]),
+    };
+    let mut n: u64 = 2;
+    loop {
+        let mut candidate = stem.to_vec();
+        candidate.extend_from_slice(format!(" ({n})").as_bytes());
+        candidate.extend_from_slice(ext);
+        let path = dir.join(OsString::from_vec(candidate));
+        if fs::symlink_metadata(&path).is_err() {
+            return path;
+        }
+        n += 1;
+    }
+}
+
+/// A name in `dir` for a copy in progress; hidden, and unique to this
+/// process and paste.
+fn temp_name(dir: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    dir.join(format!(".everygrep-paste-{}-{n}.part", std::process::id()))
+}
+
+unsafe extern "C" {
+    fn renameat2(
+        olddirfd: c_int,
+        oldpath: *const c_char,
+        newdirfd: c_int,
+        newpath: *const c_char,
+        flags: c_uint,
+    ) -> c_int;
+}
+
+/// `AT_FDCWD` from `<fcntl.h>`: paths are relative to the working folder.
+const AT_FDCWD: c_int = -100;
+/// `RENAME_NOREPLACE` from `<linux/fs.h>`.
+const RENAME_NOREPLACE: c_uint = 1;
+
+/// Renames `from` to `to`, failing with `AlreadyExists` instead of
+/// replacing. File systems without this kind of rename get a check and a
+/// plain rename, which could replace a file created in between.
+fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    let a = CString::new(from.as_os_str().as_bytes())?;
+    let b = CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both are valid C strings that outlive the call.
+    let rc = unsafe { renameat2(AT_FDCWD, a.as_ptr(), AT_FDCWD, b.as_ptr(), RENAME_NOREPLACE) };
+    if rc == 0 {
+        return Ok(());
+    }
+    let e = io::Error::last_os_error();
+    if e.kind() != io::ErrorKind::InvalidInput {
+        return Err(e);
+    }
+    // EINVAL: the file system does not support RENAME_NOREPLACE (or the
+    // rename itself is invalid, which the plain rename reports again).
+    if fs::symlink_metadata(to).is_ok() {
+        return Err(io::ErrorKind::AlreadyExists.into());
+    }
+    fs::rename(from, to)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    /// A fresh empty folder under the system temp dir, removed on drop.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "everygrep-gui-test-paste-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn path(&self, rel: &str) -> PathBuf {
+            self.0.join(rel)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            // Read-only folders made by a test must be writable again
+            // before their contents can go.
+            fn writable(dir: &Path) {
+                let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o755));
+                for e in fs::read_dir(dir).into_iter().flatten().flatten() {
+                    if e.file_type().is_ok_and(|t| t.is_dir()) {
+                        writable(&e.path());
+                    }
+                }
+            }
+            writable(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write(path: &Path, text: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+
+    fn read(path: &Path) -> String {
+        fs::read_to_string(path).unwrap()
+    }
+
+    /// Names in `dir`, sorted.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn free_names_never_clash() {
+        let t = TempDir::new("names");
+        let dir = t.path("d");
+        fs::create_dir(&dir).unwrap();
+        let n = |name: &str, is_dir| free_name(&dir, OsStr::new(name), is_dir);
+        assert_eq!(n("a.txt", false), dir.join("a.txt"));
+        write(&dir.join("a.txt"), "");
+        assert_eq!(n("a.txt", false), dir.join("a (2).txt"));
+        write(&dir.join("a (2).txt"), "");
+        assert_eq!(n("a.txt", false), dir.join("a (3).txt"));
+        write(&dir.join("x.tar.gz"), "");
+        assert_eq!(n("x.tar.gz", false), dir.join("x.tar (2).gz"));
+        write(&dir.join(".bashrc"), "");
+        assert_eq!(n(".bashrc", false), dir.join(".bashrc (2)"));
+        fs::create_dir(dir.join("photos.2026")).unwrap();
+        assert_eq!(n("photos.2026", true), dir.join("photos.2026 (2)"));
+        symlink(dir.join("missing"), dir.join("dangling")).unwrap();
+        assert_eq!(n("dangling", false), dir.join("dangling (2)"));
+    }
+
+    #[test]
+    fn copy_keeps_both_on_a_clash_and_never_replaces() {
+        let t = TempDir::new("copy");
+        let src = t.path("src/a.txt");
+        write(&src, "new");
+        let dest = t.path("dest");
+        write(&dest.join("a.txt"), "old");
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let dest_real = fs::canonicalize(&dest).unwrap();
+        assert_eq!(out.done, [dest_real.join("a (2).txt")]);
+        assert_eq!(out.renamed, 1);
+        assert_eq!(read(&dest.join("a.txt")), "old");
+        assert_eq!(read(&dest.join("a (2).txt")), "new");
+        assert_eq!(read(&src), "new");
+        assert_eq!(names(&dest), ["a (2).txt", "a.txt"]);
+    }
+
+    #[test]
+    fn copy_into_the_same_folder_makes_a_second_item() {
+        let t = TempDir::new("same");
+        let src = t.path("d/a.txt");
+        write(&src, "x");
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &t.path("d"),
+            &Progress::new(),
+        );
+        assert_eq!(out.done.len(), 1);
+        assert_eq!(names(&t.path("d")), ["a (2).txt", "a.txt"]);
+    }
+
+    #[test]
+    fn copy_of_a_folder_keeps_contents_links_and_modes() {
+        let t = TempDir::new("tree");
+        let src = t.path("src/tree");
+        write(&src.join("sub/f.txt"), "f");
+        write(&src.join("g.sh"), "g");
+        fs::set_permissions(src.join("g.sh"), fs::Permissions::from_mode(0o750)).unwrap();
+        symlink("sub/f.txt", src.join("link")).unwrap();
+        fs::set_permissions(src.join("sub"), fs::Permissions::from_mode(0o555)).unwrap();
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let copy = dest.join("tree");
+        assert_eq!(read(&copy.join("sub/f.txt")), "f");
+        assert_eq!(
+            fs::metadata(copy.join("g.sh"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o750
+        );
+        assert_eq!(
+            fs::read_link(copy.join("link")).unwrap(),
+            PathBuf::from("sub/f.txt")
+        );
+        assert_eq!(
+            fs::metadata(copy.join("sub")).unwrap().permissions().mode() & 0o777,
+            0o555
+        );
+        assert_eq!(names(&dest), ["tree"]);
+        // The source is untouched.
+        assert_eq!(read(&src.join("sub/f.txt")), "f");
+    }
+
+    #[test]
+    fn a_failed_copy_leaves_no_partial_item() {
+        let t = TempDir::new("partial");
+        let src = t.path("src/tree");
+        write(&src.join("ok.txt"), "ok");
+        let secret = src.join("secret.txt");
+        write(&secret, "s");
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+        if File::open(&secret).is_ok() {
+            // Running as root: every file can be read, nothing to test.
+            return;
+        }
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.done.is_empty());
+        assert_eq!(out.failed.len(), 1);
+        assert!(matches!(out.failed[0].1, Failure::Io(_)));
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+    }
+
+    #[test]
+    fn cancel_stops_and_removes_the_item_in_progress() {
+        let t = TempDir::new("cancel");
+        let a = t.path("src/a.txt");
+        let b = t.path("src/b.txt");
+        write(&a, "a");
+        write(&b, "b");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let progress = Progress::new();
+        progress.cancel();
+        let out = paste(Operation::Copy, &[a, b], &dest, &progress);
+        assert!(out.cancelled);
+        assert!(out.done.is_empty() && out.failed.is_empty());
+        assert!(names(&dest).is_empty());
+
+        // Cancelled while a file is being copied: its temporary copy goes.
+        let progress = Progress::new();
+        let big = t.path("src/big");
+        write(&big, &"x".repeat(CHUNK * 2));
+        let mut buf = vec![0; CHUNK];
+        let (mut copied, mut special) = (Vec::new(), 0);
+        let meta = fs::symlink_metadata(&big).unwrap();
+        let temp = temp_name(&dest);
+        progress.cancel();
+        let mut c = Copier {
+            progress: &progress,
+            sync: false,
+            buf: &mut buf,
+            copied: &mut copied,
+            special: &mut special,
+        };
+        assert!(matches!(c.tree(&big, &meta, &temp), Err(Stop::Cancelled)));
+        remove_partial(&temp);
+        assert!(names(&dest).is_empty());
+    }
+
+    #[test]
+    fn cut_moves_and_renames_on_a_clash() {
+        let t = TempDir::new("cut");
+        let a = t.path("src/a.txt");
+        let tree = t.path("src/tree");
+        write(&a, "new");
+        write(&tree.join("f"), "f");
+        let dest = t.path("dest");
+        write(&dest.join("a.txt"), "old");
+        let out = paste(
+            Operation::Cut,
+            &[a.clone(), tree.clone()],
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(out.done.len(), 2);
+        assert_eq!(out.renamed, 1);
+        assert!(!a.exists() && !tree.exists());
+        assert_eq!(read(&dest.join("a.txt")), "old");
+        assert_eq!(read(&dest.join("a (2).txt")), "new");
+        assert_eq!(read(&dest.join("tree/f")), "f");
+    }
+
+    #[test]
+    fn cut_into_its_own_folder_changes_nothing() {
+        let t = TempDir::new("cut-same");
+        let a = t.path("d/a.txt");
+        write(&a, "a");
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&a),
+            &t.path("d"),
+            &Progress::new(),
+        );
+        assert_eq!(out.unchanged, 1);
+        assert!(out.done.is_empty() && out.failed.is_empty());
+        assert_eq!(names(&t.path("d")), ["a.txt"]);
+    }
+
+    #[test]
+    fn a_folder_is_never_pasted_into_itself() {
+        let t = TempDir::new("itself");
+        let tree = t.path("tree");
+        write(&tree.join("sub/f"), "f");
+        for op in [Operation::Copy, Operation::Cut] {
+            for dest in [tree.clone(), tree.join("sub")] {
+                let out = paste(op, std::slice::from_ref(&tree), &dest, &Progress::new());
+                assert_eq!(out.unchanged, 0);
+                assert!(out.done.is_empty());
+                assert!(matches!(out.failed[..], [(_, Failure::IntoItself)]));
+            }
+        }
+        assert_eq!(names(&tree), ["sub"]);
+        assert_eq!(names(&tree.join("sub")), ["f"]);
+    }
+
+    #[test]
+    fn a_failed_move_keeps_the_source() {
+        let t = TempDir::new("move-fail");
+        let a = t.path("src/a.txt");
+        write(&a, "a");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o555)).unwrap();
+        if fs::write(dest.join("probe"), "").is_ok() {
+            // Running as root: the folder is writable anyway.
+            return;
+        }
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&a),
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.done.is_empty());
+        assert!(matches!(out.failed[..], [(_, Failure::Io(_))]));
+        assert_eq!(read(&a), "a");
+
+        // A missing source is reported and nothing else happens.
+        let gone = t.path("src/gone");
+        let out = paste(Operation::Cut, &[gone], &t.path("src"), &Progress::new());
+        assert!(matches!(out.failed[..], [(_, Failure::Io(_))]));
+    }
+
+    #[test]
+    fn moving_by_copy_removes_only_what_was_copied() {
+        // The fallback for another file system, run directly: the source
+        // keeps whatever was not copied.
+        let t = TempDir::new("move-copy");
+        let src = t.path("src/tree");
+        write(&src.join("f"), "f");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let meta = fs::symlink_metadata(&src).unwrap();
+        let mut special = 0;
+        let (target, copied) = copy_in(
+            &src,
+            &meta,
+            &dest,
+            OsStr::new("tree"),
+            &Progress::new(),
+            true,
+            &mut special,
+        )
+        .unwrap();
+        assert_eq!(target, dest.join("tree"));
+        assert_eq!(copied, [(src.clone(), true), (src.join("f"), false)]);
+        // A file added after the copy is not in the list and stays.
+        write(&src.join("late"), "l");
+        assert!(remove_copied(&copied).is_some());
+        assert_eq!(names(&src), ["late"]);
+        assert_eq!(read(&dest.join("tree/f")), "f");
+        // Without it, the whole source goes.
+        fs::remove_file(src.join("late")).unwrap();
+        assert!(remove_copied(&copied[..1]).is_none());
+        assert!(!src.exists());
+    }
+
+    #[test]
+    fn rename_never_replaces() {
+        let t = TempDir::new("noreplace");
+        let (a, b) = (t.path("a"), t.path("b"));
+        write(&a, "a");
+        write(&b, "b");
+        let e = rename_noreplace(&a, &b).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&b), "b");
+        rename_noreplace(&a, &t.path("c")).unwrap();
+        assert_eq!(read(&t.path("c")), "a");
+    }
+
+    #[test]
+    fn progress_counts_the_bytes_to_copy() {
+        let t = TempDir::new("progress");
+        let src = t.path("src/tree");
+        write(&src.join("a"), "12345");
+        write(&src.join("b/c"), "678");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let progress = Progress::new();
+        paste(Operation::Copy, &[src], &dest, &progress);
+        assert_eq!(progress.total(), Some(8));
+        assert_eq!(progress.done(), 8);
+    }
+
+    #[test]
+    fn failures_read_plainly() {
+        assert_eq!(
+            Failure::IntoItself.to_string(),
+            "A folder cannot be pasted into itself."
+        );
+        let e = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert!(
+            Failure::NotRemoved(e)
+                .to_string()
+                .starts_with("copied, but the original could not be removed: ")
+        );
+    }
+}

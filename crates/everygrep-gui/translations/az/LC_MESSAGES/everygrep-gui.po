@@ -1216,3 +1216,181 @@ msgstr "Search cancelled. The list shows the previous results."
 #: src/labels.rs
 msgid "Sort cancelled. The previous order is kept."
 msgstr "Sort cancelled. The previous order is kept."
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Copy"
+msgstr "Copy"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Copy path"
+msgstr "Copy path"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Cut"
+msgstr "Cut"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Open with…"
+msgstr "Open with…"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Paste into folder"
+msgstr "Paste into folder"
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "Another paste is still running."
+msgstr "Another paste is still running."
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "Cannot show the application chooser: {}"
+msgstr "Cannot show the application chooser: {}"
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "Select a folder to paste into."
+msgstr "Select a folder to paste into."
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "Select one folder to paste into."
+msgstr "Select one folder to paste into."
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "Select one item to open it with another application."
+msgstr "Select one item to open it with another application."
+
+# TODO: translate (English for now)
+#: src/main.rs
+msgid "The clipboard holds no files to paste."
+msgstr "The clipboard holds no files to paste."
+
+# TODO: translate (English for now)
+#: src/transfer.rs
+msgid "A folder cannot be pasted into itself."
+msgstr "A folder cannot be pasted into itself."
+
+# TODO: translate (English for now)
+#: src/transfer.rs
+msgid "copied, but the original could not be removed: {}"
+msgstr "copied, but the original could not be removed: {}"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copy the items"
+msgstr "Copy the items"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copy the path of the containing folder"
+msgstr "Copy the path of the containing folder"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copying: {}%"
+msgstr "Copying: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copying…"
+msgstr "Copying…"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Could not paste {0} of {1}: {2}: {3}."
+msgstr "Could not paste {0} of {1}: {2}: {3}."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Cut the items"
+msgstr "Cut the items"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Moving: {}%"
+msgstr "Moving: {}%"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Moving…"
+msgstr "Moving…"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Open with another application"
+msgstr "Open with another application"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Paste into the selected folder"
+msgstr "Paste into the selected folder"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copied the folder path."
+msgid_plural "Copied {} folder paths."
+msgstr[0] "Copied the folder path."
+msgstr[1] "Copied {} folder paths."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copied {0} item into {1}."
+msgid_plural "Copied {0} items into {1}."
+msgstr[0] "Copied {0} item into {1}."
+msgstr[1] "Copied {0} items into {1}."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Copied {} item. Paste it into a folder to copy it there."
+msgid_plural "Copied {} items. Paste them into a folder to copy them there."
+msgstr[0] "Copied {} item. Paste it into a folder to copy it there."
+msgstr[1] "Copied {} items. Paste them into a folder to copy them there."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Cut {} item. Paste it into a folder to move it there."
+msgid_plural "Cut {} items. Paste them into a folder to move them there."
+msgstr[0] "Cut {} item. Paste it into a folder to move it there."
+msgstr[1] "Cut {} items. Paste them into a folder to move them there."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Moved {0} item into {1}."
+msgid_plural "Moved {0} items into {1}."
+msgstr[0] "Moved {0} item into {1}."
+msgstr[1] "Moved {0} items into {1}."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "Paste cancelled after {0} item into {1}."
+msgid_plural "Paste cancelled after {0} items into {1}."
+msgstr[0] "Paste cancelled after {0} item into {1}."
+msgstr[1] "Paste cancelled after {0} items into {1}."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "{} got a new name because the name was taken."
+msgid_plural "{} got new names because the names were taken."
+msgstr[0] "{} got a new name because the name was taken."
+msgstr[1] "{} got new names because the names were taken."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "{} special file (pipe, socket or device) was left out."
+msgid_plural "{} special files (pipes, sockets or devices) were left out."
+msgstr[0] "{} special file (pipe, socket or device) was left out."
+msgstr[1] "{} special files (pipes, sockets or devices) were left out."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "{} was already in this folder."
+msgid_plural "{} were already in this folder."
+msgstr[0] "{} was already in this folder."
+msgstr[1] "{} were already in this folder."

@@ -90,6 +90,10 @@ pub enum TaskKind {
     Updating,
     Searching,
     Sorting,
+    /// Pasting files that were copied.
+    Copying,
+    /// Pasting files that were cut.
+    Moving,
 }
 
 /// The long operation the status line shows.
@@ -210,6 +214,16 @@ impl TaskGuard {
 
     fn set_kind(&self, kind: TaskKind) {
         *self.task.kind.lock().expect("lock") = kind;
+    }
+}
+
+/// A long operation of the window itself (a paste), shown in the status
+/// line like the engine's own until it is dropped. It can be cancelled.
+pub struct Job(TaskGuard);
+
+impl Job {
+    pub fn progress(&self) -> &Progress {
+        self.0.progress()
     }
 }
 
@@ -455,6 +469,12 @@ impl Engine {
     /// Whether any long operation runs, shown or not yet.
     pub fn is_busy(&self) -> bool {
         !self.tasks.list.lock().expect("lock").is_empty()
+    }
+
+    /// Lists a job of the window's own in the status line until the
+    /// returned [`Job`] is dropped.
+    pub fn begin_job(&self, kind: TaskKind) -> Job {
+        Job(self.tasks.begin(kind, true))
     }
 
     /// Asks the operation [`Busy::id`] to stop, if it can.

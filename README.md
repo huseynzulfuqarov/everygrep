@@ -28,8 +28,9 @@ Screenshots: to be added to `docs/images/`.
 - **Removable drives.** A USB stick or external disk is indexed when it is
   plugged in; when it is removed, its entries stay searchable, shown dimmed,
   and come back to life when it is plugged in again, wherever it is mounted.
-- **Keyboard first.** Every action has a key; open, open the containing
-  folder, copy names or paths, rename in place, trash or delete.
+- **Keyboard first.** Every action has a key; open, open with another
+  application, open the containing folder, cut, copy and paste files, copy
+  names or paths, rename in place, trash or delete.
 - **Fits the desktop.** Light and dark themes that follow GNOME, one window
   per index that a desktop shortcut brings forward, a menu bar or a compact
   `⋯` menu.
@@ -134,7 +135,12 @@ column headers to show the Type and Extension columns.
 | `Ctrl+I` | invert the selection (also from the search field) |
 | `Enter`, double-click | open |
 | `Ctrl+Enter` | open the containing folder |
-| `Ctrl+C` / `Ctrl+Shift+C` | copy the name / the full path (one per line) |
+| `Shift+Enter` | open with another application, chosen in the desktop's dialog |
+| `Ctrl+X` / `Ctrl+C` | cut / copy the items, to paste them into a folder |
+| `Ctrl+V` | paste into the selected folder |
+| `Ctrl+Shift+C` | copy the full path (one per line) |
+| `Ctrl+Alt+C` | copy the name |
+| `Ctrl+Alt+Shift+C` | copy the path of the containing folder (each folder once) |
 | `F2` | rename in place (`Enter` renames, `Esc` cancels) |
 | `Delete` | move to the trash (`gio trash`) |
 | `Shift+Delete` | delete permanently, after a confirmation |
@@ -153,6 +159,24 @@ column headers to show the Type and Extension columns.
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
+
+Cut or copy items, select one folder in the results and paste (`Ctrl+V`,
+or Paste into folder in the menus) to copy or move them there. Nothing is
+ever replaced: when a name is taken, the item gets the first free name like
+`report (2).pdf`. A copy is written under a temporary name and renamed into
+place only when it is complete, so a failure or a cancel leaves nothing
+half-copied. A move is a rename on the same file system; across file
+systems the items are copied first and only what was copied is removed
+afterwards, so a failed move never loses the original. Links are copied as
+links, and special files (pipes, sockets, devices) are left out and named
+in the status line. A paste that takes longer shows its progress in the
+status line with a Cancel button; items already pasted stay. A folder is
+never pasted into itself.
+
+The toolkit can put only text on the clipboard so far, so other programs
+get the full paths as text, not as files: a file manager does not paste
+them as files. Paste here accepts text whose every line is an absolute path
+or a `file://` URI, as a copy.
 
 File → Export results… (`Ctrl+S`) saves the listed results, in the shown
 order, through the desktop's save dialog. A name ending in `.csv` (or the
@@ -292,8 +316,8 @@ because it was mounted: disks the system mounts, such as those in
 
 When a drive is removed (unmounted), its entries stay in the results,
 drawn dimmed and slanted; the status line says "Offline: the drive is not
-connected" for a selected one, and opening, the containing folder, rename,
-trash and delete are refused for them (copying their names and paths
+connected" for a selected one, and opening, open with, the containing folder, cut,
+copy, paste, rename, trash and delete are refused for them (copying their names and paths
 works). Plugged in again, the drive is caught up by reading only the folders
 whose time changed, then watched like any other folder. Settings →
 Indexing can forget a drive's entries instead when it is removed, and
@@ -371,7 +395,8 @@ collects nothing. It stores:
 
 It talks to other programs only on this computer: the session bus (single
 window, desktop portals for the folder chooser, the save dialog of the
-export and the light or dark style, the file manager), `xdg-open` to open files and `gio trash` to move them to
+export, the application chooser of "open with" and the light or dark style,
+the file manager), `xdg-open` to open files and `gio trash` to move them to
 the trash.
 
 ## Building

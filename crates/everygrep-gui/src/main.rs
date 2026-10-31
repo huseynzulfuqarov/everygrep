@@ -1,6 +1,7 @@
 //! EveryGrep desktop window.
 
 mod actions;
+mod clipboard;
 mod engine;
 mod export;
 mod filetype;
@@ -16,6 +17,7 @@ mod prefs;
 mod results;
 mod selection;
 mod settings;
+mod transfer;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
@@ -339,6 +341,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move |row| usize::try_from(row).is_ok_and(|r| model.is_selected(r))
     });
     connect_actions(&window, &model);
+    connect_clipboard(&window, &model, &engine);
     connect_export(&window, &model, &engine);
     ON_PRESENT.with(|p| {
         *p.borrow_mut() = Some(Box::new({
@@ -661,6 +664,34 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             paths.iter().for_each(|p| open::open(p));
         }
     });
+    window.on_open_with({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
+            let paths = model.targets(row(r));
+            let Some(w) = weak.upgrade() else { return };
+            let [path] = paths.as_slice() else {
+                if !paths.is_empty() {
+                    error(
+                        &w,
+                        tr("Select one item to open it with another application.").into(),
+                    );
+                }
+                return;
+            };
+            w.invoke_history_record();
+            let (path, weak) = (path.clone(), weak.clone());
+            // The chooser is the portal's; waiting for it blocks.
+            std::thread::spawn(move || {
+                if let Err(e) = portal::open_with(&path) {
+                    let text = fill(tr("Cannot show the application chooser: {}"), &[&e]);
+                    let _ = weak.upgrade_in_event_loop(move |w| error(&w, text));
+                }
+            });
+        }
+    });
     window.on_open_folder({
         let (weak, model) = (weak.clone(), model.clone());
         move |r| {
@@ -688,6 +719,17 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
                 w.invoke_copy_text(actions::paths_text(&paths).into());
                 info(&w, labels::copied_paths(paths.len()));
+            }
+        }
+    });
+    window.on_copy_folders({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            let paths = model.targets(row(r));
+            let text = actions::folders_text(&paths);
+            if let (Some(w), false) = (weak.upgrade(), text.is_empty()) {
+                w.invoke_copy_text(text.as_str().into());
+                info(&w, labels::copied_folders(text.lines().count()));
             }
         }
     });
@@ -804,6 +846,115 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 w.set_confirm_open(false);
                 w.invoke_focus_list();
             }
+        }
+    });
+}
+
+thread_local! {
+    /// Files this window put on the clipboard with Cut or Copy.
+    static HELD: RefCell<Option<clipboard::Held>> = RefCell::default();
+}
+
+/// Cut, Copy and Paste of files (see [`clipboard`]). Paste copies or moves
+/// on a helper thread, shown in the status line as a job that can be
+/// cancelled.
+fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
+    // One paste at a time.
+    static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering::SeqCst;
+    let weak = window.as_weak();
+    let row = |r: i32| usize::try_from(r).ok();
+
+    let put = {
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r: i32, op: clipboard::Operation| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
+            let paths = model.targets(row(r));
+            let Some(w) = weak.upgrade() else { return };
+            if paths.is_empty() {
+                return;
+            }
+            // Other programs get the full paths as text.
+            let text = actions::paths_text(&paths);
+            w.invoke_copy_text(text.as_str().into());
+            info(&w, labels::on_clipboard(op, paths.len()));
+            HELD.with(|h| *h.borrow_mut() = Some(clipboard::Held { op, paths, text }));
+        }
+    };
+    let put = Rc::new(put);
+    window.on_copy_items({
+        let put = put.clone();
+        move |r| put(r, clipboard::Operation::Copy)
+    });
+    window.on_cut_items(move |r| put(r, clipboard::Operation::Cut));
+
+    let engine = engine.clone();
+    window.on_paste_items({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            if refuse_offline(&weak, &model, row(r)) {
+                return;
+            }
+            let Some(w) = weak.upgrade() else { return };
+            let targets = model.targets(row(r));
+            let dest = match targets.as_slice() {
+                [] => return,
+                [one] if one.is_dir() => one.clone(),
+                [_] => {
+                    error(&w, tr("Select a folder to paste into.").into());
+                    return;
+                }
+                _ => {
+                    error(&w, tr("Select one folder to paste into.").into());
+                    return;
+                }
+            };
+            let text = w.invoke_paste_text().to_string();
+            let Some((op, sources)) =
+                HELD.with(|h| clipboard::to_paste(h.borrow().as_ref(), &text))
+            else {
+                error(&w, tr("The clipboard holds no files to paste.").into());
+                return;
+            };
+            if BUSY.swap(true, SeqCst) {
+                error(&w, tr("Another paste is still running.").into());
+                return;
+            }
+            let folder = dest.file_name().map_or_else(
+                || dest.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            let (engine, weak) = (engine.clone(), weak.clone());
+            std::thread::spawn(move || {
+                let kind = match op {
+                    clipboard::Operation::Copy => engine::TaskKind::Copying,
+                    clipboard::Operation::Cut => engine::TaskKind::Moving,
+                };
+                let job = engine.begin_job(kind);
+                let out = transfer::paste(op, &sources, &dest, job.progress());
+                drop(job);
+                BUSY.store(false, SeqCst);
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    let (text, failed) = labels::pasted(op, &out, &folder);
+                    if failed {
+                        error(&w, text);
+                    } else {
+                        info(&w, text);
+                    }
+                    // A cut is pasted once; after a failure or a cancel it
+                    // stays, so pasting again moves what is left.
+                    if op == clipboard::Operation::Cut && out.failed.is_empty() && !out.cancelled {
+                        HELD.with(|h| {
+                            let mut h = h.borrow_mut();
+                            if h.as_ref().is_some_and(|h| h.paths == sources) {
+                                *h = None;
+                            }
+                        });
+                    }
+                });
+            });
         }
     });
 }

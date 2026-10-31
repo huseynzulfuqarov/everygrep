@@ -29,6 +29,20 @@ pub fn names_text(paths: &[PathBuf]) -> String {
     join_lines(paths.iter().map(|p| p.file_name().unwrap_or(p.as_os_str())))
 }
 
+/// The containing folders, one per line, for the clipboard. A folder is
+/// given once even when several items are in it, in the order first met.
+pub fn folders_text(paths: &[PathBuf]) -> String {
+    let mut seen = std::collections::HashSet::new();
+    join_lines(
+        paths
+            .iter()
+            .filter_map(|p| p.parent())
+            .filter(|f| !f.as_os_str().is_empty())
+            .filter(|f| seen.insert(*f))
+            .map(|f| f.as_os_str()),
+    )
+}
+
 /// Joins with `\n`. Bytes that are not UTF-8 become U+FFFD; the clipboard
 /// takes text only.
 fn join_lines<'a>(items: impl Iterator<Item = &'a OsStr>) -> String {
@@ -221,6 +235,20 @@ mod tests {
         assert_eq!(paths_text(&[]), "");
         let odd = [PathBuf::from(OsStr::from_bytes(b"/x/\xffy"))];
         assert_eq!(names_text(&odd), "\u{fffd}y");
+    }
+
+    #[test]
+    fn copy_path_gives_each_containing_folder_once() {
+        let paths = [
+            PathBuf::from("/a/b c/x.txt"),
+            PathBuf::from("/d/e"),
+            PathBuf::from("/a/b c/y"),
+            PathBuf::from("/"),
+        ];
+        assert_eq!(folders_text(&paths), "/a/b c\n/d");
+        assert_eq!(folders_text(&paths[1..2]), "/d");
+        assert_eq!(folders_text(&[PathBuf::from("/top")]), "/");
+        assert_eq!(folders_text(&[]), "");
     }
 
     #[test]
