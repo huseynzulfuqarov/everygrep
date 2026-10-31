@@ -621,8 +621,8 @@ fn presentation(args: &[String]) -> Presentation {
     }
 }
 
-/// Applies a later launch's request and brings the window forward with the
-/// search field focused.
+/// Applies a later launch's request and brings the window forward, with the
+/// search field focused unless the settings say otherwise.
 fn present(
     w: &AppWindow,
     engine: &Engine,
@@ -640,7 +640,9 @@ fn present(
     w.set_show_accessed(w.get_show_accessed() || p.show_accessed);
     w.set_show_attrs(w.get_show_attrs() || p.show_attrs);
     apply_detail_columns(w);
-    w.invoke_focus_search();
+    if prefs.focus_on_show() {
+        w.invoke_focus_search();
+    }
     if let Some(query) = &p.query {
         pause.stop();
         w.set_query(query.as_str().into());

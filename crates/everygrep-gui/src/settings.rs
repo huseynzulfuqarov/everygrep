@@ -211,6 +211,10 @@ pub struct Settings {
     /// Whether renaming preselects the name without its extension; off
     /// selects the whole name.
     pub rename_name_only: bool,
+    /// Whether showing the window (at a later launch, or with its shortcut)
+    /// moves the keyboard focus to the search field and selects its text;
+    /// off keeps the focus where it was.
+    pub focus_on_show: bool,
     pub theme: ThemeChoice,
     pub density: Density,
     /// Whether the status line shows the size, date and path of the selected
@@ -247,6 +251,7 @@ impl Default for Settings {
             remember_columns: true,
             columns: Columns::default(),
             rename_name_only: true,
+            focus_on_show: true,
             theme: ThemeChoice::System,
             density: Density::Comfortable,
             status_details: true,
@@ -406,6 +411,7 @@ impl Settings {
                 .is_some(),
             "remember-columns" => put_flag(&mut self.remember_columns),
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
+            "focus-search-on-show" => put_flag(&mut self.focus_on_show),
             "theme" => ThemeChoice::ALL
                 .into_iter()
                 .find(|t| t.id() == value)
@@ -600,6 +606,12 @@ impl Settings {
             self.rename_name_only,
             d.rename_name_only,
         );
+        flag(
+            &mut out,
+            "focus-search-on-show",
+            self.focus_on_show,
+            d.focus_on_show,
+        );
         if self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
@@ -677,6 +689,7 @@ impl Settings {
                 self.remember_columns = d.remember_columns;
                 self.columns = d.columns;
                 self.rename_name_only = d.rename_name_only;
+                self.focus_on_show = d.focus_on_show;
             }
         }
     }
@@ -883,6 +896,7 @@ pub(crate) mod tests {
             folder_size: FolderSize::Items,
             remember_columns: false,
             rename_name_only: false,
+            focus_on_show: false,
             columns: Columns {
                 show_type: true,
                 show_ext: true,
@@ -932,6 +946,7 @@ pub(crate) mod tests {
         assert!(text.contains("watch-changes = false\n"));
         assert!(text.contains("search-as-you-type = false\n"));
         assert!(text.contains("rename-select-name-only = false\n"));
+        assert!(text.contains("focus-search-on-show = false\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
     }
@@ -954,6 +969,7 @@ pub(crate) mod tests {
             d.rename_name_only,
             "the extension is not selected by default"
         );
+        assert!(d.focus_on_show, "showing the window focuses the search");
         assert_eq!(d.rule_spec(), RuleSpec::default());
     }
 

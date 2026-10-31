@@ -636,6 +636,7 @@ impl Prefs {
         w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
         w.set_remember_columns(s.remember_columns);
         w.set_rename_name_only(s.rename_name_only);
+        w.set_focus_on_show(s.focus_on_show);
 
         let themes: Vec<SharedString> = ThemeChoice::ALL
             .iter()
@@ -952,11 +953,13 @@ impl Prefs {
             .unwrap_or_default();
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
+        let focus_on_show = w.get_focus_on_show();
         self.change(|s| {
             s.on_close = on_close;
             s.folder_size = folder_size;
             s.remember_columns = remember;
             s.rename_name_only = name_only;
+            s.focus_on_show = focus_on_show;
             if !remember {
                 s.columns = Columns::default();
             }
@@ -1074,6 +1077,11 @@ impl Prefs {
     }
 
     /// Whether closing the main window should only hide it.
+    /// Whether showing the window focuses the search field.
+    pub fn focus_on_show(&self) -> bool {
+        self.settings.borrow().focus_on_show
+    }
+
     pub fn hide_on_close(&self) -> bool {
         self.settings.borrow().on_close == OnClose::Hide
     }

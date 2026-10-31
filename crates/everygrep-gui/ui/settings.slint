@@ -161,6 +161,7 @@ export component SettingsWindow inherits Window {
     in property <string> on-close-note;
     in-out property <bool> remember-columns;
     in-out property <bool> rename-name-only;
+    in-out property <bool> focus-on-show;
     in property <[string]> folder-size-names;
     in-out property <int> folder-size;
     in property <string> folder-size-note;
@@ -616,6 +617,14 @@ export component SettingsWindow inherits Window {
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Note { text: root.on-close-note; }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Showing the window"); }
+                            CheckBox {
+                                text: @tr("Focus the search field when the window is shown");
+                                checked <=> root.focus-on-show;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Columns"); }
                             CheckBox {

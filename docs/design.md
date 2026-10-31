@@ -206,7 +206,10 @@ default); its size, and whether it is kept on disk, are settings.
 
 EveryGrep is opened many times a day, usually from a key. Opening it again
 never stacks windows: the open window comes to the front with the search field
-focused and its text selected, so typing starts a new search. Query words and
+focused and its text selected, so typing starts a new search ("Focus the
+search field when the window is shown", Window page, on by default; off
+keeps the focus where it was). The first show always starts in the search
+field. Switching to the window with `Alt+Tab` does not move the focus. Query words and
 options passed to the new launch replace the search and the matching modes in
 that window, as if it had just been started with them, with the caret after
 the new query; a bare launch keeps the search. Closing the window quits the

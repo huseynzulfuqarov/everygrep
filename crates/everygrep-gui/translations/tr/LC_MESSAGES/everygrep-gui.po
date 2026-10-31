@@ -1538,3 +1538,18 @@ msgstr "Leave the extension unselected when renaming"
 #: ui/settings.slint
 msgid "Off: the whole name is selected, extension included."
 msgstr "Off: the whole name is selected, extension included."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Showing the window"
+msgstr "Showing the window"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Focus the search field when the window is shown"
+msgstr "Focus the search field when the window is shown"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."
+msgstr "Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."
