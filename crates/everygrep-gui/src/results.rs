@@ -11,17 +11,19 @@ use std::time::Duration;
 
 use everygrep_core::details::Details;
 use everygrep_core::localtime::Zone;
-use everygrep_core::query::{NameTerm, match_span};
+use std::ops::Range;
+
+use everygrep_core::query::{HighlightTerm, highlight_spans, merge_spans};
 use everygrep_core::sort::FolderSize;
 use everygrep_core::store::NodeId;
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
-use crate::ResultRow;
 use crate::engine::{Engine, IndexState, SearchResult};
 use crate::filetype::{self, KindIcon};
 use crate::format;
 use crate::labels;
 use crate::selection::{Changed, Selection};
+use crate::{Marked, ResultRow};
 
 /// Rows of the result table, backed by a list of node ids.
 pub struct ResultsModel {
@@ -34,7 +36,7 @@ pub struct ResultsModel {
     selection: RefCell<Selection>,
     /// The node whose name is being edited.
     renaming: Cell<Option<NodeId>>,
-    terms: RefCell<Arc<Vec<NameTerm>>>,
+    terms: RefCell<Arc<Vec<HighlightTerm>>>,
     zone: Zone,
     home: Option<Vec<u8>>,
     now_ns: Cell<i64>,
@@ -419,19 +421,23 @@ impl ResultsModel {
         (left, right)
     }
 
-    fn folder_text(&self, folder: &[u8]) -> SharedString {
-        let shown = match &self.home {
-            Some(home)
-                if folder.starts_with(home)
-                    && matches!(folder.get(home.len()), None | Some(b'/')) =>
-            {
-                let mut s = b"~".to_vec();
-                s.extend_from_slice(&folder[home.len()..]);
-                String::from_utf8_lossy(&s).into_owned()
+    /// The Folder column: `folder` with the home folder shown as `~`, and
+    /// `spans` (ranges of the folder as text) highlighted.
+    fn folder_cell(&self, folder: &[u8], spans: &[Range<usize>]) -> Marked {
+        let text = String::from_utf8_lossy(folder);
+        let home = self.home.as_deref().filter(|home| {
+            folder.starts_with(home) && matches!(folder.get(home.len()), None | Some(b'/'))
+        });
+        match home {
+            Some(home) => {
+                // The home folder ends where a `/` follows, so its text is a
+                // prefix of the folder's text.
+                let cut = String::from_utf8_lossy(home).len();
+                let shown = format!("~{}", &text[cut..]);
+                marked(&shown, &tilde_spans(spans, cut))
             }
-            _ => String::from_utf8_lossy(folder).into_owned(),
-        };
-        shown.into()
+            None => marked(&text, spans),
+        }
     }
 }
 
@@ -455,10 +461,6 @@ impl Model for ResultsModel {
         }
         let meta = store.meta(id);
         let is_dir = store.is_dir(id);
-        let folder = store
-            .parent(id)
-            .map(|p| self.folder_text(store.path(p).as_os_str().as_bytes()))
-            .unwrap_or_default();
         let now = self.now_ns.get();
         let raw_name = store.name(id);
         let kind = filetype::classify(raw_name, is_dir);
@@ -466,7 +468,12 @@ impl Model for ResultsModel {
         let extension = labels::extension(&name, is_dir);
         let type_name = labels::type_name(kind, extension).into();
         let extension = extension.into();
-        let (before, matched, after) = split_name(&name, &self.terms.borrow());
+        let parent = store.parent(id).map(|p| store.path(p));
+        let parent = parent.as_ref().map(|p| p.as_os_str().as_bytes());
+        let (name_spans, folder_spans) = cell_spans(&name, parent, &self.terms.borrow());
+        let folder = parent
+            .map(|p| self.folder_cell(p, &folder_spans))
+            .unwrap_or_default();
         let columns = self.detail_columns.get();
         let details = if columns.any() {
             self.details_of(&index, id)
@@ -478,9 +485,7 @@ impl Model for ResultsModel {
             _ => SharedString::new(),
         };
         Some(ResultRow {
-            name_before: before.into(),
-            name_match: matched.into(),
-            name_after: after.into(),
+            name: marked(&name, &name_spans),
             folder,
             size: size_text(is_dir, meta.size, store.items(id), self.folder_size.get()).into(),
             modified: format::date(meta.mtime_ns, now, &self.zone).into(),
@@ -520,12 +525,82 @@ fn size_text(is_dir: bool, size: u64, items: u32, folders: FolderSize) -> String
     }
 }
 
-/// Splits a name into the text before the highlighted match, the match and the
-/// text after it. Without a match, the whole name is "before".
-fn split_name<'a>(name: &'a str, terms: &[NameTerm]) -> (&'a str, &'a str, &'a str) {
-    match match_span(name, terms) {
-        Some(r) => (&name[..r.start], &name[r.start..r.end], &name[r.end..]),
-        None => (name, "", ""),
+/// Highlighted runs per cell; later ones are shown plain (see `Marked` in
+/// `app.slint`).
+const MAX_MARKS: usize = 4;
+
+/// Ranges to highlight in a row's name and in its folder (the parent's path
+/// as text, `None` for a root). Name terms mark the name; path terms mark
+/// the full path, which is split between the two cells.
+fn cell_spans(
+    name: &str,
+    parent: Option<&[u8]>,
+    terms: &[HighlightTerm],
+) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+    let mut name_spans = highlight_spans(name, terms, false);
+    if !terms.iter().any(|t| t.on_path) {
+        return (name_spans, Vec::new());
+    }
+    // The full path as the matcher sees it (`NodeStore::path`): the parent,
+    // a `/` unless the parent ends with one, and the name.
+    let folder = parent.map(String::from_utf8_lossy).unwrap_or_default();
+    let mut full = folder.clone().into_owned();
+    if !full.is_empty() && !full.ends_with('/') {
+        full.push('/');
+    }
+    let name_start = full.len();
+    full.push_str(name);
+    let mut folder_spans = Vec::new();
+    for r in highlight_spans(&full, terms, true) {
+        if r.start < folder.len() {
+            folder_spans.push(r.start..r.end.min(folder.len()));
+        }
+        if r.end > name_start {
+            name_spans.push(r.start.max(name_start) - name_start..r.end - name_start);
+        }
+    }
+    (merge_spans(name_spans), folder_spans)
+}
+
+/// `spans` of a folder's text moved to the text shown with its first `cut`
+/// bytes (the home folder) replaced by `~`; a run inside the home folder
+/// marks the `~`.
+fn tilde_spans(spans: &[Range<usize>], cut: usize) -> Vec<Range<usize>> {
+    let start = |i: usize| if i < cut { 0 } else { i - cut + 1 };
+    let end = |i: usize| if i <= cut { 1 } else { i - cut + 1 };
+    merge_spans(
+        spans
+            .iter()
+            .map(|r| start(r.start)..end(r.end))
+            .filter(|r| r.start < r.end)
+            .collect(),
+    )
+}
+
+/// `text` split into plain and bold pieces around `spans` (sorted, not
+/// overlapping, on character boundaries).
+fn marked(text: &str, spans: &[Range<usize>]) -> Marked {
+    let mut plain: [&str; MAX_MARKS + 1] = [""; MAX_MARKS + 1];
+    let mut bold: [&str; MAX_MARKS] = [""; MAX_MARKS];
+    let mut at = 0;
+    let mut used = 0;
+    for r in spans.iter().take(MAX_MARKS) {
+        plain[used] = &text[at..r.start];
+        bold[used] = &text[r.start..r.end];
+        at = r.end;
+        used += 1;
+    }
+    plain[used] = &text[at..];
+    Marked {
+        p0: plain[0].into(),
+        b0: bold[0].into(),
+        p1: plain[1].into(),
+        b1: bold[1].into(),
+        p2: plain[2].into(),
+        b2: bold[2].into(),
+        p3: plain[3].into(),
+        b3: bold[3].into(),
+        p4: plain[4].into(),
     }
 }
 
@@ -540,12 +615,33 @@ mod tests {
     use super::*;
     use everygrep_core::query::{Query, QueryOptions};
 
-    fn split(name: &str, q: &str) -> (String, String, String) {
-        let terms = Query::parse(q, QueryOptions::default())
+    fn terms(q: &str) -> Vec<HighlightTerm> {
+        Query::parse(q, QueryOptions::default())
             .unwrap()
-            .name_terms();
-        let (a, b, c) = split_name(name, &terms);
-        (a.into(), b.into(), c.into())
+            .highlight_terms()
+    }
+
+    /// The pieces of a marked text, without the empty ones at the end.
+    fn pieces(m: &Marked) -> Vec<String> {
+        let mut v: Vec<String> = [
+            &m.p0, &m.b0, &m.p1, &m.b1, &m.p2, &m.b2, &m.p3, &m.b3, &m.p4,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        while v.last().is_some_and(String::is_empty) {
+            v.pop();
+        }
+        v
+    }
+
+    fn pairs(spans: &[Range<usize>]) -> Vec<(usize, usize)> {
+        spans.iter().map(|r| (r.start, r.end)).collect()
+    }
+
+    fn name_pieces(name: &str, q: &str) -> Vec<String> {
+        let (spans, _) = cell_spans(name, Some(b"/x"), &terms(q));
+        pieces(&marked(name, &spans))
     }
 
     #[test]
@@ -566,24 +662,68 @@ mod tests {
     }
 
     #[test]
-    fn names_split_around_the_first_match() {
+    fn names_are_marked_at_every_match() {
         assert_eq!(
-            split("Report-2026.pdf", "2026"),
-            ("Report-".into(), "2026".into(), ".pdf".into())
+            name_pieces("Report-2026.pdf", "2026"),
+            ["Report-", "2026", ".pdf"]
         );
+        assert_eq!(name_pieces("Report.pdf", "rep"), ["", "Rep", "ort.pdf"]);
+        assert_eq!(name_pieces("Report.pdf", "!rep"), ["Report.pdf"]);
         assert_eq!(
-            split("Report.pdf", "rep"),
-            ("".into(), "Rep".into(), "ort.pdf".into())
-        );
-        assert_eq!(
-            split("Report.pdf", "!rep"),
-            ("Report.pdf".into(), "".into(), "".into())
+            name_pieces("rep-a-rep.pdf", "rep pdf"),
+            ["", "rep", "-a-", "rep", ".", "pdf"]
         );
         // Replacement characters for invalid bytes keep offsets valid.
         let lossy = String::from_utf8_lossy(b"a\xffb.txt");
-        assert_eq!(
-            split(&lossy, "b.t"),
-            ("a\u{fffd}".into(), "b.t".into(), "xt".into())
+        assert_eq!(name_pieces(&lossy, "b.t"), ["a\u{fffd}", "b.t", "xt"]);
+    }
+
+    #[test]
+    fn runs_after_the_fourth_stay_plain() {
+        let m = marked(
+            "a1a2a3a4a5a",
+            &highlight_spans("a1a2a3a4a5a", &terms("a"), false),
         );
+        assert_eq!(pieces(&m), ["", "a", "1", "a", "2", "a", "3", "a", "4a5a"]);
+    }
+
+    #[test]
+    fn path_terms_mark_the_folder_and_the_name() {
+        let t = terms("path:src main");
+        let (name, folder) = cell_spans("main-src.rs", Some(b"/home/me/src"), &t);
+        assert_eq!(
+            pieces(&marked("main-src.rs", &name)),
+            ["", "main", "-", "src", ".rs"]
+        );
+        assert_eq!(
+            pieces(&marked("/home/me/src", &folder)),
+            ["/home/me/", "src"]
+        );
+        // A run across the `/` marks both sides, not the `/`.
+        let (name, folder) = cell_spans("src.rs", Some(b"/a/b"), &terms("b/src"));
+        assert_eq!((pairs(&name), pairs(&folder)), (vec![(0, 3)], vec![(3, 4)]));
+        // Children of `/` and roots.
+        let (name, folder) = cell_spans("srv", Some(b"/"), &terms("path:/s"));
+        assert_eq!((pairs(&name), pairs(&folder)), (vec![(0, 1)], vec![(0, 1)]));
+        let (name, folder) = cell_spans("/srv", None, &terms("path:srv"));
+        assert_eq!((pairs(&name), pairs(&folder)), (vec![(1, 4)], vec![]));
+        // Without path terms nothing in the folder is marked.
+        let (_, folder) = cell_spans("src", Some(b"/src"), &terms("src"));
+        assert!(folder.is_empty());
+    }
+
+    fn tilde(spans: &[(usize, usize)]) -> Vec<(usize, usize)> {
+        let spans: Vec<Range<usize>> = spans.iter().map(|&(a, b)| a..b).collect();
+        pairs(&tilde_spans(&spans, 8))
+    }
+
+    #[test]
+    fn marks_in_the_home_folder_move_to_the_tilde() {
+        // "/home/me" (8 bytes) is shown as "~".
+        assert_eq!(tilde(&[(9, 12)]), [(2, 5)]);
+        assert_eq!(tilde(&[(1, 5)]), [(0, 1)]);
+        assert_eq!(tilde(&[(6, 12)]), [(0, 5)]);
+        assert_eq!(tilde(&[(1, 3), (4, 6)]), [(0, 1)]);
+        assert_eq!(tilde(&[(8, 9)]), [(1, 2)]);
     }
 }

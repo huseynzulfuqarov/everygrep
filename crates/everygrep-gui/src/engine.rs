@@ -32,7 +32,7 @@ use everygrep_core::drives::{self, Drive, DriveEnv, DriveInfo, MountWatch};
 use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::progress::{self, Progress};
-use everygrep_core::query::{NameTerm, Query, QueryOptions};
+use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
 use everygrep_core::search::search_with_progress;
 use everygrep_core::sort::{Sort, sort_with_progress};
@@ -55,7 +55,7 @@ pub enum IndexState {
 pub struct SearchResult {
     pub ids: Arc<Vec<NodeId>>,
     /// Text terms of the query, for highlighting matches in names.
-    pub terms: Arc<Vec<NameTerm>>,
+    pub terms: Arc<Vec<HighlightTerm>>,
     pub took: Duration,
     pub error: Option<String>,
     /// The query text that produced the ids.
@@ -617,7 +617,7 @@ impl Engine {
             let mut epoch = self.epoch();
             let (ids, error) = match Query::parse(&state.text, state.options) {
                 Ok(query) => {
-                    terms = query.name_terms();
+                    terms = query.highlight_terms();
                     let index = self.index.read().expect("index lock");
                     epoch = self.epoch();
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());

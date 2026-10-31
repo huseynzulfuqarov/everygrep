@@ -530,15 +530,15 @@ fn last_char(bytes: &[u8]) -> Option<char> {
     std::str::from_utf8(&bytes[start..]).ok()?.chars().next()
 }
 
-/// A plain text term that a matching name contains, used to highlight the
-/// match. Only terms that are not negated and have no wildcards count; a term
-/// that matches the full path counts when it has no `/`, since it may occur in
-/// the name too.
+/// A term of the query that is highlighted in the results: every text,
+/// wildcard and regular expression term that is not negated. Terms that
+/// match the full path are highlighted in the path (the Folder column and the
+/// name), the others in the name only.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NameTerm {
+pub struct HighlightTerm {
     /// The text, prepared as for matching: folded unless `case` is set, without
     /// diacritics unless `diacritics` is set, without the characters the
-    /// ignore modes leave out.
+    /// ignore modes leave out. Empty for a regular expression.
     pub pattern: Vec<u8>,
     /// Whether the term matches case exactly.
     pub case: bool,
@@ -546,18 +546,22 @@ pub struct NameTerm {
     pub whole_word: bool,
     /// Whether the term matches diacritics exactly.
     pub diacritics: bool,
-    /// Whether the term must be at the start / the end of the name.
+    /// Whether the term must be at the start / the end of its subject.
     pub prefix: bool,
     pub suffix: bool,
     /// Characters left out before comparing.
     pub squeeze: Squeeze,
-    /// A regular expression term, matched against the raw name; `pattern` is
-    /// empty then.
+    /// `pattern` is a wildcard pattern matched against the whole subject
+    /// (anchors already in it).
+    pub glob: bool,
+    /// The term matches the full path instead of the name.
+    pub on_path: bool,
+    /// A regular expression term, matched against the raw subject.
     pub regex: Option<RegexTerm>,
 }
 
-/// A compiled regular expression in a [`NameTerm`]. Two are equal when their
-/// expressions are.
+/// A compiled regular expression in a [`HighlightTerm`]. Two are equal when
+/// their expressions are.
 #[derive(Clone, Debug)]
 pub struct RegexTerm(pub regex::bytes::Regex);
 
@@ -570,35 +574,34 @@ impl PartialEq for RegexTerm {
 impl Eq for RegexTerm {}
 
 impl Query {
-    /// The plain text terms that are not negated, in query order.
-    pub fn name_terms(&self) -> Vec<NameTerm> {
+    /// The terms to highlight, in query order.
+    pub fn highlight_terms(&self) -> Vec<HighlightTerm> {
         let mut out = Vec::new();
-        collect_name_terms(&self.root, &mut out);
+        collect_highlight_terms(&self.root, &mut out);
         out
     }
 }
 
-fn collect_name_terms(node: &Node, out: &mut Vec<NameTerm>) {
+fn collect_highlight_terms(node: &Node, out: &mut Vec<HighlightTerm>) {
     match node {
         Node::And(items) | Node::Or(items) => {
             for item in items {
-                collect_name_terms(item, out);
+                collect_highlight_terms(item, out);
             }
         }
-        Node::Leaf(Pred::Text(t)) if !t.glob && !t.pattern.contains(&b'/') => {
-            out.push(NameTerm {
-                pattern: t.pattern.clone(),
-                case: t.case,
-                whole_word: t.whole_word,
-                diacritics: t.diacritics,
-                // The start of a path is not the start of the name.
-                prefix: t.prefix && !t.on_path,
-                suffix: t.suffix,
-                squeeze: t.squeeze,
-                regex: None,
-            });
-        }
-        Node::Leaf(Pred::Regex(r)) if !r.on_path => out.push(NameTerm {
+        Node::Leaf(Pred::Text(t)) if !t.pattern.is_empty() => out.push(HighlightTerm {
+            pattern: t.pattern.clone(),
+            case: t.case,
+            whole_word: t.whole_word,
+            diacritics: t.diacritics,
+            prefix: t.prefix,
+            suffix: t.suffix,
+            squeeze: t.squeeze,
+            glob: t.glob,
+            on_path: t.on_path,
+            regex: None,
+        }),
+        Node::Leaf(Pred::Regex(r)) => out.push(HighlightTerm {
             pattern: Vec::new(),
             case: true,
             whole_word: false,
@@ -606,28 +609,44 @@ fn collect_name_terms(node: &Node, out: &mut Vec<NameTerm>) {
             prefix: false,
             suffix: false,
             squeeze: Squeeze::default(),
+            glob: false,
+            on_path: r.on_path,
             regex: Some(RegexTerm(r.re.clone())),
         }),
+        // Negated terms are not in a matching name.
         Node::All | Node::Not(_) | Node::Leaf(_) => {}
     }
 }
 
-/// Byte range in `name` of the first occurrence of the first term that occurs
-/// in it, matched the way the term matches names. The range always covers
-/// whole characters of `name`, also when folding changes byte lengths (`İ`,
-/// `ß`, `ə`).
-pub fn match_span(name: &str, terms: &[NameTerm]) -> Option<std::ops::Range<usize>> {
-    // One prepared form of the name per (case, diacritics, squeeze) combination.
+/// Byte ranges of `subject` to highlight: every occurrence of every term in
+/// `terms` whose `on_path` equals `on_path`, matched the way the term
+/// matches (`subject` is then the full path, or the name). The ranges are
+/// sorted, do not overlap or touch, and cover whole characters of `subject`,
+/// also when folding changes byte lengths (`İ`, `ß`, `ə`).
+///
+/// A wildcard pattern marks the characters its literal parts matched, not
+/// what `*` and `?` stand for. Cost is linear in the subject per term, so
+/// call it for the rows on screen only.
+pub fn highlight_spans(
+    subject: &str,
+    terms: &[HighlightTerm],
+    on_path: bool,
+) -> Vec<std::ops::Range<usize>> {
+    // One prepared form of the subject per (case, diacritics, squeeze) combination.
     type Key = (bool, bool, Squeeze);
     let mut forms: Vec<(Key, Mapped)> = Vec::new();
-    for term in terms {
+    let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+    for term in terms.iter().filter(|t| t.on_path == on_path) {
         if let Some(RegexTerm(re)) = &term.regex {
-            let found = re.find(name.as_bytes()).filter(|m| {
-                !m.is_empty() && name.is_char_boundary(m.start()) && name.is_char_boundary(m.end())
-            });
-            if let Some(m) = found {
-                return Some(m.range());
-            }
+            spans.extend(
+                re.find_iter(subject.as_bytes())
+                    .filter(|m| {
+                        !m.is_empty()
+                            && subject.is_char_boundary(m.start())
+                            && subject.is_char_boundary(m.end())
+                    })
+                    .map(|m| m.range()),
+            );
             continue;
         }
         if term.pattern.is_empty() {
@@ -639,23 +658,119 @@ pub fn match_span(name: &str, terms: &[NameTerm]) -> Option<std::ops::Range<usiz
             None => {
                 forms.push((
                     key,
-                    Mapped::new(name, !term.case, !term.diacritics, term.squeeze),
+                    Mapped::new(subject, !term.case, !term.diacritics, term.squeeze),
                 ));
                 &forms[forms.len() - 1].1
             }
         };
-        let found = find_term(
-            &form.bytes,
-            &term.pattern,
-            term.whole_word,
-            term.prefix,
-            term.suffix,
-        );
-        if let Some(start) = found {
-            return Some(form.original(start..start + term.pattern.len()));
+        if form.bytes.is_empty() {
+            continue;
+        }
+        if term.glob {
+            if let Some(marks) = glob_marks(&term.pattern, &form.bytes) {
+                spans.extend(marks.into_iter().map(|r| form.original(r)));
+            }
+            continue;
+        }
+        let len = term.pattern.len();
+        if term.prefix || term.suffix {
+            // Anchored: at most one place.
+            let found = find_term(
+                &form.bytes,
+                &term.pattern,
+                term.whole_word,
+                term.prefix,
+                term.suffix,
+            );
+            spans.extend(found.map(|at| form.original(at..at + len)));
+            continue;
+        }
+        let mut from = 0;
+        while let Some(rel) = find(&form.bytes[from..], &term.pattern) {
+            let at = from + rel;
+            if !term.whole_word || is_whole_word(&form.bytes, at, len) {
+                spans.push(form.original(at..at + len));
+            }
+            // Overlapping occurrences ("aa" in "aaa") merge below.
+            from = at + 1;
+            if from + len > form.bytes.len() {
+                break;
+            }
         }
     }
-    None
+    merge_spans(spans)
+}
+
+/// Whether `len` bytes at `at` of `haystack` are a whole word, as
+/// [`find_word`] decides.
+fn is_whole_word(haystack: &[u8], at: usize, len: usize) -> bool {
+    let needle = &haystack[at..at + len];
+    let check_start = first_char(needle).is_some_and(is_word_char);
+    let check_end = last_char(needle).is_some_and(is_word_char);
+    (!check_start || !last_char(&haystack[..at]).is_some_and(is_word_char))
+        && (!check_end || !first_char(&haystack[at + len..]).is_some_and(is_word_char))
+}
+
+/// Sorts `spans` and joins the ones that overlap or touch.
+pub fn merge_spans(mut spans: Vec<std::ops::Range<usize>>) -> Vec<std::ops::Range<usize>> {
+    spans.sort_unstable_by_key(|r| (r.start, r.end));
+    let mut out: Vec<std::ops::Range<usize>> = Vec::with_capacity(spans.len());
+    for r in spans {
+        match out.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => out.push(r),
+        }
+    }
+    out
+}
+
+/// Where the literal characters of a wildcard `pattern` are in `subject`,
+/// for the match [`glob_match`] finds, as byte ranges in order; `None`
+/// when it does not match.
+fn glob_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usize>>> {
+    let (mut p, mut s) = (0, 0);
+    // Pattern and subject position after the last `*`, and the marks made
+    // before it, which a retry keeps.
+    let mut star: Option<(usize, usize, usize)> = None;
+    let mut marks: Vec<usize> = Vec::new();
+    while s < subject.len() {
+        match pattern.get(p) {
+            Some(b'*') => {
+                star = Some((p, s, marks.len()));
+                p += 1;
+            }
+            Some(b'?') => {
+                p += 1;
+                s += char_len(subject[s]);
+            }
+            Some(&c) if c == subject[s] => {
+                marks.push(s);
+                p += 1;
+                s += 1;
+            }
+            _ => match star {
+                Some((sp, ss, kept)) => {
+                    let next = ss + char_len(subject[ss]);
+                    star = Some((sp, next, kept));
+                    marks.truncate(kept);
+                    p = sp + 1;
+                    s = next;
+                }
+                None => return None,
+            },
+        }
+    }
+    if !pattern[p.min(pattern.len())..].iter().all(|&c| c == b'*') {
+        return None;
+    }
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for at in marks {
+        match ranges.last_mut() {
+            Some(last) if last.end == at => last.end = at + 1,
+            _ => ranges.push(at..at + 1),
+        }
+    }
+    Some(ranges)
 }
 
 /// A name as it is matched (folded, without diacritics and/or without the
@@ -1758,71 +1873,149 @@ mod tests {
         assert!(!glob_match(b"a*b", b"ac"));
     }
 
-    fn span(name: &str, q: &str) -> Option<(usize, usize)> {
-        let query = Query::parse(q, QueryOptions::default()).unwrap();
-        match_span(name, &query.name_terms()).map(|r| (r.start, r.end))
+    /// Highlighted ranges of a name for `q`.
+    fn spans(name: &str, q: &str) -> Vec<(usize, usize)> {
+        spans_with(name, q, QueryOptions::default(), false)
+    }
+
+    fn spans_with(subject: &str, q: &str, o: QueryOptions, on_path: bool) -> Vec<(usize, usize)> {
+        let query = Query::parse(q, o).unwrap();
+        highlight_spans(subject, &query.highlight_terms(), on_path)
+            .into_iter()
+            .map(|r| (r.start, r.end))
+            .collect()
+    }
+
+    /// Highlighted ranges of a full path for `q`.
+    fn path_spans(path: &str, q: &str) -> Vec<(usize, usize)> {
+        spans_with(path, q, QueryOptions::default(), true)
     }
 
     #[test]
-    fn name_terms_skip_negated_glob_and_path_terms() {
+    fn highlight_terms_skip_negated_terms() {
         let q = Query::parse(
-            "Rep !draft *.pdf path:src a/b case:Main <x|y> ext:pdf",
+            "Rep !draft *.pdf path:src a/b case:Main <x|y> ext:pdf !regex:z regex:q",
             QueryOptions::default(),
         )
         .unwrap();
-        let terms: Vec<(String, bool)> = q
-            .name_terms()
+        let mut terms: Vec<(String, bool, bool, bool)> = q
+            .highlight_terms()
             .into_iter()
-            .map(|t| (String::from_utf8(t.pattern).unwrap(), t.case))
+            .map(|t| {
+                let text = match &t.regex {
+                    Some(re) => format!("re:{}", re.0.as_str()),
+                    None => String::from_utf8(t.pattern).unwrap(),
+                };
+                (text, t.case, t.glob, t.on_path)
+            })
             .collect();
+        terms.sort();
         assert_eq!(
             terms,
             [
-                ("rep".into(), false),
-                ("Main".into(), true),
-                ("x".into(), false),
-                ("y".into(), false),
-                // Path terms go last (they are tested last); this one has no
-                // `/` and may occur in a name.
-                ("src".into(), false)
+                ("*.pdf".into(), false, true, false),
+                ("Main".into(), true, false, false),
+                // A `/` makes a path term.
+                ("a/b".into(), false, false, true),
+                ("re:q".into(), true, false, false),
+                ("rep".into(), false, false, false),
+                ("src".into(), false, false, true),
+                ("x".into(), false, false, false),
+                ("y".into(), false, false, false),
             ]
         );
     }
 
     #[test]
-    fn match_span_finds_the_first_matching_term() {
-        assert_eq!(span("Report-2026.PDF", "pdf"), Some((12, 15)));
-        assert_eq!(span("Report-2026.PDF", "zzz rep"), Some((0, 3)));
-        assert_eq!(span("a-b-a", "a"), Some((0, 1)));
-        assert_eq!(span("readme", "case:READ"), None);
-        assert_eq!(span("README", "case:READ"), Some((0, 4)));
-        assert_eq!(span("draft", "!draft"), None);
-        assert_eq!(span("x.pdf", "*.pdf"), None);
-        assert_eq!(span("x.pdf", ""), None);
+    fn every_occurrence_of_every_term_is_highlighted() {
+        assert_eq!(spans("Report-2026.PDF", "pdf"), [(12, 15)]);
+        assert_eq!(spans("Report-2026.PDF", "zzz rep"), [(0, 3)]);
+        assert_eq!(spans("a-b-a", "a"), [(0, 1), (4, 5)]);
+        assert_eq!(
+            spans("report-2026-rep.pdf", "rep 2026"),
+            [(0, 3), (7, 11), (12, 15)]
+        );
+        assert_eq!(spans("readme", "case:READ"), Vec::new());
+        assert_eq!(spans("README", "case:READ"), [(0, 4)]);
+        assert_eq!(spans("draft", "!draft"), Vec::new());
+        assert_eq!(spans("draft-x", "x !draft"), [(6, 7)]);
+        assert_eq!(spans("x.pdf", ""), Vec::new());
+        // OR alternatives are highlighted wherever they occur.
+        assert_eq!(spans("jpg-png", "jpg|png"), [(0, 3), (4, 7)]);
     }
 
     #[test]
-    fn match_span_handles_multibyte_names() {
-        // Folding changes byte lengths ("İ" → "i", "Ə" → "e"); the range still
-        // covers whole characters of the name.
-        assert_eq!(span("ŞƏKİL.png", "png"), Some((9, 12)));
-        assert_eq!(span("ŞƏKIL.png", "əkil"), Some((2, 7)));
-        assert_eq!(span("İzmir", "izmir"), Some((0, 6)));
-        assert_eq!(span("İzmir", "zmir"), Some((2, 6)));
-        assert_eq!(span("Straße", "sse"), Some((4, 7)));
-        assert_eq!(span("Straße", "strass"), Some((0, 6)));
-        assert_eq!(span("cafe\u{301}.txt", "cafe"), Some((0, 6)));
+    fn overlapping_and_touching_matches_merge() {
+        assert_eq!(spans("aaaa", "aa"), [(0, 4)]);
+        assert_eq!(spans("abcdef", "abc cd"), [(0, 4)]);
+        assert_eq!(spans("abcdef", "abc def"), [(0, 6)]);
+        assert_eq!(spans("abcdef", "bcd abcdef"), [(0, 6)]);
+        assert_eq!(spans("ab-ab", "ab b"), [(0, 2), (3, 5)]);
+    }
+
+    #[test]
+    fn highlight_folds_case_and_diacritics_like_the_matcher() {
+        // Folding changes byte lengths ("İ" → "i", "Ə" → "e"); the ranges
+        // still cover whole characters of the name.
+        assert_eq!(spans("ŞƏKİL.png", "png"), [(9, 12)]);
+        assert_eq!(spans("ŞƏKIL.png", "əkil"), [(2, 7)]);
+        assert_eq!(spans("İzmir", "izmir"), [(0, 6)]);
+        assert_eq!(spans("İzmir", "zmir"), [(2, 6)]);
+        assert_eq!(spans("Straße", "sse"), [(4, 7)]);
+        assert_eq!(spans("Straße", "strass"), [(0, 6)]);
+        assert_eq!(spans("cafe\u{301}.txt", "cafe"), [(0, 6)]);
+        assert_eq!(spans("Café-cafe-CAFÉ", "cafe"), [(0, 5), (6, 10), (11, 16)]);
         // Exact terms use the name as it is.
-        assert_eq!(span("İzmir", "case:zmir"), Some((2, 6)));
-        assert_eq!(span("şəkil", "diacritics:əkil"), Some((2, 7)));
-        assert_eq!(span("sekil", "diacritics:əkil"), None);
+        assert_eq!(spans("İzmir", "case:zmir"), [(2, 6)]);
+        assert_eq!(spans("Café-cafe", "case:cafe"), [(6, 10)]);
+        assert_eq!(spans("café-cafe", "diacritics:café"), [(0, 5)]);
+        assert_eq!(spans("şəkil", "diacritics:əkil"), [(2, 7)]);
+        assert_eq!(spans("sekil", "diacritics:əkil"), Vec::new());
     }
 
     #[test]
-    fn match_span_follows_whole_words() {
-        assert_eq!(span("party-art.png", "wholeword:art"), Some((6, 9)));
-        assert_eq!(span("party.png", "wholeword:art"), None);
-        assert_eq!(span("party.png", "art"), Some((1, 4)));
+    fn highlight_follows_whole_words() {
+        assert_eq!(spans("party-art.png", "wholeword:art"), [(6, 9)]);
+        assert_eq!(spans("art-party-art", "wholeword:art"), [(0, 3), (10, 13)]);
+        assert_eq!(spans("party.png", "wholeword:art"), Vec::new());
+        assert_eq!(spans("party.png", "art"), [(1, 4)]);
+    }
+
+    #[test]
+    fn wildcards_highlight_their_literal_parts() {
+        assert_eq!(spans("x.pdf", "*.pdf"), [(1, 5)]);
+        assert_eq!(spans("Report.PDF", "rep*.pdf"), [(0, 3), (6, 10)]);
+        // `?` stands for a character but is not highlighted.
+        assert_eq!(spans("img_7.png", "img_?.png"), [(0, 4), (5, 9)]);
+        // The match found is the one the matcher finds: `*` takes as little
+        // as it can, then retries.
+        assert_eq!(spans("a-b-b.txt", "a*b.txt"), [(0, 1), (4, 9)]);
+        assert_eq!(spans("ŞƏKİL.png", "şəkil*"), [(0, 8)]);
+        assert_eq!(spans("x.pdf", "*.doc"), Vec::new());
+        assert_eq!(glob_marks(b"*", b"abc"), Some(Vec::new()));
+        assert_eq!(glob_marks(b"a*c", b"abd"), None);
+    }
+
+    #[test]
+    fn path_terms_are_highlighted_in_the_path() {
+        let path = "/home/me/src/main-src.rs";
+        assert_eq!(path_spans(path, "path:src"), [(9, 12), (18, 21)]);
+        assert_eq!(path_spans(path, "me/src"), [(6, 12)]);
+        // Name terms are not highlighted in the path, nor path terms in the
+        // name on its own.
+        assert_eq!(path_spans(path, "main"), Vec::new());
+        assert_eq!(spans("main-src.rs", "path:src"), Vec::new());
+        // Prefix anchors at the start of the path, wildcards match all of it.
+        assert_eq!(path_spans(path, "prefix:path:/home"), [(0, 5)]);
+        assert_eq!(path_spans(path, "path:/home/*.rs"), [(0, 6), (21, 24)]);
+        assert_eq!(path_spans(path, r"path:regex:/s\w+"), [(8, 12)]);
+        // The whole query on the path.
+        let o = with(|o| o.match_path = true);
+        assert_eq!(
+            spans_with(path, "me src", o, true),
+            [(3, 5), (6, 8), (9, 12), (18, 21)]
+        );
+        assert_eq!(spans_with("main-src.rs", "src", o, false), Vec::new());
     }
 
     fn with(f: impl FnOnce(&mut QueryOptions)) -> QueryOptions {
@@ -2069,23 +2262,20 @@ mod tests {
     }
 
     #[test]
-    fn match_span_follows_the_new_modes() {
-        let span_with = |name: &str, q: &str, o: QueryOptions| {
-            let query = Query::parse(q, o).unwrap();
-            match_span(name, &query.name_terms()).map(|r| (r.start, r.end))
-        };
-        assert_eq!(span("art-art", "suffix:art"), Some((4, 7)));
-        assert_eq!(span("art-art", "prefix:art"), Some((0, 3)));
+    fn highlight_follows_the_new_modes() {
+        assert_eq!(spans("art-art", "suffix:art"), [(4, 7)]);
+        assert_eq!(spans("art-art", "prefix:art"), [(0, 3)]);
         // The dash in the middle is covered, the ones outside are not.
-        assert_eq!(span("x-foo_bar-y", "nopunct:foobar"), Some((2, 9)));
-        assert_eq!(span("my  file", "nospace:yf"), Some((1, 5)));
-        assert_eq!(span("IMG_0042.JPG", r"regex:\d+"), Some((4, 8)));
-        assert_eq!(span("şəkil", "regex:Ə"), Some((2, 4)));
+        assert_eq!(spans("x-foo_bar-y", "nopunct:foobar"), [(2, 9)]);
+        assert_eq!(spans("my  file", "nospace:yf"), [(1, 5)]);
+        assert_eq!(spans("IMG_0042.JPG", r"regex:\d+"), [(4, 8)]);
+        assert_eq!(spans("a1b22c333", r"regex:\d+"), [(1, 2), (3, 5), (6, 9)]);
+        assert_eq!(spans("şəkil", "regex:Ə"), [(2, 4)]);
         // An empty match is no highlight.
-        assert_eq!(span("abc", "regex:x*"), None);
+        assert_eq!(spans("abc", "regex:x*"), Vec::new());
         assert_eq!(
-            span_with("IMG_7.png", "7", with(|o| o.regex = true)),
-            Some((4, 5))
+            spans_with("IMG_7.png", "7", with(|o| o.regex = true), false),
+            [(4, 5)]
         );
     }
 }

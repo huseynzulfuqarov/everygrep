@@ -80,8 +80,15 @@ screen; when a change conflicts with them, the rules win or are changed first.
   `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link
   (never followed), `X` regular file with any execute bit.
   Columns can be resized, hidden and sorted by clicking the header; reordering
-  is planned. Sorting by Type groups by kind, then extension. The match is
-  highlighted inside the name. Entries of a removable drive that is not
+  is planned. Sorting by Type groups by kind, then extension. Matched search
+  terms are bold: every occurrence of every term that is not negated (`!`),
+  matched as the search matches it (case, diacritics, whole words, prefix,
+  suffix and the ignore modes). Wildcard patterns mark the characters their
+  literal parts matched, regular expressions every match. Name terms are
+  marked in the name; path terms (`path:`, a term with `/`, or the full path
+  mode) in the folder and the name; a run inside the home folder marks the
+  `~` that stands for it. A cell shows up to four bold runs; later ones
+  stay plain. The runs are worked out for the rows on screen only. Entries of a removable drive that is not
   connected are drawn in the `text-offline` color (dimmer than muted text,
   still at least 3.9:1), their names slanted and their icons faded, so the
   state is not shown by color alone; file actions on them are refused with a

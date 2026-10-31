@@ -58,7 +58,9 @@ First version, 0.1.0, not released yet.
 
 ### Window
 
-- Search window with results on every key press, highlighted matches,
+- Search window with results on every key press, matched terms in bold
+  (every occurrence of every term, wildcards, regular expressions, path terms
+  also in the Folder column),
   file-type icons and sortable, resizable columns (Name, Folder, Size,
   Modified, and optional Type, Extension, Created, Accessed and
   Attributes).

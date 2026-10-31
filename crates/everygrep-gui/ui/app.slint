@@ -2,13 +2,25 @@ import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.sli
 import { Theme } from "theme.slint";
 export { SettingsWindow, DriveRow } from "settings.slint";
 
+// A text with up to four highlighted runs: plain and bold pieces in turn,
+// p0 b0 p1 b1 ... p4. Without a highlight all of it is in p0; runs after the
+// fourth stay plain in p4.
+export struct Marked {
+    p0: string,
+    b0: string,
+    p1: string,
+    b1: string,
+    p2: string,
+    b2: string,
+    p3: string,
+    b3: string,
+    p4: string,
+}
+
 export struct ResultRow {
-    // The name, split around the highlighted match; without a match all of it
-    // is in name-before.
-    name-before: string,
-    name-match: string,
-    name-after: string,
-    folder: string,
+    // The name and the folder, with the matched search terms marked.
+    name: Marked,
+    folder: Marked,
     size: string,
     modified: string,
     modified-full: string,
@@ -335,6 +347,117 @@ component HeaderCell inherits Rectangle {
     }
 }
 
+// One piece of a MarkedText. It takes its natural width while there is
+// room; the piece that runs out of room is elided. The last piece takes all
+// the room left.
+component Piece inherits Text {
+    // Width from this piece to the end of the cell.
+    in property <length> room;
+    in property <bool> last;
+    // An empty Text still reports a small preferred width; force 0.
+    width: self.text == "" ? 0px : self.last ? max(0px, self.room) : min(self.preferred-width, self.room);
+    visible: self.text != "";
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+// A one-line text with the matched search terms in bold (see Marked); the
+// cell clips what does not fit.
+component MarkedText inherits Rectangle {
+    in property <Marked> text;
+    in property <color> text-color;
+    in property <bool> italic;
+    in property <length> font-size;
+    clip: true;
+
+    p0 := Piece {
+        x: 0;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.p0;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+    }
+    b0 := Piece {
+        x: p0.x + p0.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.b0;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+        font-weight: 700;
+    }
+    p1 := Piece {
+        x: b0.x + b0.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.p1;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+    }
+    b1 := Piece {
+        x: p1.x + p1.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.b1;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+        font-weight: 700;
+    }
+    p2 := Piece {
+        x: b1.x + b1.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.p2;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+    }
+    b2 := Piece {
+        x: p2.x + p2.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.b2;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+        font-weight: 700;
+    }
+    p3 := Piece {
+        x: b2.x + b2.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.p3;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+    }
+    b3 := Piece {
+        x: p3.x + p3.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.b3;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+        font-weight: 700;
+    }
+    p4 := Piece {
+        x: b3.x + b3.width;
+        room: root.width - self.x;
+        height: root.height;
+        text: root.text.p4;
+        color: root.text-color;
+        font-italic: root.italic;
+        font-size: root.font-size;
+        last: true;
+    }
+}
+
 component Row inherits Rectangle {
     in property <ResultRow> data;
     // The keyboard cursor is on this row and the list has focus.
@@ -399,51 +522,14 @@ component Row inherits Rectangle {
         height: Theme.row-icon;
         y: (parent.height - self.height) / 2;
     }
-    // The name as up to three pieces: before, match (bold) and after. Each
-    // piece takes its natural width while there is room; the piece that runs
-    // out of room is elided, and the cell clips the rest.
-    name-cell := Rectangle {
+    name-cell := MarkedText {
         x: Theme.s3 + Theme.row-icon + Theme.s2;
         width: max(0px, root.name-width - self.x - Theme.s2);
         height: parent.height;
-        clip: true;
-        before := Text {
-            x: 0;
-            // An empty Text still reports a small preferred width; force 0.
-            width: self.text == "" ? 0px : min(self.preferred-width, parent.width);
-            height: parent.height;
-            text: root.data.name-before;
-            color: root.name-color;
-            font-italic: root.offline;
-            font-size: Theme.list-text;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        matched := Text {
-            x: before.width;
-            width: self.text == "" ? 0px : min(self.preferred-width, parent.width - self.x);
-            height: parent.height;
-            visible: self.text != "";
-            text: root.data.name-match;
-            color: root.name-color;
-            font-italic: root.offline;
-            font-size: Theme.list-text;
-            font-weight: 700;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        Text {
-            x: matched.x + matched.width;
-            width: max(0px, parent.width - self.x);
-            height: parent.height;
-            visible: self.text != "";
-            text: root.data.name-after;
-            color: root.name-color;
-            font-italic: root.offline;
-            font-size: Theme.list-text;
-            vertical-alignment: center;
-            overflow: elide;
-        }
+        text: root.data.name;
+        text-color: root.name-color;
+        italic: root.offline;
+        font-size: Theme.list-text;
     }
     if root.editing: Rectangle {
         x: name-cell.x - Theme.s1;
@@ -487,15 +573,13 @@ component Row inherits Rectangle {
             }
         }
     }
-    Text {
+    MarkedText {
         x: root.name-width + Theme.s2;
         width: root.folder-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.folder;
-        color: root.other-color;
+        text-color: root.other-color;
         font-size: Theme.list-text;
-        vertical-alignment: center;
-        overflow: elide;
     }
     Text {
         x: root.name-width + root.folder-width;
