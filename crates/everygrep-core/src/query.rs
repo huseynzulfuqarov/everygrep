@@ -13,8 +13,9 @@
 //! path:src/main       match against the full path instead of the name
 //! file:  folder:      only files / only folders
 //! ext:pdf;jpg         extension list (files only); also ext:pdf|jpg, ext:jp*
-//! size:>10mb  size:1kb..2mb  size:0
-//!                     folders match by the total size of the files below them
+//! size:>10mb  size:1kb..2mb  size:0  size:large
+//!                     folders match by the total size of the files below them;
+//!                     size:1mb = 1 MiB up to 2 MiB - 1, size:=1mb exactly
 //! modified:<7d        changed within the last 7 days (also h, m, s);
 //!                     modified:>30d = not changed for 30 days
 //! modified:2026-10-25 changed on that local day (also 2026-10, 2026,
@@ -969,12 +970,16 @@ fn word_starts_function(word: &str, name: &str) -> bool {
     false
 }
 
-/// `size:>1mb` and `modified:>7d` use `<`/`>` as comparisons, not grouping.
+/// `size:>1mb`, `size:<>1mb` and `modified:>7d` use `<`/`>` as comparisons,
+/// not grouping.
 fn word_takes_comparison(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
-    ["size:", "modified:"]
-        .iter()
-        .any(|m| lower.ends_with(m) || lower.ends_with(&format!("{m}=")))
+    ["size:", "modified:"].iter().any(|m| {
+        lower.ends_with(m)
+            || ["=", "<"]
+                .iter()
+                .any(|op| lower.ends_with(&format!("{m}{op}")))
+    })
 }
 
 struct Parser {
@@ -1104,7 +1109,7 @@ impl Parser {
                     return Ok(Some(self.with_rest(Pred::IsDir, tail)?));
                 }
                 "ext" => return Ok(Some(Node::Leaf(parse_ext(&value)))),
-                "size" => return parse_size(&value).map(|p| Some(Node::Leaf(p))),
+                "size" => return parse_size(&value).map(Some),
                 "modified" => {
                     return self.parse_modified(&value).map(|p| Some(Node::Leaf(p)));
                 }
@@ -1280,73 +1285,130 @@ fn parse_ext(list: &str) -> Pred {
     Pred::Ext { exts, globs, none }
 }
 
-fn parse_size(spec: &str) -> Result<Pred, ParseError> {
+/// `size:` values: a number with an optional unit or a size word, after an
+/// optional comparison, or a range `a..b`.
+///
+/// A number with a unit stands for all sizes up to the next step of its
+/// last digit (`1mb` = 1 MiB to 2 MiB - 1, `1.5kb` = 1536 to 1638 bytes); `=`,
+/// `==` and the comparisons use the value itself, and so do the ends of a
+/// range. `!` is "not in the bucket", `!=` and `<>` "not exactly".
+fn parse_size(spec: &str) -> Result<Node, ParseError> {
+    let spec = spec.trim();
     let bad = || ParseError(format!("bad size: {spec}"));
-    let (min, max) = parse_range(spec, |s| parse_bytes(s).ok_or_else(bad))?;
-    Ok(Pred::Size { min, max })
+    let value = |s: &str| parse_size_value(s).ok_or_else(bad);
+    let leaf = |(min, max): (u64, u64)| Node::Leaf(Pred::Size { min, max });
+    // An empty range is (MAX, 0), which matches nothing.
+    const NOTHING: (u64, u64) = (u64::MAX, 0);
+    if let Some((a, b)) = spec.split_once("..") {
+        let (a, b) = (value(a)?, value(b)?);
+        let (a, b) = if a.exact.0 > b.exact.0 {
+            (b, a)
+        } else {
+            (a, b)
+        };
+        return Ok(leaf((a.exact.0, a.exact.1.max(b.exact.1))));
+    }
+    // Longer operators first, so `!=` is not read as `!` and `=`.
+    const OPS: [&str; 11] = ["!=", "<>", "==", ">=", "=>", "<=", "=<", ">", "<", "=", "!"];
+    let Some((op, rest)) = OPS
+        .iter()
+        .find_map(|op| spec.strip_prefix(op).map(|rest| (*op, rest)))
+    else {
+        return Ok(leaf(value(spec)?.bucket));
+    };
+    let v = value(rest)?;
+    let range = match op {
+        "!=" | "<>" | "==" | "=" => v.exact,
+        ">=" | "=>" => (v.exact.0, u64::MAX),
+        "<=" | "=<" => (0, v.exact.1),
+        ">" => v
+            .exact
+            .1
+            .checked_add(1)
+            .map_or(NOTHING, |lo| (lo, u64::MAX)),
+        "<" => v.exact.0.checked_sub(1).map_or(NOTHING, |hi| (0, hi)),
+        _ => v.bucket,
+    };
+    Ok(if matches!(op, "!=" | "<>" | "!") {
+        Node::Not(Box::new(leaf(range)))
+    } else {
+        leaf(range)
+    })
 }
 
-fn parse_bytes(s: &str) -> Option<u64> {
+/// One value of a `size:` term as inclusive byte ranges: `exact` is the value
+/// itself (a size word: its range), `bucket` what it stands for on its own.
+#[derive(Clone, Copy, Debug)]
+struct SizeValue {
+    exact: (u64, u64),
+    bucket: (u64, u64),
+}
+
+/// Upper ends of the size words, in bytes: each word is above the one
+/// before it, up to its own end.
+const SIZE_WORDS: [(&str, u64); 7] = [
+    ("empty", 0),
+    ("tiny", 10 << 10),
+    ("small", 100 << 10),
+    ("medium", 1 << 20),
+    ("large", 16 << 20),
+    ("huge", 128 << 20),
+    ("gigantic", u64::MAX),
+];
+
+/// `1mb`, `1.5 KiB`, `200`, `huge`. Units go in steps of 1024: none or `b`,
+/// `k`, `kb`, `ki`, `kib`, and the same for `m`, `g`, `t` and `p`.
+fn parse_size_value(s: &str) -> Option<SizeValue> {
     let s = s.trim().to_ascii_lowercase();
+    if let Some(i) = SIZE_WORDS.iter().position(|(w, _)| *w == s) {
+        let lo = if i == 0 { 0 } else { SIZE_WORDS[i - 1].1 + 1 };
+        let range = (lo, SIZE_WORDS[i].1);
+        return Some(SizeValue {
+            exact: range,
+            bucket: range,
+        });
+    }
     let digits_end = s
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(s.len());
     let (num, unit) = s.split_at(digits_end);
-    let value: f64 = num.parse().ok()?;
-    let mult: f64 = match unit {
-        "" | "b" => 1.0,
-        "k" | "kb" => 1024.0,
-        "m" | "mb" => 1024.0 * 1024.0,
-        "g" | "gb" => 1024.0 * 1024.0 * 1024.0,
-        "t" | "tb" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+    let shift = match unit.trim() {
+        "" | "b" => 0,
+        "k" | "kb" | "ki" | "kib" => 10,
+        "m" | "mb" | "mi" | "mib" => 20,
+        "g" | "gb" | "gi" | "gib" => 30,
+        "t" | "tb" | "ti" | "tib" => 40,
+        "p" | "pb" | "pi" | "pib" => 50,
         _ => return None,
     };
-    let bytes = value * mult;
-    (bytes.is_finite() && bytes >= 0.0 && bytes < u64::MAX as f64).then_some(bytes.round() as u64)
-}
-
-/// `>x`, `>=x`, `<x`, `<=x`, `=x`, `x`, `x..y` into an inclusive range.
-fn parse_range<T: Copy + Bounded>(
-    spec: &str,
-    value: impl Fn(&str) -> Result<T, ParseError>,
-) -> Result<(T, T), ParseError> {
-    let spec = spec.trim();
-    if let Some((a, b)) = spec.split_once("..") {
-        return Ok((value(a)?, value(b)?));
+    let (whole, frac) = num.split_once('.').unwrap_or((num, ""));
+    if (whole.is_empty() && frac.is_empty())
+        || frac.len() > 18
+        || !frac.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
     }
-    if let Some(v) = spec.strip_prefix(">=") {
-        return Ok((value(v)?, T::MAX));
+    // The value is `mantissa / 10^decimals` units.
+    let mantissa: u128 = format!("{whole}{frac}").parse().ok()?;
+    let scale = 10u128.pow(frac.len() as u32);
+    let unit = 1u128 << shift;
+    let bytes = |m: u128| m.checked_mul(unit).map(|b| b.div_ceil(scale));
+    if shift == 0 {
+        // Bytes have no smaller step: rounded, exact.
+        let v = u64::try_from((mantissa * 2 + scale) / (2 * scale)).ok()?;
+        return Some(SizeValue {
+            exact: (v, v),
+            bucket: (v, v),
+        });
     }
-    if let Some(v) = spec.strip_prefix("<=") {
-        return Ok((T::MIN, value(v)?));
-    }
-    // An empty range is returned as (MAX, MIN), which matches nothing.
-    if let Some(v) = spec.strip_prefix('>') {
-        return Ok(value(v)?.succ().map_or((T::MAX, T::MIN), |lo| (lo, T::MAX)));
-    }
-    if let Some(v) = spec.strip_prefix('<') {
-        return Ok(value(v)?.pred().map_or((T::MAX, T::MIN), |hi| (T::MIN, hi)));
-    }
-    let v = value(spec.strip_prefix('=').unwrap_or(spec))?;
-    Ok((v, v))
-}
-
-trait Bounded: Sized {
-    const MIN: Self;
-    const MAX: Self;
-    fn succ(self) -> Option<Self>;
-    fn pred(self) -> Option<Self>;
-}
-
-impl Bounded for u64 {
-    const MIN: Self = 0;
-    const MAX: Self = u64::MAX;
-    fn succ(self) -> Option<Self> {
-        self.checked_add(1)
-    }
-    fn pred(self) -> Option<Self> {
-        self.checked_sub(1)
-    }
+    let lo = u64::try_from(bytes(mantissa)?).ok()?;
+    let hi = bytes(mantissa + 1)
+        .and_then(|b| u64::try_from(b - 1).ok())
+        .unwrap_or(u64::MAX);
+    Some(SizeValue {
+        exact: (lo, lo),
+        bucket: (lo, hi),
+    })
 }
 
 /// `modified:<7d` means newer than 7 days ago; `modified:>7d` means older.
@@ -1801,6 +1863,73 @@ mod tests {
         // `*` is any extension; files without one and folders stay out.
         assert_eq!(t.find("ext:*").len(), 5);
         assert!(t.find("ext:*").iter().all(|n| n != "notes"));
+    }
+
+    #[test]
+    fn sizes_with_units_are_buckets_and_words_are_ranges() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        const K: u64 = 1024;
+        const M: u64 = K * K;
+        for (name, size) in [
+            ("zero", 0),
+            ("ten", 10),
+            ("k1", K),
+            ("k1half", K + K / 2),
+            ("k2", 2 * K),
+            ("m1", M),
+            ("m1x", M + 500 * K),
+            ("m2", 2 * M),
+            ("huge20", 20 * M),
+            ("giant200", 200 * M),
+        ] {
+            let meta = Meta { size, mtime_ns: 0 };
+            store.add(Some(root), name.as_bytes(), false, meta);
+        }
+        let t = Tree { store };
+        let f = |q: &str| t.find(&format!("file: {q}"));
+        // A value with a unit stands for all sizes up to the next unit.
+        assert_eq!(f("size:1mb"), ["m1", "m1x"]);
+        assert_eq!(f("size:1MiB"), ["m1", "m1x"]);
+        assert_eq!(f("size:1kb"), ["k1", "k1half"]);
+        assert_eq!(f("size:1k"), f("size:1kib"));
+        assert_eq!(f("size:1.5kb"), ["k1half"]);
+        // `=` and `==` are exact; a value without a unit is exact anyway.
+        assert_eq!(f("size:=1mb"), ["m1"]);
+        assert_eq!(f("size:==1mb"), ["m1"]);
+        assert_eq!(f("size:1024"), ["k1"]);
+        assert_eq!(f("size:10b"), ["ten"]);
+        // Not equal: `!=` and `<>` exact, `!` the bucket.
+        assert_eq!(f("size:!=1mb").len(), 9);
+        assert!(!f("size:!=1mb").contains(&"m1".to_owned()));
+        assert_eq!(f("size:<>1mb"), f("size:!=1mb"));
+        assert_eq!(f("size:!1mb").len(), 8);
+        // Comparisons use the value itself.
+        assert_eq!(f("size:>1mb"), ["giant200", "huge20", "m1x", "m2"]);
+        assert_eq!(f("size:>=1mib"), ["giant200", "huge20", "m1", "m1x", "m2"]);
+        assert_eq!(f("size:=>1mib"), f("size:>=1mib"));
+        assert_eq!(f("size:<=1kb"), ["k1", "ten", "zero"]);
+        assert_eq!(f("size:=<1kb"), f("size:<=1kb"));
+        // Ranges are inclusive and may be written either way round.
+        assert_eq!(f("size:1mb..2mb"), ["m1", "m1x", "m2"]);
+        assert_eq!(f("size:2mb..1mb"), ["m1", "m1x", "m2"]);
+        // Size words.
+        assert_eq!(f("size:empty"), ["zero"]);
+        assert_eq!(f("size:tiny"), ["k1", "k1half", "k2", "ten"]);
+        assert!(f("size:small").is_empty());
+        assert_eq!(f("size:medium"), ["m1"]);
+        assert_eq!(f("size:large"), ["m1x", "m2"]);
+        assert_eq!(f("size:HUGE"), ["huge20"]);
+        assert_eq!(f("size:gigantic"), ["giant200"]);
+        assert_eq!(f("size:>large"), ["giant200", "huge20"]);
+        assert_eq!(f("size:<tiny"), ["zero"]);
+        assert_eq!(f("size:medium..tiny"), ["k1", "k1half", "k2", "m1", "ten"]);
+        // Units in steps of 1024 up to tebibytes.
+        assert!(f("size:>1tb").is_empty());
+        assert!(f("size:>1tib").is_empty());
+        for bad in ["size:1xb", "size:>", "size:lots", "size:1..", "size:!"] {
+            assert!(Query::parse(bad, QueryOptions::default()).is_err(), "{bad}");
+        }
     }
 
     /// Nanoseconds of a local time with a known UTC offset in hours.

@@ -148,15 +148,41 @@ extensions.
 
 | Query | Meaning |
 |---|---|
-| `size:0` | exactly 0 bytes (`size:=0` is the same) |
-| `size:>10mb`, `size:>=10mb` | larger than / at least 10 MB |
-| `size:<1kb`, `size:<=1kb` | smaller than / at most 1 KB |
-| `size:1kb..2mb` | between, inclusive |
+| `size:0`, `size:1024` | exactly 0 / 1024 bytes (a number without a unit is exact) |
+| `size:1mb` | 1 MB up to just under 2 MB (1 048 576 to 2 097 151 bytes) |
+| `size:1.5kb` | 1.5 KB up to just under 1.6 KB (1536 to 1638 bytes) |
+| `size:=1mb`, `size:==1mb` | exactly 1 MB |
+| `size:!1mb` | not 1 MB up to just under 2 MB |
+| `size:!=1mb`, `size:<>1mb` | not exactly 1 MB |
+| `size:>10mb`, `size:>=10mb` (also `=>`) | larger than / at least 10 MB |
+| `size:<1kb`, `size:<=1kb` (also `=<`) | smaller than / at most 1 KB |
+| `size:1kb..2mb` | between, inclusive; `size:2mb..1kb` is the same |
+| `size:large` | a size word, see below |
 
-Units: none or `b` (bytes), `k`/`kb`, `m`/`mb`, `g`/`gb`, `t`/`tb`, in steps
-of 1024. Decimals work: `size:>1.5gb`. A folder matches by the total size of
-all files below it, at any depth; add `file:` to match files only. Symbolic
-links count with the length of their target path.
+A value with a unit stands for all sizes up to the next step of its last
+digit: `size:1mb` finds files of 1 MB and of 1.4 MB, `size:1.5kb` steps by
+0.1 KB. The comparisons, `=`, `!=` and the ends of a range use the value
+itself.
+
+Units: none or `b` (bytes), `k`, `kb`, `ki`, `kib`, and the same with `m`,
+`g`, `t` and `p`, all in steps of 1024 (`kb` and `kib` are the same).
+Decimals work: `size:>1.5gb`.
+
+Size words, with comparisons too (`size:>large` is larger than 16 MB):
+
+| Word | Size |
+|---|---|
+| `empty` | 0 bytes |
+| `tiny` | over 0 bytes, up to 10 KB |
+| `small` | over 10 KB, up to 100 KB |
+| `medium` | over 100 KB, up to 1 MB |
+| `large` | over 1 MB, up to 16 MB |
+| `huge` | over 16 MB, up to 128 MB |
+| `gigantic` | over 128 MB |
+
+A folder matches by the total size of all files below it, at any depth; add
+`file:` to match files only. Symbolic links count with the length of their
+target path.
 
 ## Modification time
 

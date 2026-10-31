@@ -53,6 +53,12 @@ First version, 0.1.0, not released yet.
   names and terms.
 - `ext:` lists separated by `;` or `|` (`ext:jpg|png` is one list, no
   longer `ext:jpg` OR the text `png`), with wildcard entries (`ext:jp*`).
+- Size grammar: units `kib`, `mib`, … next to `kb`, `mb`, …; `==`, `!=`,
+  `<>`, `=>`, `=<`, `!`; ranges written either way round; size words
+  `empty`, `tiny`, `small`, `medium`, `large`, `huge`, `gigantic`.
+  **Behaviour change:** a size with a unit now stands for a range up to the
+  next step of its last digit (`size:1mb` = 1 MiB to 2 MiB − 1, which used to
+  match only files of exactly 1 048 576 bytes); `size:=1mb` is exact.
 - Regular expressions with `regex:` or for the whole query in regex mode,
   compiled once per query; case is ignored unless matched, invalid
   expressions are reported in one line.
