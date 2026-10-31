@@ -222,7 +222,9 @@ the program behaves as before, except that folders show their total size.
 | Page | Setting | Default |
 |---|---|---|
 | Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
-| | excluded folders: listed, but not searched inside | none |
+| | use the exclude list (excluded folders and file filters) | on |
+| | excluded folders, by path (folder chooser) or pattern; left out of the index with all they hold | none |
+| | include only files / exclude files: pattern lists (see [Excluded folders and files](#excluded-folders-and-files)) | empty |
 | | index removable drives automatically | on |
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
@@ -328,7 +330,10 @@ show-type-column = true
 size-width = 120
 ```
 
-`root` and `exclude` repeat for each folder. Other keys: `whole-words`,
+`root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
+`use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
+and the file pattern lists; a pattern that does not compile is reported and
+ignored. Other keys: `whole-words`,
 `match-path`, `match-diacritics`, `match-prefix`, `match-suffix`,
 `ignore-punctuation`, `ignore-whitespace`, `regex`, `index-removable-drives`,
 `removed-drives` (`keep`, `forget`), `ignore-drive` (a file system UUID,

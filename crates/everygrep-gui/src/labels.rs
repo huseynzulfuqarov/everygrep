@@ -5,6 +5,7 @@
 use everygrep_core::filter::Filter;
 use everygrep_core::kind::FileKind;
 use everygrep_core::query::QueryOptions;
+use everygrep_core::rules::{RuleError, RuleList};
 use everygrep_core::sort::FolderSize;
 
 use crate::clipboard::Operation;
@@ -404,6 +405,26 @@ pub fn index_from_command_line() -> &'static str {
     tr(
         "This window was started with --root or --index-file. Changes here apply to this window only and are not saved.",
     )
+}
+
+/// Why a change of the excluded folders or file filters was refused.
+pub fn bad_rule(e: &RuleError) -> String {
+    let list = match e.list {
+        RuleList::Folders => tr("Excluded folders"),
+        RuleList::IncludeFiles => tr("Include only files"),
+        RuleList::ExcludeFiles => tr("Exclude files"),
+    };
+    if e.reason.is_empty() {
+        fill(
+            tr("{0}: “{1}” has an empty regular expression. Nothing was changed."),
+            &[&list, &e.item],
+        )
+    } else {
+        fill(
+            tr("{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."),
+            &[&list, &e.item, &e.reason],
+        )
+    }
 }
 
 /// Titles and button of the folder chooser.

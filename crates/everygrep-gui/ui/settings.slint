@@ -1,6 +1,6 @@
 // The settings window. Changes apply at once; each page has a button that
 // puts its settings back to the defaults.
-import { Button, CheckBox, ComboBox, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 // One known removable drive in the Drives list.
@@ -104,6 +104,15 @@ export component SettingsWindow inherits Window {
     callback remove-root(int);
     callback add-excludes();
     callback remove-exclude(int);
+    // Excluded folders and file filters, and their switch.
+    in-out property <bool> use-excludes;
+    in-out property <string> exclude-pattern;
+    in-out property <string> include-files;
+    in-out property <string> exclude-files;
+    // Why the last change of them was refused; empty when fine.
+    in property <string> rule-error;
+    callback add-exclude-pattern(string);
+    callback rules-changed();
     callback rebuild();
     // Removable drives (shown when the program can keep drive indexes).
     in property <bool> drives-enabled;
@@ -251,13 +260,69 @@ export component SettingsWindow inherits Window {
                                 add => { root.add-roots(); }
                                 remove(i) => { root.remove-root(i); }
                             }
+                            CheckBox {
+                                text: @tr("Use the exclude list");
+                                checked <=> root.use-excludes;
+                                toggled => { root.rules-changed(); }
+                            }
                             FolderList {
                                 title: @tr("Excluded folders");
                                 count: root.excludes-count;
-                                empty-text: @tr("None. Folders listed here are shown but not searched inside.");
+                                empty-text: @tr("None. Folders listed here are left out of the index with all they hold.");
                                 model: root.excludes;
                                 add => { root.add-excludes(); }
                                 remove(i) => { root.remove-exclude(i); }
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.s2;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    accessible-label: @tr("Folder pattern");
+                                    placeholder-text: @tr("Folder name or pattern: node_modules, *.git, regex:^te?mp$");
+                                    text <=> root.exclude-pattern;
+                                    accepted(text) => { root.add-exclude-pattern(text); }
+                                }
+                                Button {
+                                    text: @tr("Add pattern");
+                                    enabled: root.exclude-pattern != "";
+                                    clicked => { root.add-exclude-pattern(root.exclude-pattern); }
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                Heading { text: @tr("Include only files"); }
+                                LineEdit {
+                                    accessible-label: @tr("Include only files");
+                                    placeholder-text: @tr("Empty includes all files. Example: *.mp3;*.jpg");
+                                    text <=> root.include-files;
+                                    accepted => { root.rules-changed(); }
+                                }
+                                Heading { text: @tr("Exclude files"); }
+                                LineEdit {
+                                    accessible-label: @tr("Exclude files");
+                                    placeholder-text: @tr("Example: *.tmp;~*");
+                                    text <=> root.exclude-files;
+                                    accepted => { root.rules-changed(); }
+                                }
+                                Note { text: @tr("Separate patterns with “;”. * matches any characters except /, ** any characters, ? one character. A pattern is matched against the whole name, ignoring case; with a / it is matched against the full path. regex: starts a regular expression. An exclude pattern wins over an include pattern."); }
+                                HorizontalLayout {
+                                    spacing: Theme.s3;
+                                    Button {
+                                        text: @tr("Apply filters");
+                                        clicked => { root.rules-changed(); }
+                                    }
+                                    Note {
+                                        text: @tr("Changing the lists or the switch indexes again.");
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                if root.rule-error != "": Text {
+                                    text: root.rule-error;
+                                    color: Theme.danger;
+                                    font-size: Theme.small;
+                                    wrap: word-wrap;
+                                }
                             }
                             if root.drives-enabled: VerticalLayout {
                                 spacing: Theme.s2;

@@ -90,6 +90,10 @@ First version, 0.1.0, not released yet.
   closing the window (quit or hide), remembered columns, folder size
   (total, item count or nothing), theme, density, selection details, menu bar
   and language; saved in a small text file.
+- Indexing settings: a switch for the exclude list, folder patterns next to
+  the folder chooser, and "include only files" / "exclude files" pattern
+  lists. A pattern that does not compile is refused with a message and not
+  saved; a change indexes again with progress and Cancel.
 - Light and dark themes following the desktop, compact density, details of
   the selection in the status line.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is

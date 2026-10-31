@@ -259,10 +259,6 @@ msgid "Excluded folders"
 msgstr "Hariç tutulan klasörler"
 
 #: ui/settings.slint
-msgid "None. Folders listed here are shown but not searched inside."
-msgstr "Yok. Burada listelenen klasörler gösterilir ama içlerinde arama yapılmaz."
-
-#: ui/settings.slint
 msgid "Rebuild index now"
 msgstr "Dizini şimdi yeniden oluştur"
 
@@ -1425,3 +1421,73 @@ msgstr "Attributes column"
 #: ui/settings.slint
 msgid "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."
 msgstr "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "None. Folders listed here are left out of the index with all they hold."
+msgstr "None. Folders listed here are left out of the index with all they hold."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Use the exclude list"
+msgstr "Use the exclude list"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Folder pattern"
+msgstr "Folder pattern"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Folder name or pattern: node_modules, *.git, regex:^te?mp$"
+msgstr "Folder name or pattern: node_modules, *.git, regex:^te?mp$"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Add pattern"
+msgstr "Add pattern"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Include only files"
+msgstr "Include only files"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Empty includes all files. Example: *.mp3;*.jpg"
+msgstr "Empty includes all files. Example: *.mp3;*.jpg"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Exclude files"
+msgstr "Exclude files"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Example: *.tmp;~*"
+msgstr "Example: *.tmp;~*"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Separate patterns with “;”. * matches any characters except /, ** any characters, ? one character. A pattern is matched against the whole name, ignoring case; with a / it is matched against the full path. regex: starts a regular expression. An exclude pattern wins over an include pattern."
+msgstr "Separate patterns with “;”. * matches any characters except /, ** any characters, ? one character. A pattern is matched against the whole name, ignoring case; with a / it is matched against the full path. regex: starts a regular expression. An exclude pattern wins over an include pattern."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Apply filters"
+msgstr "Apply filters"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Changing the lists or the switch indexes again."
+msgstr "Changing the lists or the switch indexes again."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "{0}: “{1}” has an empty regular expression. Nothing was changed."
+msgstr "{0}: “{1}” has an empty regular expression. Nothing was changed."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."
+msgstr "{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."

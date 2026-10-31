@@ -8,6 +8,8 @@
 //! root = /home/me
 //! root = /srv/media
 //! exclude = /home/me/.cache
+//! exclude = node_modules
+//! exclude-files = *.tmp;~*
 //! filter = document
 //! history-size = 50
 //! on-close = hide
@@ -38,6 +40,7 @@ use std::path::{Path, PathBuf};
 
 use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
+use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::sort::FolderSize;
 
 use crate::engine::DriveSettings;
@@ -176,8 +179,15 @@ pub struct Settings {
     /// Folders to index; empty means the folders of the saved index, or the
     /// home folder for a first start.
     pub roots: Vec<PathBuf>,
-    /// Folders that are not entered while indexing.
+    /// Folders left out of the index: absolute paths or patterns (see
+    /// [`everygrep_core::rules`]).
     pub excludes: Vec<PathBuf>,
+    /// Whether the excluded folders and the file filters are used.
+    pub use_excludes: bool,
+    /// Patterns of the only files to index, `;`-separated; empty for all.
+    pub include_files: String,
+    /// Patterns of files left out of the index, `;`-separated.
+    pub exclude_files: String,
     /// Filter and matching modes for a new start.
     pub options: QueryOptions,
     /// Searches kept for Back and Forward; 0 turns the history off.
@@ -216,6 +226,9 @@ impl Default for Settings {
         Self {
             roots: Vec::new(),
             excludes: Vec::new(),
+            use_excludes: true,
+            include_files: String::new(),
+            exclude_files: String::new(),
             options: QueryOptions::default(),
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
@@ -245,6 +258,24 @@ pub enum Page {
 }
 
 impl Settings {
+    /// The rules of the excluded folders and file filters.
+    pub fn rule_spec(&self) -> RuleSpec {
+        RuleSpec {
+            enabled: self.use_excludes,
+            folders: self.excludes.clone(),
+            include_files: self.include_files.clone(),
+            exclude_files: self.exclude_files.clone(),
+        }
+    }
+
+    /// Takes the rules of the excluded folders and file filters.
+    pub fn set_rule_spec(&mut self, spec: &RuleSpec) {
+        self.use_excludes = spec.enabled;
+        self.excludes = spec.folders.clone();
+        self.include_files = spec.include_files.clone();
+        self.exclude_files = spec.exclude_files.clone();
+    }
+
     /// Reads settings from the text of a settings file.
     pub fn parse(text: &str) -> Self {
         let mut s = Self::default();
@@ -283,17 +314,54 @@ impl Settings {
         };
         let width = |v: &str| v.parse::<f32>().ok().filter(|w| WIDTH_RANGE.contains(w));
         let put_flag = |target: &mut bool| flag(value).map(|v| *target = v).is_some();
+        // A pattern that does not compile is not taken.
+        let valid = |spec: RuleSpec| IndexRules::new(spec).is_ok();
         match key {
             "root" | "exclude" => {
                 let Some(path) = unescape(value).filter(|p| !p.is_empty()) else {
                     return false;
                 };
+                let path = PathBuf::from(OsString::from_vec(path));
+                if key == "exclude"
+                    && !valid(RuleSpec {
+                        folders: vec![path.clone()],
+                        ..RuleSpec::default()
+                    })
+                {
+                    return false;
+                }
                 let list = if key == "root" {
                     &mut self.roots
                 } else {
                     &mut self.excludes
                 };
-                list.push(PathBuf::from(OsString::from_vec(path)));
+                list.push(path);
+                true
+            }
+            "use-exclude-list" => put_flag(&mut self.use_excludes),
+            "include-only-files" | "exclude-files" => {
+                let Some(text) = unescape(value).and_then(|b| String::from_utf8(b).ok()) else {
+                    return false;
+                };
+                let spec = if key == "include-only-files" {
+                    RuleSpec {
+                        include_files: text.clone(),
+                        ..RuleSpec::default()
+                    }
+                } else {
+                    RuleSpec {
+                        exclude_files: text.clone(),
+                        ..RuleSpec::default()
+                    }
+                };
+                if !valid(spec) {
+                    return false;
+                }
+                *if key == "include-only-files" {
+                    &mut self.include_files
+                } else {
+                    &mut self.exclude_files
+                } = text;
                 true
             }
             "filter" => Filter::from_id(value)
@@ -410,6 +478,26 @@ impl Settings {
         }
         for exclude in &self.excludes {
             line(&mut out, "exclude", &escape(exclude.as_os_str().as_bytes()));
+        }
+        flag(
+            &mut out,
+            "use-exclude-list",
+            self.use_excludes,
+            d.use_excludes,
+        );
+        if !self.include_files.is_empty() {
+            line(
+                &mut out,
+                "include-only-files",
+                &escape(self.include_files.as_bytes()),
+            );
+        }
+        if !self.exclude_files.is_empty() {
+            line(
+                &mut out,
+                "exclude-files",
+                &escape(self.exclude_files.as_bytes()),
+            );
         }
         flag(
             &mut out,
@@ -532,6 +620,9 @@ impl Settings {
             Page::Indexing => {
                 self.roots = d.roots;
                 self.excludes = d.excludes;
+                self.use_excludes = d.use_excludes;
+                self.include_files = d.include_files;
+                self.exclude_files = d.exclude_files;
                 self.drives = d.drives;
             }
             Page::Search => {
@@ -733,7 +824,10 @@ pub(crate) mod tests {
     fn every_setting_round_trips() {
         let s = Settings {
             roots: vec!["/home/u".into(), "/srv/media files".into()],
-            excludes: vec!["/home/u/.cache".into()],
+            excludes: vec!["/home/u/.cache".into(), "regex:^te?mp$".into()],
+            use_excludes: false,
+            include_files: "*.mp3; \"a;b\"".into(),
+            exclude_files: "*.tmp;~*".into(),
             options: QueryOptions {
                 case_sensitive: true,
                 whole_words: true,
@@ -796,6 +890,25 @@ pub(crate) mod tests {
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));
+        assert!(text.contains("use-exclude-list = false\n"));
+        assert!(text.contains("exclude = regex:^te?mp$\n"));
+        assert!(text.contains("exclude-files = *.tmp;~*\n"));
+    }
+
+    #[test]
+    fn broken_patterns_are_not_taken() {
+        let s = Settings::parse(
+            "exclude = regex:(open\nexclude = /ok\ninclude-only-files = regex:[z-a]\nexclude-files = *.bak\nexclude-files = regex:\n",
+        );
+        assert_eq!(s.excludes, [PathBuf::from("/ok")]);
+        assert!(s.include_files.is_empty());
+        assert_eq!(s.exclude_files, "*.bak");
+        let lines: Vec<usize> = s.problems.iter().map(|(n, _)| *n).collect();
+        assert_eq!(lines, [1, 3, 5]);
+        assert!(IndexRules::new(s.rule_spec()).is_ok());
+        let d = Settings::default();
+        assert!(d.use_excludes, "the exclude list is used by default");
+        assert_eq!(d.rule_spec(), RuleSpec::default());
     }
 
     #[test]
@@ -955,8 +1068,11 @@ root = broken\\q
         assert_eq!(s.roots, [PathBuf::from("/a")]);
         assert_eq!(s.on_close, OnClose::Hide);
         assert_eq!(s.folder_size, FolderSize::None);
+        s.use_excludes = false;
+        s.exclude_files = "*.tmp".into();
         s.reset(Page::Indexing);
         assert!(s.roots.is_empty() && s.excludes.is_empty());
+        assert!(s.use_excludes && s.exclude_files.is_empty());
         s.reset(Page::Window);
         assert_eq!(s, Settings::default());
     }

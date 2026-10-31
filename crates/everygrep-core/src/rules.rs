@@ -309,6 +309,14 @@ pub fn split_items(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// The last line of a regular expression error (`unclosed group`), without
+/// the pattern drawing above it.
+fn short_reason(e: &regex::Error) -> String {
+    let text = e.to_string();
+    let last = text.lines().last().unwrap_or_default().trim();
+    last.strip_prefix("error: ").unwrap_or(last).to_owned()
+}
+
 fn compile(item: &str, list: RuleList) -> Result<Rule, RuleError> {
     let error = |reason: String| RuleError {
         list,
@@ -322,7 +330,7 @@ fn compile(item: &str, list: RuleList) -> Result<Rule, RuleError> {
         let regex = RegexBuilder::new(expr)
             .size_limit(REGEX_SIZE_LIMIT)
             .build()
-            .map_err(|e| error(e.to_string()))?;
+            .map_err(|e| error(short_reason(&e)))?;
         return Ok(Rule {
             matcher: Matcher::Regex(regex),
             full_path: expr.contains('/'),
@@ -378,7 +386,7 @@ fn compile(item: &str, list: RuleList) -> Result<Rule, RuleError> {
     let regex = RegexBuilder::new(&expr)
         .size_limit(REGEX_SIZE_LIMIT)
         .build()
-        .map_err(|e| error(e.to_string()))?;
+        .map_err(|e| error(short_reason(&e)))?;
     Ok(Rule {
         matcher: Matcher::Regex(regex),
         full_path,
@@ -548,6 +556,7 @@ mod tests {
             let e = IndexRules::new(spec).unwrap_err();
             assert_eq!(e.list, list);
             assert!(e.item.starts_with("regex:"), "{e}");
+            assert!(!e.reason.contains('\n'), "one line: {e}");
             assert!(!e.to_string().is_empty());
         }
         // Text that looks like regex syntax is literal in a wildcard.

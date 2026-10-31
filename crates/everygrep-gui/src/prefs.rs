@@ -50,7 +50,8 @@ pub struct IndexSetup {
     /// Folders to index; empty stands for the saved index's folders, or the
     /// home folder.
     pub roots: Vec<PathBuf>,
-    pub excludes: Vec<PathBuf>,
+    /// Excluded folders, file filters and their switch.
+    pub rules: RuleSpec,
     /// Whether these are the saved settings. False for a window started with
     /// its own `--root` or `--index-file`: its changes are not saved.
     pub saved: bool,
@@ -63,25 +64,22 @@ impl IndexSetup {
         if roots.is_empty() && index_file.is_none() {
             Self {
                 roots: s.roots.clone(),
-                excludes: s.excludes.clone(),
+                rules: s.rule_spec(),
                 saved: true,
             }
         } else {
             Self {
                 roots: roots.to_vec(),
-                excludes: Vec::new(),
+                rules: RuleSpec::default(),
                 saved: false,
             }
         }
     }
 
-    /// The rules for the excluded folders.
+    /// The compiled rules. The saved ones were checked when they were
+    /// read, so they compile; anything else leaves nothing out.
     pub fn rules(&self) -> IndexRules {
-        IndexRules::new(RuleSpec {
-            folders: self.excludes.clone(),
-            ..RuleSpec::default()
-        })
-        .unwrap_or_default()
+        IndexRules::new(self.rules.clone()).unwrap_or_default()
     }
 
     /// Changes the folders, and the settings file at `path` when they are
@@ -89,15 +87,15 @@ impl IndexSetup {
     pub fn change(
         &mut self,
         roots: Vec<PathBuf>,
-        excludes: Vec<PathBuf>,
+        rules: RuleSpec,
         path: Option<&Path>,
     ) -> std::io::Result<()> {
         self.roots = roots;
-        self.excludes = excludes;
+        self.rules = rules;
         match path {
             Some(path) if self.saved => settings::update(path, |s| {
                 s.roots = self.roots.clone();
-                s.excludes = self.excludes.clone();
+                s.set_rule_spec(&self.rules);
             })
             .map(drop),
             _ => Ok(()),
@@ -116,6 +114,8 @@ pub struct Prefs {
     read_error: Option<String>,
     /// The last problem, shown in the settings window.
     error: RefCell<String>,
+    /// Why the last change of the rules was refused, shown next to them.
+    rule_error: RefCell<String>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
     choosing: Cell<bool>,
@@ -194,6 +194,7 @@ impl Prefs {
             index: RefCell::new(index),
             read_error,
             error: RefCell::new(error),
+            rule_error: RefCell::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
             engine,
@@ -393,18 +394,89 @@ impl Prefs {
         }
     }
 
-    /// Changes the folders to index and rebuilds the index.
-    fn set_index(&self, roots: Vec<PathBuf>, excludes: Vec<PathBuf>) {
+    /// Changes the folders to index and the rules, and rebuilds the index.
+    /// Rules that do not compile change nothing: the reason is shown on the
+    /// Indexing page and false returned.
+    fn set_index(&self, roots: Vec<PathBuf>, rules: RuleSpec) -> bool {
+        if let Err(e) = IndexRules::new(rules.clone()) {
+            *self.rule_error.borrow_mut() = labels::bad_rule(&e);
+            self.refresh();
+            return false;
+        }
+        self.rule_error.borrow_mut().clear();
         let result = if self.read_error.is_some() && self.index.borrow().saved {
-            self.index.borrow_mut().change(roots, excludes, None)
+            self.index.borrow_mut().change(roots, rules, None)
         } else {
             let path = self.path.clone();
             self.index
                 .borrow_mut()
-                .change(roots, excludes, path.as_deref())
+                .change(roots, rules, path.as_deref())
         };
         self.set_error(result.err().map(|e| labels::cannot_save(&e)));
         self.rebuild();
+        true
+    }
+
+    /// The rules being edited, with `f` applied.
+    fn rules_with(&self, f: impl FnOnce(&mut RuleSpec)) -> RuleSpec {
+        let mut rules = self.index.borrow().rules.clone();
+        f(&mut rules);
+        rules
+    }
+
+    /// The Indexing page's switch or file filters changed.
+    fn rules_changed(&self) {
+        let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
+            return;
+        };
+        let Some(w) = w.upgrade() else { return };
+        let rules = self.rules_with(|r| {
+            r.enabled = w.get_use_excludes();
+            r.include_files = w.get_include_files().trim().to_owned();
+            r.exclude_files = w.get_exclude_files().trim().to_owned();
+        });
+        if rules == self.index.borrow().rules {
+            self.rule_error.borrow_mut().clear();
+            self.refresh();
+            return;
+        }
+        let roots = self.index.borrow().roots.clone();
+        if self.set_index(roots, rules) {
+            self.fill_rule_texts(&w);
+        }
+    }
+
+    /// Adds a folder pattern typed on the Indexing page.
+    fn add_exclude_pattern(&self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let item = PathBuf::from(text);
+        if self.index.borrow().rules.folders.contains(&item) {
+            self.clear_pattern_field();
+            return;
+        }
+        let rules = self.rules_with(|r| r.folders.push(item));
+        let roots = self.index.borrow().roots.clone();
+        if self.set_index(roots, rules) {
+            self.clear_pattern_field();
+        }
+    }
+
+    fn clear_pattern_field(&self) {
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_exclude_pattern("".into());
+        }
+    }
+
+    /// Puts the saved file filters into the text fields. Not part of
+    /// [`fill`](Self::fill), which runs on every index state change and
+    /// would undo typing.
+    fn fill_rule_texts(&self, w: &SettingsWindow) {
+        let index = self.index.borrow();
+        w.set_include_files(index.rules.include_files.as_str().into());
+        w.set_exclude_files(index.rules.exclude_files.as_str().into());
     }
 
     fn rebuild(&self) {
@@ -442,6 +514,7 @@ impl Prefs {
             w.set_page(page.min(PAGES.len() - 1) as i32);
         }
         self.fill(w);
+        self.fill_rule_texts(w);
         // As for the main window (see `raise` in main.rs): showing again
         // gives a new surface, which GNOME brings to the front.
         let _ = w.hide();
@@ -470,8 +543,10 @@ impl Prefs {
         let index = self.index.borrow();
         w.set_roots(items(&roots));
         w.set_roots_count(labels::folder_count(roots.len()).into());
-        w.set_excludes(items(&index.excludes));
-        w.set_excludes_count(labels::folder_count(index.excludes.len()).into());
+        w.set_excludes(items(&index.rules.folders));
+        w.set_excludes_count(labels::folder_count(index.rules.folders.len()).into());
+        w.set_use_excludes(index.rules.enabled);
+        w.set_rule_error(self.rule_error.borrow().as_str().into());
         w.set_index_note(if index.saved {
             "".into()
         } else {
@@ -614,18 +689,28 @@ impl Prefs {
             let mut roots = p.shown_roots();
             if i < roots.len() && roots.len() > 1 {
                 roots.remove(i);
-                let excludes = p.index.borrow().excludes.clone();
-                p.set_index(roots, excludes);
+                let rules = p.index.borrow().rules.clone();
+                p.set_index(roots, rules);
             }
         }));
         w.on_remove_exclude(on_index(|p, i| {
-            let mut excludes = p.index.borrow().excludes.clone();
-            if i < excludes.len() {
-                excludes.remove(i);
+            if i < p.index.borrow().rules.folders.len() {
+                let rules = p.rules_with(|r| {
+                    r.folders.remove(i);
+                });
                 let roots = p.index.borrow().roots.clone();
-                p.set_index(roots, excludes);
+                p.set_index(roots, rules);
             }
         }));
+        w.on_rules_changed(on(|p| p.rules_changed()));
+        w.on_add_exclude_pattern({
+            let me = me.clone();
+            move |text| {
+                if let Some(p) = me.upgrade() {
+                    p.add_exclude_pattern(&text);
+                }
+            }
+        });
         w.on_rebuild(on(|p| p.rebuild()));
         w.on_drives_changed(on(|p| p.drives_changed()));
         w.on_forget_drive(on_index(|p, i| {
@@ -880,11 +965,15 @@ impl Prefs {
                 .set_drive_settings(self.settings.borrow().drives.clone());
             let saved = self.index.borrow().saved;
             if saved {
-                self.set_index(Vec::new(), Vec::new());
+                self.set_index(Vec::new(), RuleSpec::default());
             } else {
                 // A command-line window goes back to its own folders.
                 let roots = self.index.borrow().roots.clone();
-                self.set_index(roots, Vec::new());
+                self.set_index(roots, RuleSpec::default());
+            }
+            if let Some(w) = self.window.borrow().as_ref() {
+                self.fill_rule_texts(w);
+                w.set_exclude_pattern("".into());
             }
             return;
         }
@@ -933,18 +1022,18 @@ impl Prefs {
             .iter()
             .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()));
         let mut list_roots = self.shown_roots();
-        let mut excludes = self.index.borrow().excludes.clone();
+        let mut rules = self.index.borrow().rules.clone();
         if roots {
             list_roots.extend(chosen);
             list_roots = normalize_roots(&list_roots);
         } else {
             for c in chosen {
-                if !excludes.contains(&c) {
-                    excludes.push(c);
+                if !rules.folders.contains(&c) {
+                    rules.folders.push(c);
                 }
             }
         }
-        self.set_index(list_roots, excludes);
+        self.set_index(list_roots, rules);
     }
 
     /// Whether closing the main window should only hide it.
@@ -1001,11 +1090,14 @@ mod tests {
             let mut setup = IndexSetup::new(&roots, file.as_deref(), &saved);
             assert!(!setup.saved);
             assert_eq!(setup.roots, roots);
-            assert!(setup.excludes.is_empty(), "saved excludes stay out");
+            assert_eq!(setup.rules, RuleSpec::default(), "saved excludes stay out");
             setup
                 .change(
                     vec![PathBuf::from("/tmp/demo"), PathBuf::from("/tmp/more")],
-                    vec![PathBuf::from("/tmp/demo/x")],
+                    RuleSpec {
+                        folders: vec![PathBuf::from("/tmp/demo/x")],
+                        ..RuleSpec::default()
+                    },
                     Some(&path),
                 )
                 .unwrap();
@@ -1022,16 +1114,27 @@ mod tests {
         let mut setup = IndexSetup::new(&[], None, &s);
         assert!(setup.saved);
         assert_eq!(setup.roots, [PathBuf::from("/home/me")]);
-        assert_eq!(setup.excludes, [PathBuf::from("/home/me/tmp")]);
+        assert_eq!(setup.rules.folders, [PathBuf::from("/home/me/tmp")]);
+        let rules = RuleSpec {
+            enabled: false,
+            folders: vec!["*.git".into()],
+            include_files: String::new(),
+            exclude_files: "*.tmp".into(),
+        };
         setup
-            .change(vec![PathBuf::from("/srv")], Vec::new(), Some(&path))
+            .change(vec![PathBuf::from("/srv")], rules.clone(), Some(&path))
             .unwrap();
         let back = Settings::load(&path).unwrap();
         assert_eq!(back.roots, [PathBuf::from("/srv")]);
-        assert!(back.excludes.is_empty());
+        assert_eq!(back.rule_spec(), rules);
+        assert_eq!(
+            IndexSetup::new(&[], None, &back).rules(),
+            IndexRules::new(rules).unwrap()
+        );
         // Without saved folders the window keeps today's behaviour.
         let setup = IndexSetup::new(&[], None, &Settings::default());
-        assert!(setup.saved && setup.roots.is_empty() && setup.excludes.is_empty());
+        assert!(setup.saved && setup.roots.is_empty());
+        assert_eq!(setup.rules, RuleSpec::default());
     }
 
     #[test]
