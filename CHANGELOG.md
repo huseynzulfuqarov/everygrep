@@ -40,7 +40,10 @@ First version, 0.1.0, not released yet.
 ### Query language
 
 - AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
-- Wildcards `*` and `?` matched against the whole name.
+- Wildcards `*` and `?` matched against the whole name. **Behaviour
+  change:** against the full path `*` and `?` no longer cross a `/`; `**`
+  does (`path:/home/me/*.txt` no longer finds files in subfolders), as in the
+  exclude patterns.
 - Case, whole-word, full-path and diacritic modes, per term (`case:`, `wholeword:`,
   `path:`, `diacritics:` and their `no…:` forms) or for the whole query.
 - `file:`, `folder:`, `ext:`, `size:` (folders by total size) and

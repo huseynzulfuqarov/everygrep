@@ -6,7 +6,8 @@
 //! !draft              not
 //! <a b>|c             grouping
 //! "two words"         quotes make spaces and operators literal
-//! *.pdf  img_??.png   wildcards match the whole name
+//! *.pdf  img_??.png   wildcards match the whole name; in a path * and ?
+//!                     stop at /, ** does not
 //! case:Readme         match case for this term
 //! wholeword:art              whole words only: "art" but not "party"
 //! diacritics:café     match diacritics: "café" but not "cafe"
@@ -749,6 +750,9 @@ pub fn merge_spans(mut spans: Vec<std::ops::Range<usize>>) -> Vec<std::ops::Rang
 /// for the match [`glob_match`] finds, as byte ranges in order; `None`
 /// when it does not match.
 fn glob_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usize>>> {
+    if subject.contains(&b'/') {
+        return glob_path_marks(pattern, subject);
+    }
     let (mut p, mut s) = (0, 0);
     // Pattern and subject position after the last `*`, and the marks made
     // before it, which a retry keeps.
@@ -846,8 +850,16 @@ impl Mapped {
 }
 
 /// Matches a whole subject against a pattern where `*` is any run of characters
-/// and `?` is exactly one character (one UTF-8 sequence).
+/// except `/`, `**` any run including `/`, and `?` exactly one character (one
+/// UTF-8 sequence) other than `/`. In a name, which has no `/`, `**` is the
+/// same as `*`.
 pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
+    if subject.contains(&b'/') {
+        return glob_path_table(pattern, subject)
+            .1
+            .last()
+            .is_some_and(|row| row[subject.len()]);
+    }
     let (mut p, mut s) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
     while s < subject.len() {
@@ -876,6 +888,117 @@ pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
         }
     }
     pattern[p.min(pattern.len())..].iter().all(|&c| c == b'*')
+}
+
+/// One part of a wildcard pattern matched against a path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GlobPart {
+    Byte(u8),
+    /// `?`: one character other than `/`.
+    One,
+    /// `*`: any run of characters without `/`.
+    Star,
+    /// `**` (or more stars): any run of characters.
+    Stars,
+}
+
+/// The parts of `pattern` and the table of which prefixes match: row `i`,
+/// column `j` says whether the first `i` parts match `subject[..j]`. Only the
+/// starts of characters are positions for `?` and the stars.
+fn glob_path_table(pattern: &[u8], subject: &[u8]) -> (Vec<GlobPart>, Vec<Vec<bool>>) {
+    let mut parts = Vec::with_capacity(pattern.len());
+    let mut i = 0;
+    while i < pattern.len() {
+        let part = match pattern[i] {
+            b'*' if pattern.get(i + 1) == Some(&b'*') => {
+                while pattern.get(i + 1) == Some(&b'*') {
+                    i += 1;
+                }
+                GlobPart::Stars
+            }
+            b'*' => GlobPart::Star,
+            b'?' => GlobPart::One,
+            b => GlobPart::Byte(b),
+        };
+        parts.push(part);
+        i += 1;
+    }
+    let n = subject.len();
+    let mut table = Vec::with_capacity(parts.len() + 1);
+    let mut row = vec![false; n + 1];
+    row[0] = true;
+    for &part in &parts {
+        let mut next = vec![false; n + 1];
+        match part {
+            GlobPart::Byte(b) => {
+                for j in 0..n {
+                    next[j + 1] = row[j] && subject[j] == b;
+                }
+            }
+            GlobPart::One | GlobPart::Star | GlobPart::Stars => {
+                let mut j = 0;
+                if part != GlobPart::One {
+                    next[0] = row[0];
+                }
+                while j < n {
+                    let end = (j + char_len(subject[j])).min(n);
+                    let from = if part == GlobPart::One {
+                        row[j]
+                    } else {
+                        next[j]
+                    };
+                    let allowed = part == GlobPart::Stars || subject[j] != b'/';
+                    if part != GlobPart::One {
+                        // Bytes inside a character are not positions.
+                        next[end] = row[end] || (from && allowed);
+                    } else if from && allowed {
+                        next[end] = true;
+                    }
+                    j = end;
+                }
+            }
+        }
+        table.push(std::mem::replace(&mut row, next));
+    }
+    table.push(row);
+    (parts, table)
+}
+
+/// [`glob_marks`] for a subject with `/` (a path).
+fn glob_path_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usize>>> {
+    let (parts, table) = glob_path_table(pattern, subject);
+    if !table[parts.len()][subject.len()] {
+        return None;
+    }
+    // Walk back from the end; each step keeps the table true.
+    let mut marks = Vec::new();
+    let mut j = subject.len();
+    for (i, part) in parts.iter().enumerate().rev() {
+        let row = &table[i];
+        j = match part {
+            GlobPart::Byte(_) => {
+                marks.push(j - 1);
+                j - 1
+            }
+            GlobPart::One => (0..j).rev().find(|&k| {
+                row[k] && subject[k] != b'/' && (k + char_len(subject[k])).min(subject.len()) == j
+            })?,
+            GlobPart::Star => (0..=j)
+                .rev()
+                .take_while(|&k| k == j || subject[k] != b'/')
+                .find(|&k| row[k])?,
+            GlobPart::Stars => (0..=j).rev().find(|&k| row[k])?,
+        };
+    }
+    marks.reverse();
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for at in marks {
+        match ranges.last_mut() {
+            Some(last) if last.end == at => last.end = at + 1,
+            _ => ranges.push(at..at + 1),
+        }
+    }
+    Some(ranges)
 }
 
 /// Length of the UTF-8 sequence that starts with `b` (1 for invalid bytes).
@@ -1152,11 +1275,11 @@ impl Parser {
         }
         if glob && prefix != suffix {
             // A pattern matches the whole name; open the side that is not
-            // anchored.
+            // anchored, across folders of a path too.
             if prefix {
-                pattern.push(b'*');
+                pattern.extend_from_slice(b"**");
             } else {
-                pattern.insert(0, b'*');
+                pattern.splice(0..0, *b"**");
             }
         }
         Ok(Some(Node::Leaf(Pred::Text(TextPred {
@@ -1932,6 +2055,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn path_wildcards_stop_at_slashes_unless_doubled() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/home/u", true, Meta::default());
+        store.add(Some(root), b"a.txt", false, Meta::default());
+        let a = store.add(Some(root), b"a", true, Meta::default());
+        let b = store.add(Some(a), b"b", true, Meta::default());
+        store.add(Some(b), b"c.txt", false, Meta::default());
+        store.add(Some(root), b"xyz", true, Meta::default());
+        store.add(Some(root), "şə".as_bytes(), true, Meta::default());
+        let t = Tree { store };
+        assert_eq!(t.find("path:/home/u/*.txt"), ["a.txt"]);
+        assert_eq!(t.find("path:/home/u/**.txt"), ["a.txt", "c.txt"]);
+        assert_eq!(t.find("path:/home/u/**/c.txt"), ["c.txt"]);
+        assert_eq!(t.find("path:/home/u/*/*/*.txt"), ["c.txt"]);
+        assert_eq!(t.find("path:/home/u/?/b/c.txt"), ["c.txt"]);
+        // `?` is one character, never a `/`: "a/b" is not three of them.
+        assert_eq!(t.find("path:/home/u/???"), ["xyz"]);
+        assert_eq!(t.find("path:/home/u/??"), ["şə"]);
+        assert_eq!(t.find("/home/u/*"), ["a", "a.txt", "xyz", "şə"]);
+        // An open side of prefix or suffix crosses folders.
+        assert_eq!(
+            t.find("prefix:path:/home/u/a*"),
+            ["a", "a.txt", "b", "c.txt"]
+        );
+        assert_eq!(t.find("suffix:path:b/*.txt"), ["c.txt"]);
+        // Names have no `/`: `**` is the same as `*` there.
+        assert_eq!(t.find("**.txt"), ["a.txt", "c.txt"]);
+        assert!(glob_match(b"/a/**", b"/a/b/c"));
+        assert!(!glob_match(b"/a/*", b"/a/b/c"));
+        assert!(glob_match(b"/a/*/c", b"/a/b/c"));
+        assert!(!glob_match("/?/??".as_bytes(), "/a/€".as_bytes()));
+        assert!(glob_match(b"**/c", b"/a/b/c"));
+        // Highlighting follows the same rule.
+        let path = "/home/u/a/b/c.txt";
+        assert_eq!(
+            path_spans(path, "path:/home/u/**/c.txt"),
+            [(0, 8), (11, 17)]
+        );
+        assert_eq!(path_spans(path, "path:/home/u/*/c.txt"), Vec::new());
+    }
+
     /// Nanoseconds of a local time with a known UTC offset in hours.
     fn at(y: i64, m: u32, d: u32, h: i64, min: i64, offset_h: i64) -> i64 {
         let secs = days_from_civil(y, m, d) * 86_400 + h * 3600 + min * 60 - offset_h * 3600;
@@ -2201,7 +2366,7 @@ mod tests {
         assert_eq!(spans("main-src.rs", "path:src"), Vec::new());
         // Prefix anchors at the start of the path, wildcards match all of it.
         assert_eq!(path_spans(path, "prefix:path:/home"), [(0, 5)]);
-        assert_eq!(path_spans(path, "path:/home/*.rs"), [(0, 6), (21, 24)]);
+        assert_eq!(path_spans(path, "path:/home/**.rs"), [(0, 6), (21, 24)]);
         assert_eq!(path_spans(path, r"path:regex:/s\w+"), [(8, 12)]);
         // The whole query on the path.
         let o = with(|o| o.match_path = true);

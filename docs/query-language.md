@@ -39,6 +39,14 @@ pattern that must match the **whole** name: `*.pdf` finds names ending in
 `.pdf`, `img_??.png` finds `img_01.png` but not `img_001.png`. Inside quotes
 `*` and `?` are literal.
 
+Against the full path (`path:`, a term with `/`, or the full path mode), `*`
+and `?` do not cross a `/`, and `**` matches any run including `/`, the same
+rule as the index's exclude patterns: `path:/home/me/*.txt` finds
+`/home/me/a.txt` but not `/home/me/docs/a.txt`, `path:/home/me/**.txt` finds
+both, `path:/home/me/**/a.txt` the second. In a name, which has no `/`, `**`
+is the same as `*`. The open side of `prefix:` or `suffix:` crosses folders:
+`prefix:path:/home/me/d*` also finds all entries below `/home/me/docs`.
+
 ## Modifiers
 
 A modifier is written before a term, `name:term`, and can be stacked
