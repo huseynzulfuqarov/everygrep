@@ -93,8 +93,10 @@ First version, 0.1.0, not released yet.
   folder of the results: never replaces (a taken name becomes
   `name (2).ext`), copies through a temporary name, moves across file
   systems by copying and then removing only what was copied, with progress
-  and Cancel in the status line. Other programs get the full paths as
-  text. The name moved to `Ctrl+Alt+C`.
+  and Cancel in the status line. Other programs get the files through the
+  XWayland clipboard (`x-special/gnome-copied-files`, `text/uri-list` and
+  the paths as text), and files cut or copied in a file manager paste here;
+  without XWayland, the paths as text. The name moved to `Ctrl+Alt+C`.
 - Copy path: the containing folders (`Ctrl+Alt+Shift+C`), next to copy
   name and copy full path.
 - Open with… (`Shift+Enter`): the desktop's application chooser, through

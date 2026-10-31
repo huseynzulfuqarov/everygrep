@@ -173,10 +173,15 @@ in the status line. A paste that takes longer shows its progress in the
 status line with a Cancel button; items already pasted stay. A folder is
 never pasted into itself.
 
-The toolkit can put only text on the clipboard so far, so other programs
-get the full paths as text, not as files: a file manager does not paste
-them as files. Paste here accepts text whose every line is an absolute path
-or a `file://` URI, as a copy.
+Other programs get the items as files: Cut and Copy offer them on the
+clipboard of XWayland (`DISPLAY`) as `x-special/gnome-copied-files`,
+`text/uri-list` and the full paths as text, which GNOME passes on to
+Wayland programs, so a file manager pastes them and a text field gets the
+paths. Files cut or copied in a file manager paste here the same way; a cut
+there becomes a move here, once. Without XWayland the toolkit's clipboard
+is used, which takes text only: other programs get the full paths as text,
+and Paste here accepts text whose every line is an absolute path or a
+`file://` URI, as a copy.
 
 File → Export results… (`Ctrl+S`) saves the listed results, in the shown
 order, through the desktop's save dialog. A name ending in `.csv` (or the
@@ -396,7 +401,7 @@ collects nothing. It stores:
 It talks to other programs only on this computer: the session bus (single
 window, desktop portals for the folder chooser, the save dialog of the
 export, the application chooser of "open with" and the light or dark style,
-the file manager), `xdg-open` to open files and `gio trash` to move them to
+the file manager), the XWayland display for files on the clipboard, `xdg-open` to open files and `gio trash` to move them to
 the trash.
 
 ## Building

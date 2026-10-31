@@ -18,6 +18,7 @@ mod results;
 mod selection;
 mod settings;
 mod transfer;
+mod x11clip;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
@@ -384,6 +385,8 @@ fn main() -> Result<(), slint::PlatformError> {
         Timer::single_shot(SETTINGS_DELAY, move || prefs.open(Some(page)));
     }
     slint::run_event_loop_until_quit()?;
+    // Gives the clipboard up and closes the XWayland connection.
+    X11.with(|x| x.borrow_mut().take());
     window.hide()?;
     engine.shutdown();
     Ok(())
@@ -853,6 +856,47 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
 thread_local! {
     /// Files this window put on the clipboard with Cut or Copy.
     static HELD: RefCell<Option<clipboard::Held>> = RefCell::default();
+    /// The XWayland clipboard: connected on first use, `Some(None)` when
+    /// there is none.
+    static X11: RefCell<Option<Option<x11clip::X11Clipboard>>> = RefCell::default();
+    /// Files of another program's cut that were moved here already; the
+    /// same cut pasted again counts as a copy.
+    static CUT_PASTED: RefCell<Option<Vec<PathBuf>>> = RefCell::default();
+}
+
+/// Runs `f` with the XWayland clipboard, connecting on first use.
+fn with_x11<R>(f: impl FnOnce(Option<&x11clip::X11Clipboard>) -> R) -> R {
+    X11.with(|x| {
+        let mut x = x.borrow_mut();
+        let clip = x.get_or_insert_with(x11clip::X11Clipboard::connect);
+        f(clip.as_ref())
+    })
+}
+
+/// What Paste pastes: our own files while we hold the clipboard, else
+/// another program's from the XWayland clipboard, else files written as
+/// text on Slint's clipboard.
+fn files_to_paste(w: &AppWindow) -> Option<(clipboard::Operation, Vec<PathBuf>)> {
+    let held = || HELD.with(|h| h.borrow().as_ref().map(|h| (h.op, h.paths.clone())));
+    let from_x11 = with_x11(|x| {
+        let x = x?;
+        Some(if x.owns() { held() } else { x.read() })
+    });
+    let found = match from_x11 {
+        Some(Some(found)) => Some(found),
+        _ => {
+            let text = w.invoke_paste_text().to_string();
+            HELD.with(|h| clipboard::to_paste(h.borrow().as_ref(), &text))
+        }
+    };
+    found.map(|(op, paths)| {
+        let again = CUT_PASTED.with(|c| c.borrow().as_ref() == Some(&paths));
+        if op == clipboard::Operation::Cut && again {
+            (clipboard::Operation::Copy, paths)
+        } else {
+            (op, paths)
+        }
+    })
 }
 
 /// Cut, Copy and Paste of files (see [`clipboard`]). Paste copies or moves
@@ -876,11 +920,15 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             if paths.is_empty() {
                 return;
             }
-            // Other programs get the full paths as text.
             let text = actions::paths_text(&paths);
-            w.invoke_copy_text(text.as_str().into());
-            info(&w, labels::on_clipboard(op, paths.len()));
-            HELD.with(|h| *h.borrow_mut() = Some(clipboard::Held { op, paths, text }));
+            let held = clipboard::Held { op, paths, text };
+            // Other programs get the files through XWayland; without it,
+            // the full paths as text.
+            if !with_x11(|x| x.is_some_and(|x| x.offer(held.clone()))) {
+                w.invoke_copy_text(held.text.as_str().into());
+            }
+            info(&w, labels::on_clipboard(op, held.paths.len()));
+            HELD.with(|h| *h.borrow_mut() = Some(held));
         }
     };
     let put = Rc::new(put);
@@ -911,10 +959,7 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                     return;
                 }
             };
-            let text = w.invoke_paste_text().to_string();
-            let Some((op, sources)) =
-                HELD.with(|h| clipboard::to_paste(h.borrow().as_ref(), &text))
-            else {
+            let Some((op, sources)) = files_to_paste(&w) else {
                 error(&w, tr("The clipboard holds no files to paste.").into());
                 return;
             };
@@ -946,12 +991,18 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                     // A cut is pasted once; after a failure or a cancel it
                     // stays, so pasting again moves what is left.
                     if op == clipboard::Operation::Cut && out.failed.is_empty() && !out.cancelled {
-                        HELD.with(|h| {
+                        let ours = HELD.with(|h| {
                             let mut h = h.borrow_mut();
-                            if h.as_ref().is_some_and(|h| h.paths == sources) {
+                            let ours = h.as_ref().is_some_and(|h| h.paths == sources);
+                            if ours {
                                 *h = None;
                             }
+                            ours
                         });
+                        if ours {
+                            with_x11(|x| x.map(|x| x.clear()));
+                        }
+                        CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
                     }
                 });
             });

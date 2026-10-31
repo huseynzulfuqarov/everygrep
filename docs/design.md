@@ -212,9 +212,10 @@ results and pastes into it. It never replaces anything: a taken name gets
 the first free `name (N).ext`, from 2. Copies are written under a temporary
 name and renamed into place when complete; a move across file systems
 copies first and then removes only what was copied. A cut is pasted once.
-Slint 1.18 puts only text on the clipboard and cannot start a drag to
-other programs, so other programs get the full paths as text and dragging
-results out is planned. "Open with" shows the desktop's own application
+Slint 1.18 puts only text on the clipboard, so files are offered through
+the X11 clipboard of XWayland, which GNOME passes on to Wayland programs;
+without XWayland other programs get the full paths as text. Slint cannot
+start a drag to other programs yet, so dragging results out is planned. "Open with" shows the desktop's own application
 chooser (the OpenURI portal with `ask`), never a list of ours.
 
 Rename refuses a name that already exists in the folder and shows the reason in

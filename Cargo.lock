@@ -1106,6 +1106,7 @@ dependencies = [
  "everygrep-core",
  "slint",
  "slint-build",
+ "x11rb",
  "zbus",
 ]
 

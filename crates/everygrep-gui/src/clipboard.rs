@@ -3,12 +3,14 @@
 //! File managers put files on the clipboard in two formats:
 //! `x-special/gnome-copied-files` (`copy` or `cut`, then one `file://` URI
 //! per line) and `text/uri-list` (RFC 2483: one URI per line, each ended by
-//! CR LF). Slint 1.18 can only put plain text on the clipboard, so Cut and
-//! Copy put the full paths there as text and remember the files and the
-//! operation here; Paste in this window uses what was remembered while the
-//! clipboard still holds that text. Text from elsewhere is accepted when
-//! every line is a file: an absolute path, a `file://` URI, or one of the
-//! two formats above written as text.
+//! CR LF). Slint 1.18 can only put plain text on the clipboard, so these are
+//! offered through the X11 clipboard of XWayland (see [`crate::x11clip`]).
+//! The window also remembers the files and the operation here. Without
+//! XWayland, Cut and Copy put the full paths on the clipboard as text, and
+//! Paste in this window uses what was remembered while the clipboard still
+//! holds that text. Text from elsewhere is accepted when every line is a
+//! file: an absolute path, a `file://` URI, or one of the two formats above
+//! written as text.
 
 use std::path::PathBuf;
 
@@ -26,10 +28,6 @@ pub enum Operation {
 
 /// The `x-special/gnome-copied-files` payload: `copy` or `cut`, then one
 /// URI per line, with no line end after the last.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the clipboard takes text only so far")
-)]
 pub fn gnome_copied_files(op: Operation, paths: &[PathBuf]) -> Vec<u8> {
     let mut out = String::from(match op {
         Operation::Copy => "copy",
@@ -43,10 +41,6 @@ pub fn gnome_copied_files(op: Operation, paths: &[PathBuf]) -> Vec<u8> {
 }
 
 /// The `text/uri-list` payload: one URI per line, each ended by CR LF.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the clipboard takes text only so far")
-)]
 pub fn uri_list(paths: &[PathBuf]) -> Vec<u8> {
     let mut out = String::new();
     for path in paths {

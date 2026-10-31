@@ -26,6 +26,10 @@ zbus = { version = "5.19", default-features = false, features = [
     "async-io",
     "blocking-api",
 ] }
+# Files on the XWayland clipboard (see src/x11clip.rs). Same version as
+# the copy Slint's clipboard already uses, without features, so no new
+# crates.
+x11rb = { version = "0.13.2", default-features = false }
 
 [build-dependencies]
 slint-build = "1.18"
