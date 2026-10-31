@@ -45,7 +45,7 @@ whole path (`/home/me`); every other name is one path component, and a path is
 the names from the root down joined by `/`. Symbolic links are stored as
 files, with the size `lstat` reports (the length of the target path).
 
-The name order sorts by the case- and diacritic-folded name, then the raw
+The name order sorts by the case-folded name (diacritics kept), then the raw
 name, then the parent, which is the order searches walk through.
 
 ## Folder sizes

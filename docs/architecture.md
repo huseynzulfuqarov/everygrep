@@ -26,9 +26,10 @@ Nodes live in parallel columns indexed by a `NodeId` (u32):
 
 - `parent_kind`: the parent id + 1 (0 for a root), a folder bit and a
   removed bit, packed in one u32;
-- the name as a range of a shared byte pool, and a case- and
-  diacritic-folded copy of it for matching, stored only when it differs
-  from the raw name;
+- the name as a range of a shared byte pool, and a case-folded copy of it
+  for matching, stored only when it differs from the raw name (diacritics
+  are not removed in it; a term that ignores them strips them from the
+  name while matching, which costs nothing for ASCII names);
 - size and modification time (nanoseconds);
 - first-child and sibling links, so a subtree can be removed in time
   proportional to its size;

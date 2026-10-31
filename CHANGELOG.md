@@ -11,7 +11,7 @@ First version, 0.1.0, not released yet.
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names
-  stored once and a case- and diacritic-folded copy for matching.
+  stored once and a case-folded copy for matching.
 - Parallel search over the name-sorted order on all CPU cores.
 - Directory scanner that never follows symbolic links and does not enter
   virtual file systems.
