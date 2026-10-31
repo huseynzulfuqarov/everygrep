@@ -49,7 +49,10 @@ First version, 0.1.0, not released yet.
 - `file:`, `folder:`, `ext:`, `size:` (folders by total size) and
   `modified:` with ages, local days, months, years and inclusive ranges.
 - Filters for audio, archives, code, documents, executables, folders,
-  pictures and videos, from the name.
+  images and videos, from the name. The kinds know more extensions (for
+  example `.au`, `.chm`, `.mht`, `.vsd`, `.jxr`, `.wmf`, `.m2t`, `.vob`).
+  **Behaviour change:** `.desktop`, `.bat`, `.cmd` and `.ps1` are now
+  executables instead of code.
 - Prefix and suffix modes (`prefix:`, `suffix:`) that anchor a term at the
   start or end of the name, also for wildcard patterns.
 - Modes that ignore punctuation (`nopunct:`) or whitespace (`nospace:`) in

@@ -123,7 +123,7 @@ fn by_whole_name(name: &[u8]) -> Option<FileKind> {
         b"Makefile" | b"makefile" | b"GNUmakefile" | b"Dockerfile" | b"Containerfile"
         | b"PKGBUILD" | b"CMakeLists.txt" | b"Justfile" | b"justfile" | b"meson.build"
         | b"Cargo.lock" | b"bashrc" | b"zshrc" | b"profile" | b"gitignore" | b"gitattributes"
-        | b"editorconfig" => FileKind::Code,
+        | b"editorconfig" | b"go.mod" | b"go.sum" => FileKind::Code,
         b"README" | b"LICENSE" | b"COPYING" | b"AUTHORS" | b"CHANGELOG" | b"NEWS" | b"TODO" => {
             FileKind::Text
         }
@@ -141,40 +141,45 @@ fn by_extension(ext: &[u8]) -> Option<FileKind> {
         | "vtt" | "tex" | "bib" => FileKind::Text,
 
         // Word processing and e-books
-        "doc" | "docx" | "docm" | "dot" | "dotx" | "odt" | "ott" | "fodt" | "rtf" | "wpd"
-        | "pages" | "abw" | "epub" | "mobi" | "azw3" | "djvu" | "xps" | "oxps" => {
-            FileKind::Document
-        }
+        "doc" | "docx" | "docm" | "dot" | "dotx" | "dotm" | "odt" | "ott" | "fodt" | "rtf"
+        | "wpd" | "wps" | "pages" | "abw" | "epub" | "mobi" | "azw3" | "djvu" | "xps" | "oxps"
+        | "chm" | "mht" | "mhtml" | "vsd" => FileKind::Document,
 
         "pdf" => FileKind::Pdf,
 
-        "xls" | "xlsx" | "xlsm" | "xlsb" | "xlt" | "xltx" | "ods" | "ots" | "fods" | "csv"
-        | "tsv" | "numbers" => FileKind::Spreadsheet,
+        "xls" | "xlsx" | "xlsm" | "xlsb" | "xlt" | "xltx" | "xltm" | "ods" | "ots" | "fods"
+        | "csv" | "tsv" | "numbers" => FileKind::Spreadsheet,
 
-        "ppt" | "pptx" | "pptm" | "pps" | "ppsx" | "pot" | "potx" | "odp" | "otp" | "fodp"
-        | "key" => FileKind::Presentation,
+        "ppt" | "pptx" | "pptm" | "pps" | "ppsx" | "ppsm" | "pot" | "potx" | "potm" | "odp"
+        | "otp" | "fodp" | "key" => FileKind::Presentation,
 
         "png" | "apng" | "jpg" | "jpeg" | "jpe" | "jfif" | "gif" | "bmp" | "webp" | "avif"
         | "heic" | "heif" | "jxl" | "tif" | "tiff" | "svg" | "svgz" | "ico" | "icns" | "xcf"
         | "psd" | "kra" | "ora" | "raw" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "orf" | "rw2"
-        | "tga" | "qoi" | "exr" | "hdr" | "pbm" | "pgm" | "ppm" | "pnm" | "xpm" | "eps" | "ai" => {
-            FileKind::Image
-        }
+        | "tga" | "qoi" | "exr" | "hdr" | "pbm" | "pgm" | "ppm" | "pnm" | "xpm" | "eps" | "ai"
+        | "avifs" | "cur" | "dds" | "hif" | "jxr" | "pcx" | "psb" | "wmf" => FileKind::Image,
 
         "mp3" | "flac" | "ogg" | "oga" | "opus" | "wav" | "wave" | "aac" | "m4a" | "m4b"
         | "wma" | "aiff" | "aif" | "alac" | "ape" | "wv" | "mid" | "midi" | "mka" | "spx"
-        | "ac3" | "dts" | "amr" | "mpc" | "weba" | "m3u" | "m3u8" | "pls" | "cue" => {
-            FileKind::Audio
-        }
+        | "ac3" | "dts" | "amr" | "mpc" | "weba" | "m3u" | "m3u8" | "pls" | "cue" | "aifc"
+        | "au" | "mp2" | "ra" | "snd" => FileKind::Audio,
 
         "mp4" | "m4v" | "mkv" | "webm" | "avi" | "mov" | "wmv" | "flv" | "mpg" | "mpeg"
         | "m2ts" | "mts" | "3gp" | "3g2" | "ogv" | "vob" | "rmvb" | "f4v" | "asf" | "divx"
-        | "qt" => FileKind::Video,
+        | "qt" | "3gpp" | "m2t" | "m2v" | "mpe" | "ogm" | "rm" => FileKind::Video,
 
         "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "tbz" | "tbz2" | "xz" | "txz"
         | "zst" | "tzst" | "lz" | "lz4" | "lzma" | "z" | "cab" | "arj" | "lzh" | "cpio" | "ar"
         | "deb" | "rpm" | "apk" | "jar" | "war" | "whl" | "crate" | "gem" | "xpi" | "snap"
         | "flatpak" => FileKind::Archive,
+        // Parts of a split RAR archive.
+        r if r.len() == 3
+            && r.starts_with('r')
+            && r[1..].parse::<u8>().is_ok_and(|n| n <= 29)
+            && r.as_bytes()[1].is_ascii_digit() =>
+        {
+            FileKind::Archive
+        }
 
         "rs" | "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx" | "cs" | "java" | "kt"
         | "kts" | "scala" | "go" | "py" | "pyi" | "rb" | "php" | "pl" | "pm" | "lua" | "js"
@@ -184,13 +189,14 @@ fn by_extension(ext: &[u8]) -> Option<FileKind> {
         | "sass" | "less" | "json" | "jsonc" | "json5" | "yaml" | "yml" | "toml" | "ini"
         | "cfg" | "conf" | "xml" | "xsd" | "xsl" | "slint" | "qml" | "ui" | "glsl" | "wgsl"
         | "hlsl" | "proto" | "graphql" | "gradle" | "cmake" | "mk" | "nix" | "patch" | "diff"
-        | "fish" | "zsh" | "ps1" | "bat" | "cmd" | "asm" | "s" | "v" | "vhdl" | "sv" | "ipynb"
-        | "service" | "timer" | "socket" | "rules" | "desktop" => FileKind::Code,
+        | "fish" | "zsh" | "asm" | "s" | "v" | "vhdl" | "sv" | "ipynb" | "service" | "timer"
+        | "socket" | "rules" | "vb" => FileKind::Code,
 
         // Things that run when opened: scripts with a shebang by convention,
-        // self-contained Linux apps, Windows programs, shared libraries.
-        "sh" | "bash" | "run" | "bin" | "appimage" | "exe" | "msi" | "com" | "elf" | "out"
-        | "so" | "dll" => FileKind::Executable,
+        // self-contained Linux apps, desktop launchers, Windows programs and
+        // scripts, shared libraries.
+        "sh" | "bash" | "run" | "bin" | "appimage" | "desktop" | "exe" | "msi" | "com" | "bat"
+        | "cmd" | "ps1" | "vbs" | "elf" | "out" | "so" | "dll" => FileKind::Executable,
 
         "ttf" | "otf" | "ttc" | "otc" | "woff" | "woff2" | "pfb" | "pfa" | "bdf" | "pcf" => {
             FileKind::Font
@@ -277,7 +283,7 @@ mod tests {
             ("a.mkv", FileKind::Video),
             ("a.7z", FileKind::Archive),
             ("a.rs", FileKind::Code),
-            ("a.desktop", FileKind::Code),
+            ("a.desktop", FileKind::Executable),
             ("install.sh", FileKind::Executable),
             ("setup.exe", FileKind::Executable),
             ("a.woff2", FileKind::Font),

@@ -143,8 +143,10 @@ Notes:
   are checked first.
 - A leading dot is not an extension: `.bashrc` is matched as a known name,
   `.hidden` is a generic file, `.config.toml` is code.
-- `.ts` is TypeScript (code), not an MPEG transport stream; `.sh`, `.AppImage`,
-  `.run`, `.exe` are executables; `.desktop` and systemd units are code
-  (configuration text).
+- `.ts` is TypeScript (code), not an MPEG transport stream, `.rpm` a package
+  (archive), not a video, and `go.mod` code; `.sh`, `.AppImage`, `.run`,
+  `.desktop` launchers, `.exe` and Windows scripts (`.bat`, `.cmd`, `.ps1`,
+  `.vbs`) are executables; systemd units are code (configuration text).
+- Source code stays its own kind, not a document.
 - Symbolic links are not visible in the name; the caller sets `FileKind::Link`
   from metadata.
