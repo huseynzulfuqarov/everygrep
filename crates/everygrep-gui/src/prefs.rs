@@ -446,6 +446,16 @@ impl Prefs {
         }
     }
 
+    /// The Indexing page's "Watch for changes" switch changed.
+    fn watch_changed(&self) {
+        let Some(on) = self.window.borrow().as_ref().map(|w| w.get_watch_changes()) else {
+            return;
+        };
+        self.change(|s| s.watch_changes = on);
+        self.engine.set_watching(on);
+        self.refresh();
+    }
+
     /// Adds a folder pattern typed on the Indexing page.
     fn add_exclude_pattern(&self, text: &str) {
         let text = text.trim();
@@ -546,6 +556,7 @@ impl Prefs {
         w.set_excludes(items(&index.rules.folders));
         w.set_excludes_count(labels::folder_count(index.rules.folders.len()).into());
         w.set_use_excludes(index.rules.enabled);
+        w.set_watch_changes(self.settings.borrow().watch_changes);
         w.set_rule_error(self.rule_error.borrow().as_str().into());
         w.set_index_note(if index.saved {
             "".into()
@@ -703,6 +714,7 @@ impl Prefs {
             }
         }));
         w.on_rules_changed(on(|p| p.rules_changed()));
+        w.on_watch_changed(on(|p| p.watch_changed()));
         w.on_add_exclude_pattern({
             let me = me.clone();
             move |text| {
@@ -960,7 +972,11 @@ impl Prefs {
             _ => return,
         };
         if page == Page::Indexing {
-            self.change(|s| s.drives = Default::default());
+            self.change(|s| {
+                s.drives = Default::default();
+                s.watch_changes = true;
+            });
+            self.engine.set_watching(true);
             self.engine
                 .set_drive_settings(self.settings.borrow().drives.clone());
             let saved = self.index.borrow().saved;

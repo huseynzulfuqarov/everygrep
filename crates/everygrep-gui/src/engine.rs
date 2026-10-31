@@ -50,6 +50,8 @@ pub enum IndexState {
     Watching,
     /// Loaded, but changes are not watched (inotify unavailable).
     Static,
+    /// Loaded; watching for changes is turned off in the settings.
+    Unwatched,
 }
 
 /// The finished result of one search.
@@ -309,6 +311,8 @@ pub struct Engine {
     /// Set by [`Engine::reindex`]; the index thread scans again when it sees
     /// it.
     rescan: AtomicBool,
+    /// Whether file changes are watched (see [`Engine::set_watching`]).
+    watching: AtomicBool,
     index_file: Option<PathBuf>,
     /// Bumped for every new query; older results are dropped.
     generation: AtomicU64,
@@ -362,11 +366,13 @@ const SAVE_EVERY: Duration = Duration::from_secs(300);
 
 impl Engine {
     /// Creates the engine and starts loading in the background. Entries
-    /// that `rules` leave out are not indexed. With `drives`, removable
-    /// drives found there are indexed as the settings say.
+    /// that `rules` leave out are not indexed. With `watch`, file changes
+    /// are applied as they happen. With `drives`, removable drives found
+    /// there are indexed as the settings say.
     pub fn start(
         roots: Vec<PathBuf>,
         rules: IndexRules,
+        watch: bool,
         index_file: Option<PathBuf>,
         drives: Option<(DriveEnv, DriveSettings)>,
         mut hooks: Hooks,
@@ -384,6 +390,7 @@ impl Engine {
                 ..ScanOptions::default()
             }),
             rescan: AtomicBool::new(false),
+            watching: AtomicBool::new(watch),
             index_file: index_file.or_else(persist::default_path),
             generation: AtomicU64::new(0),
             query: Mutex::new(QueryState::default()),
@@ -559,6 +566,13 @@ impl Engine {
         self.rescan.store(true, Ordering::SeqCst);
     }
 
+    /// Starts or stops watching for file changes. Stopping removes every
+    /// inotify watch; starting again catches up with the changes made
+    /// meanwhile, then watches again.
+    pub fn set_watching(&self, on: bool) {
+        self.watching.store(on, Ordering::SeqCst);
+    }
+
     fn scan_options(&self) -> ScanOptions {
         self.options.lock().expect("lock").clone()
     }
@@ -722,49 +736,12 @@ impl Engine {
 
         let mut catch_up = loaded;
         while !self.stop.load(Ordering::SeqCst) {
-            let watcher = Watcher::new(
-                &self.index.read().expect("index lock"),
-                &self.scan_options(),
-            );
-            match watcher {
-                Ok(mut watcher) => {
-                    if catch_up || !drives_to_catch_up.is_empty() {
-                        self.report(IndexState::CatchingUp);
-                        let task = self.tasks.begin(TaskKind::Updating, false);
-                        let mut index = self.index.write().expect("index lock");
-                        let roots = if catch_up {
-                            online_roots(&index)
-                        } else {
-                            std::mem::take(&mut drives_to_catch_up)
-                        };
-                        task.progress()
-                            .set_total(Some(folders_below(&index, &roots)));
-                        let stats =
-                            watcher.catch_up_with_progress(&mut index, &roots, task.progress());
-                        drop(index);
-                        drop(task);
-                        if stats.added + stats.removed + stats.updated > 0 {
-                            self.dirty.store(true, Ordering::SeqCst);
-                            self.request_search();
-                        }
-                    }
-                    drives_to_catch_up.clear();
-                    self.report(IndexState::Watching);
-                    self.watch_loop(&mut watcher);
-                }
-                Err(_) => {
-                    self.report(IndexState::Static);
-                    while !self.stop.load(Ordering::SeqCst) && !self.rescan.load(Ordering::SeqCst) {
-                        std::thread::sleep(Duration::from_millis(250));
-                        if self.mounts_changed.swap(false, Ordering::SeqCst)
-                            && self.sync_drives(None).0
-                        {
-                            self.dirty.store(true, Ordering::SeqCst);
-                            self.request_search();
-                            self.report(IndexState::Static);
-                        }
-                    }
-                }
+            if !self.watching.load(Ordering::SeqCst) {
+                self.wait_unwatched();
+                // Turned on again: what changed meanwhile is caught up.
+                catch_up = true;
+            } else {
+                catch_up = self.watch_once(catch_up, &mut drives_to_catch_up);
             }
             if self.rescan.swap(false, Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst) {
                 if self.scan_fresh(TaskKind::Rescanning) {
@@ -781,6 +758,80 @@ impl Engine {
                     catch_up = true;
                     (self.hooks.on_stopped)(Stopped::Rescan);
                 }
+            }
+        }
+    }
+
+    /// Whether the index thread should leave its current loop: to stop, to
+    /// scan again, or because watching was turned on or off.
+    fn interrupted(&self, watching: bool) -> bool {
+        self.stop.load(Ordering::SeqCst)
+            || self.rescan.load(Ordering::SeqCst)
+            || self.watching.load(Ordering::SeqCst) != watching
+    }
+
+    /// Waits, without any watch, until watching is turned on, a rescan is
+    /// asked for or the engine stops. Drives still come and go.
+    fn wait_unwatched(&self) {
+        self.report(IndexState::Unwatched);
+        while !self.interrupted(false) {
+            std::thread::sleep(Duration::from_millis(250));
+            if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_drives(None).0 {
+                self.dirty.store(true, Ordering::SeqCst);
+                self.request_search();
+                self.report(IndexState::Unwatched);
+            }
+        }
+    }
+
+    /// Watches until interrupted, catching up first when `catch_up` is set
+    /// (or with the roots of drives that came online). The watcher and all
+    /// its watches are dropped on return. Returns whether a catch-up is
+    /// still due.
+    fn watch_once(&self, catch_up: bool, drives_to_catch_up: &mut Vec<NodeId>) -> bool {
+        let watcher = Watcher::new(
+            &self.index.read().expect("index lock"),
+            &self.scan_options(),
+        );
+        match watcher {
+            Ok(mut watcher) => {
+                if catch_up || !drives_to_catch_up.is_empty() {
+                    self.report(IndexState::CatchingUp);
+                    let task = self.tasks.begin(TaskKind::Updating, false);
+                    let mut index = self.index.write().expect("index lock");
+                    let roots = if catch_up {
+                        online_roots(&index)
+                    } else {
+                        std::mem::take(drives_to_catch_up)
+                    };
+                    task.progress()
+                        .set_total(Some(folders_below(&index, &roots)));
+                    let stats = watcher.catch_up_with_progress(&mut index, &roots, task.progress());
+                    drop(index);
+                    drop(task);
+                    if stats.added + stats.removed + stats.updated > 0 {
+                        self.dirty.store(true, Ordering::SeqCst);
+                        self.request_search();
+                    }
+                }
+                drives_to_catch_up.clear();
+                self.report(IndexState::Watching);
+                self.watch_loop(&mut watcher);
+                false
+            }
+            Err(_) => {
+                self.report(IndexState::Static);
+                while !self.interrupted(true) {
+                    std::thread::sleep(Duration::from_millis(250));
+                    if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_drives(None).0
+                    {
+                        self.dirty.store(true, Ordering::SeqCst);
+                        self.request_search();
+                        self.report(IndexState::Static);
+                    }
+                }
+                // Not caught up: nothing watched meanwhile.
+                catch_up
             }
         }
     }
@@ -846,7 +897,7 @@ impl Engine {
         let mut last_refresh = Instant::now();
         let mut last_save = Instant::now();
         let mut pending_refresh = false;
-        while !self.stop.load(Ordering::SeqCst) && !self.rescan.load(Ordering::SeqCst) {
+        while !self.interrupted(true) {
             if self.mounts_changed.swap(false, Ordering::SeqCst)
                 && self.sync_drives(Some(watcher)).0
             {
@@ -1444,7 +1495,12 @@ mod tests {
 
         /// Like [`start`](Self::start), cancelling the first task at once.
         fn start_armed(roots: Vec<PathBuf>, index: PathBuf) -> Self {
-            Self::start_full(roots, Vec::new(), index, None, true)
+            Self::start_full(roots, Vec::new(), index, None, true, true)
+        }
+
+        /// Like [`start`](Self::start), with watching turned off.
+        fn start_unwatched(roots: Vec<PathBuf>, index: PathBuf) -> Self {
+            Self::start_full(roots, Vec::new(), index, None, false, false)
         }
 
         fn start_with(
@@ -1453,7 +1509,7 @@ mod tests {
             index: PathBuf,
             drives: Option<(DriveEnv, DriveSettings)>,
         ) -> Self {
-            Self::start_full(roots, exclude, index, drives, false)
+            Self::start_full(roots, exclude, index, drives, false, true)
         }
 
         fn start_full(
@@ -1462,6 +1518,7 @@ mod tests {
             index: PathBuf,
             drives: Option<(DriveEnv, DriveSettings)>,
             armed: bool,
+            watch: bool,
         ) -> Self {
             let (state_tx, states) = mpsc::channel();
             let (result_tx, results) = mpsc::channel();
@@ -1500,7 +1557,7 @@ mod tests {
                     let _ = stopped_tx.lock().unwrap().send(s);
                 }),
             };
-            let engine = Engine::start(roots, folders(exclude), Some(index), drives, hooks);
+            let engine = Engine::start(roots, folders(exclude), watch, Some(index), drives, hooks);
             let _ = slot.set(Arc::downgrade(&engine));
             Self {
                 engine,
@@ -1585,6 +1642,40 @@ mod tests {
         // The new index was saved at once, with its roots.
         let saved = persist::load(&index).unwrap();
         assert_eq!(saved.roots, roots);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn watching_can_be_turned_off_and_on() {
+        let dir = Scratch::new("unwatched");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "").unwrap();
+        let probe = Probe::start_unwatched(vec![a.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        // Off: changes are not applied.
+        fs::write(a.join("two.txt"), "").unwrap();
+        std::thread::sleep(Duration::from_millis(700));
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+
+        // On: what changed meanwhile is caught up, and then watched.
+        probe.engine.set_watching(true);
+        probe.wait_for(IndexState::CatchingUp);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt", "two.txt"]);
+        fs::write(a.join("three.txt"), "").unwrap();
+        let canonical = fs::canonicalize(&a).unwrap();
+        until(&probe.engine, "the new file", |i| {
+            find(i, &canonical.join("three.txt")).is_some()
+        });
+
+        // Off again.
+        probe.engine.set_watching(false);
+        probe.wait_for(IndexState::Unwatched);
+        fs::remove_file(a.join("one.txt")).unwrap();
+        std::thread::sleep(Duration::from_millis(700));
+        assert_eq!(probe.names("txt"), ["one.txt", "three.txt", "two.txt"]);
         probe.engine.shutdown();
     }
 

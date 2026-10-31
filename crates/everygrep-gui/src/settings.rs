@@ -188,6 +188,8 @@ pub struct Settings {
     pub include_files: String,
     /// Patterns of files left out of the index, `;`-separated.
     pub exclude_files: String,
+    /// Whether file changes are applied to the index as they happen.
+    pub watch_changes: bool,
     /// Filter and matching modes for a new start.
     pub options: QueryOptions,
     /// Searches kept for Back and Forward; 0 turns the history off.
@@ -229,6 +231,7 @@ impl Default for Settings {
             use_excludes: true,
             include_files: String::new(),
             exclude_files: String::new(),
+            watch_changes: true,
             options: QueryOptions::default(),
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
@@ -339,6 +342,7 @@ impl Settings {
                 true
             }
             "use-exclude-list" => put_flag(&mut self.use_excludes),
+            "watch-changes" => put_flag(&mut self.watch_changes),
             "include-only-files" | "exclude-files" => {
                 let Some(text) = unescape(value).and_then(|b| String::from_utf8(b).ok()) else {
                     return false;
@@ -479,6 +483,12 @@ impl Settings {
         for exclude in &self.excludes {
             line(&mut out, "exclude", &escape(exclude.as_os_str().as_bytes()));
         }
+        flag(
+            &mut out,
+            "watch-changes",
+            self.watch_changes,
+            d.watch_changes,
+        );
         flag(
             &mut out,
             "use-exclude-list",
@@ -623,6 +633,7 @@ impl Settings {
                 self.use_excludes = d.use_excludes;
                 self.include_files = d.include_files;
                 self.exclude_files = d.exclude_files;
+                self.watch_changes = d.watch_changes;
                 self.drives = d.drives;
             }
             Page::Search => {
@@ -826,6 +837,7 @@ pub(crate) mod tests {
             roots: vec!["/home/u".into(), "/srv/media files".into()],
             excludes: vec!["/home/u/.cache".into(), "regex:^te?mp$".into()],
             use_excludes: false,
+            watch_changes: false,
             include_files: "*.mp3; \"a;b\"".into(),
             exclude_files: "*.tmp;~*".into(),
             options: QueryOptions {
@@ -891,6 +903,7 @@ pub(crate) mod tests {
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));
         assert!(text.contains("use-exclude-list = false\n"));
+        assert!(text.contains("watch-changes = false\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
     }
@@ -908,6 +921,7 @@ pub(crate) mod tests {
         assert!(IndexRules::new(s.rule_spec()).is_ok());
         let d = Settings::default();
         assert!(d.use_excludes, "the exclude list is used by default");
+        assert!(d.watch_changes, "changes are watched by default");
         assert_eq!(d.rule_spec(), RuleSpec::default());
     }
 
@@ -1070,9 +1084,10 @@ root = broken\\q
         assert_eq!(s.folder_size, FolderSize::None);
         s.use_excludes = false;
         s.exclude_files = "*.tmp".into();
+        s.watch_changes = false;
         s.reset(Page::Indexing);
         assert!(s.roots.is_empty() && s.excludes.is_empty());
-        assert!(s.use_excludes && s.exclude_files.is_empty());
+        assert!(s.use_excludes && s.exclude_files.is_empty() && s.watch_changes);
         s.reset(Page::Window);
         assert_eq!(s, Settings::default());
     }

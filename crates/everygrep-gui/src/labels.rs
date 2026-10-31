@@ -107,6 +107,7 @@ pub fn state_word(state: IndexState) -> &'static str {
         IndexState::CatchingUp => tr("catching up"),
         IndexState::Watching => tr("watching for changes"),
         IndexState::Static => tr("not watching changes"),
+        IndexState::Unwatched => tr("changes not watched"),
     }
 }
 
@@ -331,6 +332,11 @@ pub fn index_status(state: IndexState, indexed: usize) -> String {
         IndexState::Static => trn(
             "{} entry · not watching changes",
             "{} entries · not watching changes",
+            indexed,
+        ),
+        IndexState::Unwatched => trn(
+            "{} entry · watching for changes is off",
+            "{} entries · watching for changes is off",
             indexed,
         ),
     };

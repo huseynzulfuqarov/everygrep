@@ -94,6 +94,9 @@ First version, 0.1.0, not released yet.
   the folder chooser, and "include only files" / "exclude files" pattern
   lists. A pattern that does not compile is refused with a message and not
   saved; a change indexes again with progress and Cancel.
+- "Watch for changes" setting: off removes every inotify watch and the
+  status line says changes are not watched; on again catches up with what
+  changed meanwhile and watches again.
 - Light and dark themes following the desktop, compact density, details of
   the selection in the status line.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is

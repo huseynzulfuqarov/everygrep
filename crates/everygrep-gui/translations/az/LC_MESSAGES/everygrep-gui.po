@@ -1491,3 +1491,25 @@ msgstr "{0}: “{1}” has an empty regular expression. Nothing was changed."
 #: src/labels.rs
 msgid "{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."
 msgstr "{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Watch for changes"
+msgstr "Watch for changes"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Off: files added, removed or renamed while EveryGrep runs are not seen, and the status line says so. Turning it on again catches up with the changes, then watches."
+msgstr "Off: files added, removed or renamed while EveryGrep runs are not seen, and the status line says so. Turning it on again catches up with the changes, then watches."
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "changes not watched"
+msgstr "changes not watched"
+
+# TODO: translate (English for now)
+#: src/labels.rs
+msgid "{} entry · watching for changes is off"
+msgid_plural "{} entries · watching for changes is off"
+msgstr[0] "{} entry · watching for changes is off"
+msgstr[1] "{} entries · watching for changes is off"

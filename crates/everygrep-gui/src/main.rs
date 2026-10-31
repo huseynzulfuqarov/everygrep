@@ -146,6 +146,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let engine = Engine::start(
         setup.roots.clone(),
         setup.rules(),
+        settings.watch_changes,
         args.index_file,
         drives,
         hooks,

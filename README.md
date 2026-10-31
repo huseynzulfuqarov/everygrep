@@ -222,6 +222,7 @@ the program behaves as before, except that folders show their total size.
 | Page | Setting | Default |
 |---|---|---|
 | Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
+| | watch for changes (off: nothing is watched and the status line says so; on again catches up) | on |
 | | use the exclude list (excluded folders and file filters) | on |
 | | excluded folders, by path (folder chooser) or pattern; left out of the index with all they hold | none |
 | | include only files / exclude files: pattern lists (see [Excluded folders and files](#excluded-folders-and-files)) | empty |
@@ -331,6 +332,7 @@ size-width = 120
 ```
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
+`watch-changes` turns watching off (`false`).
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
 and the file pattern lists; a pattern that does not compile is reported and
 ignored. Other keys: `whole-words`,
