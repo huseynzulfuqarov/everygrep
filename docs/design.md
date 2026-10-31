@@ -270,8 +270,34 @@ pages and `Esc` closes the window.
   drive".
 - Changing what is indexed rebuilds the index in the background; the window
   stays usable and the status line reports the progress.
+- The pattern lists (Indexing page) are the one exception to "changes apply
+  at once": a typed list applies on Enter or with "Apply filters", because
+  every change indexes again. A pattern that does not compile is shown next
+  to the lists in plain words and nothing is saved.
 - Problems with the settings file are shown at the top of the settings window
   in plain words; a file that cannot be read is never overwritten.
+
+### Behaviour choices for indexing and searching
+
+The behaviour chosen for indexing and searching.
+
+| Topic | Behaviour |
+|---|---|
+| Search as you type | On by default (today's behaviour). Off, text, mode and filter changes wait; the status line says "Press Enter to search." |
+| Enter with as-you-type off | Enter runs a waiting search; with the results already current it opens the current row as before. Back/Forward still search at once. |
+| Rename selection | On by default (today's behaviour): the name before the last dot; folders and dot-files whole. |
+| Monitoring changes | One global switch, on by default (per-folder: no; our folder list has no per-folder options yet). Off drops every inotify watch; on again catches up and watches. A loaded index is not caught up while off. |
+| Exclude list switch | One global switch, on by default; it turns all three lists on or off. |
+| Lists | Three lists: excluded folders (paths and folder patterns), include-only files and excluded files. Folder list items: an absolute path matched exactly, or a pattern. |
+| Item syntax | Items separated by `;` (`,` and double quotes also work); a `regex:` prefix; `*` stays within one name, `**` crosses `/`; `?` = one character. |
+| Name or path | The whole name is matched; an item with a `/` (or `**`) matches the full path, and a path item that does not start with `/` matches the end of the path after a `/`; `regex:` with a `/` matches the path. |
+| Case | Wildcards ignore case (Unicode); `regex:` as written, `(?i)` to ignore. Exact folder paths compare bytes. |
+| Precedence | A file is kept when the include list is empty or one include matches, and no exclude matches; the order of the items does not matter. Folders are never tested against the file lists. |
+| Excluded folder entry | The folder's own entry is not created, so nothing below it is read. (Before this change the folder's own entry was kept.) |
+| Invalid regex | Refused with a message in Settings and not saved; a bad line in the settings file is reported and ignored. |
+| After a change | Every change of the lists or the switch indexes again with progress and Cancel. A saved index built with other rules is not detected at start (the catch-up removes excluded folders it checks). |
+| Live changes | The watcher and the catch-up use the same compiled rules as the scan; a moved folder is read again when a rule looks at paths. |
+| Roots | The folders to index are never excluded by the rules. |
 
 ## Writing
 
