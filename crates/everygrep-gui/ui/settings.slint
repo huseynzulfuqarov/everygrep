@@ -538,7 +538,7 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.remember-columns;
                                 toggled => { root.window-changed(); }
                             }
-                            Note { text: @tr("Right-click the column headers to show the Type and Extension columns; drag the header borders to resize."); }
+                            Note { text: @tr("Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Folder size"); }
                             HorizontalLayout {

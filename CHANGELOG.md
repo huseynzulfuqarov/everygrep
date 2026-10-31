@@ -24,6 +24,11 @@ First version, 0.1.0, not released yet.
   written atomically, decoded while it is read.
 - Total size and item count of every folder, kept current on every change.
 - Sorting by name, folder, size, modification time, type or extension.
+- Creation time (birth time, where the file system keeps it), access time and
+  attribute letters (`R` read-only, `H` hidden, `D` directory, `L` link,
+  `X` executable) read from the file system on demand, so the index stays
+  the same size; sorting by them reads them for every result on several
+  threads, with progress and cancel.
 - Progress counters and cooperative cancelling for scans, searches, sorts
   and catch-ups, and an estimate of a scan's size from the used inodes of
   the file systems it reads.
@@ -55,7 +60,8 @@ First version, 0.1.0, not released yet.
 
 - Search window with results on every key press, highlighted matches,
   file-type icons and sortable, resizable columns (Name, Folder, Size,
-  Modified, and optional Type and Extension).
+  Modified, and optional Type, Extension, Created, Accessed and
+  Attributes).
 - Edit → Invert selection (`Ctrl+I`), which costs the same for any number
   of results.
 - File → Export results… (`Ctrl+S`): the results as CSV (name, folder,

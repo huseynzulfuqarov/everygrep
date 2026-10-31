@@ -59,7 +59,11 @@ per CPU by default) take groups one by one; each evaluates the parsed query
 against every node and the results are concatenated in name order. Text
 matching works on the folded names, so it never allocates or folds per
 comparison. `sort.rs` reorders results by another column (path, size,
-modified, type, extension) with a stable sort, so equal keys keep name order.
+modified, type, extension, created, accessed, attributes) with a stable sort,
+so equal keys keep name order. Creation time, access time and attributes are
+not kept in the index; `details.rs` reads them with `lstat` (`statx` with the
+birth time) for the rows on screen, and the sort reads them for every result
+on several threads.
 
 ### Query language (`query.rs`, `fold.rs`, `filter.rs`, `kind.rs`)
 

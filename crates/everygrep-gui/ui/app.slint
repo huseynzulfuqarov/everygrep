@@ -15,6 +15,11 @@ export struct ResultRow {
     // Words for the Type column ("PNG image") and the extension as written.
     type-name: string,
     extension: string,
+    // Read from the file system for the rows on screen, only while their
+    // column is shown; empty when unknown.
+    created: string,
+    accessed: string,
+    attributes: string,
     is-dir: bool,
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
@@ -341,6 +346,9 @@ component Row inherits Rectangle {
     // Optional columns; 0 when hidden.
     in property <length> type-width;
     in property <length> ext-width;
+    in property <length> created-width;
+    in property <length> accessed-width;
+    in property <length> attr-width;
     // The name is being edited in place.
     in property <bool> editing;
     in-out property <string> edit-text;
@@ -530,6 +538,37 @@ component Row inherits Rectangle {
         vertical-alignment: center;
         overflow: elide;
     }
+    property <length> created-x: root.type-x + root.type-width + root.ext-width;
+    if root.created-width > 0: Text {
+        x: root.created-x + Theme.s2;
+        width: root.created-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.created;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.accessed-width > 0: Text {
+        x: root.created-x + root.created-width + Theme.s2;
+        width: root.accessed-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.accessed;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.attr-width > 0: Text {
+        x: root.created-x + root.created-width + root.accessed-width + Theme.s2;
+        width: root.attr-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.attributes;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
 }
 
 // A dialog above the window: a dimmed backdrop, a card with a title, the
@@ -630,8 +669,8 @@ export component AppWindow inherits Window {
     // Text of the search field.
     in-out property <string> query <=> search.text;
 
-    // Sort column (0 name, 1 folder, 2 size, 3 modified, 4 type, 5 extension)
-    // and direction.
+    // Sort column (0 name, 1 folder, 2 size, 3 modified, 4 type, 5 extension,
+    // 6 created, 7 accessed, 8 attributes) and direction.
     in-out property <int> sort-column: 0;
     in-out property <bool> sort-descending: false;
 
@@ -745,9 +784,21 @@ export component AppWindow inherits Window {
     in-out property <length> date-want: 120px;
     in-out property <length> type-want: 130px;
     in-out property <length> ext-want: 80px;
+    in-out property <length> created-want: 120px;
+    in-out property <length> accessed-want: 120px;
+    in-out property <length> attr-want: 64px;
     // Optional columns after Modified, hidden by default.
     in-out property <bool> show-type: false;
     in-out property <bool> show-ext: false;
+    in-out property <bool> show-created: false;
+    in-out property <bool> show-accessed: false;
+    in-out property <bool> show-attrs: false;
+    // Created, Accessed or Attributes was shown or hidden: their values are
+    // read only while shown.
+    callback detail-columns-changed();
+    changed show-created => { root.detail-columns-changed(); }
+    changed show-accessed => { root.detail-columns-changed(); }
+    changed show-attrs => { root.detail-columns-changed(); }
     // Whether Name has a width of its own (dragged, or restored from the
     // settings) rather than its share of the window.
     in-out property <bool> name-set: false;
@@ -757,14 +808,58 @@ export component AppWindow inherits Window {
     out property <length> date-min: 80px;
     out property <length> type-min: 64px;
     out property <length> ext-min: 48px;
+    out property <length> created-min: 80px;
+    out property <length> accessed-min: 80px;
+    out property <length> attr-min: 40px;
     property <length> size-width: max(self.size-min, self.size-want);
     property <length> date-width: max(self.date-min, self.date-want);
     property <length> type-width: self.show-type ? max(self.type-min, self.type-want) : 0px;
     property <length> ext-width: self.show-ext ? max(self.ext-min, self.ext-want) : 0px;
-    property <length> fixed-width: self.size-width + self.date-width + self.type-width + self.ext-width;
+    property <length> created-width: self.show-created ? max(self.created-min, self.created-want) : 0px;
+    property <length> accessed-width: self.show-accessed ? max(self.accessed-min, self.accessed-want) : 0px;
+    property <length> attr-width: self.show-attrs ? max(self.attr-min, self.attr-want) : 0px;
+    property <length> fixed-width: self.size-width + self.date-width + self.type-width + self.ext-width
+        + self.created-width + self.accessed-width + self.attr-width;
     property <length> flex-width: max(self.name-min + self.folder-min, self.width - self.fixed-width);
     property <length> name-width: max(self.name-min, min(self.name-want, self.flex-width - self.folder-min));
     property <length> folder-width: self.flex-width - self.name-width;
+    // Left edges of the optional columns.
+    property <length> type-x: self.name-width + self.folder-width + self.size-width + self.date-width;
+    property <length> ext-x: self.type-x + self.type-width;
+    property <length> created-x: self.ext-x + self.ext-width;
+    property <length> accessed-x: self.created-x + self.created-width;
+    property <length> attr-x: self.accessed-x + self.accessed-width;
+
+    // Width, minimum width and wanted width of column 3 (Modified) to 8
+    // (Attributes), numbered as sort-column.
+    function col-width(c: int) -> length {
+        return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
+            : c == 6 ? root.created-width : c == 7 ? root.accessed-width : root.attr-width;
+    }
+    function col-min(c: int) -> length {
+        return c == 3 ? root.date-min : c == 4 ? root.type-min : c == 5 ? root.ext-min
+            : c == 6 ? root.created-min : c == 7 ? root.accessed-min : root.attr-min;
+    }
+    function set-col-want(c: int, w: length) {
+        if (c == 3) {
+            root.date-want = w;
+        } else if (c == 4) {
+            root.type-want = w;
+        } else if (c == 5) {
+            root.ext-want = w;
+        } else if (c == 6) {
+            root.created-want = w;
+        } else if (c == 7) {
+            root.accessed-want = w;
+        } else {
+            root.attr-want = w;
+        }
+    }
+    // The shown column left of optional column c; Modified (3) is always shown.
+    function left-of(c: int) -> int {
+        return c > 7 && root.show-accessed ? 7 : c > 6 && root.show-created ? 6
+            : c > 5 && root.show-ext ? 5 : c > 4 && root.show-type ? 4 : 3;
+    }
 
     // Dragging a boundary moves it between its two neighbours; neither gets
     // narrower than its minimum, so the total width stays the same.
@@ -782,26 +877,18 @@ export component AppWindow inherits Window {
             let size = max(root.size-min, min(root.size-width + delta, pair - root.date-min));
             root.size-want = size;
             root.date-want = pair - size;
-        } else if (boundary == 3 && root.show-type) {
-            let pair = root.date-width + root.type-width;
-            let date = max(root.date-min, min(root.date-width + delta, pair - root.type-min));
-            root.date-want = date;
-            root.type-want = pair - date;
-        } else if (boundary == 3) {
-            let pair = root.date-width + root.ext-width;
-            let date = max(root.date-min, min(root.date-width + delta, pair - root.ext-min));
-            root.date-want = date;
-            root.ext-want = pair - date;
         } else {
-            let pair = root.type-width + root.ext-width;
-            let type = max(root.type-min, min(root.type-width + delta, pair - root.ext-min));
-            root.type-want = type;
-            root.ext-want = pair - type;
+            // The left edge of optional column `boundary`.
+            let left = root.left-of(boundary);
+            let pair = root.col-width(left) + root.col-width(boundary);
+            let w = max(root.col-min(left), min(root.col-width(left) + delta, pair - root.col-min(boundary)));
+            root.set-col-want(left, w);
+            root.set-col-want(boundary, pair - w);
         }
     }
 
-    // After an optional column (4 type, 5 extension) was shown or hidden: hiding the sorted
-    // column sorts by name again.
+    // After an optional column (4 to 8, see sort-column) was shown or hidden:
+    // hiding the sorted column sorts by name again.
     function column-shown(column: int, shown: bool) {
         if (!shown && root.sort-column == column) {
             root.sort-column = 0;
@@ -1099,6 +1186,24 @@ export component AppWindow inherits Window {
                         checked <=> root.show-ext;
                         activated => { root.column-shown(5, root.show-ext); }
                     }
+                    MenuItem {
+                        title: @tr("Created");
+                        checkable: true;
+                        checked <=> root.show-created;
+                        activated => { root.column-shown(6, root.show-created); }
+                    }
+                    MenuItem {
+                        title: @tr("Accessed");
+                        checkable: true;
+                        checked <=> root.show-accessed;
+                        activated => { root.column-shown(7, root.show-accessed); }
+                    }
+                    MenuItem {
+                        title: @tr("Attributes");
+                        checkable: true;
+                        checked <=> root.show-attrs;
+                        activated => { root.column-shown(8, root.show-attrs); }
+                    }
                 }
                 HeaderCell {
                     x: Theme.s1;
@@ -1142,7 +1247,7 @@ export component AppWindow inherits Window {
                     right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
                 }
                 if root.show-type: HeaderCell {
-                    x: root.name-width + root.folder-width + root.size-width + root.date-width;
+                    x: root.type-x;
                     width: root.type-width;
                     height: parent.height;
                     label: @tr("Type");
@@ -1152,13 +1257,43 @@ export component AppWindow inherits Window {
                     right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
                 }
                 if root.show-ext: HeaderCell {
-                    x: root.name-width + root.folder-width + root.fixed-width - root.ext-width;
+                    x: root.ext-x;
                     width: root.ext-width;
                     height: parent.height;
                     label: @tr("Extension");
                     sorted: root.sort-column == 5;
                     descending: root.sort-descending;
                     clicked => { root.sort-by(5); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                if root.show-created: HeaderCell {
+                    x: root.created-x;
+                    width: root.created-width;
+                    height: parent.height;
+                    label: @tr("Created");
+                    sorted: root.sort-column == 6;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(6); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                if root.show-accessed: HeaderCell {
+                    x: root.accessed-x;
+                    width: root.accessed-width;
+                    height: parent.height;
+                    label: @tr("Accessed");
+                    sorted: root.sort-column == 7;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(7); }
+                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                }
+                if root.show-attrs: HeaderCell {
+                    x: root.attr-x;
+                    width: root.attr-width;
+                    height: parent.height;
+                    label: @tr("Attributes");
+                    sorted: root.sort-column == 8;
+                    descending: root.sort-descending;
+                    clicked => { root.sort-by(8); }
                     right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
                 }
             }
@@ -1178,15 +1313,31 @@ export component AppWindow inherits Window {
                 height: parent.height;
                 dragged(delta) => { root.drag-boundary(2, delta); }
             }
-            if root.show-type || root.show-ext: ColumnGrip {
-                x: root.name-width + root.folder-width + root.size-width + root.date-width - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(3, delta); }
-            }
-            if root.show-type && root.show-ext: ColumnGrip {
-                x: root.name-width + root.folder-width + root.fixed-width - root.ext-width - self.width / 2;
+            // One on the left edge of each optional column shown.
+            if root.show-type: ColumnGrip {
+                x: root.type-x - self.width / 2;
                 height: parent.height;
                 dragged(delta) => { root.drag-boundary(4, delta); }
+            }
+            if root.show-ext: ColumnGrip {
+                x: root.ext-x - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(5, delta); }
+            }
+            if root.show-created: ColumnGrip {
+                x: root.created-x - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(6, delta); }
+            }
+            if root.show-accessed: ColumnGrip {
+                x: root.accessed-x - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(7, delta); }
+            }
+            if root.show-attrs: ColumnGrip {
+                x: root.attr-x - self.width / 2;
+                height: parent.height;
+                dragged(delta) => { root.drag-boundary(8, delta); }
             }
         }
         Rectangle { height: 1px; background: Theme.line; }
@@ -1358,6 +1509,9 @@ export component AppWindow inherits Window {
                     date-width: root.date-width;
                     type-width: root.type-width;
                     ext-width: root.ext-width;
+                    created-width: root.created-width;
+                    accessed-width: root.accessed-width;
+                    attr-width: root.attr-width;
                     pressed(mods) => {
                         root.current = i;
                         keys.focus();
@@ -1751,6 +1905,24 @@ export component AppWindow inherits Window {
                 checkable: true;
                 checked <=> root.show-ext;
                 activated => { root.column-shown(5, root.show-ext); }
+            }
+            MenuItem {
+                title: @tr("Created column");
+                checkable: true;
+                checked <=> root.show-created;
+                activated => { root.column-shown(6, root.show-created); }
+            }
+            MenuItem {
+                title: @tr("Accessed column");
+                checkable: true;
+                checked <=> root.show-accessed;
+                activated => { root.column-shown(7, root.show-accessed); }
+            }
+            MenuItem {
+                title: @tr("Attributes column");
+                checkable: true;
+                checked <=> root.show-attrs;
+                activated => { root.column-shown(8, root.show-attrs); }
             }
             MenuSeparator { }
             Menu {

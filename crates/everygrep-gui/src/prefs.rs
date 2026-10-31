@@ -39,6 +39,9 @@ const SIZE_WIDTH: f32 = 96.0;
 const DATE_WIDTH: f32 = 120.0;
 const TYPE_WIDTH: f32 = 130.0;
 const EXT_WIDTH: f32 = 80.0;
+const CREATED_WIDTH: f32 = 120.0;
+const ACCESSED_WIDTH: f32 = 120.0;
+const ATTRS_WIDTH: f32 = 64.0;
 
 /// The folders a window indexes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -327,6 +330,9 @@ impl Prefs {
         let c = &s.columns;
         w.set_show_type(w.get_show_type() || c.show_type);
         w.set_show_ext(w.get_show_ext() || c.show_ext);
+        w.set_show_created(w.get_show_created() || c.show_created);
+        w.set_show_accessed(w.get_show_accessed() || c.show_accessed);
+        w.set_show_attrs(w.get_show_attrs() || c.show_attrs);
         if let Some(n) = c.name {
             w.set_name_want(n);
             w.set_name_set(true);
@@ -335,6 +341,9 @@ impl Prefs {
         c.date.into_iter().for_each(|v| w.set_date_want(v));
         c.type_.into_iter().for_each(|v| w.set_type_want(v));
         c.ext.into_iter().for_each(|v| w.set_ext_want(v));
+        c.created.into_iter().for_each(|v| w.set_created_want(v));
+        c.accessed.into_iter().for_each(|v| w.set_accessed_want(v));
+        c.attrs.into_iter().for_each(|v| w.set_attr_want(v));
     }
 
     /// Keeps the main window's columns, when they are remembered.
@@ -346,11 +355,17 @@ impl Prefs {
         let columns = Columns {
             show_type: w.get_show_type(),
             show_ext: w.get_show_ext(),
+            show_created: w.get_show_created(),
+            show_accessed: w.get_show_accessed(),
+            show_attrs: w.get_show_attrs(),
             name: w.get_name_set().then(|| w.get_name_want().round()),
             size: differs(w.get_size_want(), SIZE_WIDTH),
             date: differs(w.get_date_want(), DATE_WIDTH),
             type_: differs(w.get_type_want(), TYPE_WIDTH),
             ext: differs(w.get_ext_want(), EXT_WIDTH),
+            created: differs(w.get_created_want(), CREATED_WIDTH),
+            accessed: differs(w.get_accessed_want(), ACCESSED_WIDTH),
+            attrs: differs(w.get_attr_want(), ATTRS_WIDTH),
         };
         if self.settings.borrow().columns != columns {
             self.change(|s| s.columns = columns.clone());

@@ -112,7 +112,8 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--case] [--whole-words] [--match-path] [--diacritics]
               [--prefix] [--suffix] [--ignore-punctuation]
               [--ignore-whitespace] [--regex]
-              [--columns type,extension] [--new-instance]
+              [--columns type,extension,created,accessed,attributes]
+              [--new-instance]
               [--settings[=indexing|search|appearance|window|shortcut]] [query words...]
 ```
 
@@ -124,7 +125,15 @@ toggles inside the field switch match case, whole words, full path,
 diacritics and regular expressions; the Search menu also has match prefix,
 match suffix, ignore punctuation and ignore whitespace; the modes that are on
 show in the status line. Right-click the
-column headers to show the Type and Extension columns.
+column headers to show the Type, Extension, Created, Accessed and Attributes
+columns. Created, Accessed and Attributes are not in the index: they are read
+from the file system for the rows on screen while their column is shown, and
+for every result when sorting by them (the status line shows the progress).
+Created stays empty where the file system does not record a birth time;
+Accessed is coarse on most systems, which update it at most once a day
+(`relatime`). Attributes are letters: `R` read-only (the owner may not write),
+`H` hidden (the name starts with a dot), `D` folder, `L` symbolic link, `X`
+executable file.
 
 | Keys | Action |
 |---|---|
@@ -302,8 +311,9 @@ repeated per drive), `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
 `language` (`system`, `en`, `az`, `tr`),
 `status-details`, `menu-bar`, `remember-columns`,
-`show-extension-column`, `name-width`, `modified-width`, `type-width`,
-`extension-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
+`show-extension-column`, `show-created-column`, `show-accessed-column`,
+`show-attributes-column`, `name-width`, `modified-width`, `type-width`,
+`extension-width`, `created-width`, `accessed-width`, `attributes-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
 space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,
 lines that cannot be read are ignored (the settings window says how many),
 and the file is replaced atomically. The search history, when kept, is in

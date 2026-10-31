@@ -35,7 +35,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, Vec
 use engine::{Engine, Hooks, IndexState, SearchResult, Stopped};
 use i18n::{fill, tr, trn};
 use prefs::{IndexSetup, Prefs};
-use results::ResultsModel;
+use results::{DetailColumns, ResultsModel};
 use settings::{Density, ThemeChoice};
 
 slint::include_modules!();
@@ -175,6 +175,9 @@ fn main() -> Result<(), slint::PlatformError> {
     set_options(&window, start_options);
     window.set_show_type(args.show_type);
     window.set_show_ext(args.show_ext);
+    window.set_show_created(args.show_created);
+    window.set_show_accessed(args.show_accessed);
+    window.set_show_attrs(args.show_attrs);
     let folder_size = settings.folder_size;
     if folder_size != FolderSize::default() {
         set_folder_size(&window, &engine, folder_size);
@@ -188,6 +191,15 @@ fn main() -> Result<(), slint::PlatformError> {
         &window,
     );
     prefs.restore_columns(&window);
+    apply_detail_columns(&window);
+    window.on_detail_columns_changed({
+        let weak = weak.clone();
+        move || {
+            if let Some(w) = weak.upgrade() {
+                apply_detail_columns(&w);
+            }
+        }
+    });
     prefs.apply_look();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
@@ -563,6 +575,9 @@ struct Presentation {
     /// Optional columns to show; columns already shown stay.
     show_type: bool,
     show_ext: bool,
+    show_created: bool,
+    show_accessed: bool,
+    show_attrs: bool,
 }
 
 /// The changes a later launch's arguments ask for. Arguments that do not
@@ -574,6 +589,9 @@ fn presentation(args: &[String]) -> Presentation {
             options: a.options_given.then_some(a.options),
             show_type: a.show_type,
             show_ext: a.show_ext,
+            show_created: a.show_created,
+            show_accessed: a.show_accessed,
+            show_attrs: a.show_attrs,
             settings_page: a.settings_page,
         },
         _ => Presentation::default(),
@@ -595,6 +613,10 @@ fn present(
     }
     w.set_show_type(w.get_show_type() || p.show_type);
     w.set_show_ext(w.get_show_ext() || p.show_ext);
+    w.set_show_created(w.get_show_created() || p.show_created);
+    w.set_show_accessed(w.get_show_accessed() || p.show_accessed);
+    w.set_show_attrs(w.get_show_attrs() || p.show_attrs);
+    apply_detail_columns(w);
     w.invoke_focus_search();
     if let Some(query) = &p.query {
         pause.stop();
@@ -1218,6 +1240,9 @@ struct Args {
     /// Optional columns shown from the start.
     show_type: bool,
     show_ext: bool,
+    show_created: bool,
+    show_accessed: bool,
+    show_attrs: bool,
     /// Open a window of its own instead of handing over to a running one.
     new_instance: bool,
     /// Open the settings window at this page (see [`prefs::PAGES`]).
@@ -1244,7 +1269,8 @@ options:
   --ignore-punctuation   leave punctuation out of names and terms
   --ignore-whitespace    leave whitespace out of names and terms
   --regex                the whole query is one regular expression
-  --columns <list>       show optional columns: type, extension (comma separated)
+  --columns <list>       show optional columns: type, extension, created,
+                         accessed, attributes (comma separated)
   --new-instance         open another window even if one is already open
   --settings[=<page>]    open the settings window too, at a page: indexing,
                          search, appearance, window, shortcut
@@ -1318,6 +1344,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                     match column.trim() {
                         "type" => out.show_type = true,
                         "extension" => out.show_ext = true,
+                        "created" => out.show_created = true,
+                        "accessed" => out.show_accessed = true,
+                        "attributes" => out.show_attrs = true,
                         other => return Err(format!("unknown column {other}")),
                     }
                 }
@@ -1427,6 +1456,16 @@ fn show_badges(w: &AppWindow) {
         options(w).filter,
         labels::filter,
     ));
+}
+
+/// Tells the result rows which columns read from the file system are shown.
+fn apply_detail_columns(w: &AppWindow) {
+    let columns = DetailColumns {
+        created: w.get_show_created(),
+        accessed: w.get_show_accessed(),
+        attributes: w.get_show_attrs(),
+    };
+    with_model(w, |m| m.set_detail_columns(columns));
 }
 
 fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
@@ -1564,13 +1603,14 @@ mod tests {
             "--case",
             "--diacritics",
             "--columns",
-            "type, extension",
+            "type, extension,attributes",
             "img",
         ]);
         assert_eq!(a.options.filter, Filter::Picture);
         assert!(a.options.case_sensitive && a.options.match_diacritics);
         assert!(!a.options.whole_words && !a.options.match_path);
-        assert!(a.show_type && a.show_ext);
+        assert!(a.show_type && a.show_ext && a.show_attrs);
+        assert!(!a.show_created && !a.show_accessed);
         assert_eq!(a.query, "img");
         let a = args(&["--whole-words", "--match-path"]);
         assert!(a.options.whole_words && a.options.match_path);
@@ -1582,6 +1622,8 @@ mod tests {
         assert_eq!(a.query, "a|b");
         assert_eq!(a.options.filter, Filter::All);
         assert!(!a.show_type && !a.show_ext);
+        let a = args(&["--columns", "created,accessed"]);
+        assert!(a.show_created && a.show_accessed && !a.show_attrs);
     }
 
     fn present_args(list: &[&str]) -> Presentation {
@@ -1611,7 +1653,9 @@ mod tests {
         let o = p.options.expect("modes given");
         assert_eq!(o.filter, Filter::Picture);
         assert!(o.case_sensitive && !o.whole_words);
-        assert!(p.show_type && !p.show_ext);
+        assert!(p.show_type && !p.show_ext && !p.show_created);
+        let p = present_args(&["--columns", "created,attributes"]);
+        assert!(p.show_created && p.show_attrs && !p.show_accessed);
         // `--filter all` is a choice too: it resets the filter.
         assert_eq!(
             present_args(&["--filter", "all"]).options,

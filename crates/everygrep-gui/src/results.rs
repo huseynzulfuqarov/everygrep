@@ -3,11 +3,13 @@
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use everygrep_core::details::Details;
 use everygrep_core::localtime::Zone;
 use everygrep_core::query::{NameTerm, match_span};
 use everygrep_core::sort::FolderSize;
@@ -42,8 +44,30 @@ pub struct ResultsModel {
     folder_size: Cell<FolderSize>,
     /// Whether the status line describes the selected items.
     details: Cell<bool>,
+    /// Which of the columns read from the file system are shown.
+    detail_columns: Cell<DetailColumns>,
+    /// Details read for rows that were on screen, until the next result.
+    detail_cache: RefCell<HashMap<NodeId, Details>>,
     notify: ModelNotify,
 }
+
+/// The columns whose values are not in the index (see
+/// [`everygrep_core::details`]). Nothing is read while all are hidden.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DetailColumns {
+    pub created: bool,
+    pub accessed: bool,
+    pub attributes: bool,
+}
+
+impl DetailColumns {
+    fn any(self) -> bool {
+        self.created || self.accessed || self.attributes
+    }
+}
+
+/// Details kept for at most this many rows; scrolling far enough starts over.
+const MAX_CACHED_DETAILS: usize = 4096;
 
 /// More selected items than this are counted but not summed up by size.
 const MAX_SUMMED: usize = 100_000;
@@ -66,6 +90,8 @@ impl ResultsModel {
             took: Cell::new(Duration::ZERO),
             folder_size: Cell::new(FolderSize::default()),
             details: Cell::new(true),
+            detail_columns: Cell::new(DetailColumns::default()),
+            detail_cache: RefCell::new(HashMap::new()),
             notify: ModelNotify::default(),
         }
     }
@@ -93,7 +119,37 @@ impl ResultsModel {
         }
         self.epoch.set(result.epoch);
         *self.ids.borrow_mut() = Arc::clone(&result.ids);
+        // A new result also follows file changes, so read the details again.
+        self.detail_cache.borrow_mut().clear();
         self.notify.reset();
+    }
+
+    /// Says which columns read from the file system are shown, and shows
+    /// the rows again when that changed.
+    pub fn set_detail_columns(&self, columns: DetailColumns) {
+        if self.detail_columns.replace(columns) != columns {
+            self.relabel();
+        }
+    }
+
+    /// Details of a node for the columns shown, from the cache or the file
+    /// system. Entries on a drive that is not connected are not read.
+    fn details_of(&self, index: &everygrep_core::index::Index, id: NodeId) -> Details {
+        if let Some(d) = self.detail_cache.borrow().get(&id) {
+            return *d;
+        }
+        let store = index.store();
+        let d = if index.is_offline(id) {
+            Details::default()
+        } else {
+            Details::read(&store.path(id), store.name(id))
+        };
+        let mut cache = self.detail_cache.borrow_mut();
+        if cache.len() >= MAX_CACHED_DETAILS {
+            cache.clear();
+        }
+        cache.insert(id, d);
+        d
     }
 
     /// Changes the selection with `f` and refreshes the rows that changed.
@@ -411,6 +467,16 @@ impl Model for ResultsModel {
         let type_name = labels::type_name(kind, extension).into();
         let extension = extension.into();
         let (before, matched, after) = split_name(&name, &self.terms.borrow());
+        let columns = self.detail_columns.get();
+        let details = if columns.any() {
+            self.details_of(&index, id)
+        } else {
+            Details::default()
+        };
+        let time = |shown: bool, ns: Option<i64>| match ns {
+            Some(ns) if shown => format::date(ns, now, &self.zone).into(),
+            _ => SharedString::new(),
+        };
         Some(ResultRow {
             name_before: before.into(),
             name_match: matched.into(),
@@ -421,6 +487,13 @@ impl Model for ResultsModel {
             modified_full: format::timestamp(meta.mtime_ns, &self.zone).into(),
             type_name,
             extension,
+            created: time(columns.created, details.created_ns),
+            accessed: time(columns.accessed, details.accessed_ns),
+            attributes: details
+                .attributes
+                .filter(|_| columns.attributes)
+                .map(|a| a.letters().into())
+                .unwrap_or_default(),
             is_dir,
             kind: kind.icon_index(),
             selected: self.selection.borrow().contains(id),

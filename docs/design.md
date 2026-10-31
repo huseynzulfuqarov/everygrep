@@ -67,9 +67,18 @@ screen; when a change conflicts with them, the rules win or are changed first.
   hidden, an overflow button (`⋯`) after the filter holds settings,
   keyboard shortcuts, about, "show the menu bar" and quit; with the menu
   bar shown it is left out, so no entry has two homes on screen.
-- **Result table.** Default columns are Name, Folder, Size and Modified. Type
-  and Extension can be shown from the header's context menu; Created and Full
-  path are planned (the index does not keep creation or access times yet).
+- **Result table.** Default columns are Name, Folder, Size and Modified. Type,
+  Extension, Created, Accessed and Attributes can be shown from the header's
+  context menu and the View menu; Full path is planned. Created, Accessed and
+  Attributes are not in the index, which keeps it small: they are read from
+  the file system (`statx`) for the rows on screen while their column is
+  shown, and for every result when sorting by one of them, with progress and
+  Cancel. Created is the birth time and stays empty where the file system
+  has none (never 0 or 1970); Accessed follows `relatime`, so it is coarse.
+  Attributes are letters in the order `RHDLX`: `R` read-only (no write
+  permission for the owner; not shown for links, whose mode means nothing),
+  `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link
+  (never followed), `X` regular file with any execute bit.
   Columns can be resized, hidden and sorted by clicking the header; reordering
   is planned. Sorting by Type groups by kind, then extension. The match is
   highlighted inside the name. Entries of a removable drive that is not

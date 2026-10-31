@@ -359,10 +359,6 @@ msgid "Remember the shown columns and their widths"
 msgstr "Gösterilen sütunları ve genişliklerini hatırla"
 
 #: ui/settings.slint
-msgid "Right-click the column headers to show the Type and Extension columns; drag the header borders to resize."
-msgstr "Tür ve Uzantı sütunlarını göstermek için sütun başlıklarına sağ tıklayın; boyutlandırmak için başlık kenarlarını sürükleyin."
-
-#: ui/settings.slint
 msgid "The Size column shows"
 msgstr "Boyut sütunu şunu gösterir"
 
@@ -1394,3 +1390,38 @@ msgid "{} was already in this folder."
 msgid_plural "{} were already in this folder."
 msgstr[0] "{} was already in this folder."
 msgstr[1] "{} were already in this folder."
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Created"
+msgstr "Created"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Accessed"
+msgstr "Accessed"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Attributes"
+msgstr "Attributes"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Created column"
+msgstr "Created column"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Accessed column"
+msgstr "Accessed column"
+
+# TODO: translate (English for now)
+#: ui/app.slint
+msgid "Attributes column"
+msgstr "Attributes column"
+
+# TODO: translate (English for now)
+#: ui/settings.slint
+msgid "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."
+msgstr "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."

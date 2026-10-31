@@ -156,11 +156,17 @@ impl LanguageChoice {
 pub struct Columns {
     pub show_type: bool,
     pub show_ext: bool,
+    pub show_created: bool,
+    pub show_accessed: bool,
+    pub show_attrs: bool,
     pub name: Option<f32>,
     pub size: Option<f32>,
     pub date: Option<f32>,
     pub type_: Option<f32>,
     pub ext: Option<f32>,
+    pub created: Option<f32>,
+    pub accessed: Option<f32>,
+    pub attrs: Option<f32>,
 }
 
 /// Every setting the window has. `Default` gives the program's behaviour
@@ -358,7 +364,11 @@ impl Settings {
             }
             "show-type-column" => put_flag(&mut self.columns.show_type),
             "show-extension-column" => put_flag(&mut self.columns.show_ext),
-            "name-width" | "size-width" | "modified-width" | "type-width" | "extension-width" => {
+            "show-created-column" => put_flag(&mut self.columns.show_created),
+            "show-accessed-column" => put_flag(&mut self.columns.show_accessed),
+            "show-attributes-column" => put_flag(&mut self.columns.show_attrs),
+            "name-width" | "size-width" | "modified-width" | "type-width" | "extension-width"
+            | "created-width" | "accessed-width" | "attributes-width" => {
                 let Some(w) = width(value) else { return false };
                 let c = &mut self.columns;
                 *match key {
@@ -366,7 +376,10 @@ impl Settings {
                     "size-width" => &mut c.size,
                     "modified-width" => &mut c.date,
                     "type-width" => &mut c.type_,
-                    _ => &mut c.ext,
+                    "extension-width" => &mut c.ext,
+                    "created-width" => &mut c.created,
+                    "accessed-width" => &mut c.accessed,
+                    _ => &mut c.attrs,
                 } = Some(w);
                 true
             }
@@ -486,12 +499,18 @@ impl Settings {
         let c = &self.columns;
         flag(&mut out, "show-type-column", c.show_type, false);
         flag(&mut out, "show-extension-column", c.show_ext, false);
+        flag(&mut out, "show-created-column", c.show_created, false);
+        flag(&mut out, "show-accessed-column", c.show_accessed, false);
+        flag(&mut out, "show-attributes-column", c.show_attrs, false);
         let widths = [
             ("name-width", c.name),
             ("size-width", c.size),
             ("modified-width", c.date),
             ("type-width", c.type_),
             ("extension-width", c.ext),
+            ("created-width", c.created),
+            ("accessed-width", c.accessed),
+            ("attributes-width", c.attrs),
         ];
         for (key, width) in widths {
             if let Some(w) = width {
@@ -735,11 +754,17 @@ pub(crate) mod tests {
             columns: Columns {
                 show_type: true,
                 show_ext: true,
+                show_created: true,
+                show_accessed: false,
+                show_attrs: true,
                 name: Some(300.0),
                 size: Some(90.0),
                 date: Some(140.0),
                 type_: Some(120.0),
                 ext: Some(60.0),
+                created: Some(110.0),
+                accessed: None,
+                attrs: Some(50.0),
             },
             theme: ThemeChoice::Dark,
             density: Density::Compact,
