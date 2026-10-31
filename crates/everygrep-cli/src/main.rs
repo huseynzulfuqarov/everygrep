@@ -25,10 +25,11 @@ usage:
   everygrep --version
 
 query syntax: space = and, a|b = or, !a = not, <a b> = group, \"a b\" = literal,
-*.pdf = wildcard, case: wholeword: diacritics: path: file: folder: ext:pdf;jpg
-size:>10mb modified:<7d modified:2026-10-25 modified:>=2026-10
-modified:2026-10-01..2026-10-25 modified:today prefix: suffix: nopunct:
-nospace: regex:^img_\\d+
+*.pdf = wildcard, case: wholeword: diacritics: path: file: folder: ext:pdf;jpg|png
+audio: archive: document: executable: image: video: code: size:>10mb size:1mb size:large
+modified:<7d modified:2026-10-25 modified:>=2026-10 modified:lastweek
+modified:2026-10-01..2026-10-25 modified:today created:today accessed:>30d prefix:
+suffix: nopunct: nospace: regex:^img_\\d+
 
 search and shell load the saved index; they scan and save it first when there
 is none, when --root differs from the saved roots, or with --rescan.
