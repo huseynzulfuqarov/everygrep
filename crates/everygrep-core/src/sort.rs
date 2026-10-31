@@ -7,10 +7,17 @@
 //!
 //! By size, folders count with what [`FolderSize`] says: their total size
 //! (sorted together with files), their number of items, or nothing.
+//!
+//! Creation time, access time and attributes are not in the index; sorting
+//! by them reads them from the file system for every result (see
+//! [`crate::details`]), on several threads. Entries without the value (no
+//! birth time on that file system, gone, on a drive that is not connected)
+//! sort before all others, after them when descending.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
+use crate::details::Details;
 use crate::index::Index;
 use crate::kind::{FileKind, classify};
 use crate::progress::{Cancelled, Progress};
@@ -32,6 +39,13 @@ pub enum SortKey {
     Extension,
     /// File kind (in [`FileKind`] order, folders first), then extension.
     Type,
+    /// Creation (birth) time, read from the file system.
+    Created,
+    /// Access time, read from the file system.
+    Accessed,
+    /// Attribute bits (see [`crate::details::Attributes`]), read from the
+    /// file system.
+    Attributes,
 }
 
 /// What a folder's size is when sorting by [`SortKey::Size`] (and what the
@@ -176,8 +190,70 @@ pub fn sort_with_progress(
             })?;
             sort_directed(ids, threads, desc, k, progress)?;
         }
+        SortKey::Created => {
+            let k = detail_keys(index, ids, threads, progress, |d| d.created_ns)?;
+            sort_directed(ids, threads, desc, k, progress)?;
+        }
+        SortKey::Accessed => {
+            let k = detail_keys(index, ids, threads, progress, |d| d.accessed_ns)?;
+            sort_directed(ids, threads, desc, k, progress)?;
+        }
+        SortKey::Attributes => {
+            let k = detail_keys(index, ids, threads, progress, |d| d.attributes)?;
+            sort_directed(ids, threads, desc, k, progress)?;
+        }
     }
     Ok(())
+}
+
+/// Ids whose details are read between two looks at the progress.
+const DETAIL_BATCH: usize = 1024;
+
+/// `key(details)` for every id, reading the details from the file system on
+/// up to `threads` threads. Entries on a drive that is not connected are not
+/// read and have no details.
+fn detail_keys<K: Send>(
+    index: &Index,
+    ids: &[NodeId],
+    threads: usize,
+    progress: &Progress,
+    key: impl Fn(&Details) -> K + Sync,
+) -> Result<Vec<K>, Cancelled> {
+    let store = index.store();
+    let read = |id: NodeId| {
+        if index.is_offline(id) {
+            Details::default()
+        } else {
+            Details::read(&store.path(id), store.name(id))
+        }
+    };
+    let part = ids.len().div_ceil(threads.max(1)).max(DETAIL_BATCH);
+    let parts: Vec<Result<Vec<K>, Cancelled>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = ids
+            .chunks(part)
+            .map(|chunk| {
+                let (read, key) = (&read, &key);
+                scope.spawn(move || {
+                    let mut keys = Vec::with_capacity(chunk.len());
+                    for batch in chunk.chunks(DETAIL_BATCH) {
+                        progress.check()?;
+                        keys.extend(batch.iter().map(|&id| key(&read(id))));
+                        progress.add(batch.len() as u64);
+                    }
+                    Ok(keys)
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("detail reader"))
+            .collect()
+    });
+    let mut keys = Vec::with_capacity(ids.len());
+    for part in parts {
+        keys.extend(part?);
+    }
+    Ok(keys)
 }
 
 /// `key(position, id)` for every id, in batches with a look at the progress
@@ -665,6 +741,84 @@ mod tests {
                 "b",
             ],
         );
+    }
+
+    /// Sorted names of a scanned temporary folder.
+    fn sorted_on_disk(index: &Index, key: SortKey, descending: bool) -> Vec<String> {
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let mut ids = search(index, &all, 1);
+        let progress = Progress::new();
+        let s = Sort {
+            key,
+            descending,
+            ..Sort::default()
+        };
+        sort_with_progress(index, &mut ids, s, 3, &progress).unwrap();
+        assert_eq!(progress.done(), 2 * ids.len() as u64);
+        ids.iter()
+            .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+            .filter(|n| n.starts_with('f'))
+            .collect()
+    }
+
+    #[test]
+    fn details_are_read_from_disk_for_sorting() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{Duration, UNIX_EPOCH};
+        let dir =
+            std::env::temp_dir().join(format!("everygrep-sort-details-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // Access times 3, 1, 2 days after the epoch; modes: executable,
+        // read-only, plain.
+        for (name, day, mode) in [("f1", 3, 0o755), ("f2", 1, 0o444), ("f3", 2, 0o644)] {
+            let path = dir.join(name);
+            fs::write(&path, b"x").unwrap();
+            let times =
+                fs::FileTimes::new().set_accessed(UNIX_EPOCH + Duration::from_secs(day * 86_400));
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(times)
+                .unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        let mut store = NodeStore::new();
+        crate::scan::scan(&mut store, std::slice::from_ref(&dir), &Default::default());
+        let index = Index::new(store);
+        assert_eq!(
+            sorted_on_disk(&index, SortKey::Accessed, false),
+            ["f2", "f3", "f1"]
+        );
+        assert_eq!(
+            sorted_on_disk(&index, SortKey::Accessed, true),
+            ["f1", "f3", "f2"]
+        );
+        // Plain (no letters) < X < R.
+        assert_eq!(
+            sorted_on_disk(&index, SortKey::Attributes, false),
+            ["f3", "f1", "f2"]
+        );
+        // Every entry gets a key; ties (all created now, or none) keep name order.
+        assert_eq!(sorted_on_disk(&index, SortKey::Created, false).len(), 3);
+
+        // Cancelled before it starts: the order stays.
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let ids = search(&index, &all, 1);
+        let mut cancelled = ids.clone();
+        let progress = Progress::new();
+        progress.cancel();
+        let s = Sort {
+            key: SortKey::Created,
+            ..Sort::default()
+        };
+        assert!(sort_with_progress(&index, &mut cancelled, s, 2, &progress).is_err());
+        assert_eq!(cancelled, ids);
+
+        fs::set_permissions(dir.join("f2"), fs::Permissions::from_mode(0o644)).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Many nodes in many folders with pseudo-random sizes and times.

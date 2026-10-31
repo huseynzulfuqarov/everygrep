@@ -1341,6 +1341,9 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         3 => SortKey::Modified,
         4 => SortKey::Type,
         5 => SortKey::Extension,
+        6 => SortKey::Created,
+        7 => SortKey::Accessed,
+        8 => SortKey::Attributes,
         _ => SortKey::Name,
     };
     Sort {
@@ -1360,6 +1363,9 @@ fn column_of(key: SortKey) -> i32 {
         SortKey::Modified => 3,
         SortKey::Type => 4,
         SortKey::Extension => 5,
+        SortKey::Created => 6,
+        SortKey::Accessed => 7,
+        SortKey::Attributes => 8,
     }
 }
 
@@ -1503,7 +1509,7 @@ mod tests {
 
     #[test]
     fn sort_columns_round_trip() {
-        for column in 0..6 {
+        for column in 0..9 {
             let sort = sort_for_column(column, false, FolderSize::default());
             assert_eq!(column_of(sort.key), column);
         }
@@ -1673,7 +1679,7 @@ mod tests {
 
     #[test]
     fn header_columns_map_to_sort_keys() {
-        let keys: Vec<SortKey> = (0..6)
+        let keys: Vec<SortKey> = (0..9)
             .map(|c| sort_for_column(c, false, FolderSize::Total).key)
             .collect();
         assert_eq!(
@@ -1684,7 +1690,10 @@ mod tests {
                 SortKey::Size,
                 SortKey::Modified,
                 SortKey::Type,
-                SortKey::Extension
+                SortKey::Extension,
+                SortKey::Created,
+                SortKey::Accessed,
+                SortKey::Attributes
             ]
         );
         assert!(sort_for_column(2, true, FolderSize::Total).descending);
