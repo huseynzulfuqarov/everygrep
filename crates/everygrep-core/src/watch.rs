@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use crate::index::Index;
 use crate::inotify::{Event, Inotify, Mask, WatchId};
+use crate::progress::Progress;
 use crate::scan::{ScanOptions, skip_set};
 use crate::store::{Meta, NodeId};
 use crate::sync::{CatchUpStats, add_tree, catch_up_with, online_roots};
@@ -166,11 +167,27 @@ impl Watcher {
     /// example a drive that was plugged in again). Watch them first with
     /// [`watch_root`](Self::watch_root).
     pub fn catch_up_roots(&mut self, index: &mut Index, roots: &[NodeId]) -> CatchUpStats {
+        self.catch_up_with_progress(index, roots, &Progress::new())
+    }
+
+    /// Like [`catch_up_roots`](Self::catch_up_roots), counting every folder
+    /// it checks in `progress` (see [`crate::sync::folders_below`] for the
+    /// total).
+    pub fn catch_up_with_progress(
+        &mut self,
+        index: &mut Index,
+        roots: &[NodeId],
+        progress: &Progress,
+    ) -> CatchUpStats {
         let watches = &mut self.watches;
         let skip = &self.skip;
-        let stats = catch_up_with(index, roots, skip, &mut |idx: &Index, dir| {
-            watches.watch(idx, dir, skip)
-        });
+        let stats = catch_up_with(
+            index,
+            roots,
+            skip,
+            &mut |idx: &Index, dir| watches.watch(idx, dir, skip),
+            progress,
+        );
         self.watches.forget(&index.take_removed());
         stats
     }

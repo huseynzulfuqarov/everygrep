@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use crate::index::Index;
 use crate::kind::{FileKind, classify};
+use crate::progress::{Cancelled, Progress};
 use crate::store::{NodeId, NodeStore};
 
 /// Column to sort results by.
@@ -90,6 +91,26 @@ const PARALLEL_MIN: usize = 64 * 1024;
 /// part of the key, so their descending order is the exact reverse.
 /// Up to `threads` threads sort large lists.
 pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
+    // Never cancelled, so it always sorts.
+    let _ = sort_with_progress(index, ids, sort, threads, &Progress::new());
+}
+
+/// Ids whose keys are computed between two looks at the progress.
+const KEY_BATCH: usize = 16 * 1024;
+
+/// Like [`sort`], reporting to `progress` and stopping when it is
+/// cancelled. Its total is twice the number of ids: computing the keys
+/// counts one per id, sorting and placing them the other. A cancelled sort
+/// leaves `ids` exactly as they were.
+pub fn sort_with_progress(
+    index: &Index,
+    ids: &mut [NodeId],
+    sort: Sort,
+    threads: usize,
+    progress: &Progress,
+) -> Result<(), Cancelled> {
+    let n = ids.len() as u64;
+    progress.set_total(Some(2 * n));
     let store = index.store();
     let desc = sort.descending;
     match sort.key {
@@ -97,14 +118,15 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
             if desc {
                 ids.reverse();
             }
+            progress.add(2 * n);
         }
         SortKey::Path => {
             let ranks = folder_ranks(store, ids);
-            let keys: Vec<u32> = ids
-                .iter()
-                .map(|&id| store.parent(id).map_or(0, |p| ranks[p.index()]))
-                .collect();
-            sort_by_keys(ids, threads, keys);
+            progress.check()?;
+            let keys = keys_of(ids, progress, |_, id| {
+                store.parent(id).map_or(0, |p| ranks[p.index()])
+            })?;
+            sort_by_keys(ids, threads, keys, progress)?;
             if desc {
                 ids.reverse();
             }
@@ -112,59 +134,67 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
         SortKey::Size => match sort.folders {
             FolderSize::Total | FolderSize::None => {
                 let none = sort.folders == FolderSize::None;
-                let k: Vec<u64> = ids
-                    .iter()
-                    .map(|&id| {
-                        if none && store.is_dir(id) {
-                            0
-                        } else {
-                            store.meta(id).size
-                        }
-                    })
-                    .collect();
-                sort_directed(ids, threads, desc, k);
+                let k = keys_of(ids, progress, |_, id| {
+                    if none && store.is_dir(id) {
+                        0
+                    } else {
+                        store.meta(id).size
+                    }
+                })?;
+                sort_directed(ids, threads, desc, k, progress)?;
             }
             FolderSize::Items => {
-                let k: Vec<(bool, u64)> = ids
-                    .iter()
-                    .map(|&id| {
-                        if store.is_dir(id) {
-                            (false, u64::from(store.items(id)))
-                        } else {
-                            (true, store.meta(id).size)
-                        }
-                    })
-                    .collect();
-                sort_directed(ids, threads, desc, k);
+                let k = keys_of(ids, progress, |_, id| {
+                    if store.is_dir(id) {
+                        (false, u64::from(store.items(id)))
+                    } else {
+                        (true, store.meta(id).size)
+                    }
+                })?;
+                sort_directed(ids, threads, desc, k, progress)?;
             }
         },
         SortKey::Modified => {
-            let k: Vec<i64> = ids.iter().map(|&id| store.meta(id).mtime_ns).collect();
-            sort_directed(ids, threads, desc, k);
+            let k = keys_of(ids, progress, |_, id| store.meta(id).mtime_ns)?;
+            sort_directed(ids, threads, desc, k, progress)?;
         }
         SortKey::Extension => {
             // Comparing small ranks is much faster than comparing name bytes
             // spread over memory; there are few distinct extensions.
             let (exts, ranks) = extension_ranks(store, ids);
-            let k: Vec<u32> = exts.iter().map(|&e| ranks[e as usize]).collect();
-            sort_directed(ids, threads, desc, k);
+            let k = keys_of(ids, progress, |i, _| ranks[exts[i] as usize])?;
+            sort_directed(ids, threads, desc, k, progress)?;
         }
         SortKey::Type => {
             let (exts, ranks) = extension_ranks(store, ids);
-            let k: Vec<(FileKind, u32)> = ids
-                .iter()
-                .zip(&exts)
-                .map(
-                    |(&id, &e)| match classify(store.name(id), store.is_dir(id)) {
-                        // A dot in a folder name does not make a type.
-                        FileKind::Folder => (FileKind::Folder, 0),
-                        kind => (kind, ranks[e as usize]),
-                    },
-                )
-                .collect();
-            sort_directed(ids, threads, desc, k);
+            let k = keys_of(ids, progress, |i, id| {
+                match classify(store.name(id), store.is_dir(id)) {
+                    // A dot in a folder name does not make a type.
+                    FileKind::Folder => (FileKind::Folder, 0),
+                    kind => (kind, ranks[exts[i] as usize]),
+                }
+            })?;
+            sort_directed(ids, threads, desc, k, progress)?;
         }
     }
+    Ok(())
+}
+
+/// `key(position, id)` for every id, in batches with a look at the progress
+/// before each.
+fn keys_of<K>(
+    ids: &[NodeId],
+    progress: &Progress,
+    mut key: impl FnMut(usize, NodeId) -> K,
+) -> Result<Vec<K>, Cancelled> {
+    let mut keys = Vec::with_capacity(ids.len());
+    for (c, chunk) in ids.chunks(KEY_BATCH).enumerate() {
+        progress.check()?;
+        let start = c * KEY_BATCH;
+        keys.extend(chunk.iter().enumerate().map(|(i, &id)| key(start + i, id)));
+        progress.add(chunk.len() as u64);
+    }
+    Ok(keys)
 }
 
 /// Folded extension of a node's name, without the dot. A dot at the very start
@@ -183,16 +213,29 @@ fn sort_directed<K: Ord + Send + Copy>(
     threads: usize,
     desc: bool,
     keys: Vec<K>,
-) {
+    progress: &Progress,
+) -> Result<(), Cancelled> {
     if desc {
-        sort_by_keys(ids, threads, keys.into_iter().map(Reverse).collect());
+        sort_by_keys(
+            ids,
+            threads,
+            keys.into_iter().map(Reverse).collect(),
+            progress,
+        )
     } else {
-        sort_by_keys(ids, threads, keys);
+        sort_by_keys(ids, threads, keys, progress)
     }
 }
 
 /// Sorts `ids` by `keys` (one per id); equal keys keep their input order.
-fn sort_by_keys<K: Ord + Send + Copy>(ids: &mut [NodeId], threads: usize, keys: Vec<K>) {
+/// When cancelled, `ids` are left as they were.
+fn sort_by_keys<K: Ord + Send + Copy>(
+    ids: &mut [NodeId],
+    threads: usize,
+    keys: Vec<K>,
+    progress: &Progress,
+) -> Result<(), Cancelled> {
+    progress.check()?;
     let mut keyed: Vec<(K, u32)> = keys
         .into_iter()
         .zip(0..u32::try_from(ids.len()).expect("result count fits in u32"))
@@ -200,10 +243,13 @@ fn sort_by_keys<K: Ord + Send + Copy>(ids: &mut [NodeId], threads: usize, keys: 
     // The input position makes every pair unique, so an unstable sort is
     // deterministic and keeps ties in input order.
     par_sort_unstable(&mut keyed, threads);
+    progress.check()?;
     let before = ids.to_vec();
     for (slot, (_, i)) in ids.iter_mut().zip(&keyed) {
         *slot = before[*i as usize];
     }
+    progress.add(ids.len() as u64);
+    Ok(())
 }
 
 /// Sorts `v`, splitting large slices into one run per thread that are sorted in
@@ -652,6 +698,40 @@ mod tests {
         SortKey::Extension,
         SortKey::Type,
     ];
+
+    #[test]
+    fn progress_reaches_its_total_and_cancel_keeps_the_input_order() {
+        let index = big_index(50_000);
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let ids = search(&index, &all, 1);
+        for key in KEYS {
+            for descending in [false, true] {
+                let s = Sort {
+                    key,
+                    descending,
+                    ..Sort::default()
+                };
+                let mut plain = ids.clone();
+                sort(&index, &mut plain, s, 4);
+                let progress = Progress::new();
+                let mut counted = ids.clone();
+                sort_with_progress(&index, &mut counted, s, 4, &progress).unwrap();
+                assert_eq!(counted, plain, "{key:?}");
+                assert_eq!(progress.total(), Some(2 * ids.len() as u64), "{key:?}");
+                assert_eq!(progress.done(), 2 * ids.len() as u64, "{key:?}");
+
+                if key == SortKey::Name {
+                    continue; // Instant, nothing to cancel.
+                }
+                let cancelled = Progress::new();
+                cancelled.cancel();
+                let mut kept = ids.clone();
+                let result = sort_with_progress(&index, &mut kept, s, 4, &cancelled);
+                assert_eq!(result, Err(Cancelled), "{key:?}");
+                assert_eq!(kept, ids, "{key:?} {descending}");
+            }
+        }
+    }
 
     #[test]
     fn parallel_sort_equals_serial_sort() {

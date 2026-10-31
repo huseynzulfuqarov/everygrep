@@ -15,6 +15,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use crate::index::Index;
+use crate::progress::Progress;
 use crate::scan::{ScanOptions, skip_set};
 use crate::store::{Meta, NodeId};
 
@@ -40,10 +41,33 @@ pub struct CatchUpStats {
 /// are left as they are.
 pub fn catch_up(index: &mut Index, options: &ScanOptions) -> CatchUpStats {
     let roots = online_roots(index);
-    let stats = catch_up_with(index, &roots, &skip_set(options), &mut |_: &Index, _| {});
+    let stats = catch_up_with(
+        index,
+        &roots,
+        &skip_set(options),
+        &mut |_: &Index, _| {},
+        &Progress::new(),
+    );
     // Nobody keeps per-node state here, so the removal log is not needed.
     index.take_removed();
     stats
+}
+
+/// Number of folders a catch-up of `roots` checks at most: all indexed
+/// folders below them, the roots included.
+pub fn folders_below(index: &Index, roots: &[NodeId]) -> u64 {
+    let store = index.store();
+    let mut count = 0;
+    let mut pending: Vec<NodeId> = roots
+        .iter()
+        .copied()
+        .filter(|&r| store.is_live(r) && store.is_dir(r))
+        .collect();
+    while let Some(dir) = pending.pop() {
+        count += 1;
+        pending.extend(store.children(dir).filter(|&k| store.is_dir(k)));
+    }
+    count
 }
 
 /// The roots that are not offline.
@@ -56,13 +80,15 @@ pub(crate) fn online_roots(index: &Index) -> Vec<NodeId> {
 }
 
 /// Catch-up of the folder roots in `roots` that calls `on_new_dir` for every
-/// folder it adds, before reading that folder. Removed ids are left in the
-/// index's removal log.
+/// folder it adds, before reading that folder, and counts every indexed
+/// folder it checks in `progress`. Removed ids are left in the index's
+/// removal log.
 pub(crate) fn catch_up_with(
     index: &mut Index,
     roots: &[NodeId],
     skip: &HashSet<PathBuf>,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    progress: &Progress,
 ) -> CatchUpStats {
     let mut stats = CatchUpStats::default();
 
@@ -78,6 +104,7 @@ pub(crate) fn catch_up_with(
             continue;
         }
         stats.dirs_checked += 1;
+        progress.add(1);
         let path = index.store().path(dir);
         let m = match fs::symlink_metadata(&path) {
             Ok(m) if m.is_dir() => m,
@@ -301,6 +328,26 @@ mod tests {
         assert_eq!(folder_sizes(&index), folder_sizes(&fresh));
         assert!(stats.removed >= 4, "{stats:?}");
         assert!(stats.added >= 6, "{stats:?}");
+    }
+
+    #[test]
+    fn catch_up_progress_counts_the_folders_checked() {
+        let root = tree("progress");
+        let mut index = index_of(&root);
+        let roots = online_roots(&index);
+        let folders = folders_below(&index, &roots);
+        let progress = Progress::new();
+        let stats = catch_up_with(
+            &mut index,
+            &roots,
+            &HashSet::new(),
+            &mut |_: &Index, _| {},
+            &progress,
+        );
+        fs::remove_dir_all(&root).unwrap();
+        assert!(folders > 1);
+        assert_eq!(progress.done(), folders);
+        assert_eq!(stats.dirs_checked as u64, folders);
     }
 
     #[test]

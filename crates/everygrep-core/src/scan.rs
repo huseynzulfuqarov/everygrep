@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+use crate::progress::{Cancelled, Progress};
 use crate::store::{Meta, NodeId, NodeStore};
 
 /// File system types that hold no real files and are skipped by default.
@@ -64,9 +65,26 @@ pub struct ScanStats {
 /// systems ([`VIRTUAL_FS_TYPES`]) and folders in `options.exclude` are indexed
 /// but not entered.
 pub fn scan(store: &mut NodeStore, roots: &[PathBuf], options: &ScanOptions) -> ScanStats {
+    scan_with_progress(store, roots, options, &Progress::new()).unwrap_or_default()
+}
+
+/// Entries added between two updates of the progress.
+const PROGRESS_BATCH: u64 = 1024;
+
+/// Like [`scan`], counting every entry added to `store` in `progress` and
+/// stopping when it is cancelled. The cancel is seen after each folder and
+/// after every [`PROGRESS_BATCH`] entries of a large folder; `store` then
+/// holds part of the tree and should be thrown away.
+pub fn scan_with_progress(
+    store: &mut NodeStore,
+    roots: &[PathBuf],
+    options: &ScanOptions,
+    progress: &Progress,
+) -> Result<ScanStats, Cancelled> {
     let skip = skip_set(options);
     let mut stats = ScanStats::default();
     for root in roots {
+        progress.check()?;
         let meta = match fs::symlink_metadata(root) {
             Ok(m) => m,
             Err(_) => {
@@ -80,14 +98,15 @@ pub fn scan(store: &mut NodeStore, roots: &[PathBuf], options: &ScanOptions) -> 
             meta.is_dir(),
             meta_of(&meta, options),
         );
+        progress.add(1);
         if meta.is_dir() {
             stats.dirs += 1;
-            walk(store, id, root, options, &skip, &mut stats);
+            walk(store, id, root, options, &skip, &mut stats, progress)?;
         } else {
             stats.files += 1;
         }
     }
-    stats
+    Ok(stats)
 }
 
 fn walk(
@@ -97,9 +116,13 @@ fn walk(
     options: &ScanOptions,
     skip: &HashSet<PathBuf>,
     stats: &mut ScanStats,
-) {
+    progress: &Progress,
+) -> Result<(), Cancelled> {
     let mut pending = vec![(root_id, root.to_path_buf())];
+    let mut unreported = 0;
     while let Some((dir_id, dir)) = pending.pop() {
+        progress.add(std::mem::take(&mut unreported));
+        progress.check()?;
         let entries = match fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => {
@@ -129,6 +152,11 @@ fn walk(
                 Meta::default()
             };
             let id = store.add(Some(dir_id), entry.file_name().as_bytes(), is_dir, meta);
+            unreported += 1;
+            if unreported == PROGRESS_BATCH {
+                progress.add(std::mem::take(&mut unreported));
+                progress.check()?;
+            }
             if is_dir {
                 stats.dirs += 1;
                 let path = entry.path();
@@ -140,6 +168,8 @@ fn walk(
             }
         }
     }
+    progress.add(unreported);
+    Ok(())
 }
 
 /// Turns root paths into absolute, symlink-free paths, drops duplicates and drops
@@ -282,6 +312,51 @@ mod tests {
         assert_eq!(size_of(base.as_os_str().as_bytes()), (4, 3));
         assert_eq!(size_of(b"a"), (3, 2));
         assert_eq!(size_of(b"skip"), (0, 0));
+    }
+
+    #[test]
+    fn progress_counts_every_entry_and_cancel_stops_the_scan() {
+        let base = temp_tree("progress");
+        for i in 0..2500 {
+            fs::write(base.join(format!("a/many-{i}")), b"").unwrap();
+        }
+        let options = ScanOptions::default();
+        let progress = Progress::new();
+        let mut store = NodeStore::new();
+        let stats =
+            scan_with_progress(&mut store, std::slice::from_ref(&base), &options, &progress)
+                .unwrap();
+        assert_eq!(progress.done(), store.len() as u64);
+        assert_eq!(stats.dirs + stats.files, store.len() as u64);
+
+        // Cancelled before it starts: nothing is read.
+        let cancelled = Progress::new();
+        cancelled.cancel();
+        let mut part = NodeStore::new();
+        let result =
+            scan_with_progress(&mut part, std::slice::from_ref(&base), &options, &cancelled);
+        assert_eq!(result, Err(Cancelled));
+        assert!(part.is_empty());
+
+        // Cancelled part way (from another thread, as the window does): the
+        // scan stops early and reports it.
+        let midway = Progress::new();
+        let mut part = NodeStore::new();
+        let result = std::thread::scope(|s| {
+            s.spawn(|| {
+                while midway.done() == 0 {
+                    std::thread::yield_now();
+                }
+                midway.cancel();
+            });
+            // Ends either way; with a cancel it must say so.
+            scan_with_progress(&mut part, std::slice::from_ref(&base), &options, &midway)
+        });
+        fs::remove_dir_all(&base).unwrap();
+        if midway.is_cancelled() {
+            assert!(result.is_err() || part.len() == store.len());
+        }
+        assert!(part.len() <= store.len());
     }
 
     #[test]

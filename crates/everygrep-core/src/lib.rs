@@ -9,6 +9,7 @@ pub mod kind;
 pub mod localtime;
 pub mod order;
 pub mod persist;
+pub mod progress;
 pub mod query;
 pub mod scan;
 pub mod search;

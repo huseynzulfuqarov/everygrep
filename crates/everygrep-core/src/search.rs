@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::index::Index;
+use crate::progress::{Cancelled, Progress};
 use crate::query::{EvalScratch, Query};
 use crate::store::NodeId;
 
@@ -16,14 +17,38 @@ const BLOCKS_PER_TASK: usize = 16;
 /// one, so fast and slow groups balance out. Group results are joined in group
 /// order, which keeps the name order of the index.
 pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
+    search_with_progress(index, query, threads, &Progress::new()).unwrap_or_default()
+}
+
+/// Like [`search`], counting the names looked at in `progress` (its total is
+/// set to the size of the index) and stopping when it is cancelled. The
+/// cancel is seen before each group of blocks.
+pub fn search_with_progress(
+    index: &Index,
+    query: &Query,
+    threads: usize,
+    progress: &Progress,
+) -> Result<Vec<NodeId>, Cancelled> {
     let order = index.order();
+    progress.set_total(Some(order.len() as u64));
     if query.matches_all() {
-        return order.iter().collect();
+        progress.add(order.len() as u64);
+        return Ok(order.iter().collect());
     }
     let groups: Vec<&[Vec<NodeId>]> = order.blocks().chunks(BLOCKS_PER_TASK).collect();
     let threads = threads.clamp(1, groups.len().max(1));
+    let scan_group = |group: &[Vec<NodeId>]| -> Result<Vec<NodeId>, Cancelled> {
+        progress.check()?;
+        let found = scan(index, query, group);
+        progress.add(group.iter().map(|b| b.len() as u64).sum());
+        Ok(found)
+    };
     if threads == 1 {
-        return groups.iter().flat_map(|g| scan(index, query, g)).collect();
+        let mut out = Vec::new();
+        for group in &groups {
+            out.extend(scan_group(group)?);
+        }
+        return Ok(out);
     }
 
     let next = AtomicUsize::new(0);
@@ -35,13 +60,15 @@ pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
                 loop {
                     let n = next.fetch_add(1, Ordering::Relaxed);
                     let Some(group) = groups.get(n) else { break };
-                    local.push((n, scan(index, query, group)));
+                    let Ok(found) = scan_group(group) else { break };
+                    local.push((n, found));
                 }
                 parts.lock().expect("search worker panicked").extend(local);
             });
         }
     });
 
+    progress.check()?;
     let mut parts = parts.into_inner().expect("search worker panicked");
     parts.sort_unstable_by_key(|(n, _)| *n);
     let total = parts.iter().map(|(_, v)| v.len()).sum();
@@ -49,7 +76,7 @@ pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
     for (_, part) in parts {
         out.extend(part);
     }
-    out
+    Ok(out)
 }
 
 fn scan(index: &Index, query: &Query, blocks: &[Vec<NodeId>]) -> Vec<NodeId> {
@@ -95,6 +122,27 @@ mod tests {
             .map(|&id| index.store().folded_name(id))
             .collect();
         assert!(names.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    #[test]
+    fn progress_covers_the_index_and_cancel_returns_nothing() {
+        let index = big_index(50_000);
+        let m = Query::parse("match", QueryOptions::default()).unwrap();
+        for threads in [1, 8] {
+            let progress = Progress::new();
+            let found = search_with_progress(&index, &m, threads, &progress).unwrap();
+            assert_eq!(found, search(&index, &m, 1));
+            assert_eq!(progress.total(), Some(index.len() as u64));
+            assert_eq!(progress.done(), index.len() as u64);
+
+            let cancelled = Progress::new();
+            cancelled.cancel();
+            assert_eq!(
+                search_with_progress(&index, &m, threads, &cancelled),
+                Err(Cancelled)
+            );
+            assert_eq!(cancelled.done(), 0);
+        }
     }
 
     #[test]
