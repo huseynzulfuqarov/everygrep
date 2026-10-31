@@ -14,7 +14,11 @@ First version, 0.1.0, not released yet.
   stored once and a case- and diacritic-folded copy for matching.
 - Parallel search over the name-sorted order on all CPU cores.
 - Directory scanner that never follows symbolic links and does not enter
-  virtual file systems or excluded folders.
+  virtual file systems.
+- Index rules: excluded folders by exact path or pattern, "include only" and
+  "exclude" file patterns (wildcards with `*`, `**`, `?`, or `regex:`),
+  matched against the name or, with a `/`, the full path; compiled once and
+  applied the same way by scans, catch-ups and live updates.
 - Live updates with inotify: creations, deletions, renames and moves keep the
   index current; a queue overflow rebuilds it.
 - Catching up on start with changes made while nothing was watching, by
@@ -55,6 +59,8 @@ First version, 0.1.0, not released yet.
 
 - `everygrep index`, `search` and `shell` (with `--watch`), reusing the saved
   index and rescanning when the roots change.
+- `--exclude` takes a path or a pattern; `--include-files` and
+  `--exclude-files` take file pattern lists.
 
 ### Window
 

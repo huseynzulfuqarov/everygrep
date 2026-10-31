@@ -145,7 +145,7 @@ fn main() -> Result<(), slint::PlatformError> {
         everygrep_core::drives::DriveEnv::from_env().map(|env| (env, settings.drives.clone()));
     let engine = Engine::start(
         setup.roots.clone(),
-        setup.excludes.clone(),
+        setup.rules(),
         args.index_file,
         drives,
         hooks,

@@ -251,6 +251,33 @@ Changing the folders rebuilds the index in the background while the window
 stays usable; the status line shows the progress, and the new index is saved
 as soon as it is complete.
 
+### Excluded folders and files
+
+What is left out of the index comes from three lists, used only while "Use
+the exclude list" is on:
+
+- **Excluded folders**: an absolute path, matched exactly, or a pattern
+  (`node_modules`, `*.git`, `/srv/**/tmp`, `regex:^te?mp$`). An excluded
+  folder is left out with its own entry and all that is below it.
+- **Include only files**: when not empty, a file is indexed only if one of
+  these patterns matches it (`*.mp3;*.jpg`).
+- **Exclude files**: a file that matches one of these is not indexed
+  (`*.tmp;~*`).
+
+A file is indexed when the include list is empty or matches it, and the
+exclude list does not; an exclude always wins. Folders are tested only
+against the folder list. Items are separated by `;` or `,`; double quotes
+keep a separator inside an item. In a wildcard pattern `*` matches anything
+but `/`, `**` anything, and `?` one character but `/`; it must match the
+whole name, ignoring case. A pattern with a `/` is matched against the full
+path instead: from the start when it begins with `/`, otherwise against the
+end of the path after a `/` (`docs/*.txt`). `regex:` starts a regular
+expression, searched for in the name (in the full path when it contains a
+`/`), with case as written (`(?i)` ignores it). A pattern that does not
+compile is refused with a message and not saved. The folders to index
+themselves are always indexed. Changing any list or the switch indexes
+again; the same rules apply while watching for changes and when catching up.
+
 Long operations show their progress in the status line once they take
 more than 300 ms: indexing, rescanning, reading a drive, catching up,
 searching and sorting ("Indexing: 42%"). The percentage of a scan is
@@ -262,14 +289,12 @@ before: a cancelled first index is not saved (the next start, or "Rebuild
 index now", indexes again), a cancelled rescan keeps the previous index and
 folders, a cancelled sort or search keeps the results and order shown, and
 a drive whose first reading was cancelled is read again when it is plugged
-in again. Catching up cannot be cancelled. Cancel has no key yet. An excluded folder is matched exactly, and its own
-entry stays in the results. Hidden files are always indexed.
+in again. Catching up cannot be cancelled. Cancel has no key yet. Hidden files are always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any
 depth, and is kept up to date as files change. Each file counts with its own
 size: a file with several hard links counts once per link, a symbolic link
-counts with the length of its target and is never followed, and excluded
-folders count as empty. Sorting by Size puts folders among the files by their
+counts with the length of its target and is never followed. Sorting by Size puts folders among the files by their
 total; with "number of items" folders sort by that number, before the files
 (after them when the order is reversed); with "nothing" they sort as empty,
 as before. Folder sizes are the one setting whose default changes the
@@ -378,7 +403,9 @@ there is none, when `--root` differs from the saved roots, or with
 `--rescan`. Paths are printed in name order, one per line, at most `--limit`
 (50 by default, `0` for all); counts and timings go to standard error.
 `shell --watch` applies file changes before every query and saves the index
-on exit. Other options: `--root`, `--index-file`, `--exclude`, `--case`,
+on exit. `--exclude`, `--include-files` and `--exclude-files` take the
+excluded folders and file patterns described under
+[Excluded folders and files](#excluded-folders-and-files). Other options: `--root`, `--index-file`, `--case`,
 `--whole-words`, `--match-path`, `--diacritics`, `--prefix`, `--suffix`,
 `--ignore-punctuation`, `--ignore-whitespace`, `--regex`, `--filter`,
 `--threads`, `--no-meta`; `everygrep` without arguments prints them all. The command line

@@ -13,13 +13,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::index::Index;
 use crate::inotify::{Event, Inotify, Mask, WatchId};
 use crate::progress::Progress;
-use crate::scan::{ScanOptions, skip_set};
+use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
 use crate::sync::{CatchUpStats, add_tree, catch_up_with, online_roots};
 
@@ -49,9 +48,9 @@ struct Watches {
 }
 
 impl Watches {
-    fn watch(&mut self, index: &Index, dir: NodeId, skip: &HashSet<PathBuf>) {
+    fn watch(&mut self, index: &Index, dir: NodeId, skip: &Skip) {
         let path = index.store().path(dir);
-        if skip.contains(&path) {
+        if !skip.enters(&path) {
             return;
         }
         match self.inotify.add_watch(&path, Mask::INDEX_EVENTS) {
@@ -98,14 +97,15 @@ impl Watches {
 /// Watches all indexed folders and applies their changes to the index.
 pub struct Watcher {
     watches: Watches,
-    skip: HashSet<PathBuf>,
+    skip: Skip,
     buf: Vec<u8>,
 }
 
 impl Watcher {
     /// Creates a watcher with a watch on every live folder of `index` below
     /// a root that is not offline. Folders that a scan with `options` would
-    /// not enter are not watched either.
+    /// not enter are not watched either, and events apply the same rules as
+    /// the scan: entries it would leave out are not added.
     pub fn new(index: &Index, options: &ScanOptions) -> io::Result<Self> {
         let mut w = Self {
             watches: Watches {
@@ -114,7 +114,7 @@ impl Watcher {
                 watch_of: HashMap::new(),
                 failed: 0,
             },
-            skip: skip_set(options),
+            skip: Skip::new(options),
             buf: Vec::new(),
         };
         for root in online_roots(index) {
@@ -296,7 +296,10 @@ impl Watcher {
                 }
             } else if ev.mask.contains(Mask::MOVED_TO) {
                 match moved_out.remove(&ev.cookie) {
-                    Some(node) if index.rename(node, Some(dir), name).is_ok() => {
+                    Some(node)
+                        if self.keeps_on_move(index, node, dir, name)
+                            && index.rename(node, Some(dir), name).is_ok() =>
+                    {
                         stats.moved += 1;
                         refresh_meta(index, node, &mut stats);
                     }
@@ -335,6 +338,22 @@ impl Watcher {
         }
         self.watches.forget(&index.take_removed());
         stats
+    }
+
+    /// Whether `node`, moved to `name` in `dir`, can keep its subtree as it
+    /// is. Not when the rules leave it out under its new name, or when they
+    /// look at paths and it is a folder: what they leave out below it may
+    /// differ at its new place, so it is read again.
+    fn keeps_on_move(&self, index: &Index, node: NodeId, dir: NodeId, name: &[u8]) -> bool {
+        let rules = &self.skip.rules;
+        if rules.is_empty() {
+            return true;
+        }
+        let is_dir = index.store().is_dir(node);
+        if is_dir && rules.uses_paths() {
+            return false;
+        }
+        rules.accepts(&index.store().path(dir), name, is_dir)
     }
 
     /// Adds `parent/name` as it is on disk now, including a folder's contents,
@@ -442,6 +461,118 @@ mod tests {
             .order()
             .iter()
             .any(|id| index.store().path(id) == path)
+    }
+
+    #[test]
+    fn live_changes_follow_the_rules() {
+        use crate::rules::{IndexRules, RuleSpec};
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-rules-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("root/docs")).unwrap();
+        fs::create_dir_all(base.join("outside/build/deep")).unwrap();
+        fs::write(base.join("outside/build/deep/o.txt"), b"o").unwrap();
+        let options = ScanOptions {
+            rules: IndexRules::new(RuleSpec {
+                folders: vec!["build".into()],
+                include_files: "*.txt;*.tmp".into(),
+                exclude_files: "*.tmp;regex:/docs/secret".into(),
+                ..RuleSpec::default()
+            })
+            .unwrap(),
+            ..ScanOptions::default()
+        };
+        let mut store = NodeStore::new();
+        scan(&mut store, &[base.join("root")], &options);
+        let mut index = Index::new(store);
+        let mut watcher = Watcher::new(&index, &options).unwrap();
+        let root = base.join("root");
+        let settle = |index: &mut Index, watcher: &mut Watcher, done: &dyn Fn(&Index) -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                watcher
+                    .poll(index, Some(Duration::from_millis(50)))
+                    .unwrap();
+                if done(index) {
+                    return true;
+                }
+            }
+            false
+        };
+        fs::write(root.join("docs/a.tmp"), b"t").unwrap();
+        fs::write(root.join("docs/b.pdf"), b"p").unwrap();
+        fs::write(root.join("docs/secret.txt"), b"s").unwrap();
+        fs::create_dir_all(root.join("build/x")).unwrap();
+        fs::write(root.join("docs/ok.txt"), b"k").unwrap();
+        assert!(settle(&mut index, &mut watcher, &|i| has(
+            i,
+            &root.join("docs/ok.txt")
+        )));
+        // A folder moved in brings what the rules allow.
+        fs::rename(base.join("outside/build/deep"), root.join("docs/deep")).unwrap();
+        assert!(settle(&mut index, &mut watcher, &|i| has(
+            i,
+            &root.join("docs/deep/o.txt")
+        )));
+        // A rename into an excluded name removes the file.
+        fs::rename(root.join("docs/ok.txt"), root.join("docs/ok.tmp")).unwrap();
+        assert!(settle(&mut index, &mut watcher, &|i| !has(
+            i,
+            &root.join("docs/ok.txt")
+        )));
+        // A folder renamed to an excluded name goes with its contents.
+        fs::rename(root.join("docs/deep"), root.join("docs/build")).unwrap();
+        assert!(settle(&mut index, &mut watcher, &|i| !has(
+            i,
+            &root.join("docs/deep/o.txt")
+        )));
+        watcher
+            .poll(&mut index, Some(Duration::from_millis(100)))
+            .unwrap();
+        let mut found: Vec<PathBuf> = index
+            .order()
+            .iter()
+            .map(|id| index.store().path(id))
+            .collect();
+        found.sort();
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(found, [root.clone(), root.join("docs")]);
+    }
+
+    #[test]
+    fn a_path_rule_is_checked_again_when_a_folder_moves() {
+        use crate::rules::{IndexRules, RuleSpec};
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-pathrule-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("root/work/sub")).unwrap();
+        fs::write(base.join("root/work/sub/n.log"), b"l").unwrap();
+        let options = ScanOptions {
+            rules: IndexRules::new(RuleSpec {
+                exclude_files: "old/**.log".into(),
+                ..RuleSpec::default()
+            })
+            .unwrap(),
+            ..ScanOptions::default()
+        };
+        let mut store = NodeStore::new();
+        scan(&mut store, &[base.join("root")], &options);
+        let mut index = Index::new(store);
+        let mut watcher = Watcher::new(&index, &options).unwrap();
+        let root = base.join("root");
+        assert!(has(&index, &root.join("work/sub/n.log")));
+        fs::rename(root.join("work"), root.join("old")).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !has(&index, &root.join("old/sub")) && Instant::now() < deadline {
+            watcher
+                .poll(&mut index, Some(Duration::from_millis(50)))
+                .unwrap();
+        }
+        let moved_log = has(&index, &root.join("old/sub/n.log"));
+        let moved_dir = has(&index, &root.join("old/sub"));
+        fs::remove_dir_all(&base).unwrap();
+        assert!(moved_dir);
+        assert!(!moved_log, "the log below the moved folder is now excluded");
     }
 
     #[test]

@@ -6,6 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use crate::progress::{Cancelled, Progress};
+use crate::rules::IndexRules;
 use crate::store::{Meta, NodeId, NodeStore};
 
 /// File system types that hold no real files and are skipped by default.
@@ -35,15 +36,15 @@ pub const VIRTUAL_FS_TYPES: &[&str] = &[
 pub struct ScanOptions {
     /// Read size and modification time of every entry (one `lstat` per entry).
     pub with_metadata: bool,
-    /// Directories that are not entered. Their own entry is still indexed.
-    pub exclude: Vec<PathBuf>,
+    /// Folders and files left out of the index (see [`crate::rules`]).
+    pub rules: IndexRules,
 }
 
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
             with_metadata: true,
-            exclude: Vec::new(),
+            rules: IndexRules::default(),
         }
     }
 }
@@ -62,8 +63,9 @@ pub struct ScanStats {
 /// Walks every root and adds all entries below it to `store`.
 ///
 /// Symbolic links are indexed but never followed. Mount points of virtual file
-/// systems ([`VIRTUAL_FS_TYPES`]) and folders in `options.exclude` are indexed
-/// but not entered.
+/// systems ([`VIRTUAL_FS_TYPES`]) are indexed but not entered. Entries that
+/// `options.rules` leave out are not indexed, and an excluded folder is not
+/// entered.
 pub fn scan(store: &mut NodeStore, roots: &[PathBuf], options: &ScanOptions) -> ScanStats {
     scan_with_progress(store, roots, options, &Progress::new()).unwrap_or_default()
 }
@@ -81,7 +83,7 @@ pub fn scan_with_progress(
     options: &ScanOptions,
     progress: &Progress,
 ) -> Result<ScanStats, Cancelled> {
-    let skip = skip_set(options);
+    let skip = Skip::new(options);
     let mut stats = ScanStats::default();
     for root in roots {
         progress.check()?;
@@ -114,7 +116,7 @@ fn walk(
     root_id: NodeId,
     root: &Path,
     options: &ScanOptions,
-    skip: &HashSet<PathBuf>,
+    skip: &Skip,
     stats: &mut ScanStats,
     progress: &Progress,
 ) -> Result<(), Cancelled> {
@@ -140,6 +142,10 @@ fn walk(
                 continue;
             };
             let is_dir = file_type.is_dir();
+            let name = entry.file_name();
+            if !skip.rules.accepts(&dir, name.as_bytes(), is_dir) {
+                continue;
+            }
             let meta = if options.with_metadata {
                 match entry.metadata() {
                     Ok(m) => meta_of(&m, options),
@@ -151,7 +157,7 @@ fn walk(
             } else {
                 Meta::default()
             };
-            let id = store.add(Some(dir_id), entry.file_name().as_bytes(), is_dir, meta);
+            let id = store.add(Some(dir_id), name.as_bytes(), is_dir, meta);
             unreported += 1;
             if unreported == PROGRESS_BATCH {
                 progress.add(std::mem::take(&mut unreported));
@@ -160,7 +166,7 @@ fn walk(
             if is_dir {
                 stats.dirs += 1;
                 let path = entry.path();
-                if !skip.contains(&path) {
+                if skip.enters(&path) {
                     pending.push((id, path));
                 }
             } else {
@@ -195,12 +201,30 @@ pub fn normalize_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
-/// Folders that are indexed but not entered: virtual file system mount points and
-/// the configured excludes.
-pub(crate) fn skip_set(options: &ScanOptions) -> HashSet<PathBuf> {
-    let mut skip = virtual_mount_points();
-    skip.extend(options.exclude.iter().cloned());
-    skip
+/// What a walk leaves out: virtual file system mount points, which are
+/// indexed but not entered, and the entries the rules leave out.
+pub(crate) struct Skip {
+    virtual_mounts: HashSet<PathBuf>,
+    pub(crate) rules: IndexRules,
+}
+
+impl Skip {
+    pub(crate) fn new(options: &ScanOptions) -> Self {
+        Self {
+            virtual_mounts: virtual_mount_points(),
+            rules: options.rules.clone(),
+        }
+    }
+
+    /// Whether the indexed folder at `path` is read.
+    pub(crate) fn enters(&self, path: &Path) -> bool {
+        !self.virtual_mounts.contains(path)
+    }
+
+    /// Whether the entry at `path` is indexed (always for a root).
+    pub(crate) fn accepts(&self, path: &Path, is_dir: bool) -> bool {
+        self.rules.accepts_path(path, is_dir)
+    }
 }
 
 fn meta_of(m: &fs::Metadata, options: &ScanOptions) -> Meta {
@@ -268,12 +292,32 @@ mod tests {
         base
     }
 
+    fn rules(folders: &[PathBuf], include: &str, exclude: &str, enabled: bool) -> IndexRules {
+        IndexRules::new(crate::rules::RuleSpec {
+            enabled,
+            folders: folders.to_vec(),
+            include_files: include.into(),
+            exclude_files: exclude.into(),
+        })
+        .unwrap()
+    }
+
+    fn scanned_paths(base: &Path, options: &ScanOptions) -> (Vec<PathBuf>, ScanStats) {
+        let mut store = NodeStore::new();
+        let stats = scan(&mut store, &[base.to_path_buf()], options);
+        let mut paths: Vec<PathBuf> = (0..store.len())
+            .map(|i| store.path(NodeId(i as u32)))
+            .collect();
+        paths.sort();
+        (paths, stats)
+    }
+
     #[test]
     fn scans_tree_without_following_links_and_honours_excludes() {
         let base = temp_tree("walk");
         let mut store = NodeStore::new();
         let options = ScanOptions {
-            exclude: vec![base.join("skip")],
+            rules: rules(&[base.join("skip")], "", "", true),
             ..ScanOptions::default()
         };
         let stats = scan(&mut store, std::slice::from_ref(&base), &options);
@@ -283,14 +327,17 @@ mod tests {
             .map(|i| store.path(NodeId(i as u32)))
             .collect();
         assert!(paths.contains(&base.join("a/b/two.TXT")));
-        assert!(paths.contains(&base.join("skip")));
+        assert!(
+            !paths.contains(&base.join("skip")),
+            "excluded with its entry"
+        );
         assert!(!paths.contains(&base.join("skip/inner")));
         assert!(paths.contains(&base.join("link-to-root")));
-        // root, a, a/b, skip  = 4 folders; one.txt, two.TXT, link = 3 files
+        // root, a, a/b = 3 folders; one.txt, two.TXT, link = 3 files
         assert_eq!(
             stats,
             ScanStats {
-                dirs: 4,
+                dirs: 3,
                 files: 3,
                 errors: 0
             }
@@ -301,7 +348,7 @@ mod tests {
             .unwrap();
         assert_eq!(store.meta(two).size, 2);
         // Folder totals: one.txt + two.TXT + the link (its target "/" is one
-        // byte long); the excluded folder is not entered and counts as 0.
+        // byte long).
         let size_of = |name: &[u8]| {
             let id = (0..store.len())
                 .map(|i| NodeId(i as u32))
@@ -309,9 +356,56 @@ mod tests {
                 .unwrap();
             (store.meta(id).size, store.items(id))
         };
-        assert_eq!(size_of(base.as_os_str().as_bytes()), (4, 3));
+        assert_eq!(size_of(base.as_os_str().as_bytes()), (4, 2));
         assert_eq!(size_of(b"a"), (3, 2));
-        assert_eq!(size_of(b"skip"), (0, 0));
+    }
+
+    #[test]
+    fn a_switched_off_exclude_list_indexes_excluded_folders() {
+        let base = temp_tree("off");
+        let options = ScanOptions {
+            rules: rules(&[base.join("skip")], "*.txt", "*", false),
+            ..ScanOptions::default()
+        };
+        let (paths, stats) = scanned_paths(&base, &options);
+        fs::remove_dir_all(&base).unwrap();
+        assert!(paths.contains(&base.join("skip/inner/hidden.txt")));
+        assert_eq!(stats.dirs + stats.files, 9);
+    }
+
+    #[test]
+    fn patterns_leave_out_folders_and_files() {
+        let base = temp_tree("patterns");
+        fs::write(base.join("a/keep.mp3"), b"").unwrap();
+        fs::write(base.join("a/b/old.mp3"), b"").unwrap();
+        let options = ScanOptions {
+            rules: rules(
+                &["SK*".into(), "regex:^b$".into()],
+                "*.txt;*.mp3",
+                "regex:^two",
+                true,
+            ),
+            ..ScanOptions::default()
+        };
+        let (paths, _) = scanned_paths(&base, &options);
+        let names: Vec<String> = paths
+            .iter()
+            .map(|p| p.strip_prefix(&base).unwrap().display().to_string())
+            .collect();
+        // `skip` by wildcard (case ignored), `b` by regex, `two.TXT` excluded,
+        // the link not included; folders are kept by the file lists.
+        assert_eq!(names, ["", "a", "a/keep.mp3", "a/one.txt"]);
+
+        // A path pattern.
+        let options = ScanOptions {
+            rules: rules(&[], "", "a/**.txt", true),
+            ..ScanOptions::default()
+        };
+        let (paths, _) = scanned_paths(&base, &options);
+        fs::remove_dir_all(&base).unwrap();
+        assert!(!paths.contains(&base.join("a/one.txt")));
+        assert!(!paths.contains(&base.join("a/b/two.TXT")));
+        assert!(paths.contains(&base.join("skip/inner/hidden.txt")));
     }
 
     #[test]

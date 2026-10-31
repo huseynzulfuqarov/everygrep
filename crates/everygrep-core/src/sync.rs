@@ -8,15 +8,15 @@
 //! Changing a file's contents does not touch its folder, so sizes and times of
 //! files in unchanged folders are not refreshed here; a full rescan does that.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::index::Index;
 use crate::progress::Progress;
-use crate::scan::{ScanOptions, skip_set};
+use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
 
 /// Counters from [`catch_up`].
@@ -44,7 +44,7 @@ pub fn catch_up(index: &mut Index, options: &ScanOptions) -> CatchUpStats {
     let stats = catch_up_with(
         index,
         &roots,
-        &skip_set(options),
+        &Skip::new(options),
         &mut |_: &Index, _| {},
         &Progress::new(),
     );
@@ -82,11 +82,13 @@ pub(crate) fn online_roots(index: &Index) -> Vec<NodeId> {
 /// Catch-up of the folder roots in `roots` that calls `on_new_dir` for every
 /// folder it adds, before reading that folder, and counts every indexed
 /// folder it checks in `progress`. Removed ids are left in the index's
-/// removal log.
+/// removal log. Entries that the rules leave out are not added; indexed
+/// folders they leave out are removed when checked, and indexed files when
+/// their folder is read again.
 pub(crate) fn catch_up_with(
     index: &mut Index,
     roots: &[NodeId],
-    skip: &HashSet<PathBuf>,
+    skip: &Skip,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
     progress: &Progress,
 ) -> CatchUpStats {
@@ -120,8 +122,12 @@ pub(crate) fn catch_up_with(
             }
         };
         let meta = Meta::from_metadata(&m);
+        if index.store().parent(dir).is_some() && !skip.accepts(&path, true) {
+            stats.removed += index.remove(dir).len();
+            continue;
+        }
         let kids: Vec<NodeId> = index.store().children(dir).collect();
-        if skip.contains(&path) {
+        if !skip.enters(&path) {
             index.set_meta(dir, meta);
             continue;
         }
@@ -144,6 +150,11 @@ pub(crate) fn catch_up_with(
                 break;
             };
             let name = entry.file_name().as_bytes().to_vec();
+            if let Ok(ft) = entry.file_type() {
+                if !skip.rules.accepts(&path, &name, ft.is_dir()) {
+                    continue;
+                }
+            }
             match entry.metadata() {
                 Ok(em) => {
                     on_disk.insert(name, (em.is_dir(), Some(Meta::from_metadata(&em))));
@@ -210,19 +221,23 @@ pub(crate) fn catch_up_with(
 }
 
 /// Adds the entry `name` at `path` under `parent`, and for a folder all entries
-/// below it. `on_new_dir` is called for each added folder before its contents
-/// are read. Returns how many nodes were added.
+/// below it, leaving out what the rules leave out. `on_new_dir` is called
+/// for each added folder before its contents are read. Returns how many
+/// nodes were added.
 pub(crate) fn add_tree(
     index: &mut Index,
     parent: NodeId,
     name: &[u8],
     path: &Path,
-    skip: &HashSet<PathBuf>,
+    skip: &Skip,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
 ) -> usize {
     let Ok(m) = fs::symlink_metadata(path) else {
         return 0;
     };
+    if !skip.accepts(path, m.is_dir()) {
+        return 0;
+    }
     let id = index.insert(Some(parent), name, m.is_dir(), Meta::from_metadata(&m));
     if !m.is_dir() {
         return 1;
@@ -230,7 +245,7 @@ pub(crate) fn add_tree(
     let mut added = 1;
     let mut pending = vec![(id, path.to_path_buf())];
     while let Some((dir_id, dir_path)) = pending.pop() {
-        if skip.contains(&dir_path) {
+        if !skip.enters(&dir_path) {
             continue;
         }
         on_new_dir(index, dir_id);
@@ -239,6 +254,12 @@ pub(crate) fn add_tree(
         };
         for entry in entries.flatten() {
             let Ok(em) = entry.metadata() else { continue };
+            if !skip
+                .rules
+                .accepts(&dir_path, entry.file_name().as_bytes(), em.is_dir())
+            {
+                continue;
+            }
             let child = index.insert(
                 Some(dir_id),
                 entry.file_name().as_bytes(),
@@ -257,8 +278,10 @@ pub(crate) fn add_tree(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::{IndexRules, RuleSpec};
     use crate::scan::scan;
     use crate::store::NodeStore;
+    use std::path::PathBuf;
 
     fn tree(tag: &str) -> PathBuf {
         let base =
@@ -331,6 +354,35 @@ mod tests {
     }
 
     #[test]
+    fn catch_up_follows_the_rules() {
+        let base = tree("rules");
+        let mut index = index_of(&base);
+        fs::write(base.join("keep/new.tmp"), b"t").unwrap();
+        fs::write(base.join("keep/new.txt"), b"t").unwrap();
+        fs::create_dir_all(base.join("keep/cache/inner")).unwrap();
+        let options = ScanOptions {
+            rules: IndexRules::new(RuleSpec {
+                folders: vec!["cache".into(), base.join("gone")],
+                exclude_files: "*.tmp".into(),
+                ..RuleSpec::default()
+            })
+            .unwrap(),
+            ..ScanOptions::default()
+        };
+        catch_up(&mut index, &options);
+        let found = paths(&index);
+        let mut fresh = NodeStore::new();
+        scan(&mut fresh, std::slice::from_ref(&base), &options);
+        let fresh = paths(&Index::new(fresh));
+        fs::remove_dir_all(&base).unwrap();
+        assert!(found.contains(&base.join("keep/new.txt")));
+        assert!(!found.contains(&base.join("keep/new.tmp")));
+        assert!(!found.contains(&base.join("keep/cache")));
+        assert!(!found.contains(&base.join("gone")), "indexed, now excluded");
+        assert_eq!(found, fresh);
+    }
+
+    #[test]
     fn catch_up_progress_counts_the_folders_checked() {
         let root = tree("progress");
         let mut index = index_of(&root);
@@ -340,7 +392,7 @@ mod tests {
         let stats = catch_up_with(
             &mut index,
             &roots,
-            &HashSet::new(),
+            &Skip::new(&ScanOptions::default()),
             &mut |_: &Index, _| {},
             &progress,
         );

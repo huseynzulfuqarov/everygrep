@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use everygrep_core::filter::Filter;
 use everygrep_core::query::QueryOptions;
+use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::normalize_roots;
 use everygrep_core::sort::FolderSize;
 use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem, VecModel};
@@ -72,6 +73,15 @@ impl IndexSetup {
                 saved: false,
             }
         }
+    }
+
+    /// The rules for the excluded folders.
+    pub fn rules(&self) -> IndexRules {
+        IndexRules::new(RuleSpec {
+            folders: self.excludes.clone(),
+            ..RuleSpec::default()
+        })
+        .unwrap_or_default()
     }
 
     /// Changes the folders, and the settings file at `path` when they are
@@ -398,16 +408,16 @@ impl Prefs {
     }
 
     fn rebuild(&self) {
-        let (roots, excludes) = {
+        let (roots, rules) = {
             let index = self.index.borrow();
             let roots = if index.roots.is_empty() {
                 self.engine.roots()
             } else {
                 index.roots.clone()
             };
-            (roots, index.excludes.clone())
+            (roots, index.rules())
         };
-        self.engine.reindex(&roots, excludes);
+        self.engine.reindex(&roots, rules);
     }
 
     /// Shows the settings window at `page` (see [`PAGES`]), or brings it

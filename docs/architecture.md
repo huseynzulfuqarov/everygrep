@@ -81,8 +81,13 @@ time zone read by `localtime.rs` (TZif files and POSIX TZ strings).
 
 A scan walks each root with `readdir` and `lstat`. Symbolic links are indexed
 but never followed. Mount points of virtual file systems (`proc`, `sysfs`,
-`cgroup2`, `tracefs`, … read from `/proc/self/mountinfo`) and excluded
-folders are indexed but not entered.
+`cgroup2`, `tracefs`, … read from `/proc/self/mountinfo`) are indexed but
+not entered. The rules of `rules.rs` (excluded folders by path or pattern,
+include-only and exclude file patterns) are compiled once into
+`IndexRules` and asked about every entry before it is added, by the scan,
+the catch-up and the watcher alike; an excluded folder gets no entry and is
+not read. Name patterns compare bytes (`*.ext` is a suffix test); only
+patterns that need it build the full path or run a regular expression.
 
 ### Watching (`watch.rs`, `inotify.rs`, `sync.rs`)
 

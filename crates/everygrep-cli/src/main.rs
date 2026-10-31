@@ -10,6 +10,7 @@ use everygrep_core::filter::Filter;
 use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::query::{Query, QueryOptions};
+use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan};
 use everygrep_core::search::search;
 use everygrep_core::store::NodeStore;
@@ -38,7 +39,10 @@ options:
   --rescan           scan even if a saved index exists
   --watch            shell only: apply file changes before every query and save
                      the index on exit
-  --exclude <path>   folder not to enter (repeatable)
+  --exclude <path>   folder to leave out, by path or pattern (repeatable)
+  --include-files <list>   index only files matching one of these patterns
+  --exclude-files <list>   leave out files matching one of these patterns
+                     (lists: *.mp3;*.jpg, regex:<expression>; see README)
   --case             match case exactly
   --whole-words      match whole words only
   --match-path       match the full path instead of the name
@@ -83,6 +87,7 @@ fn parse_args() -> Result<Args, String> {
         limit: 50,
     };
     let mut query = Vec::new();
+    let mut rules = RuleSpec::default();
     while let Some(a) = it.next() {
         let mut value = |name: &str| it.next().ok_or(format!("{name} needs a value"));
         match a.as_str() {
@@ -90,7 +95,9 @@ fn parse_args() -> Result<Args, String> {
             "--index-file" => args.index_file = Some(PathBuf::from(value("--index-file")?)),
             "--rescan" => args.rescan = true,
             "--watch" => args.watch = true,
-            "--exclude" => args.scan.exclude.push(PathBuf::from(value("--exclude")?)),
+            "--exclude" => rules.folders.push(PathBuf::from(value("--exclude")?)),
+            "--include-files" => rules.include_files = value("--include-files")?,
+            "--exclude-files" => rules.exclude_files = value("--exclude-files")?,
             "--case" => args.matching.case_sensitive = true,
             "--whole-words" => args.matching.whole_words = true,
             "--match-path" => args.matching.match_path = true,
@@ -114,6 +121,7 @@ fn parse_args() -> Result<Args, String> {
     }
     args.query = query.join(" ");
     args.roots = normalize_roots(&args.roots);
+    args.scan.rules = IndexRules::new(rules).map_err(|e| e.to_string())?;
     Ok(args)
 }
 

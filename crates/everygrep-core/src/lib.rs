@@ -12,6 +12,7 @@ pub mod order;
 pub mod persist;
 pub mod progress;
 pub mod query;
+pub mod rules;
 pub mod scan;
 pub mod search;
 pub mod sort;

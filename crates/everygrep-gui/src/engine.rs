@@ -33,6 +33,7 @@ use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::progress::{self, Progress};
 use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
+use everygrep_core::rules::IndexRules;
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
 use everygrep_core::search::search_with_progress;
 use everygrep_core::sort::{Sort, sort_with_progress};
@@ -336,10 +337,10 @@ pub struct Engine {
     not_now: Mutex<HashSet<String>>,
     mounts_changed: Arc<AtomicBool>,
     tasks: Arc<Tasks>,
-    /// The folders to index and the excludes the index was built with (or,
+    /// The folders to index and the rules the index was built with (or,
     /// after a cancelled first index, was to be built with); a cancelled
     /// new index goes back to them.
-    indexed_with: Mutex<(Vec<PathBuf>, Vec<PathBuf>)>,
+    indexed_with: Mutex<(Vec<PathBuf>, IndexRules)>,
     /// The first index was cancelled: the index of the folders is not
     /// complete and must not be saved.
     incomplete: AtomicBool,
@@ -360,12 +361,12 @@ const REFRESH_EVERY: Duration = Duration::from_millis(500);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 
 impl Engine {
-    /// Creates the engine and starts loading in the background. Folders in
-    /// `exclude` are not entered by scans. With `drives`, removable drives
-    /// found there are indexed as the settings say.
+    /// Creates the engine and starts loading in the background. Entries
+    /// that `rules` leave out are not indexed. With `drives`, removable
+    /// drives found there are indexed as the settings say.
     pub fn start(
         roots: Vec<PathBuf>,
-        exclude: Vec<PathBuf>,
+        rules: IndexRules,
         index_file: Option<PathBuf>,
         drives: Option<(DriveEnv, DriveSettings)>,
         mut hooks: Hooks,
@@ -379,7 +380,7 @@ impl Engine {
             index: RwLock::new(Index::new(NodeStore::new())),
             roots: Mutex::new(normalize_roots(&roots)),
             options: Mutex::new(ScanOptions {
-                exclude,
+                rules,
                 ..ScanOptions::default()
             }),
             rescan: AtomicBool::new(false),
@@ -402,7 +403,7 @@ impl Engine {
             not_now: Mutex::new(HashSet::new()),
             mounts_changed: Arc::new(AtomicBool::new(false)),
             tasks: Tasks::new(on_busy),
-            indexed_with: Mutex::new((Vec::new(), Vec::new())),
+            indexed_with: Mutex::new((Vec::new(), IndexRules::default())),
             incomplete: AtomicBool::new(false),
             applied: Mutex::new(QueryState::default()),
         });
@@ -548,13 +549,13 @@ impl Engine {
         self.roots.lock().expect("lock").clone()
     }
 
-    /// Indexes `roots` again from scratch, without entering `exclude`, in the
-    /// background. Empty `roots` stand for the home folder. The status hook
-    /// reports the scan as for a first start; the new index is saved as soon
-    /// as it is complete.
-    pub fn reindex(&self, roots: &[PathBuf], exclude: Vec<PathBuf>) {
+    /// Indexes `roots` again from scratch with `rules`, in the background.
+    /// Empty `roots` stand for the home folder. The status hook reports the
+    /// scan as for a first start; the new index is saved as soon as it is
+    /// complete.
+    pub fn reindex(&self, roots: &[PathBuf], rules: IndexRules) {
         *self.roots.lock().expect("lock") = normalize_roots(roots);
-        self.options.lock().expect("lock").exclude = exclude;
+        self.options.lock().expect("lock").rules = rules;
         self.rescan.store(true, Ordering::SeqCst);
     }
 
@@ -702,7 +703,7 @@ impl Engine {
                 if roots.is_empty() || *roots == saved.roots {
                     *roots = saved.roots;
                     *self.indexed_with.lock().expect("lock") =
-                        (roots.clone(), self.scan_options().exclude);
+                        (roots.clone(), self.scan_options().rules);
                     self.replace_index(saved.index);
                     loaded = true;
                 }
@@ -712,7 +713,7 @@ impl Engine {
             // Nothing is saved until a new index is complete; the next
             // start indexes again.
             self.incomplete.store(true, Ordering::SeqCst);
-            *self.indexed_with.lock().expect("lock") = (self.roots(), self.scan_options().exclude);
+            *self.indexed_with.lock().expect("lock") = (self.roots(), self.scan_options().rules);
             (self.hooks.on_stopped)(Stopped::Index);
         }
         self.load_drives();
@@ -774,9 +775,9 @@ impl Engine {
                 } else {
                     // The previous index stays, with its folders; nothing
                     // watched it during the scan, so it is caught up.
-                    let (roots, exclude) = self.indexed_with.lock().expect("lock").clone();
+                    let (roots, rules) = self.indexed_with.lock().expect("lock").clone();
                     *self.roots.lock().expect("lock") = roots;
-                    self.options.lock().expect("lock").exclude = exclude;
+                    self.options.lock().expect("lock").rules = rules;
                     catch_up = true;
                     (self.hooks.on_stopped)(Stopped::Rescan);
                 }
@@ -811,7 +812,7 @@ impl Engine {
             return false;
         }
         self.replace_index(fresh);
-        *self.indexed_with.lock().expect("lock") = (roots, options.exclude);
+        *self.indexed_with.lock().expect("lock") = (roots, options.rules);
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
         true
@@ -837,8 +838,7 @@ impl Engine {
                 return Some(all - drives);
             }
         }
-        let skip: HashSet<PathBuf> = options.exclude.iter().cloned().collect();
-        progress::estimate_scan(roots, &skip)
+        progress::estimate_scan(roots, &options.rules.excluded_paths())
     }
 
     /// Applies file changes until the engine stops or a rescan is asked for.
@@ -1241,9 +1241,10 @@ impl Engine {
             .spawn(move || {
                 let task = tasks.begin(TaskKind::Drive(drive_name(&drive)), true);
                 let roots = std::slice::from_ref(&drive.mount_point);
-                let skip: HashSet<PathBuf> = options.exclude.iter().cloned().collect();
-                task.progress()
-                    .set_total(progress::estimate_scan(roots, &skip));
+                task.progress().set_total(progress::estimate_scan(
+                    roots,
+                    &options.rules.excluded_paths(),
+                ));
                 let mut store = NodeStore::new();
                 let index = scan_with_progress(&mut store, roots, &options, task.progress())
                     .ok()
@@ -1415,6 +1416,15 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    /// Rules that exclude `paths`.
+    fn folders(paths: Vec<PathBuf>) -> IndexRules {
+        IndexRules::new(everygrep_core::rules::RuleSpec {
+            folders: paths,
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
     /// Names of the results for `query`, once the engine reports `state`
     /// with the index in place.
     struct Probe {
@@ -1490,7 +1500,7 @@ mod tests {
                     let _ = stopped_tx.lock().unwrap().send(s);
                 }),
             };
-            let engine = Engine::start(roots, exclude, Some(index), drives, hooks);
+            let engine = Engine::start(roots, folders(exclude), Some(index), drives, hooks);
             let _ = slot.set(Arc::downgrade(&engine));
             Self {
                 engine,
@@ -1562,12 +1572,12 @@ mod tests {
 
         probe
             .engine
-            .reindex(&[root("a"), root("b")], vec![root("a/skip")]);
+            .reindex(&[root("a"), root("b")], folders(vec![root("a/skip")]));
         probe.wait_for(IndexState::Scanning);
         probe.wait_for(IndexState::Watching);
         assert_eq!(probe.names("txt"), ["one.txt", "three.txt"]);
-        // The excluded folder itself is still listed.
-        assert_eq!(probe.names("skip"), ["skip"]);
+        // The excluded folder is left out with its own entry.
+        assert!(probe.names("skip").is_empty());
         let mut roots = probe.engine.roots();
         roots.sort();
         let canonical = fs::canonicalize(&dir.0).unwrap();
@@ -1640,7 +1650,9 @@ mod tests {
         assert!(!index.exists());
 
         // Built again, it is complete and saved.
-        probe.engine.reindex(&probe.engine.roots(), Vec::new());
+        probe
+            .engine
+            .reindex(&probe.engine.roots(), IndexRules::default());
         probe.wait_for(IndexState::Scanning);
         probe.wait_for(IndexState::Watching);
         assert_eq!(probe.names("txt"), ["one.txt"]);
@@ -1667,12 +1679,14 @@ mod tests {
         let roots = probe.engine.roots();
 
         probe.armed.store(true, Ordering::SeqCst);
-        probe.engine.reindex(&[root("b")], vec![root("a/never")]);
+        probe
+            .engine
+            .reindex(&[root("b")], folders(vec![root("a/never")]));
         assert_eq!(probe.wait_stopped(), Stopped::Rescan);
         probe.wait_for(IndexState::Watching);
         assert_eq!(probe.names("txt"), ["one.txt"]);
         assert_eq!(probe.engine.roots(), roots);
-        assert!(probe.engine.scan_options().exclude.is_empty());
+        assert!(probe.engine.scan_options().rules.is_empty());
         probe.engine.save();
         assert_eq!(fs::read(&index).unwrap(), before);
         // Still watched: a new file shows up.
