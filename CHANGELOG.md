@@ -57,6 +57,13 @@ First version, 0.1.0, not released yet.
   start or end of the name, also for wildcard patterns.
 - Modes that ignore punctuation (`nopunct:`) or whitespace (`nospace:`) in
   names and terms.
+- Filter words in the query, the filter names with a colon: `audio:`,
+  `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`,
+  `video:` and `code:`, sharing the extension lists of the filter selector
+  and combining with other terms (`image: beach`, `!video:`,
+  `<audio:|video:>`).
+- The executable filter (and `executable:`) also finds files of no known type that
+  have an execute bit, looked up on disk while searching.
 - `ext:` lists separated by `;` or `|` (`ext:jpg|png` is one list, no
   longer `ext:jpg` OR the text `png`), with wildcard entries (`ext:jp*`).
 - Size grammar: units `kib`, `mib`, … next to `kb`, `mb`, …; `==`, `!=`,

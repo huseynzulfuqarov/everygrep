@@ -13,6 +13,9 @@
 //! diacritics:café     match diacritics: "café" but not "cafe"
 //! path:src/main       match against the full path instead of the name
 //! file:  folder:      only files / only folders
+//! audio: archive: document: executable: image: video: code:
+//!                     the result filters (see crate::filter), also with a term:
+//!                     image:beach
 //! ext:pdf;jpg         extension list (files only); also ext:pdf|jpg, ext:jp*
 //! size:>10mb  size:1kb..2mb  size:0  size:large
 //!                     folders match by the total size of the files below them;
@@ -49,7 +52,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::filter::Filter;
 use crate::fold::{fold, strip_diacritics_into};
-use crate::kind::classify;
+use crate::kind::{FileKind, classify};
 use crate::localtime::{Zone, civil_from_days, days_from_civil, days_in_month};
 use crate::store::{NodeId, NodeStore};
 
@@ -253,6 +256,7 @@ impl Query {
             pos: 0,
             options,
             uses_path: false,
+            reads_disk: false,
             now_ns,
             zone,
         };
@@ -265,7 +269,8 @@ impl Query {
         }
         Ok(Self {
             root,
-            uses_path: p.uses_path,
+            // The executable filter may read the path of a node.
+            uses_path: p.uses_path || p.reads_disk || options.filter == Filter::Executable,
         })
     }
 
@@ -281,7 +286,8 @@ impl Query {
                 on_path: options.match_path,
             }))
         };
-        let uses_path = options.match_path && !text.is_empty();
+        let uses_path =
+            (options.match_path && !text.is_empty()) || options.filter == Filter::Executable;
         if options.filter != Filter::All {
             root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
         }
@@ -329,7 +335,13 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
     match pred {
         Pred::IsFile => !store.is_dir(id),
         Pred::IsDir => store.is_dir(id),
-        Pred::Kind(filter) => filter.accepts(classify(store.name(id), store.is_dir(id))),
+        Pred::Kind(filter) => {
+            let kind = classify(store.name(id), store.is_dir(id));
+            filter.accepts(kind)
+                || (*filter == Filter::Executable
+                    && kind == FileKind::File
+                    && executable_on_disk(store, id, scratch))
+        }
         Pred::Ext { exts, globs, none } => {
             if store.is_dir(id) {
                 return false;
@@ -460,6 +472,17 @@ pub fn find_term(
         (false, false) if whole_word => find_word(haystack, needle),
         (false, false) => find(haystack, needle),
     }
+}
+
+/// Whether the entry is a regular file with an execute bit, looked up on
+/// disk (`lstat`: a link is not followed). Entries that cannot be read (gone,
+/// offline drive) are not.
+fn executable_on_disk(store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
+    std::fs::symlink_metadata(path)
+        .is_ok_and(|m| m.file_type().is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 fn path_bytes<'a>(store: &NodeStore, id: NodeId, scratch: &'a mut EvalScratch) -> &'a [u8] {
@@ -1085,7 +1108,7 @@ fn word_starts_function(word: &str, name: &str) -> bool {
         if head.eq_ignore_ascii_case(name) {
             return true;
         }
-        if !KNOWN_MODIFIERS.contains(&head.to_ascii_lowercase().as_str()) {
+        if !is_known_modifier(&head.to_ascii_lowercase()) {
             return false;
         }
         rest = tail;
@@ -1110,6 +1133,8 @@ struct Parser {
     pos: usize,
     options: QueryOptions,
     uses_path: bool,
+    /// A predicate reads the entry from disk (by its path).
+    reads_disk: bool,
     now_ns: i64,
     zone: Option<Zone>,
 }
@@ -1228,6 +1253,11 @@ impl Parser {
                 "regex" => regex = true,
                 "noregex" => regex = false,
                 "file" | "files" => return Ok(Some(self.with_rest(Pred::IsFile, tail)?)),
+                word if Filter::from_query_word(word).is_some() => {
+                    let filter = Filter::from_query_word(word).unwrap_or_default();
+                    self.reads_disk |= filter == Filter::Executable;
+                    return Ok(Some(self.with_rest(Pred::Kind(filter), tail)?));
+                }
                 "folder" | "folders" | "dir" => {
                     return Ok(Some(self.with_rest(Pred::IsDir, tail)?));
                 }
@@ -1308,7 +1338,7 @@ impl Parser {
     /// `file:foo` means "a file whose name contains foo".
     fn with_rest(&mut self, kind: Pred, rest: &str) -> Result<Node, ParseError> {
         Ok(match self.parse_word(rest)? {
-            Some(term) => Node::And(vec![Node::Leaf(kind), term]),
+            Some(term) => and_also(term, Node::Leaf(kind)),
             None => Node::Leaf(kind),
         })
     }
@@ -1322,6 +1352,8 @@ fn cost(node: &Node) -> u8 {
         Node::Leaf(Pred::Text(_)) => 1,
         Node::Leaf(Pred::Regex(r)) if r.on_path => 4,
         Node::Leaf(Pred::Regex(_)) => 3,
+        // Executables may be looked up on disk: last.
+        Node::Leaf(Pred::Kind(Filter::Executable)) => 5,
         // Classifying looks at the name; let text terms narrow first.
         Node::Leaf(Pred::Kind(_)) => 2,
         Node::Leaf(_) => 0,
@@ -1330,13 +1362,17 @@ fn cost(node: &Node) -> u8 {
     }
 }
 
-/// Splits `name:rest` when `name` is a known modifier (case-insensitive).
+/// Splits `name:rest` when `name` is a known modifier or filter word
+/// (case-insensitive).
 fn split_modifier(word: &str) -> Option<(String, &str)> {
     let (head, tail) = word.split_once(':')?;
     let head = head.to_ascii_lowercase();
-    KNOWN_MODIFIERS
-        .contains(&head.as_str())
-        .then_some((head, tail))
+    is_known_modifier(&head).then_some((head, tail))
+}
+
+/// Whether `head` (lowercase) is a modifier, a function or a filter word.
+fn is_known_modifier(head: &str) -> bool {
+    KNOWN_MODIFIERS.contains(&head) || Filter::from_query_word(head).is_some()
 }
 
 /// Compiles a regular expression; case is ignored unless `case` is set.
@@ -2095,6 +2131,92 @@ mod tests {
             [(0, 8), (11, 17)]
         );
         assert_eq!(path_spans(path, "path:/home/u/*/c.txt"), Vec::new());
+    }
+
+    #[test]
+    fn filter_words_in_the_query() {
+        let t = Tree::new();
+        let with = |filter| QueryOptions {
+            filter,
+            ..QueryOptions::default()
+        };
+        // Each word gives what the filter of the same kind gives.
+        for (word, filter) in [
+            ("audio:", Filter::Audio),
+            ("archive:", Filter::Archive),
+            ("archive:", Filter::Archive),
+            ("document:", Filter::Document),
+            ("document:", Filter::Document),
+            ("image:", Filter::Picture),
+            ("image:", Filter::Picture),
+            ("image:", Filter::Picture),
+            ("video:", Filter::Video),
+            ("code:", Filter::Code),
+            ("executable:", Filter::Executable),
+            ("executable:", Filter::Executable),
+        ] {
+            assert_eq!(t.find(word), t.find_with("", with(filter)), "{word}");
+        }
+        assert_eq!(t.find("image:"), ["photo (1).png", "photo.jpg"]);
+        assert_eq!(t.find("IMAGE:"), t.find("image:"));
+        assert_eq!(
+            t.find("document:"),
+            ["README", "Report-2026.PDF", "draft report.pdf"]
+        );
+        // They combine with other terms and operators.
+        assert_eq!(t.find("image: (1)"), ["photo (1).png"]);
+        assert_eq!(t.find("image:jpg"), ["photo.jpg"]);
+        assert_eq!(
+            t.find("document: report"),
+            ["Report-2026.PDF", "draft report.pdf"]
+        );
+        assert_eq!(t.find("report !document:"), ["report"]);
+        assert_eq!(t.find("<image:|code:> !png"), ["main.rs", "photo.jpg"]);
+        assert_eq!(t.find("image:|code: !png"), ["main.rs", "photo.jpg"]);
+        assert!(t.find("video:|audio:|archive:").is_empty());
+        // A word that is not a filter stays text.
+        assert!(t.find("photos:").is_empty());
+    }
+
+    #[test]
+    fn executables_by_extension_or_by_permission() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("everygrep-exe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let file = |name: &str, mode: u32| {
+            let path = dir.join(name);
+            std::fs::write(&path, "x").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        file("runme", 0o755);
+        file("notes", 0o644);
+        file("data.txt", 0o755);
+        file("install.sh", 0o644);
+        std::os::unix::fs::symlink(dir.join("runme"), dir.join("link")).unwrap();
+        let mut store = NodeStore::new();
+        let root = store.add(
+            None,
+            dir.as_os_str().as_encoded_bytes(),
+            true,
+            Meta::default(),
+        );
+        for name in ["runme", "notes", "data.txt", "install.sh", "link", "gone"] {
+            store.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        store.add(Some(root), b"bin", true, Meta::default());
+        let t = Tree { store };
+        // An execute bit counts for files of no known type only; links,
+        // folders and files that are gone do not.
+        assert_eq!(t.find("executable:"), ["install.sh", "runme"]);
+        assert_eq!(t.find("executable:run"), ["runme"]);
+        assert_eq!(t.find("!executable: file:").len(), 4);
+        let filter = QueryOptions {
+            filter: Filter::Executable,
+            ..QueryOptions::default()
+        };
+        assert_eq!(t.find_with("", filter), ["install.sh", "runme"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Nanoseconds of a local time with a known UTC offset in hours.

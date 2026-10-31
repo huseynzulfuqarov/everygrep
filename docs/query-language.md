@@ -67,6 +67,7 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `file:`, `files:` | only files; `file:report` = files whose name contains `report` |
 | `folder:`, `folders:`, `dir:` | only folders; `folder:src` likewise |
 | `ext:` | extensions, see below |
+| `audio:`, `archive:`, `code:`, `document:`, `executable:`, `image:`, `video:` | filter words, see "Filter words" below |
 | `size:` | size, see below |
 | `modified:` | modification time, see below |
 
@@ -234,14 +235,40 @@ results to one kind, combined with the query (both must match):
 | `archive` | archives (zip, 7z, tar and its compressed forms, packages) |
 | `code` | source code, markup, config and build files |
 | `document` | text, documents, PDF, spreadsheets, presentations |
-| `executable` | programs and scripts by extension (sh, AppImage, exe, …) |
+| `executable` | programs, scripts and launchers by extension (sh, AppImage, desktop, exe, bat, …), and files of no known type with an execute bit |
 | `folder` | folders |
 | `image` | images, including camera raw and editor formats |
 | `video` | video |
 
-Kinds are decided from the name only (`crates/everygrep-core/src/kind.rs`);
-the index keeps no permission bits, so a Linux program without an extension
-is not found by `executable`.
+Kinds are decided from the name (`crates/everygrep-core/src/kind.rs`), with
+one exception: the index keeps no permission bits, so for `executable` a file
+whose name gives no known type (`firefox`, `build.real`) is looked up on disk
+while searching (`lstat`, links are not followed) and passes when it is a
+regular file with an execute bit. Files with a known type do not pass by
+their bits (`notes.txt` with an execute bit is a text file), so drives that
+mark every file executable (FAT, NTFS) do not fill the results with
+documents. Files that cannot be read then (removed, or on a drive that is
+not plugged in) do not pass. This check costs a file system lookup per such
+file, so it runs after the other terms of the query.
+
+### Filter words
+
+The same filters can be written in the query, as a word with a colon:
+
+| Word | Filter |
+|---|---|
+| `audio:` | audio |
+| `archive:` | archive |
+| `document:` | document |
+| `executable:` | executable |
+| `image:` | image |
+| `video:` | video |
+| `code:` | code |
+
+They combine with other terms like any term: `image: beach`, `!video:`,
+`<audio:|video:> 2026`, and like `file:` they take a term after the colon:
+`image:beach` = `image: beach`. They use the same extension lists as the
+filter selector. `folder:` is described with the modifiers above.
 
 The matching modes can be turned on for the whole query: in the window with
 the toggles in the search field (`Alt+C`, `Alt+W`, `Alt+P`, `Alt+D`) and the

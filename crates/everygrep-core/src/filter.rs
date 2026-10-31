@@ -11,13 +11,20 @@
 //! | `archive` | archives (zip, 7z, tar and its compressed forms, packages) |
 //! | `code` | source code, markup, config and build files |
 //! | `document` | text, documents, PDF, spreadsheets, presentations |
-//! | `executable` | programs and scripts by extension (sh, AppImage, exe, …) |
+//! | `executable` | programs, scripts and launchers by extension (sh, AppImage, desktop, exe, …), and files of no known type with an execute bit |
 //! | `folder` | folders |
 //! | `image` | images, including camera raw and editor formats |
 //! | `video` | video |
 //!
-//! The index keeps no permission bits, so a Linux program without an
-//! extension is not found by `executable`.
+//! The same filters can be written in the query as words ([`Filter::from_query_word`]):
+//! `audio:`, `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`.
+//!
+//! The index keeps no permission bits. For `executable`, a file whose name
+//! gives no known type is looked up on disk while searching (`lstat`, links
+//! not followed): it passes when it is a regular file with an execute bit.
+//! Files with a known type (`notes.txt`) do not pass by their bits, so
+//! drives that mark every file executable (FAT, NTFS) do not fill the
+//! results. That check is in [`crate::query`], which has the paths.
 
 use crate::kind::FileKind;
 
@@ -72,6 +79,26 @@ impl Filter {
             .find(|f| f.id().eq_ignore_ascii_case(id))
     }
 
+    /// The filter that the query word `word` (without the `:`, ASCII case
+    /// ignored) stands for: the identifiers and the short forms `zip`,
+    /// `doc`, `exe`, `image` and `pic`.
+    pub fn from_query_word(word: &str) -> Option<Self> {
+        const SHORT: [(&str, Filter); 5] = [
+            ("archive", Filter::Archive),
+            ("document", Filter::Document),
+            ("executable", Filter::Executable),
+            ("image", Filter::Picture),
+            ("image", Filter::Picture),
+        ];
+        // `all:` and `folder:` are not filter words: `folder:` is a modifier.
+        let found = SHORT
+            .iter()
+            .find(|(w, _)| w.eq_ignore_ascii_case(word))
+            .map(|&(_, f)| f)
+            .or_else(|| Self::from_id(word))?;
+        (!matches!(found, Filter::All | Filter::Folder)).then_some(found)
+    }
+
     /// Whether an entry of `kind` passes the filter.
     pub fn accepts(self, kind: FileKind) -> bool {
         use FileKind as K;
@@ -108,6 +135,23 @@ mod tests {
         }
         assert_eq!(Filter::from_id("Image"), Some(Filter::Picture));
         assert_eq!(Filter::from_id("images"), None);
+    }
+
+    #[test]
+    fn query_words() {
+        assert_eq!(Filter::from_query_word("archive"), Some(Filter::Archive));
+        assert_eq!(Filter::from_query_word("Archive"), Some(Filter::Archive));
+        assert_eq!(Filter::from_query_word("IMAGE"), Some(Filter::Picture));
+        assert_eq!(Filter::from_query_word("image"), Some(Filter::Picture));
+        assert_eq!(
+            Filter::from_query_word("executable"),
+            Some(Filter::Executable)
+        );
+        assert_eq!(Filter::from_query_word("document"), Some(Filter::Document));
+        assert_eq!(Filter::from_query_word("audio"), Some(Filter::Audio));
+        assert_eq!(Filter::from_query_word("all"), None);
+        assert_eq!(Filter::from_query_word("folder"), None);
+        assert_eq!(Filter::from_query_word("photos"), None);
     }
 
     #[test]
