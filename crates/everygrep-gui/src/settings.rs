@@ -58,6 +58,10 @@ use crate::i18n::{self, Lang};
 /// Search history entries kept by default (the number before settings
 /// existed).
 pub const DEFAULT_HISTORY: usize = 200;
+/// Opening more items than this at once asks first, by default.
+pub const DEFAULT_OPEN_CONFIRM: usize = 32;
+/// The largest number the open question can be set to.
+pub const MAX_OPEN_CONFIRM: usize = 10_000;
 /// Most search history entries that can be kept.
 pub const MAX_HISTORY: usize = 1000;
 /// Widths outside this range in pixels are ignored when read.
@@ -229,6 +233,8 @@ pub struct Settings {
     /// Whether Copy full path puts each path in double quotes, as Copy
     /// full path with quotes does.
     pub copy_full_path_quotes: bool,
+    /// Opening more items than this at once asks first; 0 never asks.
+    pub open_confirm_over: usize,
     /// Whether showing the window (at a later launch, or with its shortcut)
     /// moves the keyboard focus to the search field and selects its text;
     /// off keeps the focus where it was.
@@ -287,6 +293,7 @@ impl Default for Settings {
             rename_name_only: true,
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
+            open_confirm_over: DEFAULT_OPEN_CONFIRM,
             focus_on_show: true,
             dates_newest_first: false,
             sizes_largest_first: false,
@@ -468,6 +475,12 @@ impl Settings {
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
+            "confirm-open-over" => value
+                .parse::<usize>()
+                .ok()
+                .filter(|n| *n <= MAX_OPEN_CONFIRM)
+                .map(|n| self.open_confirm_over = n)
+                .is_some(),
             "focus-search-on-show" => put_flag(&mut self.focus_on_show),
             "sort-dates-newest-first" => put_flag(&mut self.dates_newest_first),
             "sort-sizes-largest-first" => put_flag(&mut self.sizes_largest_first),
@@ -690,6 +703,13 @@ impl Settings {
             self.copy_full_path_quotes,
             d.copy_full_path_quotes,
         );
+        if self.open_confirm_over != d.open_confirm_over {
+            line(
+                &mut out,
+                "confirm-open-over",
+                &self.open_confirm_over.to_string(),
+            );
+        }
         flag(
             &mut out,
             "focus-search-on-show",
@@ -831,6 +851,7 @@ impl Settings {
                 self.rename_name_only = d.rename_name_only;
                 self.path_click_opens_folder = d.path_click_opens_folder;
                 self.copy_full_path_quotes = d.copy_full_path_quotes;
+                self.open_confirm_over = d.open_confirm_over;
                 self.focus_on_show = d.focus_on_show;
                 self.dates_newest_first = d.dates_newest_first;
                 self.sizes_largest_first = d.sizes_largest_first;
@@ -1085,6 +1106,7 @@ pub(crate) mod tests {
             rename_name_only: false,
             path_click_opens_folder: false,
             copy_full_path_quotes: true,
+            open_confirm_over: 0,
             focus_on_show: false,
             dates_newest_first: true,
             sizes_largest_first: true,
@@ -1146,6 +1168,12 @@ pub(crate) mod tests {
         assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("open-folder-on-path-double-click = false\n"));
         assert!(text.contains("copy-full-path-quotes = true\n"));
+        assert!(text.contains("confirm-open-over = 0\n"));
+        assert_eq!(
+            Settings::parse("confirm-open-over = 99999\n").open_confirm_over,
+            DEFAULT_OPEN_CONFIRM,
+            "too large a number is not taken"
+        );
         assert!(text.contains("focus-search-on-show = false\n"));
         assert!(text.contains("sort-dates-newest-first = true\n"));
         assert!(text.contains("sort-sizes-largest-first = true\n"));

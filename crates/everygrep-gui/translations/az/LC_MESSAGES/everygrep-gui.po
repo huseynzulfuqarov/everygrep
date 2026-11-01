@@ -856,9 +856,6 @@ msgid_plural "Copied {} paths."
 msgstr[0] "Yol kopyalandı."
 msgstr[1] "{} yol kopyalandı."
 
-#: src/main.rs
-msgid "Select at most {} items to open them at once."
-msgstr "Birdən açmaq üçün ən çox {} element seçin."
 
 #: src/main.rs
 msgid "Select one item to rename it."
@@ -1837,3 +1834,21 @@ msgstr "Tam yolu kopyalayanda dırnaq əlavə et"
 #: ui/settings.slint
 msgid "Each path is put in double quotes, as Copy full path with quotes does."
 msgstr "Hər yol, \"Tam yolu dırnaqla kopyala\" əmrində olduğu kimi, qoşa dırnağa alınır."
+
+#: src/main.rs
+msgid "Open {} item?"
+msgid_plural "Open {} items?"
+msgstr[0] "{} element açılsın?"
+msgstr[1] "{} element açılsın?"
+
+#: src/main.rs
+msgid "Each one opens in its own application."
+msgstr "Hər biri öz tətbiqində açılacaq."
+
+#: ui/settings.slint
+msgid "Ask before opening more items than"
+msgstr "Bundan çox element açmazdan əvvəl soruş"
+
+#: ui/settings.slint
+msgid "Opening the selection asks first when it holds more items than this. 0 opens any number without asking."
+msgstr "Seçimdə bundan çox element olanda açmazdan əvvəl soruşulur. 0 istənilən sayı soruşmadan açır."

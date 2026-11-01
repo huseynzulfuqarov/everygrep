@@ -812,13 +812,15 @@ fn raise(w: &AppWindow, _activation_token: Option<String>) {
     let _ = w.window().show();
 }
 
-/// More items than this are not opened at once; it is almost always a slip.
+/// Items shown at most at once in the file manager by Open containing
+/// folder (one call of `ShowItems`).
 const MAX_OPEN: usize = 20;
 /// Moving more items than this to the trash asks first.
 const TRASH_CONFIRM: usize = 50;
 
 /// What the confirmation dialog will do when accepted.
 enum Pending {
+    Open(Vec<PathBuf>),
     Trash(Vec<PathBuf>),
     Delete(Vec<PathBuf>),
 }
@@ -830,25 +832,27 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     let row = |r: i32| usize::try_from(r).ok();
 
     window.on_activate({
-        let (weak, model) = (weak.clone(), model.clone());
+        let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move |r| {
             if refuse_offline(&weak, &model, row(r)) {
                 return;
             }
             let paths = model.targets(row(r));
-            if let Some(w) = weak.upgrade() {
-                w.invoke_history_record();
-            }
-            if paths.len() > MAX_OPEN {
-                if let Some(w) = weak.upgrade() {
-                    info(
-                        &w,
-                        fill(
-                            tr("Select at most {} items to open them at once."),
-                            &[&MAX_OPEN],
-                        ),
-                    );
-                }
+            let Some(w) = weak.upgrade() else { return };
+            w.invoke_history_record();
+            let mut over = settings::DEFAULT_OPEN_CONFIRM;
+            prefs::with(|p| over = p.open_confirm_over());
+            if actions::open_needs_confirm(paths.len(), over) {
+                ask(
+                    &w,
+                    fill(
+                        trn("Open {} item?", "Open {} items?", paths.len()),
+                        &[&format::count(paths.len())],
+                    ),
+                    tr("Each one opens in its own application."),
+                    tr("Open"),
+                );
+                *pending.borrow_mut() = Some(Pending::Open(paths));
                 return;
             }
             paths.iter().for_each(|p| open::open(p));
@@ -1029,6 +1033,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             let Some(w) = weak.upgrade() else { return };
             w.set_confirm_open(false);
             match pending.borrow_mut().take() {
+                Some(Pending::Open(paths)) => paths.iter().for_each(|p| open::open(p)),
                 Some(Pending::Trash(paths)) => run_trash(&w, paths),
                 Some(Pending::Delete(paths)) => run_delete(&w, paths),
                 None => {}

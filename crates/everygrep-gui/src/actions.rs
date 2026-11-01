@@ -24,6 +24,12 @@ pub fn paths_text(paths: &[PathBuf]) -> String {
     join_lines(paths.iter().map(|p| p.as_os_str()))
 }
 
+/// Whether opening `n` items at once asks first: more than `over` of them,
+/// unless `over` is 0 (never ask).
+pub fn open_needs_confirm(n: usize, over: usize) -> bool {
+    over > 0 && n > over
+}
+
 /// Each line of `text` in double quotes, for pasting into a shell or a
 /// file dialog: `"/home/me/a b.txt"`.
 pub fn quoted(text: &str) -> String {
@@ -277,6 +283,15 @@ mod tests {
         assert_eq!(stem_len("notes", false), 5);
         assert_eq!(stem_len("photos.2026", true), 11);
         assert_eq!(stem_len("şəkil.png", false), "şəkil".len());
+    }
+
+    #[test]
+    fn opening_many_items_asks_above_the_threshold() {
+        assert!(!open_needs_confirm(1, 32));
+        assert!(!open_needs_confirm(32, 32));
+        assert!(open_needs_confirm(33, 32));
+        assert!(open_needs_confirm(2, 1));
+        assert!(!open_needs_confirm(10_000, 0), "0 never asks");
     }
 
     #[test]

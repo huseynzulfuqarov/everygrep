@@ -178,6 +178,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> rename-name-only;
     in-out property <bool> path-click-opens-folder;
     in-out property <bool> copy-full-path-quotes;
+    in-out property <int> open-confirm-over;
+    in property <int> open-confirm-max;
     in-out property <bool> focus-on-show;
     in-out property <bool> dates-newest-first;
     in-out property <bool> sizes-largest-first;
@@ -769,6 +771,25 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.window-changed(); }
                             }
                             Note { text: @tr("Off: a double-click anywhere in a row opens the item itself."); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Ask before opening more items than");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                SpinBox {
+                                    width: 140px;
+                                    horizontal-stretch: 0;
+                                    accessible-label: @tr("Ask before opening more items than");
+                                    minimum: 0;
+                                    maximum: root.open-confirm-max;
+                                    value <=> root.open-confirm-over;
+                                    edited => { root.window-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("Opening the selection asks first when it holds more items than this. 0 opens any number without asking."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Copying"); }
                             CheckBox {

@@ -245,6 +245,9 @@ First version, 0.1.0, not released yet.
 - Copy path with quotes and Copy full path with quotes (context menu, Edit
   menu, no key by default): one path per line, each in double quotes. "Copy
   full path adds quotes" (Window page, off) makes Copy full path quote too.
+- Opening more than 32 items at once asks first ("Open 40 items?") instead
+  of refusing more than 20; the number is a setting on the Window page,
+  and 0 never asks.
 
 ### Project
 

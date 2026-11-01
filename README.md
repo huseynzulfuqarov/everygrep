@@ -259,6 +259,7 @@ the program behaves as before, except that folders show their total size.
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
 | | a double-click in the Folder column opens the containing folder (off: the item) | on |
 | | copy full path adds quotes (each path in double quotes) | off |
+| | ask before opening more items than this at once (0 never asks) | 32 |
 | | focus the search field and select its text when the window is shown again | on |
 | | sort dates newest first / sort sizes largest first: the direction of the first click on a date or Size header | off |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
@@ -381,7 +382,8 @@ size-width = 120
 search at every key press, `rename-select-name-only` the selection of
 the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
-opens, `copy-full-path-quotes` the quotes around copied full paths, `focus-search-on-show`
+opens, `copy-full-path-quotes` the quotes around copied full paths,
+`confirm-open-over` the number of items opened at once without a question, `focus-search-on-show`
 whether showing the window again focuses the search field.
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
 and the file pattern lists; a pattern that does not compile is reported and

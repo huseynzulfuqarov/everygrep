@@ -212,7 +212,10 @@ Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per
 line on the clipboard; the quoted copies put each line in double quotes, and
 "Copy full path adds quotes" (Window page, off by default) makes Copy full
-path quote too. Opening is limited to 20 items at once. The selection
+path quote too. Opening more than 32 items at once asks first ("Open 40
+items?", Open or Cancel); the number is a setting (Window page, 0 never
+asks). Open containing folder shows at most 20 items in the file
+manager. The selection
 follows the files, not the row numbers: it stays when the list is sorted again
 or refreshed after file changes, and a new query clears it.
 

@@ -678,6 +678,8 @@ impl Prefs {
         w.set_rename_name_only(s.rename_name_only);
         w.set_path_click_opens_folder(s.path_click_opens_folder);
         w.set_copy_full_path_quotes(s.copy_full_path_quotes);
+        w.set_open_confirm_max(settings::MAX_OPEN_CONFIRM as i32);
+        w.set_open_confirm_over(s.open_confirm_over as i32);
         w.set_focus_on_show(s.focus_on_show);
         w.set_dates_newest_first(s.dates_newest_first);
         w.set_sizes_largest_first(s.sizes_largest_first);
@@ -1372,6 +1374,9 @@ impl Prefs {
         let name_only = w.get_rename_name_only();
         let path_click = w.get_path_click_opens_folder();
         let quotes = w.get_copy_full_path_quotes();
+        let open_over = usize::try_from(w.get_open_confirm_over())
+            .unwrap_or(0)
+            .min(settings::MAX_OPEN_CONFIRM);
         let focus_on_show = w.get_focus_on_show();
         let dates_newest_first = w.get_dates_newest_first();
         let sizes_largest_first = w.get_sizes_largest_first();
@@ -1384,6 +1389,7 @@ impl Prefs {
             s.rename_name_only = name_only;
             s.path_click_opens_folder = path_click;
             s.copy_full_path_quotes = quotes;
+            s.open_confirm_over = open_over;
             s.focus_on_show = focus_on_show;
             if !remember {
                 s.columns = Columns::default();
@@ -1521,6 +1527,11 @@ impl Prefs {
     /// Whether renaming preselects the name without its extension.
     pub fn rename_name_only(&self) -> bool {
         self.settings.borrow().rename_name_only
+    }
+
+    /// Opening more items than this at once asks first; 0 never asks.
+    pub fn open_confirm_over(&self) -> usize {
+        self.settings.borrow().open_confirm_over
     }
 
     /// Whether Copy full path puts each path in double quotes.
