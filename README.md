@@ -524,30 +524,35 @@ everygrep shell [options]            read one query per line
 
 `search` and `shell` load the saved index; they scan and save it first when
 there is none, when roots or include/exclude rules differ from the saved
-ones, when an older cache has unknown rules, or with `--rescan`. The
-command line keeps its own index, `~/.cache/everygrep/cli-index.bin`, apart
-from the window's `index.bin`, so neither replaces the other's. Paths are printed in name order, one per line, at most `--limit`
-(50 by default, `0` for all); counts and timings go to standard error.
-`shell --watch` applies file changes before every query and saves the index
-on exit. Both the shell and the window catch up after installing watches,
-including after a fresh scan or rescan. `--exclude`, `--include-files` and `--exclude-files` take the
-excluded folders and file patterns described under
-[Excluded folders and files](#excluded-folders-and-files). Other options: `--root`, `--index-file`, `--case`,
-`--whole-words`, `--match-path`, `--diacritics`, `--prefix`, `--suffix`,
-`--ignore-punctuation`, `--ignore-whitespace`, `--regex`, `--filter`,
-`--threads`, `--no-meta`; `everygrep` without arguments prints them all. The command line
-is English only. Path arguments preserve non-UTF-8 filenames; queries and
-textual option values must be valid UTF-8. `--no-meta` omits file sizes and
-timestamps during scans, catch-up and watching; folder timestamps are retained
-for catch-up. Failed index saves return a nonzero exit status. A completed save
-syncs the file and, after rename, its parent directory (where the file
+ones, when an older cache has unknown rules, or with `--rescan`. The command
+line keeps its own index, `~/.cache/everygrep/cli-index.bin`, apart from the
+window's `index.bin`, so neither replaces the other's. Paths are printed in
+name order, one per line, at most `--limit` (50 by default, `0` for all);
+counts and timings go to standard error. `shell --watch` applies file changes
+before every query and saves the index on exit. Both the shell and the window
+catch up after installing watches, including after a fresh scan or rescan.
+
+`--exclude`, `--include-files` and `--exclude-files` take the excluded
+folders and file patterns described under
+[Excluded folders and files](#excluded-folders-and-files). Other options:
+`--root`, `--index-file`, `--case`, `--whole-words`, `--match-path`,
+`--diacritics`, `--prefix`, `--suffix`, `--ignore-punctuation`,
+`--ignore-whitespace`, `--regex`, `--filter`, `--threads`, `--no-meta`;
+`everygrep` without arguments prints them all. The command line is English
+only. Path arguments preserve non-UTF-8 filenames; queries and textual option
+values must be valid UTF-8. `--no-meta` omits file sizes and timestamps during
+scans, catch-up and watching; folder timestamps are retained for catch-up.
+
+When the index cannot be saved, `everygrep index` returns a nonzero exit
+status; `search` and `shell` print a warning and still answer. A completed
+save syncs the file and, after rename, its parent directory (where the file
 system supports syncing a directory).
 
 Failed or partial directory listings remain eligible for catch-up even when
 permissions change without changing the directory mtime. In a folder that
 can be listed but not searched, catch-up still adds and removes entries by
-name, without sizes or times until it can look at them. Roots absent during a
-scan are retried when the saved index is loaded.
+name, without sizes or times until it can look at them. Roots absent during
+a scan are retried when the saved index is loaded.
 
 ## Languages
 
@@ -566,10 +571,10 @@ collects nothing. It stores:
 
 - the index, in `~/.cache/everygrep/index.bin` for the window and
   `~/.cache/everygrep/cli-index.bin` for the command line (names, sizes and
-  modification times of the indexed files, never their contents), and for each removable
-  drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same kind of data
-  and `<uuid>.info` with its label, last mount point, when it was last
-  connected and its number of entries;
+  modification times of the indexed files, never their contents), and for
+  each removable drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same
+  kind of data and `<uuid>.info` with its label, last mount point, when it
+  was last connected and its number of entries;
 - the settings, in `~/.config/everygrep/settings`;
 - the search history, in `~/.config/everygrep/history`, only when "Keep the
   history after EveryGrep closes" is on (it is off by default).

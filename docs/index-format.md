@@ -21,10 +21,11 @@ tool builds its own file once.
 Each removable drive the window indexed has a file of the same format in
 the `volumes` folder next to it, `volumes/<uuid>.bin`, with one root: the
 drive's mount point when it was saved, and the rules it was read with. The
-index file itself holds only the folders to index. Next to each drive file, `volumes/<uuid>.info` is a small
-text file of `key = value` lines (`uuid`, `label`, `path`, `last-seen` in
-seconds since 1970, `entries`; `\\`, `\n` and `\xHH` escapes in values).
-Deleting a drive's files makes the window forget it.
+index file itself holds only the folders to index. Next to each drive file,
+`volumes/<uuid>.info` is a small text file of `key = value` lines (`uuid`,
+`label`, `path`, `last-seen` in seconds since 1970, `entries`; `\\`, `\n` and
+`\xHH` escapes in values). Deleting a drive's files makes the window forget
+it.
 
 ## Layout
 
@@ -98,8 +99,8 @@ same folder, synced, and renamed over the file. Failed saves remove their
 temporary file. After the rename, the parent directory is opened and synced;
 a directory-sync failure is returned to the caller, except `EINVAL` and
 `ENOTSUP`, with which file systems that cannot sync a directory (several
-FUSE and network ones) answer; the save counts as done then. A bare relative filename
-uses `.` as its parent. Readers see either the old or the complete new file.
+FUSE and network ones) answer; the save counts as done then. A bare relative
+filename uses `.` as its parent. Readers see either the old or the complete new file.
 The window saves a changed index at most every five minutes while it watches, after a rebuild, and when it
 ends (also when closing only hides the window).
 

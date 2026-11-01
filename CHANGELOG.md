@@ -10,33 +10,6 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
-- Index saves sync the parent directory after rename and report directory
-  sync failures to callers, except on file systems that cannot sync a
-  directory (`EINVAL`, `ENOTSUP`).
-
-- The CLI preserves non-UTF-8 root, index and excluded-folder paths, and
-  reports invalid textual arguments as usage errors instead of panicking.
-
-- Saved indexes record an indexing-rule fingerprint (format 6). The CLI and
-  the window rebuild when include/exclude rules change or the saved rules are
-  unknown; the window saves its index and each drive's with their rules.
-- The command line tool keeps its own index file, `cli-index.bin`, next to
-  the window's `index.bin`, so the two never replace each other's index.
-
-- `--no-meta` stays in effect during catch-up and live updates, renames and
-  moves included; directory timestamps remain available so unchanged
-  directories can be skipped.
-
-- CLI save errors return a failure status. Index saves use exclusive random
-  temporary files with owner-only permissions and remove them on failure.
-
-- Watching CLI shells and the window catch up after fresh scans and rescans,
-  including changes made before watches were installed.
-
-- Failed directory listings are retried after access returns; saved roots that
-  were absent during scanning are revisited on load. A folder that can be
-  listed but not searched still gets its added and removed entries by name.
-
 - In-memory index of file and folder names in packed columns, with names
   stored once and a case-folded copy for matching.
 - Parallel search over the name-sorted order on all CPU cores.
@@ -49,11 +22,26 @@ First version, 0.1.0, not released yet.
 - Live updates with inotify: creations, deletions, renames and moves keep the
   index current; a queue overflow rebuilds it.
 - Catching up on start with changes made while nothing was watching, by
-  re-reading only folders whose modification time changed.
+  re-reading only folders whose modification time changed. Watching
+  command line shells and the window also catch up after fresh scans and
+  rescans, with changes made before their watches were installed.
+- Failed directory listings are retried after access returns; saved roots
+  that were absent during scanning are revisited on load. A folder that can
+  be listed but not searched still gets its added and removed entries by
+  name.
 - In-memory compaction during long watch sessions.
-- Saved index (format version 5) with full validation and a checksum,
-  written atomically, decoded while it is read. A version 4 file loads and
-  has its name order sorted again instead of being scanned anew.
+- Saved index (format version 6) with full validation and a checksum,
+  decoded while it is read. It is written to an exclusively created
+  temporary file with owner-only permissions (removed when the save fails),
+  synced and renamed over the old file, and then its folder is synced;
+  folder sync failures are reported, except on file systems that cannot
+  sync a folder (`EINVAL`, `ENOTSUP`). A name order sorted by older rules is
+  sorted again instead of being scanned anew.
+- Saved indexes record a fingerprint of the indexing rules. The command line
+  and the window build the index again when the include/exclude rules
+  changed or the file has none (versions 4 and 5); the window saves its
+  index and each drive's with their rules, and reads a drive again when its
+  file has other rules.
 - Total size and item count of every folder, kept current on every change.
 - Sorting by name, folder, size, modification time, type or extension.
   Names sort in natural order: numbers by value (`file2` before `file10`),
@@ -82,23 +70,20 @@ First version, 0.1.0, not released yet.
 
 ### Query language
 
-- Wildcard scope is configurable in Settings → Search, with per-term
-  `wholename:` / `nowholename:` overrides; whole-name matching
-  remains the default. `wholename:` on text
-  without wildcards matches the whole name exactly.
-
+- AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
 - Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
   operators. The default keeps these words literal; quoted words and
   modifier values stay literal when the setting is enabled.
-
 - Settings → Search can evaluate AND before OR. The default retains
   OR-before-AND behavior; explicit groups and negation keep their meaning.
-
-- AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
 - Wildcards `*` and `?` matched against the whole name. **Behaviour
   change:** against the full path `*` and `?` no longer cross a `/`; `**`
   does (`path:/home/me/*.txt` no longer finds files in subfolders), as in the
   exclude patterns.
+- Wildcard scope is configurable in Settings → Search, with per-term
+  `wholename:` / `nowholename:` overrides; whole-name matching
+  remains the default. `wholename:` on text
+  without wildcards matches the whole name exactly.
 - Case, whole-word, full-path and diacritic modes, per term (`case:`, `wholeword:`,
   `path:`, `diacritics:` and their `no…:` forms) or for the whole query.
 - `file:`, `folder:`, `ext:`, `size:` (folders by total size) and
@@ -148,19 +133,19 @@ First version, 0.1.0, not released yet.
 
 - `everygrep index`, `search` and `shell` (with `--watch`), reusing the saved
   index and rescanning when the roots change.
+- Its own index file, `cli-index.bin`, next to the window's `index.bin`, so
+  the two programs never replace each other's index.
 - `--exclude` takes a path or a pattern; `--include-files` and
   `--exclude-files` take file pattern lists.
+- `--no-meta` stays in effect during catch-up and live updates, renames and
+  moves included; folder times are kept, so unchanged folders are skipped.
+- `everygrep index` fails when the index cannot be saved; `search` and
+  `shell` print a warning and still answer.
+- Root, index and excluded-folder paths that are not UTF-8 are kept as they
+  are; text arguments that are not UTF-8 are usage errors instead of a
+  panic.
 
 ### Window
-
-- Active matching-mode badges can be shown or hidden in Settings → Search.
-
-- Previous/next filter navigation can wrap or stop at the ends of the list
-  (Settings → Search); a boundary with wrapping off leaves the search alone.
-
-- Hidden-file results can be shown, hidden or shown alone, independently of
-  file kind, from Search or Settings (`Ctrl+H` cycles). The saved choice
-  includes dot-prefixed folders and their contents, without changing the index.
 
 - Search window with results on every key press, matched terms in bold
   (every occurrence of every term, wildcards, regular expressions, path terms
@@ -182,6 +167,12 @@ First version, 0.1.0, not released yet.
   marks for match prefix (`Alt+B`), match suffix (`Alt+E`), ignore
   punctuation (`Alt+U`) and ignore whitespace (`Alt+S`), with status
   badges, start defaults in the settings and command line flags.
+- Active matching-mode badges can be shown or hidden in Settings → Search.
+- Previous/next filter navigation can wrap or stop at the ends of the list
+  (Settings → Search); a boundary with wrapping off leaves the search alone.
+- Hidden-file results can be shown, hidden or shown alone, independently of
+  file kind, from Search or Settings (`Ctrl+H` cycles). The saved choice
+  includes dot-prefixed folders and their contents, without changing the index.
 - One window per index: a later launch hands its query to the open window
   over the session bus; GNOME keyboard shortcut instructions.
 - Settings window: folders to index and exclude, start options, history,
