@@ -8,26 +8,6 @@ All notable changes to EveryGrep are listed here. The format follows
 
 First version, 0.1.0, not released yet.
 
-- Active matching-mode badges can be shown or hidden in Settings → Search.
-
-- Previous/next filter navigation can wrap or stop at the ends of the list
-  (Settings → Search); a boundary with wrapping off leaves the search alone.
-
-- Wildcard scope is configurable in Settings → Search, with per-term
-  `wholename:` / `nowholename:` overrides; whole-name matching
-  remains the default.
-
-- Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
-  operators. The default keeps these words literal; quoted words and
-  modifier values stay literal when the setting is enabled.
-
-- Settings → Search can evaluate AND before OR. The default retains
-  OR-before-AND behavior; explicit groups and negation keep their meaning.
-
-- Hidden-file results can be shown, hidden or shown alone, independently of
-  file kind, from Search or Settings (`Ctrl+H` cycles). The saved choice
-  includes dot-prefixed folders and their contents, without changing the index.
-
 ### Index and engine
 
 - Index saves sync the parent directory after rename and report directory
@@ -96,6 +76,17 @@ First version, 0.1.0, not released yet.
 
 ### Query language
 
+- Wildcard scope is configurable in Settings → Search, with per-term
+  `wholename:` / `nowholename:` overrides; whole-name matching
+  remains the default.
+
+- Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
+  operators. The default keeps these words literal; quoted words and
+  modifier values stay literal when the setting is enabled.
+
+- Settings → Search can evaluate AND before OR. The default retains
+  OR-before-AND behavior; explicit groups and negation keep their meaning.
+
 - AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
 - Wildcards `*` and `?` matched against the whole name. **Behaviour
   change:** against the full path `*` and `?` no longer cross a `/`; `**`
@@ -154,6 +145,15 @@ First version, 0.1.0, not released yet.
   `--exclude-files` take file pattern lists.
 
 ### Window
+
+- Active matching-mode badges can be shown or hidden in Settings → Search.
+
+- Previous/next filter navigation can wrap or stop at the ends of the list
+  (Settings → Search); a boundary with wrapping off leaves the search alone.
+
+- Hidden-file results can be shown, hidden or shown alone, independently of
+  file kind, from Search or Settings (`Ctrl+H` cycles). The saved choice
+  includes dot-prefixed folders and their contents, without changing the index.
 
 - Search window with results on every key press, matched terms in bold
   (every occurrence of every term, wildcards, regular expressions, path terms
