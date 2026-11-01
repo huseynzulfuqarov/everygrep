@@ -1082,6 +1082,9 @@ impl Engine {
             fresh.catch_up(&mut index);
             *watcher = fresh;
         }
+        drop(index);
+        // Saves record what this index was built with.
+        *self.indexed_with.lock().expect("lock") = (roots, options.rules);
         *self.shown.lock().expect("lock") = Arc::new(Vec::new());
     }
 

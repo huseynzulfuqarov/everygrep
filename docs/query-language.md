@@ -64,10 +64,11 @@ anywhere in the filename opens both ends instead (off by default).
 `wholename:ain*` forces whole-name wildcard matching
 and `nowholename:ain*` allows a match inside `main.rs`, regardless of that
 setting. On text without wildcards, `wholename:` requires the whole name
-to be that text: `wholename:main.rs` finds `main.rs` but not `main.rs.bak`, with
-case and diacritics matched as for any other term (`case:wholename:Main.rs`).
-Without the modifier, ordinary text keeps its substring behavior. Explicit
-`prefix:` / `suffix:` still anchor their side of a wildcard.
+(for a path term, the whole path) to be that text: `wholename:main.rs` finds
+`main.rs` but not `main.rs.bak`, with case and diacritics matched as for any
+other term (`case:wholename:Main.rs`). Without the modifier, ordinary text keeps its
+substring behavior. Explicit `prefix:` / `suffix:` still anchor their side of
+a wildcard.
 In path mode the open ends can cross folders, while `*` / `?` inside the
 original pattern keep their separator rules.
 
