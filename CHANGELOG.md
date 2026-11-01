@@ -223,6 +223,9 @@ First version, 0.1.0, not released yet.
   stops indexing, rescans, a drive's first reading, searches and sorts; a
   cancelled first index is never saved, a cancelled rescan keeps the
   previous index and folders, a cancelled sort keeps the previous order.
+- A click into the search field while it has no focus selects all of its
+  text, so typing replaces the search; a second click places the cursor
+  ("Select the search text on a click into the field", Search page, on).
 
 ### Project
 

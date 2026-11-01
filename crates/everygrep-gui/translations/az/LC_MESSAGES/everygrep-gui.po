@@ -1733,3 +1733,11 @@ msgstr "Axtarış sahəsi bu düymə ilə mətni redaktə edir."
 #: ui/settings.slint
 msgid "The search field uses this key."
 msgstr "Bu düymədən axtarış sahəsi istifadə edir."
+
+#: ui/settings.slint
+msgid "Select the search text on a click into the field"
+msgstr "Sahəyə klikləyəndə axtarış mətnini seç"
+
+#: ui/settings.slint
+msgid "A second click places the cursor. Off: the first click places it."
+msgstr "İkinci klik kursoru yerləşdirir. Söndürüləndə ilk klik yerləşdirir."

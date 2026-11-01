@@ -203,6 +203,9 @@ pub struct Settings {
     /// Whether the results follow every change of the search; off searches
     /// when Enter is pressed.
     pub as_you_type: bool,
+    /// Whether a click into the search field, while it does not have the
+    /// focus, selects all of its text; off places the caret.
+    pub select_search_on_click: bool,
     /// Searches kept for Back and Forward; 0 turns the history off.
     pub history_size: usize,
     /// Whether the search history is saved between sessions.
@@ -255,6 +258,7 @@ impl Default for Settings {
             watch_changes: true,
             options: QueryOptions::default(),
             as_you_type: true,
+            select_search_on_click: true,
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             on_close: OnClose::Quit,
@@ -418,6 +422,7 @@ impl Settings {
             "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
             "regex" => put_flag(&mut self.options.regex),
             "search-as-you-type" => put_flag(&mut self.as_you_type),
+            "select-search-on-click" => put_flag(&mut self.select_search_on_click),
             "history-size" => value
                 .parse::<usize>()
                 .ok()
@@ -603,6 +608,12 @@ impl Settings {
             self.as_you_type,
             d.as_you_type,
         );
+        flag(
+            &mut out,
+            "select-search-on-click",
+            self.select_search_on_click,
+            d.select_search_on_click,
+        );
         if self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
@@ -725,6 +736,7 @@ impl Settings {
             Page::Search => {
                 self.options = d.options;
                 self.as_you_type = d.as_you_type;
+                self.select_search_on_click = d.select_search_on_click;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
             }
@@ -983,6 +995,7 @@ pub(crate) mod tests {
                 filter: Filter::Picture,
             },
             as_you_type: false,
+            select_search_on_click: false,
             history_size: 0,
             history_on_disk: true,
             on_close: OnClose::Hide,
@@ -1038,6 +1051,7 @@ pub(crate) mod tests {
         assert!(text.contains("use-exclude-list = false\n"));
         assert!(text.contains("watch-changes = false\n"));
         assert!(text.contains("search-as-you-type = false\n"));
+        assert!(text.contains("select-search-on-click = false\n"));
         assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("focus-search-on-show = false\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
@@ -1058,6 +1072,10 @@ pub(crate) mod tests {
         let d = Settings::default();
         assert!(d.use_excludes, "the exclude list is used by default");
         assert!(d.watch_changes, "changes are watched by default");
+        assert!(
+            d.select_search_on_click,
+            "a click into the search field selects its text by default"
+        );
         assert!(
             d.rename_name_only,
             "the extension is not selected by default"

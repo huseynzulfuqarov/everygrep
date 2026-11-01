@@ -642,6 +642,7 @@ impl Prefs {
         w.set_default_whitespace(o.ignore_whitespace);
         w.set_default_regex(o.regex);
         w.set_as_you_type(s.as_you_type);
+        w.set_select_search_on_click(s.select_search_on_click);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
@@ -1161,14 +1162,25 @@ impl Prefs {
             .min(MAX_HISTORY);
         let on_disk = w.get_history_on_disk();
         let as_you_type = w.get_as_you_type();
+        let select_on_click = w.get_select_search_on_click();
         self.change(|s| {
             s.options = options;
             s.as_you_type = as_you_type;
+            s.select_search_on_click = select_on_click;
             s.history_size = size;
             s.history_on_disk = on_disk;
         });
         self.apply_history();
         self.apply_as_you_type();
+        self.apply_behaviour();
+    }
+
+    /// Gives the main window the settings that only change how it reacts
+    /// to the mouse and keys.
+    pub fn apply_behaviour(&self) {
+        let Some(m) = self.main.upgrade() else { return };
+        let s = self.settings.borrow();
+        m.set_select_search_on_click(s.select_search_on_click);
     }
 
     /// Gives the main window the "search as you type" setting.
@@ -1375,6 +1387,7 @@ impl Prefs {
             self.apply_history();
             self.apply_as_you_type();
         }
+        self.apply_behaviour();
         if page == Page::Appearance {
             self.apply_look();
         }

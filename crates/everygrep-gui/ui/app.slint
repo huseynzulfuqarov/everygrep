@@ -171,6 +171,9 @@ component SearchField inherits Rectangle {
     in-out property <bool> match-path;
     in-out property <bool> match-diacritics;
     in-out property <bool> use-regex;
+    // A click into the field while it does not have the focus selects all
+    // of its text; the next click places the caret.
+    in property <bool> select-on-click;
     // The tip of the toggle under the mouse and where to show it.
     out property <string> hover-tip: case-toggle.hovered ? case-toggle.tip
         : words-toggle.hovered ? words-toggle.tip
@@ -259,6 +262,16 @@ component SearchField inherits Rectangle {
                         return accept;
                     }
                     reject
+                }
+            }
+            // Takes the first click while the field has no focus; once it
+            // has, clicks go to the text input and place the caret.
+            TouchArea {
+                enabled: root.select-on-click && !input.has-focus;
+                mouse-cursor: MouseCursor.text;
+                clicked => {
+                    input.focus();
+                    input.select-all();
                 }
             }
         }
@@ -787,6 +800,8 @@ export component AppWindow inherits Window {
     in-out property <bool> match-path <=> search.match-path;
     in-out property <bool> match-diacritics <=> search.match-diacritics;
     in-out property <bool> use-regex <=> search.use-regex;
+    // A click into the search field selects its text (a setting).
+    in property <bool> select-search-on-click: true;
     // Modes without a toggle in the field: Search menu and Alt keys.
     in-out property <bool> match-prefix;
     in-out property <bool> match-suffix;
@@ -1365,6 +1380,7 @@ export component AppWindow inherits Window {
                     spacing: Theme.s2;
                     search := SearchField {
                         horizontal-stretch: 1;
+                        select-on-click: root.select-search-on-click;
                         edited(text) => {
                             root.current = root.results.length > 0 ? 0 : -1;
                             list.content-y = 0;

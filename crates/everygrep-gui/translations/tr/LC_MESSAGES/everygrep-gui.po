@@ -1733,3 +1733,11 @@ msgstr "Arama alanı bu tuşu metin düzenlemek için kullanır."
 #: ui/settings.slint
 msgid "The search field uses this key."
 msgstr "Bu tuşu arama alanı kullanır."
+
+#: ui/settings.slint
+msgid "Select the search text on a click into the field"
+msgstr "Alana tıklandığında arama metnini seç"
+
+#: ui/settings.slint
+msgid "A second click places the cursor. Off: the first click places it."
+msgstr "İkinci tıklama imleci yerleştirir. Kapalıyken ilk tıklama yerleştirir."

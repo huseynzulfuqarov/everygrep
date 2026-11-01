@@ -171,7 +171,7 @@ words.
 
 | Action | Keys | Mouse |
 |---|---|---|
-| Focus the search field | `Ctrl+F`, `Ctrl+L`, `↑` on the first row | click |
+| Focus the search field | `Ctrl+F`, `Ctrl+L`, `↑` on the first row | click (selects the text; a second click places the cursor) |
 | Move in results (selects the row) | `↓` from the search field, `↑` `↓` `PgUp` `PgDn` `Home` `End` | scroll, click |
 | Move without changing the selection | `Ctrl` + movement | — |
 | Add or remove one row | `Ctrl+Space` | `Ctrl` + click |

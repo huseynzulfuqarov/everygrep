@@ -148,6 +148,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> default-punctuation;
     in-out property <bool> default-whitespace;
     in-out property <bool> as-you-type;
+    in-out property <bool> select-search-on-click;
     in-out property <int> history-size;
     in property <int> history-max;
     in-out property <bool> history-on-disk;
@@ -470,6 +471,12 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.search-changed(); }
                             }
                             Note { text: @tr("Off: the results change only when you press Enter in the search field."); }
+                            CheckBox {
+                                text: @tr("Select the search text on a click into the field");
+                                checked <=> root.select-search-on-click;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("A second click places the cursor. Off: the first click places it."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("When EveryGrep starts"); }
                             HorizontalLayout {

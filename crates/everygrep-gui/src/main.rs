@@ -229,6 +229,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     prefs.apply_look();
     prefs.apply_as_you_type();
+    prefs.apply_behaviour();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
         let _ = portal::watch_color_scheme(|scheme| {
