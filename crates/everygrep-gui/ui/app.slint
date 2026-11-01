@@ -863,6 +863,8 @@ export component AppWindow inherits Window {
 
     callback query-edited(string);
     callback sort-changed(int, bool);
+    // Whether a first click on the header of a column sorts it descending.
+    pure callback first-descending(int) -> bool;
     callback activate(int);
     // Asks the desktop which application to open the item with.
     callback open-with(int);
@@ -1335,13 +1337,13 @@ export component AppWindow inherits Window {
     }
 
     // A click on the sorted column flips the direction; another column starts
-    // ascending.
+    // ascending, or descending for dates and sizes when the settings say so.
     function sort-by(column: int) {
         if (root.sort-column == column) {
             root.sort-descending = !root.sort-descending;
         } else {
             root.sort-column = column;
-            root.sort-descending = false;
+            root.sort-descending = root.first-descending(column);
         }
         root.current = root.results.length > 0 ? 0 : -1;
         list.content-y = 0;

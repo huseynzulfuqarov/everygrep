@@ -253,6 +253,7 @@ the program behaves as before, except that folders show their total size.
 | | remember the shown columns and their widths | on |
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
 | | focus the search field and select its text when the window is shown again | on |
+| | sort dates newest first / sort sizes largest first: the direction of the first click on a date or Size header | off |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
 | Keyboard | the keys of the window's commands (see below), and how to open EveryGrep with a key | the keys listed above |
 
@@ -383,7 +384,8 @@ ignored. Other keys: `whole-words`,
 repeated per drive), `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
 `language` (`system`, `en`, `az`, `tr`),
-`status-details`, `menu-bar`, `remember-columns`,
+`status-details`, `menu-bar`, `remember-columns`, `sort-dates-newest-first`,
+`sort-sizes-largest-first`,
 `show-extension-column`, `show-created-column`, `show-accessed-column`,
 `show-attributes-column`, `name-width`, `modified-width`, `type-width`,
 `extension-width`, `created-width`, `accessed-width`, `attributes-width`.

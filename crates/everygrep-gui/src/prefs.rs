@@ -676,6 +676,8 @@ impl Prefs {
         w.set_remember_columns(s.remember_columns);
         w.set_rename_name_only(s.rename_name_only);
         w.set_focus_on_show(s.focus_on_show);
+        w.set_dates_newest_first(s.dates_newest_first);
+        w.set_sizes_largest_first(s.sizes_largest_first);
 
         let themes: Vec<SharedString> = ThemeChoice::ALL
             .iter()
@@ -1306,7 +1308,11 @@ impl Prefs {
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
         let focus_on_show = w.get_focus_on_show();
+        let dates_newest_first = w.get_dates_newest_first();
+        let sizes_largest_first = w.get_sizes_largest_first();
         self.change(|s| {
+            s.dates_newest_first = dates_newest_first;
+            s.sizes_largest_first = sizes_largest_first;
             s.on_close = on_close;
             s.folder_size = folder_size;
             s.remember_columns = remember;
@@ -1449,12 +1455,19 @@ impl Prefs {
         self.settings.borrow().rename_name_only
     }
 
-    /// Whether closing the main window should only hide it.
     /// Whether showing the window focuses the search field.
     pub fn focus_on_show(&self) -> bool {
         self.settings.borrow().focus_on_show
     }
 
+    /// Whether the first click on the header of `column` (numbered as the
+    /// window's sort column) sorts it descending.
+    pub fn first_descending(&self, column: i32) -> bool {
+        let s = self.settings.borrow();
+        crate::first_descending(column, s.dates_newest_first, s.sizes_largest_first)
+    }
+
+    /// Whether closing the main window should only hide it.
     pub fn hide_on_close(&self) -> bool {
         self.settings.borrow().on_close == OnClose::Hide
     }

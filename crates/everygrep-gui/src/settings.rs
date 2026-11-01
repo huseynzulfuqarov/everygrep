@@ -226,6 +226,11 @@ pub struct Settings {
     /// moves the keyboard focus to the search field and selects its text;
     /// off keeps the focus where it was.
     pub focus_on_show: bool,
+    /// Whether the first click on a date column header sorts the newest
+    /// first; off sorts the oldest first, as for any other column.
+    pub dates_newest_first: bool,
+    /// Whether the first click on the Size header sorts the largest first.
+    pub sizes_largest_first: bool,
     pub theme: ThemeChoice,
     pub density: Density,
     /// Whether the status line shows the size, date and path of the selected
@@ -267,6 +272,8 @@ impl Default for Settings {
             columns: Columns::default(),
             rename_name_only: true,
             focus_on_show: true,
+            dates_newest_first: false,
+            sizes_largest_first: false,
             theme: ThemeChoice::System,
             density: Density::Comfortable,
             status_details: true,
@@ -441,6 +448,8 @@ impl Settings {
             "remember-columns" => put_flag(&mut self.remember_columns),
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
             "focus-search-on-show" => put_flag(&mut self.focus_on_show),
+            "sort-dates-newest-first" => put_flag(&mut self.dates_newest_first),
+            "sort-sizes-largest-first" => put_flag(&mut self.sizes_largest_first),
             "theme" => ThemeChoice::ALL
                 .into_iter()
                 .find(|t| t.id() == value)
@@ -647,6 +656,18 @@ impl Settings {
             self.focus_on_show,
             d.focus_on_show,
         );
+        flag(
+            &mut out,
+            "sort-dates-newest-first",
+            self.dates_newest_first,
+            d.dates_newest_first,
+        );
+        flag(
+            &mut out,
+            "sort-sizes-largest-first",
+            self.sizes_largest_first,
+            d.sizes_largest_first,
+        );
         if self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
@@ -754,6 +775,8 @@ impl Settings {
                 self.columns = d.columns;
                 self.rename_name_only = d.rename_name_only;
                 self.focus_on_show = d.focus_on_show;
+                self.dates_newest_first = d.dates_newest_first;
+                self.sizes_largest_first = d.sizes_largest_first;
             }
         }
     }
@@ -1003,6 +1026,8 @@ pub(crate) mod tests {
             remember_columns: false,
             rename_name_only: false,
             focus_on_show: false,
+            dates_newest_first: true,
+            sizes_largest_first: true,
             columns: Columns {
                 show_type: true,
                 show_ext: true,
@@ -1054,6 +1079,8 @@ pub(crate) mod tests {
         assert!(text.contains("select-search-on-click = false\n"));
         assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("focus-search-on-show = false\n"));
+        assert!(text.contains("sort-dates-newest-first = true\n"));
+        assert!(text.contains("sort-sizes-largest-first = true\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
     }

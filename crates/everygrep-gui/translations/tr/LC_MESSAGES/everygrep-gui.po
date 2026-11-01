@@ -1741,3 +1741,19 @@ msgstr "Alana tıklandığında arama metnini seç"
 #: ui/settings.slint
 msgid "A second click places the cursor. Off: the first click places it."
 msgstr "İkinci tıklama imleci yerleştirir. Kapalıyken ilk tıklama yerleştirir."
+
+#: ui/settings.slint
+msgid "Sorting"
+msgstr "Sıralama"
+
+#: ui/settings.slint
+msgid "Sort dates newest first"
+msgstr "Tarihleri en yeniden başlayarak sırala"
+
+#: ui/settings.slint
+msgid "Sort sizes largest first"
+msgstr "Boyutları en büyükten başlayarak sırala"
+
+#: ui/settings.slint
+msgid "The first click on the header of a date column or of Size sorts in this order; a second click reverses it. Off: they start with the oldest or smallest."
+msgstr "Bir tarih sütununun veya Boyut sütununun başlığına ilk tıklama bu sırayla sıralar; ikinci tıklama sırayı tersine çevirir. Kapalıyken en eski veya en küçükten başlar."

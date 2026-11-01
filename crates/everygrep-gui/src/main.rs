@@ -362,6 +362,11 @@ fn main() -> Result<(), slint::PlatformError> {
             engine.set_sort(sort_for_column(column, descending, model.folder_size()));
         }
     });
+    window.on_first_descending(|column| {
+        let mut descending = false;
+        prefs::with(|p| descending = p.first_descending(column));
+        descending
+    });
     window.on_select({
         let weak = weak.clone();
         let model = model.clone();
@@ -1544,6 +1549,17 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
 /// The sort for a header column of the window (0 name, 1 folder, 2 size,
 /// 3 modified, 4 type, 5 extension). The folder column sorts by folder, then
 /// name; folders sort by size as `folders` says.
+/// Whether the first click on the header of `column` sorts it descending:
+/// the date columns (Modified, Created, Accessed) with `dates`, Size with
+/// `sizes`; every other column starts ascending.
+pub fn first_descending(column: i32, dates: bool, sizes: bool) -> bool {
+    match column {
+        2 => sizes,
+        3 | 6 | 7 => dates,
+        _ => false,
+    }
+}
+
 fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
     let key = match column {
         1 => SortKey::Path,
@@ -1961,6 +1977,26 @@ mod tests {
         assert!(args(&["--new-instance", "x"]).new_instance);
         assert!(!args(&["x"]).new_instance);
         assert_eq!(args(&["--", "--new-instance"]).query, "--new-instance");
+    }
+
+    #[test]
+    fn first_clicks_sort_dates_and_sizes_as_set() {
+        for column in 0..=8 {
+            assert!(!first_descending(column, false, false), "{column}");
+        }
+        let dates: Vec<i32> = (0..=8)
+            .filter(|&c| first_descending(c, true, false))
+            .collect();
+        assert_eq!(dates, [3, 6, 7], "Modified, Created, Accessed");
+        let sizes: Vec<i32> = (0..=8)
+            .filter(|&c| first_descending(c, false, true))
+            .collect();
+        assert_eq!(sizes, [2]);
+        assert!(!first_descending(0, true, true), "names start ascending");
+        assert!(
+            !first_descending(8, true, true),
+            "attributes start ascending"
+        );
     }
 
     #[test]

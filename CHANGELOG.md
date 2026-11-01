@@ -226,6 +226,9 @@ First version, 0.1.0, not released yet.
 - A click into the search field while it has no focus selects all of its
   text, so typing replaces the search; a second click places the cursor
   ("Select the search text on a click into the field", Search page, on).
+- "Sort dates newest first" and "Sort sizes largest first" (Window page,
+  off): the first click on the header of Modified, Created or Accessed, or
+  of Size, sorts descending.
 
 ### Project
 

@@ -85,7 +85,9 @@ screen; when a change conflicts with them, the rules win or are changed first.
   `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link
   (never followed), `X` regular file with any execute bit.
   Columns can be resized, hidden and sorted by clicking the header; reordering
-  is planned. Sorting by Type groups by kind, then extension. Matched search
+  is planned. The first click on a header sorts ascending; two settings
+  (Window page, off by default) make it sort the date columns newest first
+  and Size largest first. A second click reverses the order. Sorting by Type groups by kind, then extension. Matched search
   terms are bold: every occurrence of every term that is not negated (`!`),
   matched as the search matches it (case, diacritics, whole words, prefix,
   suffix and the ignore modes). Wildcard patterns mark the characters their
