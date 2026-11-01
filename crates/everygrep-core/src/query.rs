@@ -223,6 +223,8 @@ struct TextPred {
     /// Characters left out of the subject before comparing (the pattern
     /// was prepared the same way).
     squeeze: Squeeze,
+    /// `pattern` compiled for subjects with `/` (paths), when `glob` is set.
+    parts: Vec<GlobPart>,
 }
 
 /// A compiled regular expression, matched against the raw name or path.
@@ -295,6 +297,7 @@ pub struct EvalScratch {
     folded_for_node: Option<NodeId>,
     stripped: Vec<u8>,
     squeezed: Vec<u8>,
+    glob_rows: GlobRows,
     /// Roots whose drive is not there: their saved paths may now belong to
     /// other files, so entries below them are not looked up on disk.
     offline: Vec<NodeId>,
@@ -536,6 +539,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
         Pred::Text(t) => {
             let mut stripped = std::mem::take(&mut scratch.stripped);
             let mut squeezed = std::mem::take(&mut scratch.squeezed);
+            let mut rows = std::mem::take(&mut scratch.glob_rows);
             let matched = {
                 let subject: &[u8] = if t.on_path {
                     if t.case {
@@ -563,10 +567,11 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                 } else {
                     subject
                 };
-                text_matches(t, subject)
+                text_matches(t, subject, &mut rows)
             };
             scratch.stripped = stripped;
             scratch.squeezed = squeezed;
+            scratch.glob_rows = rows;
             matched
         }
     }
@@ -586,9 +591,13 @@ fn extension_parts(name: &[u8], parts: usize) -> Option<&[u8]> {
     (dot > 0).then(|| &name[dot + 1..])
 }
 
-fn text_matches(t: &TextPred, subject: &[u8]) -> bool {
+fn text_matches(t: &TextPred, subject: &[u8], rows: &mut GlobRows) -> bool {
     if t.glob {
-        glob_match(&t.pattern, subject)
+        if subject.contains(&b'/') {
+            glob_path_match(&t.parts, subject, rows)
+        } else {
+            glob_match(&t.pattern, subject)
+        }
     } else {
         find_term(subject, &t.pattern, t.whole_word, t.prefix, t.suffix).is_some()
     }
@@ -1046,10 +1055,7 @@ const GLOB_ESCAPE: u8 = 0xFF;
 /// same as `*`. A byte after [`GLOB_ESCAPE`] is literal.
 pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
     if subject.contains(&b'/') {
-        return glob_path_table(pattern, subject)
-            .1
-            .last()
-            .is_some_and(|row| row[subject.len()]);
+        return glob_path_match(&glob_parts(pattern), subject, &mut GlobRows::default());
     }
     let (mut p, mut s) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
@@ -1098,10 +1104,8 @@ enum GlobPart {
     Stars,
 }
 
-/// The parts of `pattern` and the table of which prefixes match: row `i`,
-/// column `j` says whether the first `i` parts match `subject[..j]`. Only the
-/// starts of characters are positions for `?` and the stars.
-fn glob_path_table(pattern: &[u8], subject: &[u8]) -> (Vec<GlobPart>, Vec<Vec<bool>>) {
+/// The parts of a wildcard `pattern` (see [`glob_match`]).
+fn glob_parts(pattern: &[u8]) -> Vec<GlobPart> {
     let mut parts = Vec::with_capacity(pattern.len());
     let mut i = 0;
     while i < pattern.len() {
@@ -1123,6 +1127,133 @@ fn glob_path_table(pattern: &[u8], subject: &[u8]) -> (Vec<GlobPart>, Vec<Vec<bo
         parts.push(part);
         i += 1;
     }
+    parts
+}
+
+/// Reusable rows for [`glob_path_match`], so matching many paths does not
+/// allocate.
+#[derive(Default)]
+struct GlobRows {
+    row: Vec<bool>,
+    next: Vec<bool>,
+    /// Per byte of a subject that is not ASCII: whether a character starts
+    /// there.
+    starts: Vec<bool>,
+}
+
+/// Whether `subject` matches the wildcard `parts`: the last cell of
+/// [`glob_path_table`], computed one row at a time in `rows`. Each row only
+/// covers the span from its first to its last match, and the search stops
+/// when a row has none.
+fn glob_path_match(parts: &[GlobPart], subject: &[u8], rows: &mut GlobRows) -> bool {
+    let n = subject.len();
+    let GlobRows { row, next, starts } = rows;
+    row.clear();
+    row.resize(n + 1, false);
+    next.clear();
+    next.resize(n + 1, false);
+    let ascii = subject.is_ascii();
+    if !ascii {
+        // The positions [`glob_path_table`] steps through for `?` and stars.
+        starts.clear();
+        starts.resize(n + 1, false);
+        let mut j = 0;
+        starts[0] = true;
+        while j < n {
+            j += char_len(subject, j);
+            starts[j] = true;
+        }
+    }
+    let is_start = |j: usize| ascii || starts[j];
+    let step = |j: usize| if ascii { 1 } else { char_len(subject, j) };
+    row[0] = true;
+    // Every true cell of `row` is in `lo..=hi`; `next` is all false.
+    let (mut lo, mut hi) = (0, 0);
+    for &part in parts {
+        // The first and last true cell of `next`.
+        let (mut first, mut last) = (usize::MAX, 0);
+        match part {
+            GlobPart::Byte(b) => {
+                for j in lo..(hi + 1).min(n) {
+                    if row[j] && subject[j] == b {
+                        next[j + 1] = true;
+                        first = first.min(j + 1);
+                        last = j + 1;
+                    }
+                }
+            }
+            GlobPart::One => {
+                let mut j = lo;
+                while j <= hi && j < n {
+                    if !is_start(j) {
+                        j += 1;
+                        continue;
+                    }
+                    let end = j + step(j);
+                    if row[j] && subject[j] != b'/' {
+                        next[end] = true;
+                        first = first.min(end);
+                        last = end;
+                    }
+                    j = end;
+                }
+            }
+            GlobPart::Star | GlobPart::Stars => {
+                // Before `lo` both rows are false, so the run starts at the
+                // first position at or after it.
+                let mut j = lo;
+                while !is_start(j) {
+                    j += 1;
+                }
+                let mut on = row[j];
+                loop {
+                    if on {
+                        // In ASCII every byte is a position: the run goes on
+                        // up to the next `/` (to the end for `**`).
+                        let stop = if !ascii {
+                            j
+                        } else if part == GlobPart::Stars {
+                            n
+                        } else {
+                            subject[j..]
+                                .iter()
+                                .position(|&b| b == b'/')
+                                .map_or(n, |k| j + k)
+                        };
+                        next[j..=stop].fill(true);
+                        first = first.min(j);
+                        last = stop;
+                        j = stop;
+                    }
+                    if j >= n {
+                        break;
+                    }
+                    let end = j + step(j);
+                    let allowed = part == GlobPart::Stars || subject[j] != b'/';
+                    on = row[end] || (on && allowed);
+                    if !on && end > hi {
+                        // Nothing after this can be reached any more.
+                        break;
+                    }
+                    j = end;
+                }
+            }
+        }
+        row[lo..=hi].fill(false);
+        std::mem::swap(row, next);
+        if first == usize::MAX {
+            return false;
+        }
+        (lo, hi) = (first, last);
+    }
+    row[n]
+}
+
+/// The parts of `pattern` and the table of which prefixes match: row `i`,
+/// column `j` says whether the first `i` parts match `subject[..j]`. Only the
+/// starts of characters are positions for `?` and the stars.
+fn glob_path_table(pattern: &[u8], subject: &[u8]) -> (Vec<GlobPart>, Vec<Vec<bool>>) {
+    let parts = glob_parts(pattern);
     let n = subject.len();
     let mut table = Vec::with_capacity(parts.len() + 1);
     let mut row = vec![false; n + 1];
@@ -1606,7 +1737,6 @@ impl Parser {
             }
         }
         Ok(Some(Node::Leaf(Pred::Text(TextPred {
-            pattern,
             case: m.case,
             on_path: m.on_path,
             glob,
@@ -1615,6 +1745,12 @@ impl Parser {
             prefix: m.prefix,
             suffix: m.suffix,
             squeeze: m.squeeze,
+            parts: if glob {
+                glob_parts(&pattern)
+            } else {
+                Vec::new()
+            },
+            pattern,
         }))))
     }
 
@@ -3969,6 +4105,59 @@ mod tests {
         assert!(glob_match(b"*", b""));
         assert!(glob_match(b"a*b*c", b"axxbyyc"));
         assert!(!glob_match(b"a*b", b"ac"));
+    }
+
+    #[test]
+    fn path_wildcards_match_like_the_full_table_with_reused_rows() {
+        // Small random patterns and paths, with multibyte and invalid
+        // bytes, escaped wildcards and slashes; the rows are reused across
+        // all of them, as in a search.
+        const PATTERN: [&[u8]; 9] = [
+            b"a",
+            b"b",
+            b"/",
+            b"*",
+            b"**",
+            b"?",
+            &[GLOB_ESCAPE, b'*'],
+            "\u{15f}".as_bytes(),
+            b"\xe2",
+        ];
+        const SUBJECT: [&[u8]; 7] = [
+            b"a",
+            b"b",
+            b"/",
+            b"*",
+            "\u{15f}".as_bytes(),
+            b"\xe2",
+            b"\xc5",
+        ];
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = |m: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % m as u64) as usize
+        };
+        let mut rows = GlobRows::default();
+        let mut matched = 0;
+        for _ in 0..40_000 {
+            let mut pattern = Vec::new();
+            for _ in 0..next(7) {
+                pattern.extend_from_slice(PATTERN[next(PATTERN.len())]);
+            }
+            let mut subject = Vec::new();
+            for _ in 0..next(10) {
+                subject.extend_from_slice(SUBJECT[next(SUBJECT.len())]);
+            }
+            let (parts, table) = glob_path_table(&pattern, &subject);
+            let expected = table[parts.len()][subject.len()];
+            let got = glob_path_match(&glob_parts(&pattern), &subject, &mut rows);
+            assert_eq!(got, expected, "{pattern:?} {subject:?}");
+            matched += usize::from(got);
+        }
+        // Both outcomes were exercised.
+        assert!(matched > 1_000 && matched < 39_000, "{matched}");
     }
 
     #[test]

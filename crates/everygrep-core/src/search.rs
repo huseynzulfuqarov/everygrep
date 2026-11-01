@@ -339,4 +339,56 @@ mod tests {
             }
         }
     }
+
+    /// Prints the best of five search times for wildcard terms matched
+    /// against the full paths of 500 000 files (paths of about 100 bytes, in
+    /// 2 000 folders). Run with `cargo test --release -p everygrep-core
+    /// path_wildcard_timing -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing only"]
+    fn path_wildcard_timing() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/home/user", true, Meta::default());
+        let exts = ["pdf", "txt", "rs", "jpg", "odt"];
+        let mut folders = Vec::new();
+        for p in 0..100 {
+            let project = format!("Documents/projects/project-{p:03}");
+            let project = s.add(Some(root), project.as_bytes(), true, Meta::default());
+            for f in 0..20 {
+                let sub = format!("subfolder-{f:02}");
+                let sub = s.add(Some(project), sub.as_bytes(), true, Meta::default());
+                folders.push(s.add(Some(sub), b"nested", true, Meta::default()));
+            }
+        }
+        for i in 0..500_000u64 {
+            let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+            let name = format!("report-draft-{h:06x}.{}", exts[i as usize % exts.len()]);
+            let dir = folders[i as usize % folders.len()];
+            s.add(Some(dir), name.as_bytes(), false, Meta::default());
+        }
+        let index = Index::new(s);
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        for text in [
+            "path:.pdf",
+            "path:*.pdf",
+            "path:**.pdf",
+            "/home/user/**/subfolder-*/*.pdf",
+            "/home/user/**/subfolder-*/nested/*.pdf",
+            "/home/user/**/subfolder-1?/nested/*draft*",
+            "path:**/project-05?/**",
+            "*.pdf",
+        ] {
+            let q = Query::parse(text, QueryOptions::default()).unwrap();
+            for t in [1, threads] {
+                let mut best = f64::MAX;
+                let mut n = 0;
+                for _ in 0..5 {
+                    let started = std::time::Instant::now();
+                    n = search(&index, &q, t).len();
+                    best = best.min(started.elapsed().as_secs_f64() * 1e3);
+                }
+                eprintln!("{text:?}, {t} threads: {n} results, {best:.1} ms");
+            }
+        }
+    }
 }

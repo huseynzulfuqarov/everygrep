@@ -12,7 +12,9 @@ First version, 0.1.0, not released yet.
 
 - In-memory index of file and folder names in packed columns, with names
   stored once and a case-folded copy for matching.
-- Parallel search over the name-sorted order on all CPU cores.
+- Parallel search over the name-sorted order on all CPU cores. Wildcard
+  terms against full paths are compiled once per search and matched in
+  reused buffers, skipping parts of the path no match can reach.
 - Directory scanner that never follows symbolic links and does not enter
   virtual file systems.
 - Index rules: excluded folders by exact path or pattern, "include only" and
