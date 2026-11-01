@@ -455,3 +455,74 @@ fn legacy_cache_with_unknown_rules_is_rebuilt_using_its_saved_roots() {
     );
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn non_utf8_root_index_and_excluded_paths_are_preserved() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let dir = temp_dir("raw-paths");
+    let tree = dir.join(OsString::from_vec(b"root-\xff".to_vec()));
+    let excluded = tree.join(OsString::from_vec(b"excluded-\xfe".to_vec()));
+    let index = dir.join(OsString::from_vec(b"index-\xfd.bin".to_vec()));
+    fs::create_dir_all(&excluded).unwrap();
+    fs::write(tree.join("notes.txt"), b"notes").unwrap();
+    fs::write(excluded.join("hidden.txt"), b"hidden").unwrap();
+    let built = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .args(["index", "--root"])
+        .arg(&tree)
+        .arg("--exclude")
+        .arg(&excluded)
+        .arg("--index-file")
+        .arg(&index)
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "{:?}", built.stderr);
+    let search = |query| {
+        Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .args(["search", "--index-file"])
+            .arg(&index)
+            .arg("--exclude")
+            .arg(&excluded)
+            .arg(query)
+            .output()
+            .unwrap()
+    };
+    let found = search("notes");
+    assert!(found.status.success());
+    let mut expected = tree.join("notes.txt").as_os_str().as_bytes().to_vec();
+    expected.push(b'\n');
+    assert_eq!(found.stdout, expected);
+    assert!(String::from_utf8(found.stderr).unwrap().contains("loaded"));
+    let hidden = search("hidden");
+    assert!(hidden.status.success());
+    assert!(hidden.stdout.is_empty());
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn non_utf8_text_arguments_return_usage_errors_without_panicking() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let invalid = OsString::from_vec(vec![0xff]);
+    for prefix in [
+        &[][..],
+        &["search"][..],
+        &["search", "--include-files"][..],
+        &["search", "--exclude-files"][..],
+        &["search", "--filter"][..],
+        &["search", "--threads"][..],
+        &["search", "--limit"][..],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .args(prefix)
+            .arg(&invalid)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{prefix:?}");
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("valid UTF-8")
+        );
+    }
+}

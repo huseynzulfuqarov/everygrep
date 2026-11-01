@@ -73,8 +73,8 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut it = std::env::args().skip(1);
-    let command = it.next().ok_or("missing command")?;
+    let mut it = std::env::args_os().skip(1);
+    let command = text_arg(it.next().ok_or("missing command")?, "command")?;
     let mut args = Args {
         command,
         query: String::new(),
@@ -90,15 +90,20 @@ fn parse_args() -> Result<Args, String> {
     let mut query = Vec::new();
     let mut rules = RuleSpec::default();
     while let Some(a) = it.next() {
+        let a = a.to_str().ok_or("option or query must be valid UTF-8")?;
         let mut value = |name: &str| it.next().ok_or(format!("{name} needs a value"));
-        match a.as_str() {
+        match a {
             "--root" => args.roots.push(PathBuf::from(value("--root")?)),
             "--index-file" => args.index_file = Some(PathBuf::from(value("--index-file")?)),
             "--rescan" => args.rescan = true,
             "--watch" => args.watch = true,
             "--exclude" => rules.folders.push(PathBuf::from(value("--exclude")?)),
-            "--include-files" => rules.include_files = value("--include-files")?,
-            "--exclude-files" => rules.exclude_files = value("--exclude-files")?,
+            "--include-files" => {
+                rules.include_files = text_arg(value("--include-files")?, "--include-files")?
+            }
+            "--exclude-files" => {
+                rules.exclude_files = text_arg(value("--exclude-files")?, "--exclude-files")?
+            }
             "--case" => args.matching.case_sensitive = true,
             "--whole-words" => args.matching.whole_words = true,
             "--match-path" => args.matching.match_path = true,
@@ -109,21 +114,27 @@ fn parse_args() -> Result<Args, String> {
             "--ignore-whitespace" => args.matching.ignore_whitespace = true,
             "--regex" => args.matching.regex = true,
             "--filter" => {
-                let name = value("--filter")?;
+                let name = text_arg(value("--filter")?, "--filter")?;
                 args.matching.filter =
                     Filter::from_id(&name).ok_or(format!("unknown filter {name}"))?;
             }
-            "--threads" => args.threads = parse_num(&value("--threads")?)?,
-            "--limit" => args.limit = parse_num(&value("--limit")?)?,
+            "--threads" => args.threads = parse_num(&text_arg(value("--threads")?, "--threads")?)?,
+            "--limit" => args.limit = parse_num(&text_arg(value("--limit")?, "--limit")?)?,
             "--no-meta" => args.scan.with_metadata = false,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
-            _ => query.push(a),
+            _ => query.push(a.to_owned()),
         }
     }
     args.query = query.join(" ");
     args.roots = normalize_roots(&args.roots);
     args.scan.rules = IndexRules::new(rules).map_err(|e| e.to_string())?;
     Ok(args)
+}
+
+fn text_arg(value: std::ffi::OsString, name: &str) -> Result<String, String> {
+    value
+        .into_string()
+        .map_err(|_| format!("{name} must be valid UTF-8"))
 }
 
 fn parse_num(s: &str) -> Result<usize, String> {
@@ -295,7 +306,10 @@ fn run_query(index: &Index, args: &Args, query: &str, out: &mut impl Write) -> i
 }
 
 fn main() -> ExitCode {
-    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--version" || arg == "-V")
+    {
         println!("everygrep {}", everygrep_core::VERSION);
         return ExitCode::SUCCESS;
     }
