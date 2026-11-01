@@ -26,6 +26,13 @@ Lowercase `and` / `or` / `not`, quoted words (`"OR"`), substrings (`candy`)
 and modifier values (`case:OR`, `regex:OR`) remain text. The whole-query regex
 mode bypasses operator parsing. Changing the setting reruns the current query.
 
+Settings → Search → Evaluate AND before OR changes precedence to
+`AND > OR`. It is off by default, preserving `OR > AND`: `a b|c` means
+`a AND (b OR c)`. With the setting on it means `(a AND b) OR c`.
+Negation still binds first; explicit `<...>` groups work in both modes,
+including nested groups. Word and symbolic operators use the same setting.
+The whole-query regex mode is unaffected.
+
 ## Plain text
 
 A term without wildcards matches anywhere in the name, not only at the start

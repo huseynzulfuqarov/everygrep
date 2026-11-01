@@ -149,6 +149,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> default-whitespace;
     in-out property <bool> as-you-type;
     in-out property <bool> show-mode-badges;
+    in-out property <bool> and-before-or;
     in-out property <bool> literal-operators;
     in-out property <bool> wildcards-anywhere;
     in-out property <bool> filter-wrap;
@@ -494,6 +495,11 @@ export component SettingsWindow inherits Window {
                             CheckBox {
                                 text: @tr("Allow literal AND / OR / NOT operators");
                                 checked <=> root.literal-operators;
+                                toggled => { root.search-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Evaluate AND before OR");
+                                checked <=> root.and-before-or;
                                 toggled => { root.search-changed(); }
                             }
                             CheckBox {

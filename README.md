@@ -244,6 +244,11 @@ standalone uppercase words as operators (off by default). Quote a word such
 as `"OR"` to search for it literally; lowercase words and values such as
 `case:OR` remain text. The symbolic operators keep working in both modes.
 
+Settings → Search → Evaluate AND before OR switches to the conventional
+precedence. It is off by default: `report pdf|main` keeps meaning
+`report AND (pdf OR main)`. With it on, the query means
+`(report AND pdf) OR main`. Explicit `<...>` groups override either order.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the

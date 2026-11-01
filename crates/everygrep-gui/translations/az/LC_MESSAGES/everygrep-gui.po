@@ -1884,3 +1884,6 @@ msgstr "Wildcard-ları fayl adının istənilən yerində uyğunlaşdır"
 
 msgid "Allow literal AND / OR / NOT operators"
 msgstr "Hərfi AND / OR / NOT operatorlarına icazə ver"
+
+msgid "Evaluate AND before OR"
+msgstr "AND operatorunu OR-dan əvvəl hesabla"

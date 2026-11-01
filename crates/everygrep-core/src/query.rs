@@ -91,6 +91,8 @@ pub struct QueryOptions {
     /// The whole query is one regular expression; operators and modifiers
     /// are not read.
     pub regex: bool,
+    /// Evaluate AND before OR.
+    pub and_before_or: bool,
     /// Allow literal AND / OR / NOT operators.
     pub literal_operators: bool,
     /// Match wildcards anywhere in the filename.
@@ -292,7 +294,7 @@ impl Query {
             now_ns,
             zone,
         };
-        let mut root = p.parse_and(false)?.unwrap_or(Node::All);
+        let mut root = p.parse_expression(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
             return Err(ParseError("unexpected '>'".into()));
         }
@@ -1235,6 +1237,51 @@ impl Parser {
         self.tokens.get(self.pos)
     }
 
+    /// Selects the precedence for this expression, including nested groups.
+    fn parse_expression(&mut self, in_group: bool) -> Result<Option<Node>, ParseError> {
+        if self.options.and_before_or {
+            self.parse_or_loose(in_group)
+        } else {
+            self.parse_and(in_group)
+        }
+    }
+
+    /// Conventional precedence: an OR of conjunctions. As in the default
+    /// parser, empty alternatives and repeated binary operators are ignored.
+    fn parse_or_loose(&mut self, in_group: bool) -> Result<Option<Node>, ParseError> {
+        let mut items = Vec::new();
+        while let Some(t) = self.peek() {
+            match t {
+                Token::Close if in_group => break,
+                Token::Close => return Err(ParseError("unexpected '>'".into())),
+                Token::Or => self.pos += 1,
+                _ => items.extend(self.parse_and_tight()?),
+            }
+        }
+        Ok(match items.len() {
+            0 => None,
+            1 => items.pop(),
+            _ => Some(Node::Or(items)),
+        })
+    }
+
+    fn parse_and_tight(&mut self) -> Result<Option<Node>, ParseError> {
+        let mut items = Vec::new();
+        while let Some(t) = self.peek() {
+            match t {
+                Token::Or | Token::Close => break,
+                Token::And => self.pos += 1,
+                _ => items.extend(self.parse_unary()?),
+            }
+        }
+        items.sort_by_key(cost);
+        Ok(match items.len() {
+            0 => None,
+            1 => items.pop(),
+            _ => Some(Node::And(items)),
+        })
+    }
+
     /// Sequence of OR-groups (implicit AND). Stops at `>` when inside a group.
     /// Returns `None` when there is nothing to match on (for example `<>`).
     fn parse_and(&mut self, in_group: bool) -> Result<Option<Node>, ParseError> {
@@ -1291,7 +1338,7 @@ impl Parser {
             }
             Some(Token::Open) => {
                 self.pos += 1;
-                let inner = self.parse_and(true)?;
+                let inner = self.parse_expression(true)?;
                 match self.peek() {
                     Some(Token::Close) => self.pos += 1,
                     _ => return Err(ParseError("missing '>'".into())),
@@ -2272,6 +2319,62 @@ mod tests {
         assert_eq!(t.find("photo jpg|png"), ["photo (1).png", "photo.jpg"]);
         assert_eq!(t.find("report !draft !folder:"), ["Report-2026.PDF"]);
         assert_eq!(t.find("<draft|main> !rs"), ["draft report.pdf"]);
+    }
+
+    #[test]
+    fn operator_precedence_defaults_to_or_first_and_can_use_and_first() {
+        let t = Tree::new();
+        let and_first = QueryOptions {
+            and_before_or: true,
+            ..QueryOptions::default()
+        };
+        let expected = ["Report-2026.PDF", "draft report.pdf", "main.rs"];
+        assert!(!QueryOptions::default().and_before_or);
+        assert_eq!(
+            t.find("report pdf|main"),
+            ["Report-2026.PDF", "draft report.pdf"]
+        );
+        assert_eq!(t.find_with("report pdf|main", and_first), expected);
+        assert_eq!(t.find_with("main|report pdf", and_first), expected);
+        assert_eq!(t.find_with("<report pdf>|main", and_first), expected);
+        assert_eq!(
+            t.find_with("report <pdf|main>", and_first),
+            t.find("report pdf|main")
+        );
+        assert_eq!(
+            t.find_with("!<report pdf|main>", and_first),
+            t.find("!<<report pdf>|main>")
+        );
+        assert_eq!(
+            t.find_with("<report|photo> !draft|main", and_first),
+            t.find("<<report|photo> !draft>|main")
+        );
+        let words = QueryOptions {
+            literal_operators: true,
+            ..and_first
+        };
+        assert_eq!(t.find_with("report AND pdf OR main", words), expected);
+        assert_eq!(
+            t.find_with("main OR report AND NOT draft", words),
+            ["Report-2026.PDF", "main.rs", "report"]
+        );
+        assert_eq!(
+            t.find_with("|report || pdf|", and_first),
+            t.find("report|pdf")
+        );
+        assert!(Query::parse("<report|main", and_first).is_err());
+        assert!(Query::parse("report>", and_first).is_err());
+        assert_eq!(
+            Query::parse("limit:2 report|main", and_first)
+                .unwrap()
+                .limit(),
+            Some(2)
+        );
+        let regex = QueryOptions {
+            regex: true,
+            ..and_first
+        };
+        assert_eq!(t.find_with("report|main", regex), t.find("report|main"));
     }
 
     #[test]

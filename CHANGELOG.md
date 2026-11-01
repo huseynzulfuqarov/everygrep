@@ -21,6 +21,9 @@ First version, 0.1.0, not released yet.
   operators. The default keeps these words literal; quoted words and
   modifier values stay literal when the setting is enabled.
 
+- Settings → Search can evaluate AND before OR. The default retains
+  OR-before-AND behavior; explicit groups and negation keep their meaning.
+
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names

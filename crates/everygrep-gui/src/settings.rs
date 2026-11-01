@@ -464,6 +464,7 @@ impl Settings {
             "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
             "wildcards-anywhere" => put_flag(&mut self.options.wildcards_anywhere),
             "literal-operators" => put_flag(&mut self.options.literal_operators),
+            "and-before-or" => put_flag(&mut self.options.and_before_or),
             "regex" => put_flag(&mut self.options.regex),
             "filter-wrap" => put_flag(&mut self.filter_wrap),
             "show-mode-badges" => put_flag(&mut self.show_mode_badges),
@@ -667,6 +668,7 @@ impl Settings {
             od.ignore_whitespace,
         );
         flag(&mut out, "regex", o.regex, od.regex);
+        flag(&mut out, "and-before-or", o.and_before_or, od.and_before_or);
         flag(
             &mut out,
             "literal-operators",
@@ -1136,6 +1138,7 @@ pub(crate) mod tests {
                 ignore_punctuation: true,
                 ignore_whitespace: true,
                 regex: true,
+                and_before_or: true,
                 literal_operators: true,
                 wildcards_anywhere: true,
                 filter: Filter::Picture,

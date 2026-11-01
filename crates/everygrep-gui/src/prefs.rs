@@ -642,6 +642,7 @@ impl Prefs {
         w.set_default_punctuation(o.ignore_punctuation);
         w.set_default_whitespace(o.ignore_whitespace);
         w.set_default_regex(o.regex);
+        w.set_and_before_or(o.and_before_or);
         w.set_literal_operators(o.literal_operators);
         w.set_wildcards_anywhere(o.wildcards_anywhere);
         w.set_as_you_type(s.as_you_type);
@@ -1189,6 +1190,7 @@ impl Prefs {
             ignore_punctuation: w.get_default_punctuation(),
             ignore_whitespace: w.get_default_whitespace(),
             regex: w.get_default_regex(),
+            and_before_or: w.get_and_before_or(),
             literal_operators: w.get_literal_operators(),
             wildcards_anywhere: w.get_wildcards_anywhere(),
             filter: usize::try_from(w.get_default_filter())
@@ -1228,6 +1230,7 @@ impl Prefs {
         let old_options = crate::options(&m);
         m.set_wildcards_anywhere(s.options.wildcards_anywhere);
         m.set_literal_operators(s.options.literal_operators);
+        m.set_and_before_or(s.options.and_before_or);
         m.set_show_mode_badges(s.show_mode_badges);
         m.set_filter_wrap(s.filter_wrap);
         m.set_select_search_on_click(s.select_search_on_click);

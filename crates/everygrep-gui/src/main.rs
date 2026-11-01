@@ -1676,6 +1676,7 @@ fn options(w: &AppWindow) -> QueryOptions {
         ignore_punctuation: w.get_ignore_punctuation(),
         ignore_whitespace: w.get_ignore_whitespace(),
         regex: w.get_use_regex(),
+        and_before_or: w.get_and_before_or(),
         literal_operators: w.get_literal_operators(),
         wildcards_anywhere: w.get_wildcards_anywhere(),
         filter: usize::try_from(w.get_filter_index())

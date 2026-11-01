@@ -1884,3 +1884,6 @@ msgstr "Jokerleri dosya adının herhangi bir yerinde eşleştir"
 
 msgid "Allow literal AND / OR / NOT operators"
 msgstr "AND / OR / NOT sözcük işleçlerine izin ver"
+
+msgid "Evaluate AND before OR"
+msgstr "AND işlecini OR’dan önce değerlendir"
