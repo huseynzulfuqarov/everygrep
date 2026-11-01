@@ -227,6 +227,23 @@ The words may be written with `-` or `_` (`last-week`); they
 work with the comparisons and ranges like dates (`modified:>=lastmonth`,
 `modified:lastweek..thisweek`). A week starts on Monday.
 
+Spans that end or start now, with a count `n` (1 to 1 000 000):
+
+| Query | Meaning |
+|---|---|
+| `modified:last3days` | from 3 days before now up to now |
+| `modified:next2hours` | from now up to 2 hours ahead |
+
+Units are `years`, `months`, `weeks`, `days`, `hours`, `minutes` (`mins`)
+and `seconds` (`secs`), singular or plural. `lastweek` without a count is the previous calendar week, while
+`last1week` is the 7 days up to now. Days, weeks, months and years keep the
+local wall clock time, so `last1day` on the day the clocks go back is 25
+hours long, and a day that does not exist in the month is the month's last
+day (`last1month` on 31 March starts on the last day of February at the same
+time). These words may be written with `-` or `_` too (`last-3-days`) and
+compare by their whole span: `modified:<last3days` is older than 3 days,
+`modified:>last3days` is in the future.
+
 Months and days may have one or two digits (`2026-1-5`); years have four. A
 day starts at local midnight, so days with a daylight saving change are 23 or
 25 hours long. The zone comes from `$TZ` or `/etc/localtime` (see
