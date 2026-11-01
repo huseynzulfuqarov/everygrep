@@ -126,6 +126,7 @@ First version, 0.1.0, not released yet.
   **Behaviour change:** a size with a unit now stands for a range up to the
   next step of its last digit (`size:1mb` = 1 MiB to 2 MiB − 1, which used to
   match only files of exactly 1 048 576 bytes); `size:=1mb` is exact.
+  Sizes above the largest file size (2^64 − 1 bytes) are a query error.
 - Regular expressions with `regex:` or for the whole query in regex mode,
   compiled once per query; case is ignored unless matched, invalid
   expressions are reported in one line.

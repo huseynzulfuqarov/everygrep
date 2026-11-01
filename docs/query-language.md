@@ -215,7 +215,8 @@ itself.
 
 Units: none or `b` (bytes), `k`, `kb`, `ki`, `kib`, and the same with `m`,
 `g`, `t` and `p`, all in steps of 1024 (`kb` and `kib` are the same).
-Decimals work: `size:>1.5gb`.
+Decimals work: `size:>1.5gb`. A value above the largest possible size,
+2^64 − 1 bytes (16 777 216 TB − 1 byte), is an error.
 
 Size words, with comparisons too (`size:>large` is larger than 16 MB):
 

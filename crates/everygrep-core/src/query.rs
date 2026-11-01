@@ -1838,15 +1838,19 @@ fn parse_size_value(s: &str) -> Option<SizeValue> {
     let unit = 1u128 << shift;
     let bytes = |m: u128| m.checked_mul(unit).map(|b| b.div_ceil(scale));
     if shift == 0 {
-        // Bytes have no smaller step: rounded, exact.
-        let v = u64::try_from((mantissa * 2 + scale) / (2 * scale)).ok()?;
+        // Bytes have no smaller step: rounded half up, exact. Quotient and
+        // remainder keep the arithmetic in range for any parsed mantissa.
+        let (whole, part) = (mantissa / scale, mantissa % scale);
+        let v = u64::try_from(whole + u128::from(part * 2 >= scale)).ok()?;
         return Some(SizeValue {
             exact: (v, v),
             bucket: (v, v),
         });
     }
     let lo = u64::try_from(bytes(mantissa)?).ok()?;
-    let hi = bytes(mantissa + 1)
+    let hi = mantissa
+        .checked_add(1)
+        .and_then(bytes)
         .and_then(|b| u64::try_from(b - 1).ok())
         .unwrap_or(u64::MAX);
     Some(SizeValue {
@@ -3023,6 +3027,39 @@ mod tests {
         assert!(f("size:>1tib").is_empty());
         for bad in ["size:1xb", "size:>", "size:lots", "size:1..", "size:!"] {
             assert!(Query::parse(bad, QueryOptions::default()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn sizes_too_large_are_errors_not_overflows() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        for (name, size) in [("zero", 0), ("max", u64::MAX)] {
+            let meta = Meta { size, mtime_ns: 0 };
+            store.add(Some(root), name.as_bytes(), false, meta);
+        }
+        let t = Tree { store };
+        let f = |q: &str| t.find(&format!("file: {q}"));
+        // The largest size that fits still works, also with a fraction.
+        assert_eq!(f("size:18446744073709551615"), ["max"]);
+        assert_eq!(f("size:18446744073709551614.5"), ["max"]);
+        assert_eq!(f("size:>=16777215.99tb"), ["max"]);
+        let u128_max = u128::MAX.to_string();
+        for bad in [
+            // 2^64, 2^127 (used to wrap to a search for 0 bytes) and the
+            // largest number that parses at all, with and without units.
+            "size:18446744073709551616".to_owned(),
+            "size:18446744073709551615.5".to_owned(),
+            "size:170141183460469231731687303715884105728".to_owned(),
+            format!("size:{u128_max}"),
+            format!("size:{u128_max}kb"),
+            format!("size:<{u128_max}"),
+            format!("size:1..{u128_max}"),
+            "size:16777216tb".to_owned(),
+            format!("size:{u128_max}0"),
+        ] {
+            let err = Query::parse(&bad, QueryOptions::default()).unwrap_err();
+            assert!(err.0.starts_with("bad size"), "{bad}: {err}");
         }
     }
 
