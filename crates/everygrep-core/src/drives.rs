@@ -181,27 +181,33 @@ pub struct Drive {
 
 /// The removable drives in the mount table: mounts directly inside one of
 /// the media folders, of a file system that holds files, whose device has a
-/// UUID. A drive mounted twice is listed once (its first mount).
+/// UUID. A drive mounted twice is listed once (its first mount). A mount
+/// that another one covers (a later line with the same mount point) is not
+/// visible at its mount point, so it is not listed, whatever covers it.
 pub fn removable_drives(env: &DriveEnv) -> io::Result<Vec<Drive>> {
     let table = fs::read(&env.mountinfo)?;
     let uuids = links(&env.by_uuid);
     let labels = links(&env.by_label);
+    let mounts = parse_mountinfo(&table);
     let mut out: Vec<Drive> = Vec::new();
-    for mount in parse_mountinfo(&table) {
-        if !is_media_mount(&mount, &env.media_dirs) {
+    for (i, mount) in mounts.iter().enumerate() {
+        let covered = mounts[i + 1..]
+            .iter()
+            .any(|m| m.mount_point == mount.mount_point);
+        if covered || !is_media_mount(mount, &env.media_dirs) {
             continue;
         }
-        let Some(uuid) = device_name(&uuids, &mount).filter(|u| is_safe_uuid(u)) else {
+        let Some(uuid) = device_name(&uuids, mount).filter(|u| is_safe_uuid(u)) else {
             continue;
         };
         if out.iter().any(|d| d.uuid == uuid) {
             continue;
         }
-        let label = device_name(&labels, &mount).unwrap_or_default();
+        let label = device_name(&labels, mount).unwrap_or_default();
         out.push(Drive {
             uuid,
             label,
-            mount_point: mount.mount_point,
+            mount_point: mount.mount_point.clone(),
         });
     }
     Ok(out)
@@ -616,6 +622,40 @@ mod boundary_tests {
         info.save(&env).unwrap();
         forget(&env, "AB-12", true).unwrap();
         assert!(!env.info_path("AB-12").exists());
+    }
+
+    /// Two devices with UUID links, and a mount table made of `rows`.
+    fn stacked(dir: &Volumes, env: &mut DriveEnv, rows: &[&str]) -> Vec<Drive> {
+        let dev = dir.0.join("dev");
+        let by_uuid = dev.join("disk/by-uuid");
+        if !by_uuid.exists() {
+            fs::create_dir_all(&by_uuid).unwrap();
+            for (uuid, device) in [("AAAA-1111", "sdx1"), ("BBBB-2222", "sdx2")] {
+                std::os::unix::fs::symlink(format!("../../{device}"), by_uuid.join(uuid)).unwrap();
+            }
+        }
+        env.by_uuid = by_uuid;
+        let table = rows.join("\n").replace("$DEV", &dev.to_string_lossy());
+        fs::write(&env.mountinfo, table + "\n").unwrap();
+        removable_drives(env).unwrap()
+    }
+
+    #[test]
+    fn a_covered_mount_is_not_a_drive() {
+        let (dir, mut env) = Volumes::new("stacked");
+        let a = "50 22 8:1 / /run/media/u/USB rw shared:30 - vfat $DEV/sdx1 rw";
+        let b = "51 50 8:2 / /run/media/u/USB rw shared:31 - ext4 $DEV/sdx2 rw";
+        let tmp = "52 50 0:60 / /run/media/u/USB rw shared:32 - tmpfs tmpfs rw";
+        let only =
+            |drives: Vec<Drive>| -> Vec<String> { drives.into_iter().map(|d| d.uuid).collect() };
+        assert_eq!(only(stacked(&dir, &mut env, &[a])), ["AAAA-1111"]);
+        // B mounted over A: only B is seen there.
+        assert_eq!(only(stacked(&dir, &mut env, &[a, b])), ["BBBB-2222"]);
+        // Memory over A: no drive is seen there.
+        assert!(stacked(&dir, &mut env, &[a, tmp]).is_empty());
+        // Another mount point is not affected.
+        let c = "53 22 8:2 / /run/media/u/OTHER rw shared:33 - ext4 $DEV/sdx2 rw";
+        assert_eq!(only(stacked(&dir, &mut env, &[a, c, tmp])), ["BBBB-2222"]);
     }
 }
 
