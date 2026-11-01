@@ -210,6 +210,7 @@ pub struct Settings {
     pub as_you_type: bool,
     /// Show the active matching modes in the status line.
     pub show_mode_badges: bool,
+    /// Whether moving to the previous or next filter wraps at the ends.
     pub filter_wrap: bool,
     /// Whether a click into the search field, while it does not have the
     /// focus, selects all of its text; off places the caret.
