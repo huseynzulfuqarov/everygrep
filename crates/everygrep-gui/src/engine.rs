@@ -827,7 +827,8 @@ impl Engine {
         let (_, mut drives_to_catch_up) = self.sync_drives(None);
         self.request_search();
 
-        let mut catch_up = loaded;
+        // Changes during any scan precede watch installation too.
+        let mut catch_up = true;
         while !self.stop.load(Ordering::SeqCst) {
             if !self.watching.load(Ordering::SeqCst) {
                 self.wait_unwatched();
@@ -841,7 +842,7 @@ impl Engine {
                     *self.shown.lock().expect("lock") = Arc::new(Vec::new());
                     self.request_search();
                     self.save();
-                    catch_up = false;
+                    catch_up = true;
                 } else {
                     // The previous index stays, with its folders; nothing
                     // watched it during the scan, so it is caught up.
@@ -1762,6 +1763,85 @@ mod tests {
         let saved = persist::load(&index).unwrap();
         assert_eq!(saved.roots, roots);
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn fresh_index_and_successful_rescan_catch_changes_before_watch_installation() {
+        let dir = Scratch::new("scan-watch-gap");
+        let root = dir.0.join("files");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("one.txt"), b"one").unwrap();
+        let (state_tx, states) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let hooks = Hooks {
+            on_results: Box::new(|_| {}),
+            on_busy: Box::new(|| {}),
+            on_stopped: Box::new(|_| {}),
+            on_state: Box::new(move |state, _| {
+                state_tx.send(state).unwrap();
+                if state == IndexState::Scanning {
+                    release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(20))
+                        .unwrap();
+                }
+            }),
+        };
+        let engine = Engine::start(
+            vec![root.clone()],
+            IndexRules::default(),
+            true,
+            Some(dir.0.join("index.bin")),
+            None,
+            hooks,
+        );
+        let wait_for = |expected| {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let state = states
+                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                    .unwrap();
+                if state == expected {
+                    break;
+                }
+            }
+        };
+        for (phase, scanned_entries) in [("first", 2), ("rescan", 3)] {
+            if phase == "rescan" {
+                engine.reindex(std::slice::from_ref(&root), IndexRules::default());
+            }
+            wait_for(IndexState::Scanning);
+            // Hold publication of the fresh tree. The scan's completed-entry
+            // counter is a barrier after its last listing, before watches exist.
+            let old = engine.index.read().unwrap();
+            release_tx.send(()).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let scanned = engine.tasks.list.lock().unwrap().iter().any(|task| {
+                    matches!(
+                        *task.kind.lock().unwrap(),
+                        TaskKind::Indexing | TaskKind::Rescanning
+                    ) && task.progress.done() == scanned_entries
+                });
+                if scanned {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "scan did not reach publication");
+                std::thread::yield_now();
+            }
+            let gap = root.join(format!("gap-{phase}.txt"));
+            fs::write(&gap, b"created before watches").unwrap();
+            assert!(find(&old, &gap).is_none());
+            drop(old);
+            wait_for(IndexState::Watching);
+            assert!(
+                find(&engine.index.read().unwrap(), &gap).is_some(),
+                "{phase} missed the gap"
+            );
+        }
+        engine.shutdown();
     }
 
     #[test]

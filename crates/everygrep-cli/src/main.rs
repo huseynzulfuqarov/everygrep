@@ -208,13 +208,9 @@ fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) {
     }
 }
 
-/// Starts watching, then catches up with offline changes if the index was
-/// loaded. Returns the watcher and whether the catch-up changed the index.
-fn start_watcher(
-    index: &mut Index,
-    options: &ScanOptions,
-    source: Source,
-) -> (Option<Watcher>, bool) {
+/// Starts watching, then catches up with changes made before watches were
+/// installed, including during a fresh scan. Returns whether catch-up changed it.
+fn start_watcher(index: &mut Index, options: &ScanOptions) -> (Option<Watcher>, bool) {
     let started = Instant::now();
     let mut w = match Watcher::new(index, options) {
         Ok(w) => w,
@@ -229,12 +225,9 @@ fn start_watcher(
         w.failed_watches(),
         started.elapsed().as_secs_f64() * 1e3
     );
-    let mut changed = false;
-    if source == Source::Loaded {
-        let started = Instant::now();
-        let stats = w.catch_up(index);
-        changed = report_catch_up(&stats, started.elapsed());
-    }
+    let started = Instant::now();
+    let stats = w.catch_up(index);
+    let changed = report_catch_up(&stats, started.elapsed());
     (Some(w), changed)
 }
 
@@ -320,9 +313,9 @@ fn main() -> ExitCode {
             run_query(&index, &args, &args.query, &mut out)
         }
         "shell" => {
-            let (mut index, roots, source) = open_index(&args, false);
+            let (mut index, roots, _) = open_index(&args, false);
             let (mut watcher, mut changed) = if args.watch {
-                start_watcher(&mut index, &args.scan, source)
+                start_watcher(&mut index, &args.scan)
             } else {
                 (None, false)
             };
@@ -386,5 +379,36 @@ fn main() -> ExitCode {
             eprintln!("everygrep: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn fresh_shell_catches_changes_between_scan_and_watch_installation() {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-cli-watch-gap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let options = ScanOptions::default();
+        let mut index = scan_roots(std::slice::from_ref(&base), &options);
+        // Scan completion is the barrier: this event cannot be in the scan or
+        // the watch queue. It must be found by startup catch-up.
+        let missed = base.join("during-scan.txt");
+        fs::write(&missed, b"new").unwrap();
+        let (watcher, changed) = start_watcher(&mut index, &options);
+        assert!(watcher.is_some());
+        assert!(changed);
+        assert!(
+            index
+                .order()
+                .iter()
+                .any(|id| index.store().path(id) == missed)
+        );
+        drop(watcher);
+        fs::remove_dir_all(&base).unwrap();
     }
 }

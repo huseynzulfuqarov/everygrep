@@ -521,7 +521,8 @@ there is none, when `--root` differs from the saved roots, or with
 `--rescan`. Paths are printed in name order, one per line, at most `--limit`
 (50 by default, `0` for all); counts and timings go to standard error.
 `shell --watch` applies file changes before every query and saves the index
-on exit. `--exclude`, `--include-files` and `--exclude-files` take the
+on exit. Both the shell and the window catch up after installing watches,
+including after a fresh scan or rescan. `--exclude`, `--include-files` and `--exclude-files` take the
 excluded folders and file patterns described under
 [Excluded folders and files](#excluded-folders-and-files). Other options: `--root`, `--index-file`, `--case`,
 `--whole-words`, `--match-path`, `--diacritics`, `--prefix`, `--suffix`,

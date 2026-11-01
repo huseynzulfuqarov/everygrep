@@ -30,6 +30,9 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- Watching CLI shells and the window catch up after fresh scans and rescans,
+  including changes made before watches were installed.
+
 - Failed directory listings are retried after access returns; saved roots that
   were absent during scanning are revisited on load.
 
