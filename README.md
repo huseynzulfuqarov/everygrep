@@ -228,6 +228,12 @@ The status line shows badges for the nine active matching modes. Settings →
 Search → Show active matching modes in the status line turns them off or on.
 Badges describe the window toggles; per-term modifiers stay in the query.
 
+Search → Previous filter / Next filter (`Alt+↑` / `Alt+↓`) follows the
+filter selector order. Settings → Search → Wrap when moving to the next or
+previous filter controls whether the ends wrap (on by default). With it off,
+the selection stays at the first or last filter. Keys can be changed on the
+Keyboard page.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the

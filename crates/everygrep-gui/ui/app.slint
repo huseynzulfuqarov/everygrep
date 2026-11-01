@@ -832,6 +832,7 @@ export component AppWindow inherits Window {
     // Words for the modes that are on, shown in the status line.
     in property <[string]> badges;
     in property <bool> show-mode-badges: true;
+    in property <bool> filter-wrap: true;
     callback options-changed();
 
     // Search history: step -1 goes back, 1 forward; the handler sets the
@@ -1322,8 +1323,13 @@ export component AppWindow inherits Window {
         } else if (c == Command.previous-filter || c == Command.next-filter) {
             let n = root.filter-names.length;
             if (n > 0) {
-                root.filter-index = Math.mod(root.filter-index + (c == Command.previous-filter ? -1 : 1), n);
-                root.options-edited();
+                let step = c == Command.previous-filter ? -1 : 1;
+                let next = root.filter-wrap ? Math.mod(root.filter-index + step + n, n)
+                    : max(0, min(n - 1, root.filter-index + step));
+                if (next != root.filter-index) {
+                    root.filter-index = next;
+                    root.options-edited();
+                }
             }
         } else if (c == Command.previous-search) {
             root.history-go(-1);

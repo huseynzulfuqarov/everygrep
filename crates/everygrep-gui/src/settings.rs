@@ -210,6 +210,7 @@ pub struct Settings {
     pub as_you_type: bool,
     /// Show the active matching modes in the status line.
     pub show_mode_badges: bool,
+    pub filter_wrap: bool,
     /// Whether a click into the search field, while it does not have the
     /// focus, selects all of its text; off places the caret.
     pub select_search_on_click: bool,
@@ -289,6 +290,7 @@ impl Default for Settings {
             options: QueryOptions::default(),
             as_you_type: true,
             show_mode_badges: true,
+            filter_wrap: true,
             select_search_on_click: true,
             clear_selection_on_search: true,
             history_size: DEFAULT_HISTORY,
@@ -461,6 +463,7 @@ impl Settings {
             "ignore-punctuation" => put_flag(&mut self.options.ignore_punctuation),
             "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
             "regex" => put_flag(&mut self.options.regex),
+            "filter-wrap" => put_flag(&mut self.filter_wrap),
             "show-mode-badges" => put_flag(&mut self.show_mode_badges),
             "search-as-you-type" => put_flag(&mut self.as_you_type),
             "select-search-on-click" => put_flag(&mut self.select_search_on_click),
@@ -633,6 +636,7 @@ impl Settings {
         for uuid in &self.drives.ignored {
             line(&mut out, "ignore-drive", uuid);
         }
+        flag(&mut out, "filter-wrap", self.filter_wrap, d.filter_wrap);
         let (o, od) = (&self.options, &d.options);
         if o.filter != od.filter {
             line(&mut out, "filter", o.filter.id());
@@ -851,6 +855,7 @@ impl Settings {
                 self.options = d.options;
                 self.as_you_type = d.as_you_type;
                 self.show_mode_badges = d.show_mode_badges;
+                self.filter_wrap = d.filter_wrap;
                 self.select_search_on_click = d.select_search_on_click;
                 self.clear_selection_on_search = d.clear_selection_on_search;
                 self.history_size = d.history_size;
@@ -1121,6 +1126,7 @@ pub(crate) mod tests {
             },
             as_you_type: false,
             show_mode_badges: false,
+            filter_wrap: false,
             select_search_on_click: false,
             clear_selection_on_search: false,
             history_size: 0,

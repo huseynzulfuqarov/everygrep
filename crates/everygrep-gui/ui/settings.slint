@@ -149,6 +149,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> default-whitespace;
     in-out property <bool> as-you-type;
     in-out property <bool> show-mode-badges;
+    in-out property <bool> filter-wrap;
     in-out property <bool> select-search-on-click;
     in-out property <bool> clear-selection-on-search;
     in-out property <int> history-size;
@@ -478,6 +479,11 @@ export component SettingsWindow inherits Window {
                             spacing: Theme.s3;
                             alignment: start;
                             vertical-stretch: 1;
+                            CheckBox {
+                                text: @tr("Wrap when moving to the next or previous filter");
+                                checked <=> root.filter-wrap;
+                                toggled => { root.search-changed(); }
+                            }
                             CheckBox {
                                 text: @tr("Show active matching modes in the status line");
                                 checked <=> root.show-mode-badges;

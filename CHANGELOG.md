@@ -10,6 +10,9 @@ First version, 0.1.0, not released yet.
 
 - Active matching-mode badges can be shown or hidden in Settings → Search.
 
+- Previous/next filter navigation can wrap or stop at the ends of the list
+  (Settings → Search); a boundary with wrapping off leaves the search alone.
+
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names

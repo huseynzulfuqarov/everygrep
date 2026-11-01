@@ -1875,3 +1875,6 @@ msgstr "Bütün sütunları pəncərəyə uyğunlaşdır"
 
 msgid "Show active matching modes in the status line"
 msgstr "Aktiv uyğunlaşdırma rejimlərini status sətrində göstər"
+
+msgid "Wrap when moving to the next or previous filter"
+msgstr "Növbəti və ya əvvəlki filtrə keçərkən siyahını dövr et"
