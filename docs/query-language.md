@@ -245,7 +245,7 @@ Ages, relative to now:
 
 | Query | Meaning |
 |---|---|
-| `modified:<7d`, `modified:7d` | changed within the last 7 days (`<=` is the same) |
+| `modified:<7d`, `modified:7d` | changed within the last 7 days, up to now (`<=` is the same); times in the future do not match |
 | `modified:>30d` | not changed for 30 days (`>=` is the same) |
 
 Units: `s`, `m` or `min`, `h`, `d`, `w`. An age without a comparison means

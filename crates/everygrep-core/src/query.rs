@@ -1980,9 +1980,10 @@ fn parse_age(spec: &str, now_ns: i64) -> Option<Pred> {
     let age = parse_age_ns(rest)?;
     let edge = now_ns.saturating_sub(age);
     Some(if newer {
+        // A span that ends now: times in the future are not within it.
         Pred::Modified {
             min: edge,
-            max: i64::MAX,
+            max: now_ns,
         }
     } else {
         Pred::Modified {
@@ -3761,6 +3762,64 @@ mod tests {
         assert_eq!(t.find("created:today file:"), expected);
         assert_eq!(t.find("created:<1h file:"), expected);
         assert!(t.find("created:<2000").is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn ages_end_now_and_leave_out_future_times() {
+        let now = at(2026, 11, 1, 12, 0, 1);
+        let day = 86_400 * 1_000_000_000;
+        let entries = [
+            ("old", now - 30 * day),
+            ("past", now - day),
+            ("now", now),
+            ("ahead", now + 1),
+            ("future", now + day),
+        ];
+        for q in [
+            "modified:7d",
+            "modified:<7d",
+            "modified:<=7d",
+            "modified:7d",
+            "modified:last7days",
+        ] {
+            assert_eq!(find_at(&entries, now, q), ["now", "past"], "{q}");
+        }
+        assert_eq!(find_at(&entries, now, "modified:>7d"), ["old"]);
+        assert_eq!(find_at(&entries, now, "modified:>=7d"), ["old"]);
+
+        // Creation and access times read from disk end now as well.
+        let dir = std::env::temp_dir().join(format!("everygrep-ahead-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let hour = std::time::Duration::from_secs(3_600);
+        for (name, when) in [
+            ("ahead.txt", SystemTime::now() + 24 * hour),
+            ("past.txt", SystemTime::now() - hour),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, "x").unwrap();
+            let times = std::fs::FileTimes::new().set_accessed(when);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(times)
+                .unwrap();
+        }
+        let mut store = NodeStore::new();
+        let root = store.add(
+            None,
+            dir.as_os_str().as_encoded_bytes(),
+            true,
+            Meta::default(),
+        );
+        for name in ["ahead.txt", "past.txt"] {
+            store.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        let t = Tree { store };
+        assert_eq!(t.find("accessed:7d file:"), ["past.txt"]);
+        assert_eq!(t.find("accessed:<1d file:"), ["past.txt"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
