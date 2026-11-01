@@ -19,7 +19,14 @@
 //! status-details = false
 //! menu-bar = false
 //! language = az
+//! shortcut = edit.copy list Ctrl+C; global Ctrl+Insert
+//! shortcut = file.export-results
 //! ```
+//!
+//! A `shortcut` line replaces all default keys of one command (its id, see
+//! [`crate::commands::COMMANDS`]) by the listed ones, `<scope> <keys>`
+//! separated by `;`; without keys the command has none. Only commands
+//! whose keys differ from the defaults are written.
 //!
 //! Only settings that differ from their defaults are written, so a file
 //! without a key follows the program's default. Values are written with
@@ -43,6 +50,7 @@ use everygrep_core::query::QueryOptions;
 use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::sort::FolderSize;
 
+use crate::commands::{self, Chord, Scope};
 use crate::engine::DriveSettings;
 use crate::i18n::{self, Lang};
 
@@ -227,6 +235,9 @@ pub struct Settings {
     /// Removable drives: indexed automatically, kept when removed, and the
     /// drives never indexed.
     pub drives: DriveSettings,
+    /// Commands whose keys differ from the defaults: the command's id and
+    /// its keys, which replace the defaults (an empty list removes them).
+    pub shortcuts: Vec<(String, Vec<(Scope, Chord)>)>,
     /// Lines with keys this version does not know, kept as they were.
     unknown: Vec<String>,
     /// Lines that could not be understood: (line number, text).
@@ -258,6 +269,7 @@ impl Default for Settings {
             menu_bar: true,
             language: LanguageChoice::System,
             drives: DriveSettings::default(),
+            shortcuts: Vec::new(),
             unknown: Vec::new(),
             problems: Vec::new(),
         }
@@ -307,6 +319,18 @@ impl Settings {
                 continue;
             };
             let (key, value) = (key.trim_ascii(), value.trim_ascii());
+            if key == "shortcut" {
+                // A command this version does not know, or keys it cannot
+                // read, are kept for a newer version and reported.
+                match parse_shortcut(value) {
+                    Some((id, keys)) => s.set_keys(id, keys),
+                    None => {
+                        s.problems.push((i + 1, line.to_owned()));
+                        s.unknown.push(trimmed.to_owned());
+                    }
+                }
+                continue;
+            }
             if !s.set(key, value) {
                 if is_known(key) {
                     s.problems.push((i + 1, line.to_owned()));
@@ -649,11 +673,41 @@ impl Settings {
                 line(&mut out, key, &format!("{}", w.round()));
             }
         }
+        for (id, keys) in &self.shortcuts {
+            line(&mut out, "shortcut", &shortcut_value(id, keys));
+        }
         for unknown in &self.unknown {
             out.push_str(unknown);
             out.push('\n');
         }
         out
+    }
+
+    /// Sets the keys of the command `id`, in place of its defaults.
+    fn set_keys(&mut self, id: String, keys: Vec<(Scope, Chord)>) {
+        match self.shortcuts.iter_mut().find(|(i, _)| *i == id) {
+            Some(entry) => entry.1 = keys,
+            None => self.shortcuts.push((id, keys)),
+        }
+    }
+
+    /// Takes the commands whose keys differ from the defaults (see
+    /// [`commands::Keymap::overrides`]). A kept line that could not be read
+    /// for one of them is dropped, since the new keys replace it.
+    #[allow(dead_code)] // The keyboard settings page uses it.
+    pub fn set_shortcuts(&mut self, shortcuts: Vec<(String, Vec<(Scope, Chord)>)>) {
+        self.unknown.retain(|line| {
+            shortcut_line_id(line).is_none_or(|id| !shortcuts.iter().any(|(i, _)| i == id))
+        });
+        self.shortcuts = shortcuts;
+    }
+
+    /// Puts every command back to its default keys: all `shortcut` lines
+    /// go, also those that could not be read.
+    #[allow(dead_code)] // The keyboard settings page uses it.
+    pub fn reset_shortcuts(&mut self) {
+        self.shortcuts.clear();
+        self.unknown.retain(|line| shortcut_line_id(line).is_none());
     }
 
     /// Puts the settings of one page of the settings window back to their
@@ -717,6 +771,48 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
     change(&mut s);
     s.save(path)?;
     Ok(s)
+}
+
+/// The value of a `shortcut` line: `<id>[ <scope> <keys>[; <scope> <keys>]…]`.
+/// `None` for an unknown command or keys that cannot be read.
+fn parse_shortcut(value: &str) -> Option<(String, Vec<(Scope, Chord)>)> {
+    let (id, rest) = match value.split_once(' ') {
+        Some((id, rest)) => (id, rest.trim_ascii()),
+        None => (value, ""),
+    };
+    commands::by_id(id)?;
+    let mut keys = Vec::new();
+    for part in rest
+        .split(';')
+        .map(str::trim_ascii)
+        .filter(|p| !p.is_empty())
+    {
+        let (scope, chord) = part.split_once(' ')?;
+        let key = (Scope::from_id(scope)?, Chord::parse(chord)?);
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    Some((id.to_owned(), keys))
+}
+
+fn shortcut_value(id: &str, keys: &[(Scope, Chord)]) -> String {
+    let keys: Vec<String> = keys
+        .iter()
+        .map(|(scope, chord)| format!("{} {chord}", scope.id()))
+        .collect();
+    if keys.is_empty() {
+        id.to_owned()
+    } else {
+        format!("{id} {}", keys.join("; "))
+    }
+}
+
+/// The command id of a `shortcut` line kept as it was read.
+#[allow(dead_code)] // The keyboard settings page uses it.
+fn shortcut_line_id(line: &str) -> Option<&str> {
+    let (key, value) = line.split_once('=')?;
+    (key.trim_ascii() == "shortcut").then(|| value.trim_ascii().split(' ').next().unwrap_or(""))
 }
 
 fn is_known(key: &str) -> bool {
@@ -1117,6 +1213,78 @@ root = broken\\q
         assert!(!out.contains("nonsense"));
         // Writing again changes nothing.
         assert_eq!(Settings::parse(&out).to_text(), out);
+    }
+
+    #[test]
+    fn shortcuts_round_trip_and_only_changes_are_written() {
+        let text = "\
+shortcut = edit.copy list Ctrl+C; global Ctrl+Insert
+shortcut = file.export-results
+shortcut = search.previous search Alt+Comma
+";
+        let s = Settings::parse(text);
+        assert!(s.problems.is_empty(), "{:?}", s.problems);
+        let key = |scope, text| (scope, Chord::parse(text).unwrap());
+        assert_eq!(
+            s.shortcuts,
+            [
+                (
+                    "edit.copy".to_owned(),
+                    vec![
+                        key(Scope::List, "Ctrl+C"),
+                        key(Scope::Global, "Ctrl+Insert")
+                    ]
+                ),
+                ("file.export-results".to_owned(), vec![]),
+                (
+                    "search.previous".to_owned(),
+                    vec![key(Scope::Search, "Alt+Comma")]
+                ),
+            ]
+        );
+        let out = s.to_text();
+        for line in text.lines() {
+            assert!(out.contains(&format!("{line}\n")), "{line} in {out}");
+        }
+        assert_eq!(Settings::parse(&out), s);
+        // A later line for the same command wins.
+        let s = Settings::parse("shortcut = edit.copy\nshortcut = edit.copy list F9\n");
+        assert_eq!(
+            s.shortcuts,
+            [("edit.copy".to_owned(), vec![key(Scope::List, "F9")])]
+        );
+        // The defaults write nothing.
+        let mut s = Settings::default();
+        s.set_shortcuts(commands::Keymap::default().overrides());
+        assert!(s.shortcuts.is_empty());
+        assert!(s.to_text().lines().all(|l| l.starts_with('#')));
+    }
+
+    #[test]
+    fn unreadable_shortcuts_are_kept_and_reported() {
+        let text = "\
+shortcut = edit.nope list Ctrl+C
+shortcut = edit.copy list Ctrl+Hyper
+shortcut = edit.copy nowhere Ctrl+C
+shortcut = edit.cut list F9
+";
+        let s = Settings::parse(text);
+        let lines: Vec<usize> = s.problems.iter().map(|(n, _)| *n).collect();
+        assert_eq!(lines, [1, 2, 3]);
+        assert_eq!(s.shortcuts.len(), 1);
+        let out = s.to_text();
+        assert!(out.contains("shortcut = edit.nope list Ctrl+C\n"));
+        assert!(out.contains("shortcut = edit.copy list Ctrl+Hyper\n"));
+        // New keys for a command drop its unreadable lines, not others.
+        let mut s = s;
+        s.set_shortcuts(vec![("edit.copy".to_owned(), vec![])]);
+        let out = s.to_text();
+        assert!(!out.contains("Ctrl+Hyper") && !out.contains("nowhere"));
+        assert!(out.contains("edit.nope") && out.contains("shortcut = edit.copy\n"));
+        assert!(!out.contains("edit.cut"));
+        // Restoring the defaults removes every shortcut line.
+        s.reset_shortcuts();
+        assert!(!s.to_text().contains("shortcut"));
     }
 
     #[test]

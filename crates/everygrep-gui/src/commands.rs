@@ -741,6 +741,22 @@ impl Keymap {
         Keymap { bindings }
     }
 
+    /// The commands whose keys differ from their defaults, with their keys,
+    /// for the settings file.
+    pub fn overrides(&self) -> Vec<(String, Vec<(Scope, Chord)>)> {
+        let defaults = Keymap::with_overrides(&[]);
+        COMMANDS
+            .iter()
+            .filter_map(|spec| {
+                let keys = |k: &Keymap| -> Vec<(Scope, Chord)> {
+                    k.of(spec.cmd).map(|b| (b.scope, b.chord)).collect()
+                };
+                let mine = keys(self);
+                (mine != keys(&defaults)).then(|| (spec.id.to_owned(), mine))
+            })
+            .collect()
+    }
+
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings
     }

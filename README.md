@@ -370,7 +370,12 @@ repeated per drive), `folder-size` (`total`, `items`, `none`),
 `status-details`, `menu-bar`, `remember-columns`,
 `show-extension-column`, `show-created-column`, `show-accessed-column`,
 `show-attributes-column`, `name-width`, `modified-width`, `type-width`,
-`extension-width`, `created-width`, `accessed-width`, `attributes-width`. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
+`extension-width`, `created-width`, `accessed-width`, `attributes-width`.
+`shortcut` gives one command its own keys in place of the defaults, written
+by the Keyboard settings page: `shortcut = edit.copy list Ctrl+C; global
+Ctrl+Insert` (the scope `global`, `search` or `list`, then the keys), or
+`shortcut = file.export-results` for none; a line with an unknown command or
+keys that cannot be read is reported and kept as it is. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
 space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,
 lines that cannot be read are ignored (the settings window says how many),
 and the file is replaced atomically. The search history, when kept, is in

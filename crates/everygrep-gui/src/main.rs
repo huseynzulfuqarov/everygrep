@@ -77,6 +77,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // Read first: a dialog about a stalled window (below) is shown in the
     // chosen language.
     let (settings_path, settings, settings_error) = prefs::load();
+    commands::set_current(commands::Keymap::with_overrides(&settings.shortcuts));
     // Held until the window closes: dropping it releases the bus name.
     let _instance = if args.new_instance {
         None

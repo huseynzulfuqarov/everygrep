@@ -183,6 +183,8 @@ First version, 0.1.0, not released yet.
   Previous filter / Next filter (`Alt+↑`/`Alt+↓`), and a Tools menu with
   Settings… (moved from File, still `Ctrl+,`) and Keyboard shortcuts…. The
   `⋯` menu has the same entries and names their keys for screen readers.
+- Changed keys are saved in the settings file, one `shortcut` line per
+  command whose keys differ from the defaults.
 - Removable drives mounted by the desktop are indexed automatically, each
   into its own file and recognised by file system UUID. A removed drive's
   entries stay searchable, dimmed and with file actions refused, or are
