@@ -384,6 +384,12 @@ fn main() -> ExitCode {
                         Ok(_) => {}
                         Err(e) => eprintln!("reading changes failed: {e}"),
                     }
+                    // A file system unmounted below the indexed folders: what
+                    // is at its mount point now replaces its entries.
+                    for dir in w.take_unmounted() {
+                        let st = w.reread(&mut index, dir);
+                        changed |= st.added + st.removed + st.updated > 0;
+                    }
                     // Folders without a watch report nothing; look at them.
                     if w.failed_watches() > 0 {
                         let st = w.recheck_unwatched(&mut index, usize::MAX);

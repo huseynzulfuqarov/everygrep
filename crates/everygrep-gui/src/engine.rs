@@ -1085,6 +1085,10 @@ impl Engine {
                 Ok(_) => {}
                 Err(_) => std::thread::sleep(Duration::from_millis(250)),
             }
+            if self.reread_unmounted(watcher) {
+                self.dirty.store(true, Ordering::SeqCst);
+                pending_refresh = true;
+            }
             if watcher.failed_watches() > 0 && last_recheck.elapsed() >= RECHECK_UNWATCHED_EVERY {
                 last_recheck = Instant::now();
                 let stats = watcher.recheck_unwatched(
@@ -1110,6 +1114,44 @@ impl Engine {
                 last_save = Instant::now();
             }
         }
+    }
+
+    /// Reads again the folders whose file system was unmounted (see
+    /// [`Watcher::take_unmounted`]), except on a removable drive: that one goes
+    /// offline with its entries when the drives are synced. Returns whether
+    /// the index changed.
+    fn reread_unmounted(&self, watcher: &mut Watcher) -> bool {
+        let unmounted = watcher.take_unmounted();
+        if unmounted.is_empty() {
+            return false;
+        }
+        let drives: Vec<PathBuf> = self
+            .volumes
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter_map(|v| v.root.clone())
+            .collect();
+        let mut index = self.index.write().expect("index lock");
+        let mut changed = false;
+        for dir in unmounted {
+            let store = index.store();
+            if !store.is_live(dir) {
+                continue;
+            }
+            let root = std::iter::successors(Some(dir), |&d| store.parent(d))
+                .last()
+                .unwrap_or(dir);
+            if drives
+                .iter()
+                .any(|d| d.as_os_str().as_bytes() == store.name(root))
+            {
+                continue;
+            }
+            let stats = watcher.reread(&mut index, dir);
+            changed |= stats.added + stats.removed + stats.updated > 0;
+        }
+        changed
     }
 
     fn rescan_after_overflow(&self, watcher: &mut Watcher) {

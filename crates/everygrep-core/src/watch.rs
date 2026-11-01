@@ -44,6 +44,9 @@ pub struct ApplyStats {
     pub overflow: bool,
     /// The index was compacted: node ids held outside it are no longer valid.
     pub compacted: bool,
+    /// Folders whose file system was unmounted; see
+    /// [`Watcher::take_unmounted`].
+    pub unmounted: usize,
 }
 
 /// The inotify instance and the mapping between watches and folder nodes.
@@ -119,6 +122,8 @@ pub struct Watcher {
     unsettled: HashMap<NodeId, Meta>,
     /// Where the next [`recheck_unwatched`](Self::recheck_unwatched) starts.
     recheck_from: usize,
+    /// Folders found unmounted by the last batch.
+    unmounted: Vec<NodeId>,
 }
 
 impl Watcher {
@@ -138,6 +143,7 @@ impl Watcher {
             buf: Vec::new(),
             unsettled: HashMap::new(),
             recheck_from: 0,
+            unmounted: Vec::new(),
         };
         for root in online_roots(index) {
             w.watch_root(index, root);
@@ -264,7 +270,7 @@ impl Watcher {
         }
         let watches = &mut self.watches;
         let skip = &self.skip;
-        let stats = recheck_dirs(index, &dirs, skip, &mut |idx: &Index, dir| {
+        let stats = recheck_dirs(index, &dirs, skip, false, &mut |idx: &Index, dir| {
             watches.watch(idx, dir, skip)
         });
         self.watches.forget(&index.take_removed());
@@ -315,6 +321,10 @@ impl Watcher {
             .into_iter()
             .filter_map(|(dir, meta)| Some((remap.get(dir.index()).copied().flatten()?, meta)))
             .collect();
+        self.unmounted = std::mem::take(&mut self.unmounted)
+            .into_iter()
+            .filter_map(|dir| remap.get(dir.index()).copied().flatten())
+            .collect();
         remap
     }
 
@@ -330,9 +340,17 @@ impl Watcher {
         // was applied, and folders where an entry could not be looked at.
         let mut missed: Vec<(NodeId, Vec<u8>)> = Vec::new();
         let mut incomplete: HashSet<NodeId> = HashSet::new();
+        let mut unmounted: HashSet<NodeId> = HashSet::new();
         for ev in events {
             if ev.mask.contains(Mask::Q_OVERFLOW) {
                 stats.overflow = true;
+                continue;
+            }
+            if ev.mask.contains(Mask::UNMOUNT) {
+                // An IGNORED event follows and drops the watch.
+                if let Some(&dir) = self.watches.dir_of.get(&ev.wd) {
+                    unmounted.insert(dir);
+                }
                 continue;
             }
             if ev.mask.contains(Mask::IGNORED) {
@@ -462,6 +480,55 @@ impl Watcher {
                 }
             }
         }
+        // The topmost of them: below them all was on the same file system.
+        self.unmounted = unmounted
+            .iter()
+            .copied()
+            .filter(|&dir| {
+                let store = index.store();
+                store.is_live(dir)
+                    && std::iter::successors(store.parent(dir), |&p| store.parent(p))
+                        .all(|up| !unmounted.contains(&up))
+            })
+            .collect();
+        stats.unmounted = self.unmounted.len();
+        self.watches.forget(&index.take_removed());
+        stats
+    }
+
+    /// The folders whose file system was unmounted, found by the last
+    /// [`apply`](Self::apply): the topmost of them, normally the mount point.
+    /// Their watches are gone, and their path now shows what is below the
+    /// mount (or nothing). The index is left as it was: the caller decides
+    /// whether to keep the entries (a removable drive that goes offline) or to
+    /// [`reread`](Self::reread) the folder.
+    pub fn take_unmounted(&mut self) -> Vec<NodeId> {
+        std::mem::take(&mut self.unmounted)
+    }
+
+    /// Replaces what the index has below `dir` with what is at its path now,
+    /// and watches it again. For a folder whose file system was unmounted
+    /// (see [`take_unmounted`](Self::take_unmounted)). A folder that is gone
+    /// is removed.
+    pub fn reread(&mut self, index: &mut Index, dir: NodeId) -> CatchUpStats {
+        if !index.store().is_live(dir) || !index.store().is_dir(dir) {
+            return CatchUpStats::default();
+        }
+        let kids: Vec<NodeId> = index.store().children(dir).collect();
+        let removed: usize = kids.into_iter().map(|k| index.remove(k).len()).sum();
+        self.watches.forget(&index.take_removed());
+        self.unsettled.remove(&dir);
+        // The old watch is gone with the file system.
+        if let Some(wd) = self.watches.watch_of.remove(&dir) {
+            self.watches.dir_of.remove(&wd);
+        }
+        self.watches.watch(index, dir, &self.skip);
+        let watches = &mut self.watches;
+        let skip = &self.skip;
+        let mut stats = recheck_dirs(index, &[dir], skip, true, &mut |idx: &Index, d| {
+            watches.watch(idx, d, skip)
+        });
+        stats.removed += removed;
         self.watches.forget(&index.take_removed());
         stats
     }
@@ -927,6 +994,86 @@ mod tests {
         assert_eq!(f.watcher.failed_watches(), 1);
         f.watcher.recheck_unwatched(&mut f.index, 2);
         assert_eq!(f.watcher.failed_watches(), 0);
+    }
+
+    /// The events the kernel queues for a watched folder whose file system
+    /// is unmounted.
+    fn unmount_events(w: &Watcher, dirs: &[NodeId]) -> Vec<Event> {
+        let mut events = Vec::new();
+        for dir in dirs {
+            let wd = w.watches.watch_of[dir];
+            for mask in [Mask::UNMOUNT, Mask::IGNORED] {
+                events.push(Event {
+                    wd,
+                    mask,
+                    cookie: 0,
+                    name: None,
+                });
+            }
+        }
+        events
+    }
+
+    #[test]
+    fn an_unmounted_folder_is_reported_and_read_again() {
+        let mut f = Fixture::new("unmount");
+        let mnt = f.root().join("mnt");
+        fs::create_dir_all(mnt.join("sub")).unwrap();
+        fs::write(mnt.join("sub/on-disk.txt"), b"d").unwrap();
+        assert!(f.settle(|i| has(i, &mnt.join("sub/on-disk.txt"))));
+        f.settle(|_| false);
+        let find = |i: &Index, p: &Path| i.order().iter().find(|&id| i.store().path(id) == p);
+        let mnt_id = find(&f.index, &mnt).unwrap();
+        let sub_id = find(&f.index, &mnt.join("sub")).unwrap();
+        let unmount = unmount_events(&f.watcher, &[sub_id, mnt_id]);
+        // What the mount covered: an empty folder with one file of its own.
+        // Its events are read and dropped; the unmount events stand for them.
+        fs::remove_dir_all(mnt.join("sub")).unwrap();
+        fs::write(mnt.join("below.txt"), b"b").unwrap();
+        while !f
+            .watcher
+            .wait(Some(Duration::from_millis(100)))
+            .unwrap()
+            .is_empty()
+        {}
+
+        let stats = f.watcher.apply(&mut f.index, &unmount);
+        assert_eq!(stats.unmounted, 1);
+        // The index is left alone until the owner decides.
+        assert!(has(&f.index, &mnt.join("sub/on-disk.txt")));
+        assert_eq!(f.watcher.take_unmounted(), [mnt_id]);
+        let stats = f.watcher.reread(&mut f.index, mnt_id);
+        assert_eq!((stats.added, stats.removed), (1, 2), "{stats:?}");
+        assert!(!has(&f.index, &mnt.join("sub")));
+        assert!(has(&f.index, &mnt.join("below.txt")));
+        assert!(has(&f.index, &f.root().join("docs/a.txt")));
+        // Watched again.
+        fs::write(mnt.join("later.txt"), b"l").unwrap();
+        assert!(f.settle(|i| has(i, &mnt.join("later.txt"))));
+    }
+
+    #[test]
+    fn an_unmounted_root_is_reported() {
+        let mut f = Fixture::new("unmount-root");
+        let root = f.index.roots()[0];
+        let docs = f.index.find_child(Some(root), b"docs").unwrap();
+        let events = unmount_events(&f.watcher, &[docs, root]);
+        let stats = f.watcher.apply(&mut f.index, &events);
+        assert_eq!(stats.unmounted, 1);
+        assert_eq!(f.watcher.take_unmounted(), [root]);
+        assert!(f.watcher.take_unmounted().is_empty());
+        assert_eq!(f.watcher.watch_count(), 0);
+        f.watcher.reread(&mut f.index, root);
+        let root_path = f.root();
+        assert_eq!(
+            f.paths(),
+            [
+                root_path.clone(),
+                root_path.join("docs"),
+                root_path.join("docs/a.txt")
+            ]
+        );
+        assert_eq!(f.watcher.watch_count(), 2);
     }
 
     #[test]

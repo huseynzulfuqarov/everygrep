@@ -103,36 +103,41 @@ pub(crate) fn catch_up_with(
 
     while let Some(dir) = queue.pop_front() {
         queue.extend(check_dir(
-            index, dir, skip, on_new_dir, progress, &mut stats,
+            index, dir, skip, false, on_new_dir, progress, &mut stats,
         ));
     }
     stats
 }
 
 /// Like [`catch_up_with`] for the folders `dirs` only, without going into
-/// their subfolders: each is read again when its time changed. For folders
-/// that were not watched (see [`crate::watch::Watcher::recheck_unwatched`]).
+/// their subfolders: each is read again when its time changed, or always
+/// with `force`. For folders that were not watched (see
+/// [`crate::watch::Watcher::recheck_unwatched`]) or were unmounted.
 pub(crate) fn recheck_dirs(
     index: &mut Index,
     dirs: &[NodeId],
     skip: &Skip,
+    force: bool,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
 ) -> CatchUpStats {
     let mut stats = CatchUpStats::default();
     for &dir in dirs {
         if index.store().is_live(dir) && index.store().is_dir(dir) {
-            check_dir(index, dir, skip, on_new_dir, &Progress::new(), &mut stats);
+            let progress = Progress::new();
+            check_dir(index, dir, skip, force, on_new_dir, &progress, &mut stats);
         }
     }
     stats
 }
 
-/// Checks the indexed folder `dir` as described in [`catch_up_with`] and
-/// returns its subfolders that still have to be checked.
+/// Checks the indexed folder `dir` as described in [`catch_up_with`] (with
+/// `force`, it is read even when its time is the same) and returns its
+/// subfolders that still have to be checked.
 fn check_dir(
     index: &mut Index,
     dir: NodeId,
     skip: &Skip,
+    force: bool,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
     progress: &Progress,
     stats: &mut CatchUpStats,
@@ -166,7 +171,7 @@ fn check_dir(
         index.set_meta(dir, meta);
         return Vec::new();
     }
-    if meta.mtime_ns == index.store().meta(dir).mtime_ns {
+    if !force && meta.mtime_ns == index.store().meta(dir).mtime_ns {
         return kids
             .into_iter()
             .filter(|&k| index.store().is_dir(k))
