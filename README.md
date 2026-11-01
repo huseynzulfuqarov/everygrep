@@ -529,6 +529,10 @@ excluded folders and file patterns described under
 `--threads`, `--no-meta`; `everygrep` without arguments prints them all. The command line
 is English only.
 
+Failed or partial directory listings remain eligible for catch-up even when
+permissions change without changing the directory mtime. Roots absent during a
+scan are retried when the saved index is loaded.
+
 ## Languages
 
 The window is available in English, Azerbaijani (Azərbaycanca) and Turkish

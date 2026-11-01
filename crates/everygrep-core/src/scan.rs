@@ -125,6 +125,17 @@ fn walk(
     while let Some((dir_id, dir)) = pending.pop() {
         progress.add(std::mem::take(&mut unreported));
         progress.check()?;
+        // A failed or partial listing must be retried even if chmod leaves
+        // the directory's modification time unchanged.
+        let complete_meta = store.meta(dir_id);
+        store.set_meta(
+            dir_id,
+            Meta {
+                mtime_ns: 0,
+                ..complete_meta
+            },
+        );
+        let mut complete = true;
         let entries = match fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => {
@@ -135,9 +146,11 @@ fn walk(
         for entry in entries {
             let Ok(entry) = entry else {
                 stats.errors += 1;
+                complete = false;
                 continue;
             };
             let Ok(file_type) = entry.file_type() else {
+                complete = false;
                 stats.errors += 1;
                 continue;
             };
@@ -150,6 +163,7 @@ fn walk(
                 match entry.metadata() {
                     Ok(m) => meta_of(&m, options),
                     Err(_) => {
+                        complete = false;
                         stats.errors += 1;
                         Meta::default()
                     }
@@ -172,6 +186,9 @@ fn walk(
             } else {
                 stats.files += 1;
             }
+        }
+        if complete {
+            store.set_meta(dir_id, complete_meta);
         }
     }
     progress.add(unreported);

@@ -161,12 +161,7 @@ pub(crate) fn catch_up_with(
                 }
                 // No permission to look at entries (folder readable but not
                 // searchable), or the entry vanished: keep it with its old data.
-                Err(_) => match entry.file_type() {
-                    Ok(ft) => {
-                        on_disk.insert(name, (ft.is_dir(), None));
-                    }
-                    Err(_) => listing_failed = true,
-                },
+                Err(_) => listing_failed = true,
             }
         }
         if listing_failed {
@@ -248,12 +243,28 @@ pub(crate) fn add_tree(
         if !skip.enters(&dir_path) {
             continue;
         }
+        let complete_meta = index.store().meta(dir_id);
+        index.set_meta(
+            dir_id,
+            Meta {
+                mtime_ns: 0,
+                ..complete_meta
+            },
+        );
         on_new_dir(index, dir_id);
         let Ok(entries) = fs::read_dir(&dir_path) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let Ok(em) = entry.metadata() else { continue };
+        let mut complete = true;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                complete = false;
+                continue;
+            };
+            let Ok(em) = entry.metadata() else {
+                complete = false;
+                continue;
+            };
             if !skip
                 .rules
                 .accepts(&dir_path, entry.file_name().as_bytes(), em.is_dir())
@@ -270,6 +281,9 @@ pub(crate) fn add_tree(
             if em.is_dir() {
                 pending.push((child, entry.path()));
             }
+        }
+        if complete {
+            index.set_meta(dir_id, complete_meta);
         }
     }
     added
@@ -428,6 +442,62 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
         assert!(found.contains(&locked.join("a.txt")), "{found:?}");
         assert!(found.contains(&locked.join("deep/b.txt")), "{found:?}");
+    }
+
+    #[test]
+    fn failed_initial_listing_is_retried_after_permissions_return() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tree("initial-listing-failure");
+        let locked = base.join("keep");
+        let before = Meta::from_metadata(&fs::metadata(&locked).unwrap()).mtime_ns;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(
+            fs::read_dir(&locked).is_err(),
+            "test requires an unprivileged user"
+        );
+        let mut index = index_of(&base);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            Meta::from_metadata(&fs::metadata(&locked).unwrap()).mtime_ns,
+            before
+        );
+        assert!(!paths(&index).contains(&locked.join("a.txt")));
+        catch_up(&mut index, &ScanOptions::default());
+        assert_eq!(paths(&index), paths(&index_of(&base)));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn failed_add_tree_listing_is_retried_after_permissions_return() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tree("added-listing-failure");
+        let mut index = index_of(&base);
+        let added = base.join("added");
+        fs::create_dir(&added).unwrap();
+        fs::write(added.join("secret.txt"), b"secret").unwrap();
+        let before = Meta::from_metadata(&fs::metadata(&added).unwrap()).mtime_ns;
+        let root = index.roots()[0];
+        add_tree(
+            &mut index,
+            root,
+            b"added",
+            &added,
+            &Skip::new(&ScanOptions::default()),
+            &mut |_, _| fs::set_permissions(&added, fs::Permissions::from_mode(0o000)).unwrap(),
+        );
+        assert!(
+            fs::read_dir(&added).is_err(),
+            "test requires an unprivileged user"
+        );
+        fs::set_permissions(&added, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            Meta::from_metadata(&fs::metadata(&added).unwrap()).mtime_ns,
+            before
+        );
+        assert!(!paths(&index).contains(&added.join("secret.txt")));
+        catch_up(&mut index, &ScanOptions::default());
+        assert_eq!(paths(&index), paths(&index_of(&base)));
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

@@ -257,3 +257,40 @@ fn matching_mode_flags() {
     let stderr = String::from_utf8(bad.stderr).unwrap();
     assert!(stderr.contains("bad regular expression"), "{stderr}");
 }
+
+#[test]
+fn a_root_missing_at_scan_is_found_when_it_returns() {
+    let dir = temp_dir("returning-root");
+    let tree = dir.join("tree");
+    let missing = dir.join("missing");
+    let index = dir.join("index.bin");
+    assert!(
+        run(&[
+            "index",
+            "--root",
+            tree.to_str().unwrap(),
+            "--root",
+            missing.to_str().unwrap(),
+            "--index-file",
+            index.to_str().unwrap()
+        ])
+        .status
+        .success()
+    );
+    // It may remain absent across several sessions.
+    assert!(
+        run(&["search", "--index-file", index.to_str().unwrap(), "secret"])
+            .status
+            .success()
+    );
+    fs::create_dir(&missing).unwrap();
+    fs::write(missing.join("secret.txt"), b"secret").unwrap();
+    let found = run(&["search", "--index-file", index.to_str().unwrap(), "secret"]);
+    assert!(found.status.success());
+    assert_eq!(
+        String::from_utf8(found.stdout).unwrap().trim(),
+        missing.join("secret.txt").to_str().unwrap()
+    );
+    assert!(String::from_utf8(found.stderr).unwrap().contains("loaded"));
+    fs::remove_dir_all(&dir).unwrap();
+}

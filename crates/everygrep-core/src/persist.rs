@@ -205,7 +205,19 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         name_pool,
     })
     .map_err(invalid)?;
-    let (index, reordered) = Index::from_parts(store, by_name).map_err(invalid)?;
+    let (mut index, reordered) = Index::from_parts(store, by_name).map_err(invalid)?;
+    // A root that was absent during scanning has no node. Give catch-up a
+    // directory to revisit when it returns, including in older saved indexes.
+    let indexed_roots: std::collections::HashSet<PathBuf> = index
+        .roots()
+        .into_iter()
+        .map(|id| index.store().path(id))
+        .collect();
+    for root in &roots {
+        if !indexed_roots.contains(root) {
+            index.insert(None, root.as_os_str().as_bytes(), true, Meta::default());
+        }
+    }
     Ok(Saved {
         index,
         roots,

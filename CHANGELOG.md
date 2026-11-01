@@ -30,6 +30,9 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- Failed directory listings are retried after access returns; saved roots that
+  were absent during scanning are revisited on load.
+
 - In-memory index of file and folder names in packed columns, with names
   stored once and a case-folded copy for matching.
 - Parallel search over the name-sorted order on all CPU cores.
