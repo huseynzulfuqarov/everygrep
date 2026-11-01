@@ -150,17 +150,18 @@ pub(crate) fn catch_up_with(
                 break;
             };
             let name = entry.file_name().as_bytes().to_vec();
-            if let Ok(ft) = entry.file_type() {
-                if !skip.rules.accepts(&path, &name, ft.is_dir()) {
-                    continue;
-                }
+            let Ok(ft) = entry.file_type() else {
+                listing_failed = true;
+                break;
+            };
+            if !skip.rules.accepts(&path, &name, ft.is_dir()) {
+                continue;
             }
-            match entry.metadata() {
-                Ok(em) => {
-                    on_disk.insert(name, (em.is_dir(), Some(Meta::from_metadata(&em))));
+            match skip.entry_meta(&entry, ft.is_dir()) {
+                Ok(meta) => {
+                    on_disk.insert(name, (ft.is_dir(), Some(meta)));
                 }
-                // No permission to look at entries (folder readable but not
-                // searchable), or the entry vanished: keep it with its old data.
+                // Keep the saved tree retryable if an entry cannot be read.
                 Err(_) => listing_failed = true,
             }
         }
@@ -233,7 +234,7 @@ pub(crate) fn add_tree(
     if !skip.accepts(path, m.is_dir()) {
         return 0;
     }
-    let id = index.insert(Some(parent), name, m.is_dir(), Meta::from_metadata(&m));
+    let id = index.insert(Some(parent), name, m.is_dir(), skip.meta_of(&m));
     if !m.is_dir() {
         return 1;
     }
@@ -261,24 +262,28 @@ pub(crate) fn add_tree(
                 complete = false;
                 continue;
             };
-            let Ok(em) = entry.metadata() else {
+            let Ok(ft) = entry.file_type() else {
                 complete = false;
                 continue;
             };
             if !skip
                 .rules
-                .accepts(&dir_path, entry.file_name().as_bytes(), em.is_dir())
+                .accepts(&dir_path, entry.file_name().as_bytes(), ft.is_dir())
             {
                 continue;
             }
+            let Ok(meta) = skip.entry_meta(&entry, ft.is_dir()) else {
+                complete = false;
+                continue;
+            };
             let child = index.insert(
                 Some(dir_id),
                 entry.file_name().as_bytes(),
-                em.is_dir(),
-                Meta::from_metadata(&em),
+                ft.is_dir(),
+                meta,
             );
             added += 1;
-            if em.is_dir() {
+            if ft.is_dir() {
                 pending.push((child, entry.path()));
             }
         }
@@ -414,6 +419,35 @@ mod tests {
         assert!(folders > 1);
         assert_eq!(progress.done(), folders);
         assert_eq!(stats.dirs_checked as u64, folders);
+    }
+
+    #[test]
+    fn catch_up_without_file_metadata_keeps_directory_times_and_zero_file_metadata() {
+        let base = tree("no-meta");
+        let options = ScanOptions {
+            with_metadata: false,
+            ..ScanOptions::default()
+        };
+        let mut store = NodeStore::new();
+        scan(&mut store, std::slice::from_ref(&base), &options);
+        let mut index = Index::new(store);
+        assert_eq!(catch_up(&mut index, &options).dirs_rescanned, 0);
+        fs::write(base.join("keep/new.txt"), b"new content").unwrap();
+        fs::create_dir_all(base.join("new/deep")).unwrap();
+        fs::write(base.join("new/deep/file.txt"), b"new nested content").unwrap();
+        let stats = catch_up(&mut index, &options);
+        assert!(stats.added >= 4);
+        assert!(paths(&index).contains(&base.join("new/deep/file.txt")));
+        for id in index.order().iter() {
+            let meta = index.store().meta(id);
+            if index.store().is_dir(id) {
+                assert_ne!(meta.mtime_ns, 0);
+            } else {
+                assert_eq!(meta, Meta::default());
+            }
+        }
+        assert_eq!(catch_up(&mut index, &options).dirs_rescanned, 0);
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

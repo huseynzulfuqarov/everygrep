@@ -323,7 +323,9 @@ impl Watcher {
                 .intersects(Mask::ATTRIB | Mask::CLOSE_WRITE | Mask::MODIFY)
             {
                 if let Some(node) = index.find_child(Some(dir), name) {
-                    refresh_meta(index, node, &mut stats);
+                    if self.skip.with_metadata || index.store().is_dir(node) {
+                        refresh_meta(index, node, &mut stats);
+                    }
                 }
             }
         }
@@ -663,6 +665,35 @@ mod tests {
         fs::rename(&outside, f.root().join("back")).unwrap();
         let back = f.root().join("back");
         assert!(f.settle(|i| has(i, &back.join("a.txt")) && has(i, &back.join("ignored.txt"))));
+    }
+
+    #[test]
+    fn watching_without_file_metadata_preserves_the_policy() {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-no-meta-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        fs::write(base.join("old.txt"), b"old").unwrap();
+        let options = ScanOptions {
+            with_metadata: false,
+            ..ScanOptions::default()
+        };
+        let mut store = NodeStore::new();
+        scan(&mut store, std::slice::from_ref(&base), &options);
+        let mut index = Index::new(store);
+        let mut watcher = Watcher::new(&index, &options).unwrap();
+        fs::write(base.join("old.txt"), b"changed content").unwrap();
+        fs::create_dir(base.join("new")).unwrap();
+        fs::write(base.join("new/added.txt"), b"new content").unwrap();
+        watcher
+            .poll(&mut index, Some(Duration::from_secs(2)))
+            .unwrap();
+        assert!(has(&index, &base.join("new/added.txt")));
+        for id in index.order().iter().filter(|&id| !index.store().is_dir(id)) {
+            assert_eq!(index.store().meta(id), Meta::default());
+        }
+        drop(watcher);
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

@@ -34,7 +34,8 @@ pub const VIRTUAL_FS_TYPES: &[&str] = &[
 /// Settings for a scan.
 #[derive(Clone, Debug)]
 pub struct ScanOptions {
-    /// Read size and modification time of every entry (one `lstat` per entry).
+    /// Read file sizes and modification times (one `lstat` per file).
+    /// Directory modification times are always kept for catch-up.
     pub with_metadata: bool,
     /// Folders and files left out of the index (see [`crate::rules`]).
     pub rules: IndexRules,
@@ -159,7 +160,7 @@ fn walk(
             if !skip.rules.accepts(&dir, name.as_bytes(), is_dir) {
                 continue;
             }
-            let meta = if options.with_metadata {
+            let meta = if options.with_metadata || is_dir {
                 match entry.metadata() {
                     Ok(m) => meta_of(&m, options),
                     Err(_) => {
@@ -223,6 +224,7 @@ pub fn normalize_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
 pub(crate) struct Skip {
     virtual_mounts: HashSet<PathBuf>,
     pub(crate) rules: IndexRules,
+    pub(crate) with_metadata: bool,
 }
 
 impl Skip {
@@ -230,6 +232,25 @@ impl Skip {
         Self {
             virtual_mounts: virtual_mount_points(),
             rules: options.rules.clone(),
+            with_metadata: options.with_metadata,
+        }
+    }
+
+    /// Reads entry metadata only when needed for directory catch-up or
+    /// requested for files. File type comes from the directory listing.
+    pub(crate) fn entry_meta(&self, entry: &fs::DirEntry, is_dir: bool) -> std::io::Result<Meta> {
+        if self.with_metadata || is_dir {
+            entry.metadata().map(|m| Meta::from_metadata(&m))
+        } else {
+            Ok(Meta::default())
+        }
+    }
+
+    pub(crate) fn meta_of(&self, m: &fs::Metadata) -> Meta {
+        if self.with_metadata || m.is_dir() {
+            Meta::from_metadata(m)
+        } else {
+            Meta::default()
         }
     }
 
@@ -245,7 +266,7 @@ impl Skip {
 }
 
 fn meta_of(m: &fs::Metadata, options: &ScanOptions) -> Meta {
-    if options.with_metadata {
+    if options.with_metadata || m.is_dir() {
         Meta::from_metadata(m)
     } else {
         Meta::default()

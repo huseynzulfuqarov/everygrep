@@ -322,3 +322,34 @@ fn index_returns_failure_and_cleans_up_when_saving_fails() {
     );
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn loading_a_no_meta_index_does_not_populate_file_metadata() {
+    let dir = temp_dir("no-meta");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    assert!(
+        run(&[
+            "index",
+            "--no-meta",
+            "--root",
+            tree.to_str().unwrap(),
+            "--index-file",
+            index.to_str().unwrap()
+        ])
+        .status
+        .success()
+    );
+    let found = run(&[
+        "search",
+        "--no-meta",
+        "--index-file",
+        index.to_str().unwrap(),
+        "file: size:>0",
+    ]);
+    assert!(found.status.success());
+    assert!(found.stdout.is_empty());
+    let stderr = String::from_utf8(found.stderr).unwrap();
+    assert!(stderr.contains("re-read 0"), "{stderr}");
+    fs::remove_dir_all(&dir).unwrap();
+}

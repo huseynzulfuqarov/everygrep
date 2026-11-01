@@ -57,7 +57,7 @@ options:
                      folder, picture or video entries
   --threads <n>      search threads (default: number of CPUs)
   --limit <n>        print at most n results (default: 50, 0 = all)
-  --no-meta          do not read size and modification time";
+  --no-meta          skip file sizes/times (folder times are kept for catch-up)";
 
 struct Args {
     command: String,

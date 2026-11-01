@@ -30,6 +30,9 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- `--no-meta` stays in effect during catch-up and live updates; directory
+  timestamps remain available so unchanged directories can be skipped.
+
 - CLI save errors return a failure status. Index saves use exclusive random
   temporary files with owner-only permissions and remove them on failure.
 

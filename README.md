@@ -528,7 +528,8 @@ excluded folders and file patterns described under
 `--whole-words`, `--match-path`, `--diacritics`, `--prefix`, `--suffix`,
 `--ignore-punctuation`, `--ignore-whitespace`, `--regex`, `--filter`,
 `--threads`, `--no-meta`; `everygrep` without arguments prints them all. The command line
-is English only. Failed index saves return a nonzero exit status.
+is English only. `--no-meta` omits file sizes and timestamps during scans,
+catch-up and watching; folder timestamps are retained for catch-up. Failed index saves return a nonzero exit status.
 
 Failed or partial directory listings remain eligible for catch-up even when
 permissions change without changing the directory mtime. Roots absent during a
