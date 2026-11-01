@@ -992,8 +992,8 @@ thread_local! {
     /// The XWayland clipboard: connected on first use, `Some(None)` when
     /// there is none.
     static X11: RefCell<Option<Option<x11clip::X11Clipboard>>> = RefCell::default();
-    /// Files of another program's cut that were moved here already; the
-    /// same cut pasted again counts as a copy.
+    /// Files of a cut that were moved here already. Pasted again while
+    /// none of them is left, the cut is ignored: they are gone.
     static CUT_PASTED: RefCell<Option<Vec<PathBuf>>> = RefCell::default();
 }
 
@@ -1022,13 +1022,8 @@ fn files_to_paste(w: &AppWindow) -> Option<(clipboard::Operation, Vec<PathBuf>)>
             HELD.with(|h| clipboard::to_paste(h.borrow().as_ref(), &text))
         }
     };
-    found.map(|(op, paths)| {
-        let again = CUT_PASTED.with(|c| c.borrow().as_ref() == Some(&paths));
-        if op == clipboard::Operation::Cut && again {
-            (clipboard::Operation::Copy, paths)
-        } else {
-            (op, paths)
-        }
+    found.filter(|(op, paths)| {
+        !CUT_PASTED.with(|c| clipboard::moved_already(*op, paths, c.borrow().as_deref()))
     })
 }
 
@@ -1132,9 +1127,21 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                             }
                             ours
                         });
-                        if ours {
-                            with_x11(|x| x.map(|x| x.clear()));
-                        }
+                        with_x11(|x| {
+                            let x = x?;
+                            if ours {
+                                x.clear();
+                            } else if !x.owns() {
+                                // Another program's cut: the clipboard
+                                // thread empties the clipboard if it still
+                                // holds it, as file managers do after
+                                // pasting a cut. What this window held is
+                                // not on the clipboard any more.
+                                HELD.with(|h| *h.borrow_mut() = None);
+                                x.empty_if_holding((clipboard::Operation::Cut, sources.clone()));
+                            }
+                            Some(())
+                        });
                         CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
                     }
                 });

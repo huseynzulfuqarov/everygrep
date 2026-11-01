@@ -7,8 +7,10 @@
 //! with every type it offers. So Cut and Copy make a hidden X11 window own
 //! `CLIPBOARD` and offer the files as `x-special/gnome-copied-files`,
 //! `text/uri-list` with `application/x-kde-cutselection` (how KDE programs
-//! tell a cut), and text (the full paths). Paste reads another owner's
-//! files in that order.
+//! tell a cut), and text (the full paths). Paste asks another owner for
+//! its `TARGETS`, then for the first offered of those file types; files
+//! from a URI list are a cut when the owner also offers
+//! `application/x-kde-cutselection` as `1`, as Dolphin does.
 //!
 //! One thread owns the connection and answers the X server; the window
 //! talks to it through a channel and wakes it with a client message to its
@@ -70,8 +72,9 @@ impl Target {
         Target::TextPlainUtf8,
     ];
 
-    /// Types asked of another program, most telling first: only the first
-    /// says whether the files were cut.
+    /// Types asked of another program for files, most telling first: the
+    /// first says itself whether the files were cut; for the URI list
+    /// `KdeCutSelection` is asked as well when offered.
     pub const READ_ORDER: [Target; 3] = [
         Target::GnomeCopiedFiles,
         Target::UriList,
@@ -110,8 +113,8 @@ pub fn payload(target: Target, held: &Held) -> Option<Vec<u8>> {
 }
 
 /// Files in content read from another program as `target`. Text and URI
-/// lists are always a copy; only `x-special/gnome-copied-files` can say
-/// `cut`.
+/// lists are read as a copy; only `x-special/gnome-copied-files` says `cut`
+/// itself (a URI list's cut mark is a type of its own, see [`cut_mark`]).
 pub fn read_payload(target: Target, bytes: &[u8]) -> Option<(Operation, Vec<PathBuf>)> {
     let text = std::str::from_utf8(bytes).ok()?;
     let (op, paths) = clipboard::parse(text)?;
@@ -121,13 +124,66 @@ pub fn read_payload(target: Target, bytes: &[u8]) -> Option<(Operation, Vec<Path
     }
 }
 
+/// What `application/x-kde-cutselection` content says: `1` is a cut,
+/// anything else a copy.
+pub fn cut_mark(bytes: &[u8]) -> Operation {
+    if bytes.first() == Some(&b'1') {
+        Operation::Cut
+    } else {
+        Operation::Copy
+    }
+}
+
+/// The file types to ask for, in [`Target::READ_ORDER`]: those `offered`,
+/// or all of them when the owner gave no `TARGETS` list.
+fn types_to_ask(offered: Option<&[Target]>) -> VecDeque<Target> {
+    Target::READ_ORDER
+        .into_iter()
+        .filter(|t| offered.is_none_or(|o| o.contains(t)))
+        .collect()
+}
+
+/// Whether files read as `from` need the cut mark asked for: only a URI
+/// list, and only when the owner listed the mark (no round trip without).
+fn asks_cut_mark(from: Target, offered: Option<&[Target]>) -> bool {
+    from == Target::UriList && offered.is_some_and(|o| o.contains(&Target::KdeCutSelection))
+}
+
+/// Atoms in a `TARGETS` answer (32-bit values in the connection's byte
+/// order, which x11rb makes native).
+fn atoms_in(bytes: &[u8]) -> impl Iterator<Item = Atom> + '_ {
+    bytes
+        .chunks_exact(4)
+        .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+}
+
 /// Requests to the clipboard thread.
 enum Cmd {
     Offer(Held, Sender<bool>),
     /// Gives the clipboard up if this program holds it.
     Clear,
-    Read(Sender<Option<(Operation, Vec<PathBuf>)>>),
+    /// Reads the clipboard, then takes it with nothing on it if it holds
+    /// these files and this program does not hold it.
+    EmptyIf(Found),
+    Read(Sender<Option<Found>>),
     Quit,
+}
+
+/// Files read from the clipboard, and what pasting them does.
+type Found = (Operation, Vec<PathBuf>);
+
+/// What ends a read.
+enum Then {
+    /// The files go to the caller of [`X11Clipboard::read`].
+    Reply(Sender<Option<Found>>),
+    /// The clipboard is emptied if it held these files.
+    EmptyIf(Found),
+}
+
+/// Whether a read that ended with `found` empties the clipboard for
+/// `then`.
+fn empties(then: &Then, found: Option<&Found>) -> bool {
+    matches!(then, Then::EmptyIf(want) if Some(want) == found)
 }
 
 /// This program's side of the X11 clipboard.
@@ -203,6 +259,15 @@ impl X11Clipboard {
     /// Gives the clipboard up if this program still holds it.
     pub fn clear(&self) {
         self.send(Cmd::Clear);
+    }
+
+    /// Takes the clipboard from its owner and offers nothing, so files
+    /// moved away are not pasted again; only while it still holds `found`
+    /// from another program. Does not wait: the clipboard thread reads it
+    /// first, and a [`read`](Self::read) asked meanwhile replaces that
+    /// check.
+    pub fn empty_if_holding(&self, found: Found) {
+        self.send(Cmd::EmptyIf(found));
     }
 
     /// Whether this program holds the clipboard.
@@ -287,10 +352,15 @@ impl Atoms {
 
 /// A read of another program's clipboard in progress.
 struct Read {
-    reply: Sender<Option<(Operation, Vec<PathBuf>)>>,
+    then: Then,
+    /// The owner's `TARGETS` that this program reads; `None` when it gave
+    /// no list.
+    offered: Option<Vec<Target>>,
     /// Types still to ask for.
     left: VecDeque<Target>,
     asked: Target,
+    /// Files from the URI list while their cut mark is asked for.
+    files: Option<Vec<PathBuf>>,
     /// Content received so far in `INCR` steps.
     incr: Option<Vec<u8>>,
 }
@@ -338,9 +408,15 @@ impl Worker {
                     self.held = None;
                     self.owns.store(false, Ordering::SeqCst);
                 }
-                Event::SelectionNotify(e) if e.requestor == self.window => {
+                Event::SelectionNotify(e)
+                    if e.requestor == self.window
+                        && self
+                            .read
+                            .as_ref()
+                            .is_some_and(|r| self.atoms.atom(r.asked) == e.target) =>
+                {
                     if e.property == NONE {
-                        self.ask_next()?;
+                        self.refused()?;
                     } else {
                         self.receive()?;
                     }
@@ -385,17 +461,12 @@ impl Worker {
                 }
                 self.held = None;
             }
-            Cmd::Read(reply) => {
-                // A newer read replaces an unanswered one, whose caller
-                // has stopped waiting.
-                self.read = Some(Read {
-                    reply,
-                    left: Target::READ_ORDER.into_iter().collect(),
-                    asked: Target::Targets,
-                    incr: None,
-                });
-                self.ask_next()?;
+            Cmd::EmptyIf(found) => {
+                if !self.owns.load(Ordering::SeqCst) {
+                    self.start_read(Then::EmptyIf(found))?;
+                }
             }
+            Cmd::Read(reply) => self.start_read(Then::Reply(reply))?,
             Cmd::Quit => return Ok(false),
         }
         Ok(true)
@@ -412,6 +483,17 @@ impl Worker {
         let ok = match (&self.held, self.atoms.target(e.target)) {
             (Some(held), Some(target)) if e.selection == self.atoms.clipboard => {
                 self.write(e.requestor, property, e.target, target, held)?
+            }
+            // Emptied: the list of types holds only itself.
+            (None, Some(Target::Targets)) if e.selection == self.atoms.clipboard => {
+                self.conn.change_property32(
+                    PropMode::REPLACE,
+                    e.requestor,
+                    property,
+                    AtomEnum::ATOM,
+                    &[self.atoms.atom(Target::Targets)],
+                )?;
+                true
             }
             _ => false,
         };
@@ -466,27 +548,81 @@ impl Worker {
         Ok(true)
     }
 
-    /// Asks the clipboard's owner for the next type, or ends the read.
-    fn ask_next(&mut self) -> XResult<()> {
+    /// Starts a read of another program's clipboard; the list of types
+    /// comes first. A newer read replaces an unanswered one, whose caller
+    /// has stopped waiting.
+    fn start_read(&mut self, then: Then) -> XResult<()> {
+        self.read = Some(Read {
+            then,
+            offered: None,
+            left: VecDeque::new(),
+            asked: Target::Targets,
+            files: None,
+            incr: None,
+        });
+        self.ask(Target::Targets)
+    }
+
+    /// Takes the clipboard with nothing on it.
+    fn empty(&mut self) -> XResult<()> {
+        self.held = None;
+        self.conn
+            .set_selection_owner(self.window, self.atoms.clipboard, CURRENT_TIME)?;
+        let owner = self
+            .conn
+            .get_selection_owner(self.atoms.clipboard)?
+            .reply()?
+            .owner;
+        self.owns.store(owner == self.window, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Asks the clipboard's owner for `target`.
+    fn ask(&mut self, target: Target) -> XResult<()> {
         let Some(read) = self.read.as_mut() else {
             return Ok(());
         };
         read.incr = None;
+        read.asked = target;
+        self.conn.convert_selection(
+            self.window,
+            self.atoms.clipboard,
+            self.atoms.atom(target),
+            self.atoms.paste,
+            CURRENT_TIME,
+        )?;
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    /// Asks the clipboard's owner for the next file type, or ends the read.
+    fn ask_next(&mut self) -> XResult<()> {
+        let Some(read) = self.read.as_mut() else {
+            return Ok(());
+        };
         match read.left.pop_front() {
-            Some(target) => {
-                read.asked = target;
-                self.conn.convert_selection(
-                    self.window,
-                    self.atoms.clipboard,
-                    self.atoms.atom(target),
-                    self.atoms.paste,
-                    CURRENT_TIME,
-                )?;
-                self.conn.flush()?;
-            }
+            Some(target) => self.ask(target),
             None => self.finish(None),
         }
-        Ok(())
+    }
+
+    /// The owner refused the type asked for.
+    fn refused(&mut self) -> XResult<()> {
+        let Some(read) = self.read.as_mut() else {
+            return Ok(());
+        };
+        match read.asked {
+            // No list: every file type is asked, without a cut mark.
+            Target::Targets => {
+                read.left = types_to_ask(None);
+                self.ask_next()
+            }
+            Target::KdeCutSelection => {
+                let files = read.files.take().unwrap_or_default();
+                self.finish(Some((Operation::Copy, files)))
+            }
+            _ => self.ask_next(),
+        }
     }
 
     /// Takes the content from our property after the owner answered.
@@ -540,30 +676,54 @@ impl Worker {
         buf.extend_from_slice(&reply.value);
         if buf.len() > MAX_READ {
             // Too large to be a list of files worth pasting.
-            self.finish(None);
+            return self.finish(None);
         }
         Ok(())
     }
 
-    /// Ends the read with the files in `content`, or asks for the next
-    /// type when there are none.
+    /// Goes on with the content of the type asked for: the list of types,
+    /// the cut mark, or files. Ends the read with the files, or asks for
+    /// the next type when there are none.
     fn parsed(&mut self, content: &[u8]) -> XResult<()> {
-        let Some(read) = self.read.as_ref() else {
+        let Some(read) = self.read.as_mut() else {
             return Ok(());
         };
-        match read_payload(read.asked, content) {
-            Some(found) => {
-                self.finish(Some(found));
-                Ok(())
+        match read.asked {
+            Target::Targets => {
+                let offered: Vec<Target> = atoms_in(content)
+                    .filter_map(|a| self.atoms.target(a))
+                    .collect();
+                read.left = types_to_ask(Some(&offered));
+                read.offered = Some(offered);
+                self.ask_next()
             }
-            None => self.ask_next(),
+            Target::KdeCutSelection => {
+                let files = read.files.take().unwrap_or_default();
+                self.finish(Some((cut_mark(content), files)))
+            }
+            asked => match read_payload(asked, content) {
+                Some((_, paths)) if asks_cut_mark(asked, read.offered.as_deref()) => {
+                    read.files = Some(paths);
+                    self.ask(Target::KdeCutSelection)
+                }
+                Some(found) => self.finish(Some(found)),
+                None => self.ask_next(),
+            },
         }
     }
 
-    fn finish(&mut self, found: Option<(Operation, Vec<PathBuf>)>) {
-        if let Some(read) = self.read.take() {
-            let _ = read.reply.send(found);
+    /// Ends the read with `found`.
+    fn finish(&mut self, found: Option<Found>) -> XResult<()> {
+        let Some(read) = self.read.take() else {
+            return Ok(());
+        };
+        if empties(&read.then, found.as_ref()) {
+            return self.empty();
         }
+        if let Then::Reply(reply) = read.then {
+            let _ = reply.send(found);
+        }
+        Ok(())
     }
 }
 
@@ -601,7 +761,7 @@ mod tests {
         // TARGETS lists every type, itself first.
         assert_eq!(Target::ALL[0], Target::Targets);
         assert_eq!(Target::ALL.len(), 6);
-        // Not read: it holds no files, only whether the URI list was cut.
+        // Not asked for files: it only says whether the URI list was cut.
         assert!(!Target::READ_ORDER.contains(&Target::KdeCutSelection));
     }
 
@@ -660,6 +820,147 @@ mod tests {
         assert_eq!(read_payload(Target::GnomeCopiedFiles, b"cut\n"), None);
         // Gnome first: the only type that tells a cut from a copy.
         assert_eq!(Target::READ_ORDER[0], Target::GnomeCopiedFiles);
+    }
+
+    /// What a paste reads from an owner offering `offers` (type and
+    /// content), going through the types as the clipboard thread does.
+    /// `offers` of `None` stands for an owner that refuses `TARGETS`.
+    fn paste_from(offers: Option<&[(Target, &[u8])]>) -> Option<(Operation, Vec<PathBuf>)> {
+        let offered: Option<Vec<Target>> = offers.map(|o| o.iter().map(|(t, _)| *t).collect());
+        let content = |t: Target| {
+            offers
+                .unwrap_or_default()
+                .iter()
+                .find(|(o, _)| *o == t)
+                .map(|(_, c)| *c)
+        };
+        for asked in types_to_ask(offered.as_deref()) {
+            let Some((op, paths)) = content(asked).and_then(|c| read_payload(asked, c)) else {
+                continue;
+            };
+            if asks_cut_mark(asked, offered.as_deref()) {
+                let mark = content(Target::KdeCutSelection);
+                return Some((mark.map_or(Operation::Copy, cut_mark), paths));
+            }
+            return Some((op, paths));
+        }
+        None
+    }
+
+    #[test]
+    fn a_uri_list_is_cut_when_marked() {
+        let files = vec![PathBuf::from("/a b"), PathBuf::from("/c")];
+        let uris: &[u8] = b"file:///a%20b\r\nfile:///c\r\n";
+        let kde = |mark: &'static [u8]| {
+            vec![
+                (Target::Targets, &b""[..]),
+                (Target::UriList, uris),
+                (Target::KdeCutSelection, mark),
+                (Target::Utf8String, &b"/a b\n/c"[..]),
+            ]
+        };
+        assert_eq!(
+            paste_from(Some(&kde(b"1"))),
+            Some((Operation::Cut, files.clone()))
+        );
+        for mark in [&b"0"[..], b"", b"true", b"01"] {
+            assert_eq!(
+                paste_from(Some(&kde(mark))),
+                Some((Operation::Copy, files.clone())),
+                "{mark:?}"
+            );
+        }
+        // No mark offered: a copy, and the mark is not asked for.
+        let unmarked = [(Target::UriList, uris)];
+        assert!(!asks_cut_mark(Target::UriList, Some(&[Target::UriList])));
+        assert_eq!(
+            paste_from(Some(&unmarked)),
+            Some((Operation::Copy, files.clone()))
+        );
+        // No TARGETS list: every type is tried, the mark never.
+        assert_eq!(types_to_ask(None), Target::READ_ORDER);
+        assert!(!asks_cut_mark(Target::UriList, None));
+        // Only the URI list takes the mark.
+        let text_marked = [
+            (Target::Utf8String, &b"/a b\n/c"[..]),
+            (Target::KdeCutSelection, b"1"),
+        ];
+        assert_eq!(
+            paste_from(Some(&text_marked)),
+            Some((Operation::Copy, files.clone()))
+        );
+        assert_eq!(cut_mark(b"1"), Operation::Cut);
+        assert_eq!(cut_mark(b"1\n"), Operation::Cut);
+        assert_eq!(cut_mark(b"0"), Operation::Copy);
+        assert_eq!(cut_mark(b""), Operation::Copy);
+    }
+
+    #[test]
+    fn gnome_copied_files_wins_over_the_cut_mark() {
+        let files = vec![PathBuf::from("/a")];
+        // Gnome says copy, the KDE mark says cut: gnome decides.
+        let both = [
+            (Target::UriList, &b"file:///a\r\n"[..]),
+            (Target::KdeCutSelection, b"1"),
+            (Target::GnomeCopiedFiles, b"copy\nfile:///a"),
+        ];
+        assert_eq!(
+            paste_from(Some(&both)),
+            Some((Operation::Copy, files.clone()))
+        );
+        assert!(!asks_cut_mark(
+            Target::GnomeCopiedFiles,
+            Some(&[Target::KdeCutSelection])
+        ));
+        let cut = [
+            (Target::GnomeCopiedFiles, &b"cut\nfile:///a"[..]),
+            (Target::UriList, b"file:///a\r\n"),
+            (Target::KdeCutSelection, b"0"),
+        ];
+        assert_eq!(
+            paste_from(Some(&cut)),
+            Some((Operation::Cut, files.clone()))
+        );
+        // Unreadable gnome content falls back to the URI list and its mark.
+        let broken = [
+            (Target::GnomeCopiedFiles, &b"cut\n"[..]),
+            (Target::UriList, b"file:///a\r\n"),
+            (Target::KdeCutSelection, b"1"),
+        ];
+        assert_eq!(paste_from(Some(&broken)), Some((Operation::Cut, files)));
+        // Only offered types are asked for.
+        assert_eq!(
+            types_to_ask(Some(&[Target::Utf8String, Target::UriList])),
+            [Target::UriList, Target::Utf8String]
+        );
+        assert!(types_to_ask(Some(&[])).is_empty());
+        assert_eq!(paste_from(Some(&[])), None);
+    }
+
+    #[test]
+    fn a_moved_cut_empties_the_clipboard_only_while_it_holds_it() {
+        let moved: Found = (Operation::Cut, vec![PathBuf::from("/a")]);
+        let then = Then::EmptyIf(moved.clone());
+        assert!(empties(&then, Some(&moved)));
+        // Something else was put on the clipboard since, or nothing.
+        assert!(!empties(&then, Some(&(Operation::Copy, moved.1.clone()))));
+        assert!(!empties(
+            &then,
+            Some(&(Operation::Cut, vec![PathBuf::from("/b")]))
+        ));
+        assert!(!empties(&then, None));
+        // A read for Paste never empties.
+        let (reply, _answer) = mpsc::channel();
+        assert!(!empties(&Then::Reply(reply), Some(&moved)));
+    }
+
+    #[test]
+    fn targets_answer_is_read_as_atoms() {
+        let atoms: Vec<Atom> = vec![4, 0x1_0203, u32::MAX];
+        let bytes: Vec<u8> = atoms.iter().flat_map(|a| a.to_ne_bytes()).collect();
+        assert_eq!(atoms_in(&bytes).collect::<Vec<_>>(), atoms);
+        // A cut-off last value is left out.
+        assert_eq!(atoms_in(&bytes[..10]).count(), 2);
     }
 
     #[test]

@@ -121,6 +121,16 @@ pub fn to_paste(held: Option<&Held>, clipboard_text: &str) -> Option<(Operation,
     }
 }
 
+/// Whether a cut on the clipboard was pasted here already: the same files
+/// as the last cut moved (`moved`), and none of them is left. Such a cut
+/// offers nothing to paste. A cut of the same paths made again after they
+/// came back is pasted as usual.
+pub fn moved_already(op: Operation, paths: &[PathBuf], moved: Option<&[PathBuf]>) -> bool {
+    op == Operation::Cut
+        && moved == Some(paths)
+        && paths.iter().all(|p| std::fs::symlink_metadata(p).is_err())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +226,24 @@ mod tests {
         ] {
             assert_eq!(parse(text), None, "{text:?}");
         }
+    }
+
+    #[test]
+    fn a_moved_cut_is_not_pasted_again() {
+        let dir = std::env::temp_dir().join(format!("eg-moved-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let gone = vec![dir.join("gone-1"), dir.join("gone-2")];
+        let back = vec![dir.join("back")];
+        std::fs::write(&back[0], b"x").unwrap();
+        // Moved and gone: nothing to paste.
+        assert!(moved_already(Operation::Cut, &gone, Some(&gone)));
+        // A copy, other files, or nothing moved yet: pasted as usual.
+        assert!(!moved_already(Operation::Copy, &gone, Some(&gone)));
+        assert!(!moved_already(Operation::Cut, &gone[..1], Some(&gone)));
+        assert!(!moved_already(Operation::Cut, &gone, None));
+        // The same path exists again: a new cut.
+        assert!(!moved_already(Operation::Cut, &back, Some(&back)));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
