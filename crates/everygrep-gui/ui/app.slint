@@ -916,6 +916,7 @@ export component AppWindow inherits Window {
     callback cut-items(int);
     callback copy-items(int);
     callback paste-items(int);
+    callback fileops-shortcuts(int);
     callback rename-start(int);
     callback rename-commit(string);
     callback rename-cancel();
@@ -1214,7 +1215,7 @@ export component AppWindow inherits Window {
     function needs-online(c: Command) -> bool {
         return c == Command.open || c == Command.open-folder || c == Command.open-with
             || c == Command.cut || c == Command.copy || c == Command.paste
-            || c == Command.rename || c == Command.trash || c == Command.delete-permanently;
+            || c == Command.rename || c == Command.create-shortcut || c == Command.trash || c == Command.delete-permanently;
     }
 
     // Whether a command can run now; menu items are enabled by it.
@@ -1277,6 +1278,8 @@ export component AppWindow inherits Window {
             keys.focus();
         } else if (c == Command.toggle-row) {
             root.select(root.current, 1);
+        } else if (c == Command.create-shortcut) {
+            root.fileops-shortcuts(root.current);
         } else if (c == Command.rename) {
             root.rename-start(root.current);
         } else if (c == Command.trash) {
@@ -1981,6 +1984,11 @@ export component AppWindow inherits Window {
                             title: @tr("Rename");
                             enabled: root.can-run(Command.rename);
                             activated => { root.run(Command.rename); }
+                        }
+                        MenuItem {
+                            title: @tr("Create shortcuts…");
+                            enabled: root.can-run(Command.create-shortcut);
+                            activated => { root.run(Command.create-shortcut); }
                         }
                         MenuItem {
                             title: @tr("Move to trash");

@@ -10,6 +10,9 @@ First version, 0.1.0, not released yet.
 
 ### File actions
 
+- Create shortcuts to selected items in a chosen folder; settings choose
+  symbolic or desktop links and numbered names or skipping existing names.
+
 - Optional rename dialog with location, name validation and errors kept next
   to the editor; the Window settings keep in-place rename as the default.
   Renaming refuses to replace a target atomically.

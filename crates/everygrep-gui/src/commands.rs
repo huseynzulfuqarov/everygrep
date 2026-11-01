@@ -564,6 +564,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[(List, "F2")],
     },
     Spec {
+        cmd: Command::CreateShortcut,
+        id: "file.create-shortcut",
+        category: Category::File,
+        label: || tr("Create shortcuts…"),
+        defaults: &[(List, "Ctrl+Alt+L")],
+    },
+    Spec {
         cmd: Command::Trash,
         id: "edit.trash",
         category: Category::Edit,
@@ -1073,6 +1080,7 @@ impl Keymap {
             invert_selection => InvertSelection,
             toggle_row => ToggleRow,
             rename => Rename,
+            create_shortcut => CreateShortcut,
             trash => Trash,
             delete_permanently => DeletePermanently,
             focus_search => FocusSearch,

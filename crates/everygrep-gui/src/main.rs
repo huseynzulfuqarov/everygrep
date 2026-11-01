@@ -8,6 +8,7 @@ mod engine;
 mod export;
 mod fileops_rename;
 mod fileops_settings;
+mod fileops_shortcut;
 mod filetype;
 mod format;
 mod history;
@@ -847,6 +848,7 @@ enum Pending {
 /// Open, copy, rename, trash and delete.
 fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     let rename_dialog = fileops_rename::Dialog::connect(window);
+    fileops_shortcut::connect(window, model);
     let pending: Rc<RefCell<Option<Pending>>> = Rc::default();
     let weak = window.as_weak();
     let row = |r: i32| usize::try_from(r).ok();

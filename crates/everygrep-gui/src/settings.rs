@@ -985,7 +985,7 @@ fn is_known(key: &str) -> bool {
     // Every known key accepts at least one of these values.
     [
         "true", "all", "quit", "total", "system", "compact", "1", "/", "keep", "A-1", "auto",
-        "jedec", "show",
+        "jedec", "show", "symlink", "number",
     ]
     .iter()
     .any(|v| probe.set(key, v))

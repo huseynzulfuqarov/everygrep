@@ -102,6 +102,24 @@ pub fn choose_folders(title: &str, accept: &str) -> Result<Option<Vec<PathBuf>>,
     ))
 }
 
+/// Asks for one destination folder; cancelled requests create nothing.
+pub fn choose_folder(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
+    let options = vec![
+        ("accept_label", Value::from(accept)),
+        ("modal", Value::from(true)),
+        ("multiple", Value::from(false)),
+        ("directory", Value::from(true)),
+    ];
+    let Some(results) = file_chooser("OpenFile", title, options)? else {
+        return Ok(None);
+    };
+    uris(&results)
+        .first()
+        .and_then(|u| file_path(u))
+        .map(Some)
+        .ok_or_else(|| "the file chooser gave no local folder".into())
+}
+
 /// A file type offered by the save dialog: its name and a glob pattern.
 pub struct SaveFilter<'a> {
     pub name: &'a str,

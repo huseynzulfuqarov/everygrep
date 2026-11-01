@@ -260,6 +260,14 @@ filter. Dotfiles and all descendants of dot-prefixed folders count as hidden,
 including hidden components in an indexed root path. No entries are removed
 from the index and no rescan is needed.
 
+Create shortcuts (`Ctrl+Alt+L`, or the result context menu) asks for a
+folder and creates links to all selected items there. Window settings choose
+symbolic links (default) or `.desktop` links, and numbered names (default) or
+skipping when a name exists. Existing files are never replaced. Desktop links
+use `Type=Link` and `URL` from the [desktop entry specification](https://specifications.freedesktop.org/desktop-entry/latest/recognized-keys.html);
+opening them depends on the file manager's support. No executable launcher
+or shell command is generated.
+
 The Window settings can make Rename open a dialog showing the containing
 folder and the new name. Invalid names, names over 255 UTF-8 bytes and
 existing targets are reported inside the dialog; a failed rename keeps it
@@ -431,7 +439,8 @@ size-width = 120
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
 search at every key press, `rename-in-dialog` the rename editor,
-`rename-select-name-only` the selection of
+`shortcut-kind` (`symlink` or `desktop`) and `shortcut-collision` (`number`
+or `skip`) the shortcut choices, `rename-select-name-only` the selection of
 the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
 opens, `copy-full-path-quotes` the quotes around copied full paths,

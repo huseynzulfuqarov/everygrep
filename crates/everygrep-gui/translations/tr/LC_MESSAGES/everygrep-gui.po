@@ -1954,3 +1954,42 @@ msgstr "Yeni ad"
 
 msgid "A name cannot contain a null character."
 msgstr "Ad boş karakter içeremez."
+
+msgid "Create shortcuts…"
+msgstr "Kısayollar oluştur…"
+
+msgid "Create shortcuts"
+msgstr "Kısayollar oluştur"
+
+msgid "Create"
+msgstr "Oluştur"
+
+msgid "Shortcut type"
+msgstr "Kısayol türü"
+
+msgid "Symbolic link"
+msgstr "Sembolik bağlantı"
+
+msgid "Desktop link"
+msgstr "Masaüstü bağlantısı"
+
+msgid "When a shortcut name exists"
+msgstr "Kısayol adı zaten varsa"
+
+msgid "Use a numbered name"
+msgstr "Numaralı ad kullan"
+
+msgid "Skip"
+msgstr "Atla"
+
+msgid "Shortcuts created: {}; skipped: {}."
+msgstr "{} kısayol oluşturuldu; {} atlandı."
+
+msgid "{} Failed: {}. First error: {}"
+msgstr "{} Başarısız: {}. İlk hata: {}"
+
+msgid "Cannot create shortcuts: {}"
+msgstr "Kısayollar oluşturulamıyor: {}"
+
+msgid "File operations"
+msgstr "Dosya işlemleri"

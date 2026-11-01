@@ -694,7 +694,7 @@ impl Prefs {
         w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
         w.set_remember_columns(s.remember_columns);
         w.set_rename_name_only(s.rename_name_only);
-        w.set_fileops_rename_dialog(s.fileops.rename_dialog);
+        s.fileops.fill_window(w);
         w.set_path_click_opens_folder(s.path_click_opens_folder);
         w.set_copy_full_path_quotes(s.copy_full_path_quotes);
         w.set_open_confirm_max(settings::MAX_OPEN_CONFIRM as i32);
@@ -1434,7 +1434,7 @@ impl Prefs {
             .unwrap_or_default();
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
-        let rename_dialog = w.get_fileops_rename_dialog();
+        let fileops = crate::fileops_settings::Settings::from_window(&w);
         let path_click = w.get_path_click_opens_folder();
         let quotes = w.get_copy_full_path_quotes();
         let open_over = usize::try_from(w.get_open_confirm_over())
@@ -1450,7 +1450,7 @@ impl Prefs {
             s.folder_size = folder_size;
             s.remember_columns = remember;
             s.rename_name_only = name_only;
-            s.fileops.rename_dialog = rename_dialog;
+            s.fileops = fileops.clone();
             s.path_click_opens_folder = path_click;
             s.copy_full_path_quotes = quotes;
             s.open_confirm_over = open_over;

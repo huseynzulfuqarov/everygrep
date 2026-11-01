@@ -186,6 +186,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> remember-columns;
     in-out property <bool> rename-name-only;
     in-out property <bool> fileops-rename-dialog;
+    in-out property <int> fileops-shortcut-kind;
+    in-out property <int> fileops-shortcut-collision;
     in-out property <bool> path-click-opens-folder;
     in-out property <bool> copy-full-path-quotes;
     in-out property <int> open-confirm-over;
@@ -815,9 +817,11 @@ export component SettingsWindow inherits Window {
                             }
                             Note { text: @tr("The first click on the header of a date column or of Size sorts in this order; a second click reverses it. Off: they start with the oldest or smallest."); }
                             Rectangle { height: Theme.s2; }
-                            Heading { text: @tr("Rename"); }
+                            Heading { text: @tr("File operations"); }
                             FileopsSettings {
                                 rename-dialog <=> root.fileops-rename-dialog;
+                                shortcut-kind <=> root.fileops-shortcut-kind;
+                                shortcut-collision <=> root.fileops-shortcut-collision;
                                 changed => { root.window-changed(); }
                             }
                             CheckBox {

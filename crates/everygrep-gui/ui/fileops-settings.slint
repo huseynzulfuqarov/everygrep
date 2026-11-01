@@ -1,13 +1,27 @@
-import { CheckBox } from "std-widgets.slint";
+import { CheckBox, ComboBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export component FileopsSettings inherits VerticalLayout {
     in-out property <bool> rename-dialog;
+    in-out property <int> shortcut-kind;
+    in-out property <int> shortcut-collision;
     callback changed();
     spacing: Theme.s2;
     CheckBox {
         text: @tr("Rename in a dialog");
         checked <=> root.rename-dialog;
         toggled => { root.changed(); }
+    }
+    Text { text: @tr("Shortcut type"); color: Theme.text; }
+    ComboBox {
+        model: [@tr("Symbolic link"), @tr("Desktop link")];
+        current-index <=> root.shortcut-kind;
+        selected => { root.changed(); }
+    }
+    Text { text: @tr("When a shortcut name exists"); color: Theme.text; }
+    ComboBox {
+        model: [@tr("Use a numbered name"), @tr("Skip")];
+        current-index <=> root.shortcut-collision;
+        selected => { root.changed(); }
     }
 }
