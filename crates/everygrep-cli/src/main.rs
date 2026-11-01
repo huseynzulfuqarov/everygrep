@@ -146,7 +146,7 @@ enum Source {
 
 /// Loads the saved index if it fits the request, otherwise scans and saves.
 /// Returns the index, the roots it covers and where it came from.
-fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>, Source) {
+fn open_index(args: &Args, force_scan: bool) -> io::Result<(Index, Vec<PathBuf>, Source)> {
     if !force_scan && !args.rescan {
         if let Some(path) = &args.index_file {
             let started = Instant::now();
@@ -161,9 +161,9 @@ fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>, Source) {
                     );
                     if saved.reordered {
                         // An older file: store the new name order once.
-                        save_index(args, &saved.index, &saved.roots);
+                        save_index(args, &saved.index, &saved.roots)?;
                     }
-                    return (saved.index, saved.roots, Source::Loaded);
+                    return Ok((saved.index, saved.roots, Source::Loaded));
                 }
                 Ok(_) => eprintln!("saved index has other roots, scanning"),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -177,8 +177,8 @@ fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>, Source) {
         args.roots.clone()
     };
     let index = scan_roots(&roots, &args.scan);
-    save_index(args, &index, &roots);
-    (index, roots, Source::Scanned)
+    save_index(args, &index, &roots)?;
+    Ok((index, roots, Source::Scanned))
 }
 
 fn report_catch_up(stats: &CatchUpStats, took: std::time::Duration) -> bool {
@@ -194,18 +194,22 @@ fn report_catch_up(stats: &CatchUpStats, took: std::time::Duration) -> bool {
     stats.added + stats.removed + stats.updated > 0
 }
 
-fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) {
+fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) -> io::Result<()> {
     if let Some(path) = &args.index_file {
         let started = Instant::now();
-        match persist::save(index, roots, path) {
-            Ok(()) => eprintln!(
-                "saved index to {} in {:.0} ms",
-                path.display(),
-                started.elapsed().as_secs_f64() * 1e3
-            ),
-            Err(e) => eprintln!("could not save index to {}: {e}", path.display()),
-        }
+        persist::save(index, roots, path).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("could not save index to {}: {e}", path.display()),
+            )
+        })?;
+        eprintln!(
+            "saved index to {} in {:.0} ms",
+            path.display(),
+            started.elapsed().as_secs_f64() * 1e3
+        );
     }
+    Ok(())
 }
 
 /// Starts watching, then catches up with changes made before watches were
@@ -297,23 +301,20 @@ fn main() -> ExitCode {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let result = match args.command.as_str() {
-        "index" => {
-            open_index(&args, true);
-            Ok(())
-        }
-        "search" => {
-            let (mut index, roots, source) = open_index(&args, false);
+        "index" => open_index(&args, true).map(|_| ()),
+        "search" => (|| {
+            let (mut index, roots, source) = open_index(&args, false)?;
             if source == Source::Loaded {
                 let started = Instant::now();
                 let stats = catch_up(&mut index, &args.scan);
                 if report_catch_up(&stats, started.elapsed()) {
-                    save_index(&args, &index, &roots);
+                    save_index(&args, &index, &roots)?;
                 }
             }
             run_query(&index, &args, &args.query, &mut out)
-        }
-        "shell" => {
-            let (mut index, roots, _) = open_index(&args, false);
+        })(),
+        "shell" => (|| {
+            let (mut index, roots, _) = open_index(&args, false)?;
             let (mut watcher, mut changed) = if args.watch {
                 start_watcher(&mut index, &args.scan)
             } else {
@@ -363,10 +364,10 @@ fn main() -> ExitCode {
                 }
             }
             if changed {
-                save_index(&args, &index, &roots);
+                save_index(&args, &index, &roots)?;
             }
             status
-        }
+        })(),
         other => {
             eprintln!("everygrep: unknown command {other}\n\n{USAGE}");
             return ExitCode::from(2);

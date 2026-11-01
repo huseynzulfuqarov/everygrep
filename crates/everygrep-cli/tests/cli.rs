@@ -294,3 +294,31 @@ fn a_root_missing_at_scan_is_found_when_it_returns() {
     assert!(String::from_utf8(found.stderr).unwrap().contains("loaded"));
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn index_returns_failure_and_cleans_up_when_saving_fails() {
+    let dir = temp_dir("failed-save");
+    let destination = dir.join("is-a-directory");
+    fs::create_dir(&destination).unwrap();
+    fs::write(destination.join("keep"), b"keep").unwrap();
+    let output = run(&[
+        "index",
+        "--root",
+        dir.join("tree").to_str().unwrap(),
+        "--index-file",
+        destination.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("could not save index")
+    );
+    assert_eq!(fs::read(destination.join("keep")).unwrap(), b"keep");
+    assert_eq!(
+        fs::read_dir(&dir).unwrap().count(),
+        2,
+        "temporary file leaked"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}

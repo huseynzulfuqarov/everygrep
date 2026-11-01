@@ -24,6 +24,7 @@
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::index::Index;
@@ -102,16 +103,60 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    // A per-process temporary name: two savers never share one temp file.
-    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(format!(".tmp-{}", std::process::id()));
-    let tmp = path.with_file_name(tmp_name);
-    {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(&buf)?;
-        f.sync_all()?;
+    let mut tmp = TempFile::create(path)?;
+    tmp.file.write_all(&buf)?;
+    tmp.file.sync_all()?;
+    fs::rename(&tmp.path, path)?;
+    tmp.renamed = true;
+    Ok(())
+}
+
+/// Owns only an exclusively created file; all failure paths remove it.
+struct TempFile {
+    path: PathBuf,
+    file: fs::File,
+    renamed: bool,
+}
+
+impl TempFile {
+    fn create(destination: &Path) -> io::Result<Self> {
+        let mut random = fs::File::open("/dev/urandom")?;
+        for _ in 0..128 {
+            let mut suffix = [0u8; 16];
+            random.read_exact(&mut suffix)?;
+            let mut name = destination.file_name().unwrap_or_default().to_os_string();
+            name.push(format!(".tmp-{:032x}", u128::from_ne_bytes(suffix)));
+            let path = destination.with_file_name(name);
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+            {
+                Ok(file) => {
+                    return Ok(Self {
+                        path,
+                        file,
+                        renamed: false,
+                    });
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not create a unique index temporary file",
+        ))
     }
-    fs::rename(&tmp, path)
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        if !self.renamed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 
 /// Rewrites the index file at `path` as `version`, with the name order
@@ -413,6 +458,37 @@ mod tests {
             "everygrep-persist-{tag}-{}.bin",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn failed_rename_removes_the_temporary_index() {
+        let dir = temp_file("failed-rename");
+        fs::create_dir_all(dir.join("index.bin")).unwrap();
+        fs::write(dir.join("index.bin/keep"), b"keep").unwrap();
+        assert!(save(&sample(), &[], &dir.join("index.bin")).is_err());
+        let entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, [std::ffi::OsString::from("index.bin")]);
+        assert_eq!(fs::read(dir.join("index.bin/keep")).unwrap(), b"keep");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_preexisting_temporary_symlink_is_never_followed() {
+        let dir = temp_file("temp-symlink");
+        fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("index.bin");
+        let victim = dir.join("keep");
+        fs::write(&victim, b"keep").unwrap();
+        let old_tmp = dir.join(format!("index.bin.tmp-{}", std::process::id()));
+        std::os::unix::fs::symlink(&victim, &old_tmp).unwrap();
+        save(&sample(), &[], &destination).unwrap();
+        assert_eq!(fs::read(&victim).unwrap(), b"keep");
+        assert!(old_tmp.is_symlink());
+        assert!(load(&destination).is_ok());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

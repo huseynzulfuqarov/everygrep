@@ -30,6 +30,9 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- CLI save errors return a failure status. Index saves use exclusive random
+  temporary files with owner-only permissions and remove them on failure.
+
 - Watching CLI shells and the window catch up after fresh scans and rescans,
   including changes made before watches were installed.
 
