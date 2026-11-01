@@ -549,3 +549,111 @@ fn a_relative_index_filename_can_be_saved_and_loaded() {
     );
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn read_only_cache_does_not_abort_search_or_shell() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+
+    let dir = temp_dir("read-only-cache");
+    let tree = dir.join("tree");
+    let cache = dir.join("cache");
+    let index = cache.join("index.bin");
+    fs::create_dir(&cache).unwrap();
+    let args = [
+        "--root",
+        tree.to_str().unwrap(),
+        "--index-file",
+        index.to_str().unwrap(),
+    ];
+    let check = |output: Output| {
+        assert_eq!(output.status.code(), Some(0));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("notes.txt"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("warning: could not save index"));
+    };
+    let shell = || {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .arg("shell")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(b"notes\n").unwrap();
+        child.wait_with_output().unwrap()
+    };
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o500)).unwrap();
+    let cold_search = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .arg("search")
+        .args(args)
+        .arg("notes")
+        .output()
+        .unwrap();
+    let cold_shell = shell();
+    let failed_index = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .arg("index")
+        .args(args)
+        .output()
+        .unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+    check(cold_search);
+    check(cold_shell);
+    assert_eq!(failed_index.status.code(), Some(1));
+    assert!(!index.exists());
+
+    assert!(
+        Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .arg("index")
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    fs::write(tree.join("new-notes.txt"), b"new").unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o500)).unwrap();
+    let caught_up = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .arg("search")
+        .args(args)
+        .arg("notes")
+        .output()
+        .unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(String::from_utf8_lossy(&caught_up.stdout).contains("new-notes.txt"));
+    check(caught_up);
+
+    // Wait for watch installation before changing the tree and making the
+    // final save fail. Reading the status line is the startup barrier.
+    use std::io::{BufRead, BufReader, Read};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .args(["shell", "--watch"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let mut prefix = String::new();
+    loop {
+        let mut line = String::new();
+        assert_ne!(stderr.read_line(&mut line).unwrap(), 0);
+        let ready = line.starts_with("caught up");
+        prefix.push_str(&line);
+        if ready {
+            break;
+        }
+    }
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o500)).unwrap();
+    fs::write(tree.join("watched-notes.txt"), b"watched").unwrap();
+    child.stdin.take().unwrap().write_all(b"notes\n").unwrap();
+    let mut output = child.wait_with_output().unwrap();
+    stderr.read_to_string(&mut prefix).unwrap();
+    output.stderr = prefix.into_bytes();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).contains("watched-notes.txt"));
+    check(output);
+    fs::remove_dir_all(&dir).unwrap();
+}

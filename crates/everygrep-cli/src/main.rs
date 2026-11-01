@@ -216,12 +216,17 @@ fn report_catch_up(stats: &CatchUpStats, took: std::time::Duration) -> bool {
 fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) -> io::Result<()> {
     if let Some(path) = &args.index_file {
         let started = Instant::now();
-        persist::save_with_rules(index, roots, &args.scan.rules.spec(), path).map_err(|e| {
-            io::Error::new(
+        if let Err(e) = persist::save_with_rules(index, roots, &args.scan.rules.spec(), path) {
+            let error = io::Error::new(
                 e.kind(),
                 format!("could not save index to {}: {e}", path.display()),
-            )
-        })?;
+            );
+            if args.command == "index" {
+                return Err(error);
+            }
+            eprintln!("warning: {error}");
+            return Ok(());
+        }
         eprintln!(
             "saved index to {} in {:.0} ms",
             path.display(),
