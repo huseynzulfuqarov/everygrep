@@ -273,7 +273,9 @@ Names containing query operators, quotes or non-UTF-8 bytes stay literal.
 Create shortcuts (`Ctrl+Alt+L`, or the result context menu) asks for a
 folder and creates links to all selected items there. Window settings choose
 symbolic links (default) or `.desktop` links, and numbered names (default) or
-skipping when a name exists. Existing files are never replaced. Desktop links
+skipping when a name exists. Numbers go before the extension, as for pasted
+copies (`report (2).pdf`); a desktop link keeps the whole name
+(`report.pdf (2).desktop`). Existing files are never replaced. Desktop links
 use `Type=Link` and `URL` from the [desktop entry specification](https://specifications.freedesktop.org/desktop-entry/latest/recognized-keys.html);
 opening them depends on the file manager's support. No executable launcher
 or shell command is generated.

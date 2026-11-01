@@ -11,6 +11,9 @@ use slint::ComponentHandle;
 use crate::i18n::{fill, tr};
 use crate::{AppWindow, clipboard, portal, prefs, results::ResultsModel};
 
+/// Longest file name Linux file systems accept, in bytes.
+const NAME_MAX: usize = 255;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kind {
     #[default]
@@ -47,33 +50,48 @@ fn desktop_text(source: &Path) -> String {
     )
 }
 
-fn candidate(source: &Path, folder: &Path, kind: Kind, number: u64) -> io::Result<PathBuf> {
+/// The name of the `number`th try. Numbers go before a file's extension, as
+/// pasted copies are named (`a (2).txt`); a desktop link adds `.desktop`
+/// after the whole name (`a.txt (2).desktop`).
+fn candidate(
+    source: &Path,
+    folder: &Path,
+    kind: Kind,
+    is_dir: bool,
+    number: u64,
+) -> io::Result<PathBuf> {
     let name = source
         .file_name()
         .ok_or(io::ErrorKind::InvalidInput)?
         .as_bytes();
-    let suffix = format!(
-        "{}{}",
-        if number == 1 {
-            String::new()
-        } else {
-            format!(" ({number})")
-        },
-        if kind == Kind::Desktop {
-            ".desktop"
-        } else {
-            ""
-        }
-    );
+    let mark = if number == 1 {
+        Vec::new()
+    } else {
+        format!(" ({number})").into_bytes()
+    };
+    let desktop: &[u8] = if kind == Kind::Desktop {
+        b".desktop"
+    } else {
+        b""
+    };
+    let (mut stem, mut ext): (&[u8], &[u8]) = match name.iter().rposition(|&b| b == b'.') {
+        Some(dot) if dot > 0 && !is_dir && kind == Kind::Symlink => name.split_at(dot),
+        _ => (name, b""),
+    };
+    // An extension too long to keep is treated as part of the name.
+    if mark.len() + ext.len() + desktop.len() >= NAME_MAX {
+        (stem, ext) = (name, b"");
+    }
+    let tail = [&mark[..], ext, desktop].concat();
     // A directory entry is limited in bytes, including our suffix.
-    let mut end = name.len().min(255 - suffix.len());
-    if let Ok(text) = std::str::from_utf8(name) {
+    let mut end = stem.len().min(NAME_MAX - tail.len());
+    if let Ok(text) = std::str::from_utf8(stem) {
         while !text.is_char_boundary(end) {
             end -= 1;
         }
     }
-    let mut bytes = name[..end].to_vec();
-    bytes.extend_from_slice(suffix.as_bytes());
+    let mut bytes = stem[..end].to_vec();
+    bytes.extend_from_slice(&tail);
     Ok(folder.join(std::ffi::OsString::from_vec(bytes)))
 }
 
@@ -88,9 +106,9 @@ pub fn create(
     if !source.is_absolute() || !folder.is_absolute() {
         return Err(io::ErrorKind::InvalidInput.into());
     }
-    fs::symlink_metadata(source)?;
+    let is_dir = fs::symlink_metadata(source)?.is_dir();
     for number in 1.. {
-        let target = candidate(source, folder, kind, number)?;
+        let target = candidate(source, folder, kind, is_dir, number)?;
         let result = match kind {
             Kind::Symlink => std::os::unix::fs::symlink(source, &target),
             Kind::Desktop => {
@@ -217,7 +235,7 @@ mod tests {
         let next = create(&source, &folder, Kind::Symlink, Collision::Number)
             .unwrap()
             .unwrap();
-        assert_ne!(next, first);
+        assert_eq!(next, folder.join("a b\n[Entry] (2).txt"));
         assert_eq!(fs::read_link(&first).unwrap(), dir.join("missing"));
         let desktop = create(&source, &folder, Kind::Desktop, Collision::Number)
             .unwrap()
@@ -238,12 +256,53 @@ mod tests {
     }
 
     #[test]
+    fn numbers_go_before_the_extension_like_pasted_copies() {
+        let folder = Path::new("/out");
+        let name = |source: &str, kind, is_dir, number| {
+            candidate(Path::new(source), folder, kind, is_dir, number)
+                .unwrap()
+                .strip_prefix(folder)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(name("/a/report.pdf", Kind::Symlink, false, 1), "report.pdf");
+        assert_eq!(
+            name("/a/report.pdf", Kind::Symlink, false, 2),
+            "report (2).pdf"
+        );
+        assert_eq!(name("/a/x.tar.gz", Kind::Symlink, false, 3), "x.tar (3).gz");
+        assert_eq!(name("/a/.bashrc", Kind::Symlink, false, 2), ".bashrc (2)");
+        assert_eq!(
+            name("/a/photos.2026", Kind::Symlink, true, 2),
+            "photos.2026 (2)"
+        );
+        assert_eq!(
+            name("/a/report.pdf", Kind::Desktop, false, 1),
+            "report.pdf.desktop"
+        );
+        assert_eq!(
+            name("/a/report.pdf", Kind::Desktop, false, 2),
+            "report.pdf (2).desktop"
+        );
+        // A long name loses the end of its stem, not its extension, and is cut
+        // between characters.
+        let long = format!("/a/{}é.pdf", "x".repeat(246));
+        let short = name(&long, Kind::Symlink, false, 2);
+        assert_eq!(short.len(), 254);
+        assert!(short.ends_with("x (2).pdf"), "{short}");
+        // An extension that cannot be kept is cut like the rest of the name.
+        let ext = format!("/a/x.{}", "e".repeat(253));
+        assert_eq!(name(&ext, Kind::Symlink, false, 2).len(), 255);
+    }
+
+    #[test]
     fn suffixes_fit_long_names_and_missing_sources_fail() {
         let folder = Path::new("/tmp");
         let source = Path::new("/tmp").join("x".repeat(255));
         for kind in [Kind::Symlink, Kind::Desktop] {
             assert_eq!(
-                candidate(&source, folder, kind, 2)
+                candidate(&source, folder, kind, false, 2)
                     .unwrap()
                     .file_name()
                     .unwrap()
