@@ -260,6 +260,16 @@ filter. Dotfiles and all descendants of dot-prefixed folders count as hidden,
 including hidden components in an indexed root path. No entries are removed
 from the index and no rescan is needed.
 
+The result context menu has Search in EveryGrep (`Ctrl+Alt+F`) and Search
+path in EveryGrep (`Ctrl+Alt+P`). The first searches inside a folder or for a
+file's literal name; the second searches its containing folder. Window
+settings choose this window or a new window, whether folder searches include
+subfolders, and filename substring or whole-name matching. The defaults use
+this window, direct children and filename substrings. Name searches use the
+current case setting; folder paths are case-sensitive. The current filter is
+kept, and the whole-query regex mode is turned off for the generated query.
+Names containing query operators, quotes or non-UTF-8 bytes stay literal.
+
 Create shortcuts (`Ctrl+Alt+L`, or the result context menu) asks for a
 folder and creates links to all selected items there. Window settings choose
 symbolic links (default) or `.desktop` links, and numbered names (default) or
@@ -438,9 +448,11 @@ size-width = 120
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
-search at every key press, `rename-in-dialog` the rename editor,
+search at every key press, and `rename-in-dialog` chooses the rename editor.
+`context-search-new-window`, `context-search-subfolders` and
+`context-search-exact-name` control context searches.
 `shortcut-kind` (`symlink` or `desktop`) and `shortcut-collision` (`number`
-or `skip`) the shortcut choices, `rename-select-name-only` the selection of
+or `skip`) control shortcuts. `rename-select-name-only` controls selection of
 the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
 opens, `copy-full-path-quotes` the quotes around copied full paths,

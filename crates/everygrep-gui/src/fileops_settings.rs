@@ -4,6 +4,9 @@
 pub struct Settings {
     /// Off keeps the existing in-place editor.
     pub rename_dialog: bool,
+    pub search_new_window: bool,
+    pub search_recursive: bool,
+    pub search_exact_name: bool,
     pub shortcut_kind: crate::fileops_shortcut::Kind,
     pub shortcut_collision: crate::fileops_shortcut::Collision,
 }
@@ -11,6 +14,9 @@ pub struct Settings {
 impl Settings {
     pub fn fill_window(&self, w: &crate::SettingsWindow) {
         w.set_fileops_rename_dialog(self.rename_dialog);
+        w.set_fileops_search_new_window(self.search_new_window);
+        w.set_fileops_search_recursive(self.search_recursive);
+        w.set_fileops_search_exact_name(self.search_exact_name);
         w.set_fileops_shortcut_kind(i32::from(
             self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop,
         ));
@@ -22,6 +28,9 @@ impl Settings {
     pub fn from_window(w: &crate::SettingsWindow) -> Self {
         Self {
             rename_dialog: w.get_fileops_rename_dialog(),
+            search_new_window: w.get_fileops_search_new_window(),
+            search_recursive: w.get_fileops_search_recursive(),
+            search_exact_name: w.get_fileops_search_exact_name(),
             shortcut_kind: if w.get_fileops_shortcut_kind() == 1 {
                 crate::fileops_shortcut::Kind::Desktop
             } else {
@@ -37,6 +46,23 @@ impl Settings {
 
     pub fn set(&mut self, key: &str, value: &str) -> bool {
         match (key, value) {
+            (
+                "context-search-new-window"
+                | "context-search-subfolders"
+                | "context-search-exact-name",
+                value,
+            ) => {
+                let on = match value {
+                    "true" | "yes" | "on" | "1" => true,
+                    "false" | "no" | "off" | "0" => false,
+                    _ => return false,
+                };
+                match key {
+                    "context-search-new-window" => self.search_new_window = on,
+                    "context-search-subfolders" => self.search_recursive = on,
+                    _ => self.search_exact_name = on,
+                }
+            }
             ("rename-in-dialog", "true" | "yes" | "on" | "1") => self.rename_dialog = true,
             ("rename-in-dialog", "false" | "no" | "off" | "0") => self.rename_dialog = false,
             ("shortcut-kind", "symlink") => {
@@ -57,6 +83,15 @@ impl Settings {
     }
 
     pub fn write(&self, out: &mut String) {
+        for (key, on) in [
+            ("context-search-new-window", self.search_new_window),
+            ("context-search-subfolders", self.search_recursive),
+            ("context-search-exact-name", self.search_exact_name),
+        ] {
+            if on {
+                out.push_str(&format!("{key} = true\n"));
+            }
+        }
         if self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop {
             out.push_str("shortcut-kind = desktop\n");
         }
@@ -108,6 +143,28 @@ mod tests {
                 .problems
                 .len(),
             2
+        );
+    }
+    #[test]
+    fn context_search_choices_are_persisted_and_reset_on_the_window_page() {
+        let mut s = Settings::parse(
+            "context-search-new-window = true\ncontext-search-subfolders = true\ncontext-search-exact-name = true",
+        );
+        assert!(
+            s.fileops.search_new_window
+                && s.fileops.search_recursive
+                && s.fileops.search_exact_name
+        );
+        assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
+        s.reset(Page::Search);
+        assert!(s.fileops.search_new_window);
+        s.reset(Page::Window);
+        assert_eq!(s.fileops, super::Settings::default());
+        assert_eq!(
+            Settings::parse("context-search-subfolders = invalid")
+                .problems
+                .len(),
+            1
         );
     }
 }

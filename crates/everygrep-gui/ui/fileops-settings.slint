@@ -5,6 +5,9 @@ export component FileopsSettings inherits VerticalLayout {
     in-out property <bool> rename-dialog;
     in-out property <int> shortcut-kind;
     in-out property <int> shortcut-collision;
+    in-out property <bool> search-new-window;
+    in-out property <bool> search-recursive;
+    in-out property <bool> search-exact-name;
     callback changed();
     spacing: Theme.s2;
     CheckBox {
@@ -23,5 +26,20 @@ export component FileopsSettings inherits VerticalLayout {
         model: [@tr("Use a numbered name"), @tr("Skip")];
         current-index <=> root.shortcut-collision;
         selected => { root.changed(); }
+    }
+    CheckBox {
+        text: @tr("Open context searches in a new window");
+        checked <=> root.search-new-window;
+        toggled => { root.changed(); }
+    }
+    CheckBox {
+        text: @tr("Include subfolders in context searches");
+        checked <=> root.search-recursive;
+        toggled => { root.changed(); }
+    }
+    CheckBox {
+        text: @tr("Search for the exact name from the result menu");
+        checked <=> root.search-exact-name;
+        toggled => { root.changed(); }
     }
 }

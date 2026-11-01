@@ -10,6 +10,9 @@ First version, 0.1.0, not released yet.
 
 ### File actions
 
+- Search selected folders or file names, or their containing folder, from
+  the result context menu; settings choose window, depth and name matching.
+
 - Create shortcuts to selected items in a chosen folder; settings choose
   symbolic or desktop links and numbered names or skipping existing names.
 

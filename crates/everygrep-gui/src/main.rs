@@ -7,6 +7,7 @@ mod commands;
 mod engine;
 mod export;
 mod fileops_rename;
+mod fileops_search;
 mod fileops_settings;
 mod fileops_shortcut;
 mod filetype;
@@ -352,6 +353,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
     });
+    fileops_search::connect(&window, &model, &engine, window_args.clone());
     window.on_new_window(move || {
         if let Ok(exe) = std::env::current_exe() {
             let _ = std::process::Command::new(exe).args(&window_args).spawn();

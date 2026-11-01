@@ -917,6 +917,7 @@ export component AppWindow inherits Window {
     callback copy-items(int);
     callback paste-items(int);
     callback fileops-shortcuts(int);
+    callback fileops-search(int, bool);
     callback rename-start(int);
     callback rename-commit(string);
     callback rename-cancel();
@@ -1229,6 +1230,7 @@ export component AppWindow inherits Window {
         }
         if (c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
                 || c == Command.copy-path-quoted || c == Command.copy-full-path-quoted
+                || c == Command.search-in-program || c == Command.search-containing-folder
                 || c == Command.toggle-row || c == Command.context-menu) {
             return root.current >= 0;
         }
@@ -1278,6 +1280,8 @@ export component AppWindow inherits Window {
             keys.focus();
         } else if (c == Command.toggle-row) {
             root.select(root.current, 1);
+        } else if (c == Command.search-in-program || c == Command.search-containing-folder) {
+            root.fileops-search(root.current, c == Command.search-containing-folder);
         } else if (c == Command.create-shortcut) {
             root.fileops-shortcuts(root.current);
         } else if (c == Command.rename) {
@@ -1936,6 +1940,16 @@ export component AppWindow inherits Window {
                             title: @tr("Open containing folder");
                             enabled: root.can-run(Command.open-folder);
                             activated => { root.run(Command.open-folder); }
+                        }
+                        MenuItem {
+                            title: @tr("Search in EveryGrep");
+                            enabled: root.can-run(Command.search-in-program);
+                            activated => { root.run(Command.search-in-program); }
+                        }
+                        MenuItem {
+                            title: @tr("Search path in EveryGrep");
+                            enabled: root.can-run(Command.search-containing-folder);
+                            activated => { root.run(Command.search-containing-folder); }
                         }
                         MenuSeparator { }
                         MenuItem {

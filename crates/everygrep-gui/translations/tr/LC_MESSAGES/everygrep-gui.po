@@ -1993,3 +1993,21 @@ msgstr "Kısayollar oluşturulamıyor: {}"
 
 msgid "File operations"
 msgstr "Dosya işlemleri"
+
+msgid "Search in EveryGrep"
+msgstr "EveryGrep içinde ara"
+
+msgid "Search path in EveryGrep"
+msgstr "Yolu EveryGrep içinde ara"
+
+msgid "Open context searches in a new window"
+msgstr "Bağlam aramalarını yeni pencerede aç"
+
+msgid "Include subfolders in context searches"
+msgstr "Bağlam aramalarına alt klasörleri dahil et"
+
+msgid "Search for the exact name from the result menu"
+msgstr "Bağlam aramalarında dosya adının tamamını eşleştir"
+
+msgid "Cannot open a search window: {}"
+msgstr "Arama penceresi açılamıyor: {}"
