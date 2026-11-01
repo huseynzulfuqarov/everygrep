@@ -55,7 +55,10 @@ pub struct ApplyStats {
 /// The inotify instance and the mapping between watches and folder nodes.
 struct Watches {
     inotify: Inotify,
-    dir_of: HashMap<WatchId, NodeId>,
+    /// The folder nodes of each watch. The kernel gives one watch per folder,
+    /// so a folder that shows up twice in the indexed trees (through a bind
+    /// mount) has two nodes for one watch.
+    dir_of: HashMap<WatchId, Vec<NodeId>>,
     watch_of: HashMap<NodeId, WatchId>,
     /// Folders whose watch could not be added, with the kind of error.
     failed: HashMap<NodeId, io::ErrorKind>,
@@ -69,9 +72,14 @@ impl Watches {
         }
         match self.inotify.add_watch(&path, Mask::INDEX_EVENTS) {
             Ok(wd) => {
-                if let Some(old) = self.dir_of.insert(wd, dir) {
-                    // Same inode under a new node (re-created after a missed event).
-                    self.watch_of.remove(&old);
+                if self.watch_of.get(&dir).is_some_and(|&old| old != wd) {
+                    self.detach(dir);
+                }
+                // A node that still has this watch (the same folder under
+                // another path, or a stale node about to be removed) keeps it.
+                let dirs = self.dir_of.entry(wd).or_default();
+                if !dirs.contains(&dir) {
+                    dirs.push(dir);
                 }
                 self.watch_of.insert(dir, wd);
                 self.failed.remove(&dir);
@@ -90,25 +98,40 @@ impl Watches {
             .into_iter()
             .filter_map(|(dir, kind)| Some((remap.get(dir.index()).copied().flatten()?, kind)))
             .collect();
-        for (wd, dir) in old {
-            match remap.get(dir.index()).copied().flatten() {
-                Some(new) => {
-                    self.dir_of.insert(wd, new);
-                    self.watch_of.insert(new, wd);
-                }
-                None => {
-                    let _ = self.inotify.remove_watch(wd);
-                }
+        for (wd, dirs) in old {
+            let dirs: Vec<NodeId> = dirs
+                .into_iter()
+                .filter_map(|dir| remap.get(dir.index()).copied().flatten())
+                .collect();
+            if dirs.is_empty() {
+                let _ = self.inotify.remove_watch(wd);
+                continue;
             }
+            for &new in &dirs {
+                self.watch_of.insert(new, wd);
+            }
+            self.dir_of.insert(wd, dirs);
         }
+    }
+
+    /// Takes `dir` off its watch, and returns the watch when no other node
+    /// has it any more.
+    fn detach(&mut self, dir: NodeId) -> Option<WatchId> {
+        let wd = self.watch_of.remove(&dir)?;
+        let dirs = self.dir_of.get_mut(&wd)?;
+        dirs.retain(|&d| d != dir);
+        if !dirs.is_empty() {
+            return None;
+        }
+        self.dir_of.remove(&wd);
+        Some(wd)
     }
 
     /// Drops the watches of removed folders.
     fn forget(&mut self, removed: &[NodeId]) {
         for id in removed {
             self.failed.remove(id);
-            if let Some(wd) = self.watch_of.remove(id) {
-                self.dir_of.remove(&wd);
+            if let Some(wd) = self.detach(*id) {
                 // The folder may still exist elsewhere (moved out), so stop watching it.
                 let _ = self.inotify.remove_watch(wd);
             }
@@ -127,9 +150,9 @@ pub struct Watcher {
     recheck_from: usize,
     /// Folders found unmounted by the last batch.
     unmounted: Vec<NodeId>,
-    /// Moves whose `MOVED_TO` was not in the last batch, by cookie: the node,
-    /// back at its old name, and that name.
-    waiting_moves: HashMap<u32, (NodeId, Vec<u8>)>,
+    /// Moves whose `MOVED_TO` was not in the last batch: the node, back at
+    /// its old name, and that name.
+    waiting_moves: HashMap<MoveKey, (NodeId, Vec<u8>)>,
 }
 
 impl Watcher {
@@ -334,8 +357,8 @@ impl Watcher {
             .collect();
         self.waiting_moves = std::mem::take(&mut self.waiting_moves)
             .into_iter()
-            .filter_map(|(cookie, (node, name))| {
-                Some((cookie, (remap.get(node.index()).copied().flatten()?, name)))
+            .filter_map(|(key, (node, name))| {
+                Some((key, (remap.get(node.index()).copied().flatten()?, name)))
             })
             .collect();
         remap
@@ -346,19 +369,20 @@ impl Watcher {
         let mut stats = ApplyStats::default();
         // Nodes between MOVED_FROM and MOVED_TO, parked under a name that no real
         // file can have, so a new entry with the old name is not mistaken for them.
-        let mut moved_out: HashMap<u32, NodeId> = HashMap::new();
-        // The names moved away in this batch, by cookie.
-        let mut moved_names: HashMap<u32, Vec<u8>> = HashMap::new();
+        // They are keyed by cookie and alias (see `Watches::dir_of`).
+        let mut moved_out: HashMap<MoveKey, NodeId> = HashMap::new();
+        // The names moved away in this batch.
+        let mut moved_names: HashMap<MoveKey, Vec<u8>> = HashMap::new();
         // Moves left over from the last batch: this one is their last chance.
-        let mut last_chance: HashSet<u32> = HashSet::new();
-        for (cookie, (node, _)) in std::mem::take(&mut self.waiting_moves) {
+        let mut last_chance: HashSet<MoveKey> = HashSet::new();
+        for (key, (node, _)) in std::mem::take(&mut self.waiting_moves) {
             if !index.store().is_live(node) {
                 continue;
             }
             let parent = index.store().parent(node);
-            if index.rename(node, parent, &parked_name(cookie)).is_ok() {
-                moved_out.insert(cookie, node);
-                last_chance.insert(cookie);
+            if index.rename(node, parent, &parked_name(key)).is_ok() {
+                moved_out.insert(key, node);
+                last_chance.insert(key);
             } else {
                 stats.removed += index.remove(node).len();
             }
@@ -377,96 +401,98 @@ impl Watcher {
             }
             if ev.mask.contains(Mask::UNMOUNT) {
                 // An IGNORED event follows and drops the watch.
-                if let Some(&dir) = self.watches.dir_of.get(&ev.wd) {
-                    unmounted.insert(dir);
+                if let Some(dirs) = self.watches.dir_of.get(&ev.wd) {
+                    unmounted.extend(dirs);
                 }
                 continue;
             }
             if ev.mask.contains(Mask::IGNORED) {
-                if let Some(dir) = self.watches.dir_of.remove(&ev.wd) {
+                for dir in self.watches.dir_of.remove(&ev.wd).unwrap_or_default() {
                     if self.watches.watch_of.get(&dir) == Some(&ev.wd) {
                         self.watches.watch_of.remove(&dir);
                     }
                 }
                 continue;
             }
-            let Some(&dir) = self.watches.dir_of.get(&ev.wd) else {
+            let Some(dirs) = self.watches.dir_of.get(&ev.wd).cloned() else {
                 continue;
             };
-            if !index.store().is_live(dir) {
-                continue;
-            }
-            let Some(name) = ev.name.as_deref().map(|n| n.as_bytes()) else {
-                // Events about the watched folder itself: its parent reports them too,
-                // except for a root, which has no parent.
-                if index.store().parent(dir).is_none() {
-                    if ev.mask.intersects(Mask::DELETE_SELF | Mask::MOVE_SELF) {
-                        stats.removed += index.remove(dir).len();
-                    } else if ev.mask.contains(Mask::ATTRIB) {
-                        // Its attributes may be kept outside the index, and
-                        // its permissions decide what can be read below it.
-                        index.note_subtree_changed(dir);
-                    }
+            // Every indexed folder that shows the watched one: normally one,
+            // more when a bind mount shows it again inside the indexed trees.
+            for (alias, dir) in dirs.into_iter().enumerate() {
+                let key = (ev.cookie, alias);
+                if !index.store().is_live(dir) {
+                    continue;
                 }
-                continue;
-            };
-
-            if ev
-                .mask
-                .intersects(Mask::CREATE | Mask::DELETE | Mask::MOVED_FROM | Mask::MOVED_TO)
-            {
-                touched.insert(dir);
-            }
-            if ev.mask.contains(Mask::MOVED_FROM) {
-                if let Some(node) = index.find_child(Some(dir), name) {
-                    if index
-                        .rename(node, Some(dir), &parked_name(ev.cookie))
-                        .is_ok()
-                    {
-                        if let Some(previous) = moved_out.insert(ev.cookie, node) {
-                            stats.removed += index.remove(previous).len();
+                let Some(name) = ev.name.as_deref().map(|n| n.as_bytes()) else {
+                    // Events about the watched folder itself: its parent reports them too,
+                    // except for a root, which has no parent.
+                    if index.store().parent(dir).is_none() {
+                        if ev.mask.intersects(Mask::DELETE_SELF | Mask::MOVE_SELF) {
+                            stats.removed += index.remove(dir).len();
+                        } else if ev.mask.contains(Mask::ATTRIB) {
+                            // Its attributes may be kept outside the index, and
+                            // its permissions decide what can be read below it.
+                            index.note_subtree_changed(dir);
                         }
-                        last_chance.remove(&ev.cookie);
-                        moved_names.insert(ev.cookie, name.to_vec());
-                    } else {
+                    }
+                    continue;
+                };
+
+                if ev
+                    .mask
+                    .intersects(Mask::CREATE | Mask::DELETE | Mask::MOVED_FROM | Mask::MOVED_TO)
+                {
+                    touched.insert(dir);
+                }
+                if ev.mask.contains(Mask::MOVED_FROM) {
+                    if let Some(node) = index.find_child(Some(dir), name) {
+                        if index.rename(node, Some(dir), &parked_name(key)).is_ok() {
+                            if let Some(previous) = moved_out.insert(key, node) {
+                                stats.removed += index.remove(previous).len();
+                            }
+                            last_chance.remove(&key);
+                            moved_names.insert(key, name.to_vec());
+                        } else {
+                            stats.removed += index.remove(node).len();
+                        }
+                    }
+                } else if ev.mask.contains(Mask::MOVED_TO) {
+                    match moved_out.remove(&key) {
+                        Some(node)
+                            if self.keeps_on_move(index, node, dir, name)
+                                && index.rename(node, Some(dir), name).is_ok() =>
+                        {
+                            stats.moved += 1;
+                            if self.skip.with_metadata || index.store().is_dir(node) {
+                                self.refresh_meta(index, node, &mut stats, &mut touched);
+                            }
+                        }
+                        Some(node) => {
+                            stats.removed += index.remove(node).len();
+                            self.add_or_miss(index, dir, name, &mut stats, &mut missed);
+                        }
+                        None => self.add_or_miss(index, dir, name, &mut stats, &mut missed),
+                    }
+                } else if ev.mask.contains(Mask::CREATE) {
+                    self.add_or_miss(index, dir, name, &mut stats, &mut missed);
+                } else if ev.mask.contains(Mask::DELETE) {
+                    if let Some(node) = index.find_child(Some(dir), name) {
                         stats.removed += index.remove(node).len();
                     }
-                }
-            } else if ev.mask.contains(Mask::MOVED_TO) {
-                match moved_out.remove(&ev.cookie) {
-                    Some(node)
-                        if self.keeps_on_move(index, node, dir, name)
-                            && index.rename(node, Some(dir), name).is_ok() =>
-                    {
-                        stats.moved += 1;
+                } else if ev
+                    .mask
+                    .intersects(Mask::ATTRIB | Mask::CLOSE_WRITE | Mask::MODIFY)
+                {
+                    if let Some(node) = index.find_child(Some(dir), name) {
                         if self.skip.with_metadata || index.store().is_dir(node) {
                             self.refresh_meta(index, node, &mut stats, &mut touched);
                         }
-                    }
-                    Some(node) => {
-                        stats.removed += index.remove(node).len();
-                        self.add_or_miss(index, dir, name, &mut stats, &mut missed);
-                    }
-                    None => self.add_or_miss(index, dir, name, &mut stats, &mut missed),
-                }
-            } else if ev.mask.contains(Mask::CREATE) {
-                self.add_or_miss(index, dir, name, &mut stats, &mut missed);
-            } else if ev.mask.contains(Mask::DELETE) {
-                if let Some(node) = index.find_child(Some(dir), name) {
-                    stats.removed += index.remove(node).len();
-                }
-            } else if ev
-                .mask
-                .intersects(Mask::ATTRIB | Mask::CLOSE_WRITE | Mask::MODIFY)
-            {
-                if let Some(node) = index.find_child(Some(dir), name) {
-                    if self.skip.with_metadata || index.store().is_dir(node) {
-                        self.refresh_meta(index, node, &mut stats, &mut touched);
-                    }
-                    if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
-                        // A folder's permissions decide what can be read
-                        // below it, without events for the nodes there.
-                        index.note_subtree_changed(node);
+                        if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
+                            // A folder's permissions decide what can be read
+                            // below it, without events for the nodes there.
+                            index.note_subtree_changed(node);
+                        }
                     }
                 }
             }
@@ -476,9 +502,9 @@ impl Watcher {
         // lags behind the disk as for any event not read yet). One left over
         // from the last batch, or whose old name is taken again, left the
         // watched trees.
-        for (cookie, node) in moved_out {
-            let back = match moved_names.remove(&cookie) {
-                Some(name) if !last_chance.contains(&cookie) => {
+        for (key, node) in moved_out {
+            let back = match moved_names.remove(&key) {
+                Some(name) if !last_chance.contains(&key) => {
                     let parent = index.store().parent(node);
                     (index.find_child(parent, &name).is_none()
                         && index.rename(node, parent, &name).is_ok())
@@ -488,7 +514,7 @@ impl Watcher {
             };
             match back {
                 Some(name) => {
-                    self.waiting_moves.insert(cookie, (node, name));
+                    self.waiting_moves.insert(key, (node, name));
                 }
                 None => stats.removed += index.remove(node).len(),
             }
@@ -568,9 +594,7 @@ impl Watcher {
         self.watches.forget(&index.take_removed());
         self.unsettled.remove(&dir);
         // The old watch is gone with the file system.
-        if let Some(wd) = self.watches.watch_of.remove(&dir) {
-            self.watches.dir_of.remove(&wd);
-        }
+        self.watches.detach(dir);
         self.watches.watch(index, dir, &self.skip);
         let watches = &mut self.watches;
         let skip = &self.skip;
@@ -660,11 +684,16 @@ impl Watcher {
     }
 }
 
+/// A move: its cookie, and which of the folders that show the watched one
+/// it happened in.
+type MoveKey = (u32, usize);
+
 /// Temporary name of a node whose move has not been matched yet. File names
 /// cannot contain NUL, so it never collides with a real entry.
-fn parked_name(cookie: u32) -> Vec<u8> {
+fn parked_name((cookie, alias): MoveKey) -> Vec<u8> {
     let mut name = b"\0moving\0".to_vec();
     name.extend_from_slice(&cookie.to_le_bytes());
+    name.extend_from_slice(&alias.to_le_bytes());
     name
 }
 
@@ -1180,6 +1209,59 @@ mod tests {
         assert!(f.watcher.has_pending());
         assert_eq!(f.watcher.apply(&mut f.index, &[]).removed, 1);
         assert!(!has(&f.index, &file));
+    }
+
+    #[test]
+    fn a_folder_indexed_under_two_nodes_keeps_both_current() {
+        // Nested roots give one folder two nodes, as a bind mount inside an
+        // indexed tree would, without mounting anything.
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-alias-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("x/sub")).unwrap();
+        let mut store = NodeStore::new();
+        let roots = [base.join("x"), base.join("x/sub")];
+        scan(&mut store, &roots, &ScanOptions::default());
+        let mut index = Index::new(store);
+        let mut watcher = Watcher::new(&index, &ScanOptions::default()).unwrap();
+        assert_eq!(watcher.watch_count(), 2, "x and x/sub");
+        let count = |index: &Index, path: &Path| {
+            index
+                .order()
+                .iter()
+                .filter(|&id| index.store().path(id) == path)
+                .count()
+        };
+        let settle = |index: &mut Index, watcher: &mut Watcher, done: &dyn Fn(&Index) -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !done(index) && Instant::now() < deadline {
+                watcher
+                    .poll(index, Some(Duration::from_millis(50)))
+                    .unwrap();
+            }
+            done(index)
+        };
+        let new = base.join("x/sub/new.txt");
+        fs::write(&new, b"n").unwrap();
+        let both = settle(&mut index, &mut watcher, &|i| count(i, &new) == 2);
+        fs::remove_file(&new).unwrap();
+        let none = settle(&mut index, &mut watcher, &|i| count(i, &new) == 0);
+        // Renaming it moves one node and removes the other (its root moved
+        // away); the watch stays for the one left.
+        fs::rename(base.join("x/sub"), base.join("x/moved")).unwrap();
+        let later = base.join("x/moved/later.txt");
+        settle(&mut index, &mut watcher, &|i| {
+            count(i, &base.join("x/moved")) == 1
+        });
+        fs::write(&later, b"l").unwrap();
+        let still = settle(&mut index, &mut watcher, &|i| count(i, &later) == 1);
+        let roots = index.roots().len();
+        drop(watcher);
+        fs::remove_dir_all(&base).unwrap();
+        assert!(both, "created under both nodes");
+        assert!(none, "removed under both nodes");
+        assert_eq!(roots, 1);
+        assert!(still, "the remaining node is still watched");
     }
 
     #[test]
