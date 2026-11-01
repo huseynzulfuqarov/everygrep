@@ -34,7 +34,9 @@ First version, 0.1.0, not released yet.
   instead of after z), `ə` as a letter after `e`, hyphens and apostrophes
   skipped.
   The same name in several folders sorts by folder path (also as the tie
-  order of the other columns), not by when the folders were indexed.
+  order of the other columns), not by when the folders were indexed; so do
+  names that sort as equal (`Çay` and `cay`, `a-b` and `ab`), then by their
+  exact spelling. Folder paths sort naturally too (`dir2` before `dir10`).
 - Creation time (birth time, where the file system keeps it), access time and
   attribute letters (`R` read-only, `H` hidden, `D` directory, `L` link,
   `X` executable) read from the file system on demand, so the index stays

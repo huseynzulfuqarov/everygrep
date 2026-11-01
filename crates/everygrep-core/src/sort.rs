@@ -5,11 +5,14 @@
 //! are sorted; equal keys keep the name order, so the result is
 //! deterministic. Folders are not forced before files.
 //!
-//! The name order of the index breaks ties between equal names by the parent's
-//! node id, which is fast to keep but means nothing to a reader. [`sort`]
-//! orders such runs of equal names by their folder path instead (the order of
-//! [`SortKey::Path`]), for every key, so the same name in many folders comes
-//! out by folder and stays so after refreshes, inserts and renames.
+//! The name order of the index is natural and ignores case and diacritics
+//! (see [`crate::collate`]); names it finds equal (`Çay` and `cay`, `a-b` and
+//! `ab`, the same name in many folders) are ordered by raw name and then by
+//! the parent's node id, which is fast to keep but means nothing to a reader.
+//! [`sort`] orders such runs of equal names by their folder path instead (the
+//! order of [`SortKey::Path`]), then by raw name, for every key, so the same
+//! name in many folders comes out by folder and stays so after refreshes,
+//! inserts and renames.
 //!
 //! By size, folders count with what [`FolderSize`] says: their total size
 //! (sorted together with files), their number of items, or nothing.
@@ -26,10 +29,11 @@
 //! logged as changed (see [`Index::changed_since`]). Access times are always
 //! read again: reading a file changes them, and no event says so.
 
-use std::cmp::Reverse;
+use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+use crate::collate::collate;
 use crate::details::{Attributes, Details};
 use crate::index::Index;
 use crate::kind::{FileKind, classify};
@@ -302,9 +306,14 @@ fn sort_maybe_cached(
     };
     let sorted = sort_ordered(index, ids, sort, threads, progress, cache);
     if sorted.is_err() {
-        // In the input, equal names are in parent id order.
+        // In the input, equal names are in raw name, then parent id order.
         for &(from, to) in &runs {
-            ids[from..to].sort_unstable_by_key(|&id| store.parent_key(id));
+            ids[from..to].sort_unstable_by(|&a, &b| {
+                store
+                    .name(a)
+                    .cmp(store.name(b))
+                    .then_with(|| store.parent_key(a).cmp(&store.parent_key(b)))
+            });
         }
     }
     sorted
@@ -592,13 +601,13 @@ fn sort_by_keys<K: Ord + Send + Copy>(
 }
 
 /// Puts the runs of equal names in `ids` (which is in the index's name order)
-/// in folder path order, in place, looking for them on up to `threads`
-/// threads. Returns the runs as `start..end` ranges. When cancelled, `ids` are
-/// left as they were.
+/// in folder path order, then raw name order, in place, looking for them on up
+/// to `threads` threads. Returns the runs as `start..end` ranges. When
+/// cancelled, `ids` are left as they were.
 ///
-/// Equal raw names have equal folded names, so they are next to each other in
-/// the name order and one look at each neighbour finds them; only folders that
-/// hold a repeated name get a path key.
+/// Names that collate equal are next to each other in the name order, already
+/// in raw name order, so one look at each neighbour finds them; only folders
+/// that hold such a name get a path key.
 fn order_equal_names(
     store: &NodeStore,
     ids: &mut [NodeId],
@@ -624,19 +633,20 @@ fn order_equal_names(
         .collect();
     let ranks = folder_ranks(store, &tied);
     // Sorts the runs of one group in its part of `ids`, which starts at
-    // position `base`. Names in one folder are unique, so the folder rank
-    // alone decides.
+    // position `base`. Within one folder the run is in raw name order
+    // already, and the position keeps it.
     let sort_runs = |runs: &[(usize, usize)], part: &mut [NodeId], base: usize| {
-        let mut keyed: Vec<(u32, NodeId)> = Vec::new();
+        let mut keyed: Vec<(u32, u32, NodeId)> = Vec::new();
         for &(from, to) in runs {
             let run = &mut part[from - base..to - base];
             keyed.clear();
             keyed.extend(
-                run.iter()
-                    .map(|&id| (store.parent(id).map_or(0, |p| ranks[p.index()]), id)),
+                (0..)
+                    .zip(run.iter())
+                    .map(|(at, &id)| (store.parent(id).map_or(0, |p| ranks[p.index()]), at, id)),
             );
             keyed.sort_unstable();
-            for (slot, &(_, id)) in run.iter_mut().zip(&keyed) {
+            for (slot, &(_, _, id)) in run.iter_mut().zip(&keyed) {
                 *slot = id;
             }
         }
@@ -671,8 +681,8 @@ fn order_equal_names(
     Ok(runs)
 }
 
-/// Positions `i` (in increasing order) where `ids[i]` has the same raw name as
-/// `ids[i - 1]`, found on up to `threads` threads.
+/// Positions `i` (in increasing order) where the name of `ids[i]` collates
+/// equal to the name of `ids[i - 1]`, found on up to `threads` threads.
 fn same_as_previous(
     store: &NodeStore,
     ids: &[NodeId],
@@ -684,7 +694,7 @@ fn same_as_previous(
         for start in (from.max(1)..to).step_by(KEY_BATCH) {
             progress.check()?;
             for i in start..to.min(start + KEY_BATCH) {
-                if store.name(ids[i]) == store.name(ids[i - 1]) {
+                if same_name(store, ids[i - 1], ids[i]) {
                     out.push(u32::try_from(i).expect("result count fits in u32"));
                 }
             }
@@ -714,6 +724,12 @@ fn same_as_previous(
         same.extend(part?);
     }
     Ok(same)
+}
+
+/// Whether the names of `a` and `b` collate equal.
+fn same_name(store: &NodeStore, a: NodeId, b: NodeId) -> bool {
+    let (fa, fb) = (store.folded_name(a), store.folded_name(b));
+    fa == fb || collate(fa, fb) == Ordering::Equal
 }
 
 /// Sorts `v`, splitting large slices into one run per thread that are sorted in
@@ -765,8 +781,7 @@ fn merge_halves<T: Ord + Copy>(v: &mut [T], mid: usize) {
     }
 }
 
-/// Ranks the parents of `ids` by their path, compared component by component on
-/// folded names, then on raw names. Returns a table indexed by node id; ranks
+/// Ranks the parents of `ids` by their path (see [`cmp_paths`]). Returns a table indexed by node id; ranks
 /// start at 1, so 0 is left for roots, which have no parent.
 fn folder_ranks(store: &NodeStore, ids: &[NodeId]) -> Vec<u32> {
     let mut ranks = vec![0; store.len()];
@@ -778,11 +793,11 @@ fn folder_ranks(store: &NodeStore, ids: &[NodeId]) -> Vec<u32> {
             folders.push(p);
         }
     }
-    let mut keyed: Vec<(PathKey, NodeId)> = folders
+    let mut keyed: Vec<(Vec<NodeId>, NodeId)> = folders
         .into_iter()
-        .map(|f| (path_key(store, f), f))
+        .map(|f| (path_of(store, f), f))
         .collect();
-    keyed.sort_unstable();
+    keyed.sort_unstable_by(|a, b| cmp_paths(store, &a.0, &b.0).then(a.1.cmp(&b.1)));
     for (rank, (_, folder)) in (1..).zip(&keyed) {
         ranks[folder.index()] = rank;
     }
@@ -813,28 +828,34 @@ fn extension_ranks(store: &NodeStore, ids: &[NodeId]) -> (Vec<u32>, Vec<u32>) {
     (exts, ranks)
 }
 
-/// Folded and raw path of a folder, see [`path_key`].
-type PathKey = (Vec<u8>, Vec<u8>);
-
-/// Folded and raw path of a folder with components joined by a zero byte, which
-/// never occurs in names, so `a/b` sorts before `a-c` as it does component-wise.
-fn path_key(store: &NodeStore, folder: NodeId) -> PathKey {
+/// The folders from the root down to `folder`.
+fn path_of(store: &NodeStore, folder: NodeId) -> Vec<NodeId> {
     let mut chain = vec![folder];
     let mut cur = folder;
     while let Some(p) = store.parent(cur) {
         chain.push(p);
         cur = p;
     }
-    let (mut folded, mut raw) = (Vec::new(), Vec::new());
-    for (n, &part) in chain.iter().rev().enumerate() {
-        if n > 0 {
-            folded.push(0);
-            raw.push(0);
+    chain.reverse();
+    chain
+}
+
+/// Compares two paths (from [`path_of`]) component by component, each in the
+/// index's name order (natural, then raw name), so `/r/dir2` comes before
+/// `/r/dir10`, `a/b` before `a-c`, and the folders below one folder stay
+/// together; a path comes before the longer paths it starts.
+fn cmp_paths(store: &NodeStore, a: &[NodeId], b: &[NodeId]) -> Ordering {
+    for (&x, &y) in a.iter().zip(b) {
+        if x == y {
+            continue;
         }
-        folded.extend_from_slice(store.folded_name(part));
-        raw.extend_from_slice(store.name(part));
+        let order = collate(store.folded_name(x), store.folded_name(y))
+            .then_with(|| store.name(x).cmp(store.name(y)));
+        if order.is_ne() {
+            return order;
+        }
     }
-    (folded, raw)
+    a.len().cmp(&b.len())
 }
 
 #[cfg(test)]
@@ -976,6 +997,94 @@ mod tests {
                 "/r/zz/readme.md",
             ]
         );
+    }
+
+    /// Full paths of all nodes, sorted by `key`.
+    fn all_paths(index: &Index, key: SortKey, descending: bool) -> Vec<String> {
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let mut ids = search(index, &all, 1);
+        let s = Sort {
+            key,
+            descending,
+            folders: FolderSize::None,
+        };
+        sort(index, &mut ids, s, 1);
+        ids.iter()
+            .map(|&id| index.store().path(id).to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn names_that_collate_equal_sort_by_folder_then_raw_name() {
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        let z = index.insert(Some(root), b"z", true, Meta::default());
+        let a = index.insert(Some(root), b"a", true, Meta::default());
+        for name in ["ab", "a-b"] {
+            index.insert(Some(z), name.as_bytes(), false, Meta::default());
+        }
+        index.insert(Some(a), b"ab", false, Meta::default());
+        for name in ["Çay", "cay"] {
+            index.insert(Some(a), name.as_bytes(), false, Meta::default());
+        }
+        index.insert(Some(z), "Çay".as_bytes(), false, Meta::default());
+        let asc = [
+            "/r",
+            "/r/a",
+            "/r/a/ab",
+            "/r/z/a-b",
+            "/r/z/ab",
+            "/r/a/cay",
+            "/r/a/Çay",
+            "/r/z/Çay",
+            "/r/z",
+        ];
+        assert_eq!(all_paths(&index, SortKey::Name, false), asc);
+        let desc: Vec<&str> = asc.iter().rev().copied().collect();
+        assert_eq!(all_paths(&index, SortKey::Name, true), desc);
+        // Other keys keep that order for ties, in both directions.
+        for descending in [false, true] {
+            assert_eq!(all_paths(&index, SortKey::Size, descending), asc);
+        }
+    }
+
+    #[test]
+    fn path_sorts_folders_naturally() {
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        for dir in ["dir10", "Dir2", "dir-1", "Ölçü", "olcu", "z"] {
+            let d = index.insert(Some(root), dir.as_bytes(), true, Meta::default());
+            index.insert(Some(d), b"f", false, Meta::default());
+            // Folders whose names sort as equal keep their subfolders apart.
+            let sub: &[u8] = if dir == "olcu" { b"x" } else { b"a" };
+            if dir == "olcu" || dir == "Ölçü" {
+                let s = index.insert(Some(d), sub, true, Meta::default());
+                index.insert(Some(s), b"f", false, Meta::default());
+            }
+        }
+        let files: Vec<String> = all_paths(&index, SortKey::Path, false)
+            .into_iter()
+            .filter(|p| p.ends_with("/f"))
+            .collect();
+        assert_eq!(
+            files,
+            [
+                "/r/dir-1/f",
+                "/r/Dir2/f",
+                "/r/dir10/f",
+                "/r/olcu/f",
+                "/r/olcu/x/f",
+                "/r/Ölçü/f",
+                "/r/Ölçü/a/f",
+                "/r/z/f"
+            ]
+        );
+        // The same name in those folders sorts by name in that folder order.
+        let by_name: Vec<String> = all_paths(&index, SortKey::Name, false)
+            .into_iter()
+            .filter(|p| p.ends_with("/f"))
+            .collect();
+        assert_eq!(by_name, files);
     }
 
     #[test]
@@ -1405,10 +1514,13 @@ mod tests {
         }
         let mut ids = found;
         sort(&index, &mut ids, Sort::default(), 7);
-        let folder = |id| path_key(store, store.parent(id).unwrap());
+        let folder = |id| path_of(store, store.parent(id).unwrap());
         for w in ids.windows(2) {
             if store.name(w[0]) == store.name(w[1]) {
-                assert!(folder(w[0]) < folder(w[1]));
+                assert_eq!(
+                    cmp_paths(store, &folder(w[0]), &folder(w[1])),
+                    Ordering::Less
+                );
             }
         }
     }

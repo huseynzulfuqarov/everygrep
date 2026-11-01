@@ -68,9 +68,11 @@ matching works on the folded names, so it never allocates or folds per
 comparison. `sort.rs` reorders results by another column (path, size,
 modified, type, extension, created, accessed, attributes) with a stable sort,
 so equal keys keep name order. The index's own name order breaks ties between
-equal names by parent id; `sort.rs` first puts each run of equal names in
-folder path order (one look at each neighbour finds the runs, and only their
-folders get a path key), so that order means something to the reader. Creation time, access time and attributes are
+names that collate equal by raw name and parent id; `sort.rs` first puts each
+run of such names in folder path order, then raw name order (one look at each
+neighbour finds the runs, and only their folders get a path key), so that
+order means something to the reader. Folder paths compare component by
+component in the same natural order (`dir2` before `dir10`). Creation time, access time and attributes are
 not kept in the index; `details.rs` reads them with `lstat` (`statx` with the
 birth time) for the rows on screen, and the sort reads them for every result
 on several threads.
