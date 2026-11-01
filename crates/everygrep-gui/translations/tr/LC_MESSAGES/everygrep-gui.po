@@ -1953,7 +1953,7 @@ msgid "New name"
 msgstr "Yeni ad"
 
 msgid "A name cannot contain a null character."
-msgstr "Ad boş karakter içeremez."
+msgstr "Ad null karakter içeremez."
 
 msgid "Create shortcuts…"
 msgstr "Kısayollar oluştur…"
