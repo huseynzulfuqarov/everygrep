@@ -224,8 +224,9 @@ take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
 the table above. With the menu bar hidden, the `⋯` button next to the filter
 selector holds settings, keyboard shortcuts, about and quit.
 
-The status line shows badges for the nine active matching modes. Settings →
-Search → Show active matching modes in the status line turns them off or on.
+The status line shows badges for active matching modes and hidden-file filters.
+Settings → Search → Show active matching modes in the status line turns them
+off or on.
 Badges describe the window toggles; per-term modifiers stay in the query.
 
 Search → Previous filter / Next filter (`Alt+↑` / `Alt+↓`) follows the
