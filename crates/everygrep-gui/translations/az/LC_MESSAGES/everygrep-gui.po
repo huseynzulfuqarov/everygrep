@@ -1876,17 +1876,37 @@ msgstr "Bütün sütunları pəncərəyə uyğunlaşdır"
 msgid "Show active matching modes in the status line"
 msgstr "Aktiv uyğunlaşdırma rejimlərini status sətrində göstər"
 
+#: ui/settings.slint
+msgid "Shows badges for window options, including hidden-file filters. Per-term modifiers stay in the query."
+msgstr "Gizli fayl filtrləri də daxil olmaqla pəncərə seçimlərini nişanlarla göstərir. Ayrı-ayrı terminlərin modifikatorları sorğuda qalır."
+
 msgid "Wrap when moving to the next or previous filter"
 msgstr "Növbəti və ya əvvəlki filtrə keçərkən siyahını dövr et"
+
+#: ui/settings.slint
+msgid "Off: moving past the first or last filter keeps the current filter."
+msgstr "Söndürüləndə ilk və ya son filtrdən kənara keçid cari filtri dəyişmir."
 
 msgid "Match wildcards anywhere in the filename"
 msgstr "Wildcard-ları fayl adının istənilən yerində uyğunlaşdır"
 
+#: ui/settings.slint
+msgid "Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term."
+msgstr "Söndürüləndə wildcard nümunələri bütün fayl adına uyğunlaşdırılır. wholename: və nowholename: bunu bir wildcard termini üçün dəyişir."
+
 msgid "Allow literal AND / OR / NOT operators"
 msgstr "Hərfi AND / OR / NOT operatorlarına icazə ver"
 
+#: ui/settings.slint
+msgid "On: standalone uppercase AND, OR and NOT act as operators. Quoted words stay literal."
+msgstr "Aktiv olanda ayrıca yazılmış böyük hərfli AND, OR və NOT sözləri operator kimi işləyir. Dırnaq içindəki sözlər adi mətn olaraq qalır."
+
 msgid "Evaluate AND before OR"
 msgstr "AND operatorunu OR-dan əvvəl hesabla"
+
+#: ui/settings.slint
+msgid "Off: OR is evaluated before AND. Use < > to group terms in either mode."
+msgstr "Söndürüləndə OR operatoru AND-dən əvvəl hesablanır. Hər iki rejimdə terminləri qruplaşdırmaq üçün < > istifadə edin."
 
 msgid "Show hidden files"
 msgstr "Gizli faylları göstər"

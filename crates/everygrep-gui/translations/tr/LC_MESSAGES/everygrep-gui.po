@@ -1876,17 +1876,37 @@ msgstr "Tüm sütunları pencereye sığdır"
 msgid "Show active matching modes in the status line"
 msgstr "Etkin eşleştirme kiplerini durum satırında göster"
 
+#: ui/settings.slint
+msgid "Shows badges for window options, including hidden-file filters. Per-term modifiers stay in the query."
+msgstr "Gizli dosya filtreleri dahil pencere seçeneklerini rozetlerle gösterir. Terim başına değiştiriciler sorguda kalır."
+
 msgid "Wrap when moving to the next or previous filter"
 msgstr "Sonraki veya önceki filtreye geçerken listeyi döngüle"
+
+#: ui/settings.slint
+msgid "Off: moving past the first or last filter keeps the current filter."
+msgstr "Kapalıyken ilk veya son filtrenin ötesine geçmek geçerli filtreyi değiştirmez."
 
 msgid "Match wildcards anywhere in the filename"
 msgstr "Jokerleri dosya adının herhangi bir yerinde eşleştir"
 
+#: ui/settings.slint
+msgid "Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term."
+msgstr "Kapalıyken joker kalıpları dosya adının tamamıyla eşleşir. wholename: ve nowholename: bunu tek bir joker terimi için değiştirir."
+
 msgid "Allow literal AND / OR / NOT operators"
 msgstr "AND / OR / NOT sözcük işleçlerine izin ver"
 
+#: ui/settings.slint
+msgid "On: standalone uppercase AND, OR and NOT act as operators. Quoted words stay literal."
+msgstr "Açıkken tek başına büyük harfle yazılan AND, OR ve NOT işleç olarak kullanılır. Tırnak içindeki sözcükler düz metin olarak kalır."
+
 msgid "Evaluate AND before OR"
 msgstr "AND işlecini OR’dan önce değerlendir"
+
+#: ui/settings.slint
+msgid "Off: OR is evaluated before AND. Use < > to group terms in either mode."
+msgstr "Kapalıyken OR, AND'den önce değerlendirilir. Her iki kipte de terimleri gruplamak için < > kullanın."
 
 msgid "Show hidden files"
 msgstr "Gizli dosyaları göster"

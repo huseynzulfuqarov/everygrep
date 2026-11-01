@@ -489,21 +489,25 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.filter-wrap;
                                 toggled => { root.search-changed(); }
                             }
+                            Note { text: @tr("Off: moving past the first or last filter keeps the current filter."); }
                             CheckBox {
                                 text: @tr("Match wildcards anywhere in the filename");
                                 checked <=> root.wildcards-anywhere;
                                 toggled => { root.search-changed(); }
                             }
+                            Note { text: @tr("Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term."); }
                             CheckBox {
                                 text: @tr("Allow literal AND / OR / NOT operators");
                                 checked <=> root.literal-operators;
                                 toggled => { root.search-changed(); }
                             }
+                            Note { text: @tr("On: standalone uppercase AND, OR and NOT act as operators. Quoted words stay literal."); }
                             CheckBox {
                                 text: @tr("Evaluate AND before OR");
                                 checked <=> root.and-before-or;
                                 toggled => { root.search-changed(); }
                             }
+                            Note { text: @tr("Off: OR is evaluated before AND. Use < > to group terms in either mode."); }
                             HorizontalLayout {
                                 spacing: Theme.s3;
                                 Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; }
@@ -522,6 +526,7 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.show-mode-badges;
                                 toggled => { root.search-changed(); }
                             }
+                            Note { text: @tr("Shows badges for window options, including hidden-file filters. Per-term modifiers stay in the query."); }
                             CheckBox {
                                 text: @tr("Search as you type");
                                 checked <=> root.as-you-type;
