@@ -324,6 +324,7 @@ impl Query {
             limit: None,
             now_ns,
             zone,
+            depth: 0,
         };
         let mut root = p.parse_expression(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
@@ -1288,11 +1289,34 @@ struct Parser {
     limit: Option<usize>,
     now_ns: i64,
     zone: Option<Zone>,
+    /// Current nesting of groups, negations and `file:`/`folder:` terms.
+    depth: usize,
 }
+
+/// Deepest nesting of groups, negations and `file:`/`folder:` terms. Each
+/// level is a recursive call while parsing and evaluating, so a pasted
+/// `!!!!…` or `<<<<…` must stop with an error before the stack runs out.
+const MAX_DEPTH: usize = 100;
 
 impl Parser {
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
+    }
+
+    /// Runs `f` one nesting level deeper, or fails when that is too deep.
+    fn nested<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return Err(ParseError(format!(
+                "the query is nested too deeply (more than {MAX_DEPTH} levels)"
+            )));
+        }
+        self.depth += 1;
+        let result = f(self);
+        self.depth -= 1;
+        result
     }
 
     /// Selects the precedence for this expression, including nested groups.
@@ -1392,11 +1416,13 @@ impl Parser {
         match self.tokens.get(self.pos).cloned() {
             Some(Token::Not) => {
                 self.pos += 1;
-                Ok(self.parse_unary()?.map(|n| Node::Not(Box::new(n))))
+                Ok(self
+                    .nested(Self::parse_unary)?
+                    .map(|n| Node::Not(Box::new(n))))
             }
             Some(Token::Open) => {
                 self.pos += 1;
-                let inner = self.parse_expression(true)?;
+                let inner = self.nested(|p| p.parse_expression(true))?;
                 match self.peek() {
                     Some(Token::Close) => self.pos += 1,
                     _ => return Err(ParseError("missing '>'".into())),
@@ -1564,7 +1590,7 @@ impl Parser {
 
     /// `file:foo` means "a file whose name contains foo".
     fn with_rest(&mut self, kind: Pred, rest: &str) -> Result<Node, ParseError> {
-        Ok(match self.parse_word(rest)? {
+        Ok(match self.nested(|p| p.parse_word(rest))? {
             Some(term) => and_also(term, Node::Leaf(kind)),
             None => Node::Leaf(kind),
         })
@@ -2781,6 +2807,50 @@ mod tests {
         assert!(Query::parse("a>", QueryOptions::default()).is_err());
         assert!(Query::parse("size:>lots", QueryOptions::default()).is_err());
         assert!(Query::parse("modified:soon", QueryOptions::default()).is_err());
+    }
+
+    #[test]
+    fn deep_nesting_is_an_error_not_a_crash() {
+        // The window searches on a thread with the default 2 MiB stack; a
+        // pasted 10 KB query must not overflow it.
+        let deep = [
+            format!("{}a", "!".repeat(10_000)),
+            format!("{}a{}", "<".repeat(10_000), ">".repeat(10_000)),
+            format!("{}a", "file:".repeat(10_000)),
+            format!("{}a", "folder:".repeat(10_000)),
+            format!("{}a", "!<file:".repeat(5_000)),
+        ];
+        let errors = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                let mut errors = Vec::new();
+                for q in &deep {
+                    for and_before_or in [false, true] {
+                        let o = QueryOptions {
+                            and_before_or,
+                            ..QueryOptions::default()
+                        };
+                        errors.push(Query::parse(q, o).unwrap_err().0);
+                    }
+                }
+                errors
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(errors.iter().all(|e| e.contains("nested too deeply")));
+
+        // Up to the limit the query still works.
+        let t = Tree::new();
+        let even = format!("{}main", "!".repeat(MAX_DEPTH));
+        assert_eq!(t.find(&even), ["main.rs"]);
+        let group = format!("{}main{}", "<".repeat(MAX_DEPTH), ">".repeat(MAX_DEPTH));
+        assert_eq!(t.find(&group), ["main.rs"]);
+        assert_eq!(
+            t.find(&format!("{}main", "file:".repeat(MAX_DEPTH))),
+            ["main.rs"]
+        );
+        assert!(Query::parse(&format!("!{even}"), QueryOptions::default()).is_err());
     }
 
     #[test]

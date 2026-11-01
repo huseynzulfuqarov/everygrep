@@ -71,6 +71,7 @@ First version, 0.1.0, not released yet.
 ### Query language
 
 - AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
+  Nesting deeper than 100 levels is a query error instead of a crash.
 - Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
   operators. The default keeps these words literal; quoted words and
   modifier values stay literal when the setting is enabled.

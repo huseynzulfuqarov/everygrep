@@ -17,6 +17,8 @@ A query is a list of terms; a result must match all of them.
 
 A missing closing quote, a missing `>` or an unexpected `>` is an error; the
 window shows it under the search field, the command line prints `bad query:`.
+So is nesting deeper than 100 levels of groups, `!` and `file:`/`folder:`
+(`!!!…a` with more than 100 `!`).
 Empty alternatives (`a\|`, `\|b`) are ignored.
 
 Settings → Search → Allow literal AND / OR / NOT operators (off by
