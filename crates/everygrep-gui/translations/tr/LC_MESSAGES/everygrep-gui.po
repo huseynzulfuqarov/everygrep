@@ -1777,3 +1777,39 @@ msgstr "Klasör sütununda çift tıklama klasörü açar"
 #: ui/settings.slint
 msgid "Off: a double-click anywhere in a row opens the item itself."
 msgstr "Kapalıyken satırın herhangi bir yerine çift tıklama öğenin kendisini açar."
+
+#: ui/settings.slint
+msgid "Sizes"
+msgstr "Boyutlar"
+
+#: ui/settings.slint
+msgid "Size format"
+msgstr "Boyut biçimi"
+
+#: ui/settings.slint
+msgid "Size units"
+msgstr "Boyut standardı"
+
+#: ui/settings.slint
+msgid "For the Size column and the status line. Automatic shows bytes below one kilobyte, then the largest unit that fits. Size searches (size:) always count 1 KB as 1024 bytes."
+msgstr "Boyut sütunu ve durum satırı için. Otomatik, bir kilobayttan küçük boyutları bayt olarak, diğerlerini sığan en büyük birimle gösterir. Boyut aramaları (size:) 1 KB'ı her zaman 1024 bayt sayar."
+
+#: src/labels.rs
+msgid "Automatic"
+msgstr "Otomatik"
+
+#: src/labels.rs
+msgid "Bytes"
+msgstr "Bayt"
+
+#: src/labels.rs
+msgid "1 KB = 1024 bytes"
+msgstr "1 KB = 1024 bayt"
+
+#: src/labels.rs
+msgid "1 KiB = 1024 bytes"
+msgstr "1 KiB = 1024 bayt"
+
+#: src/labels.rs
+msgid "1 KB = 1000 bytes"
+msgstr "1 KB = 1000 bayt"

@@ -164,6 +164,10 @@ export component SettingsWindow inherits Window {
     in-out property <bool> status-details;
     in-out property <bool> menu-bar;
     in-out property <bool> alternate-rows;
+    in property <[string]> size-unit-names;
+    in-out property <int> size-unit;
+    in property <[string]> size-standard-names;
+    in-out property <int> size-standard;
     callback appearance-changed();
 
     // Window
@@ -642,6 +646,41 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.appearance-changed(); }
                             }
                             Note { text: @tr("Every second row has a slightly different background, which makes long rows easier to follow."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Sizes"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Size format");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Size format");
+                                    model: root.size-unit-names;
+                                    current-index <=> root.size-unit;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Size units");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Size units");
+                                    model: root.size-standard-names;
+                                    current-index <=> root.size-standard;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("For the Size column and the status line. Automatic shows bytes below one kilobyte, then the largest unit that fits. Size searches (size:) always count 1 KB as 1024 bytes."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Status line"); }
                             CheckBox {

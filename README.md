@@ -247,6 +247,8 @@ the program behaves as before, except that folders show their total size.
 | | theme: same as the desktop, light or dark | same as the desktop |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
 | | alternate row color: every second row slightly darker (lighter in the dark theme) | on |
+| | size format: automatic, bytes, KB, MB or GB | automatic |
+| | size units: 1 KB = 1024 bytes, 1 KiB = 1024 bytes, or 1 KB = 1000 bytes | 1 KB = 1024 bytes |
 | | details of the selected items in the status line | on |
 | | show the menu bar | on |
 | Window | closing the window: quit, or hide it and keep running | quit |
@@ -387,6 +389,8 @@ ignored. Other keys: `whole-words`,
 `removed-drives` (`keep`, `forget`), `ignore-drive` (a file system UUID,
 repeated per drive), `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
+`size-format` (`auto`, `bytes`, `kb`, `mb`, `gb`), `size-units` (`jedec`
+for 1 KB = 1024 bytes, `iec` for KiB, `metric` for 1 KB = 1000 bytes),
 `language` (`system`, `en`, `az`, `tr`),
 `status-details`, `menu-bar`, `alternate-row-color`, `remember-columns`, `sort-dates-newest-first`,
 `sort-sizes-largest-first`,

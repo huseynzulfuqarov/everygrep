@@ -22,6 +22,7 @@ use crate::MenuChoice;
 use crate::autostart;
 use crate::commands::{self, COMMANDS, Chord, Keymap, Scope};
 use crate::engine::{Engine, IndexState};
+use crate::format::{self, SizeStandard, SizeUnit};
 use crate::history::{self, History};
 use crate::i18n;
 use crate::look::{self, Scheme};
@@ -698,6 +699,30 @@ impl Prefs {
         w.set_status_details(s.status_details);
         w.set_menu_bar(s.menu_bar);
         w.set_alternate_rows(s.alternate_rows);
+        w.set_size_unit_names(ModelRc::new(VecModel::from(
+            SizeUnit::ALL
+                .iter()
+                .map(|&u| SharedString::from(labels::size_unit(u)))
+                .collect::<Vec<_>>(),
+        )));
+        w.set_size_unit(
+            SizeUnit::ALL
+                .iter()
+                .position(|&u| u == s.size_unit)
+                .unwrap_or(0) as i32,
+        );
+        w.set_size_standard_names(ModelRc::new(VecModel::from(
+            SizeStandard::ALL
+                .iter()
+                .map(|&t| SharedString::from(labels::size_standard(t)))
+                .collect::<Vec<_>>(),
+        )));
+        w.set_size_standard(
+            SizeStandard::ALL
+                .iter()
+                .position(|&t| t == s.size_standard)
+                .unwrap_or(0) as i32,
+        );
         w.set_density_names(ModelRc::new(VecModel::from(densities)));
         w.set_density(
             Density::ALL
@@ -1213,6 +1238,14 @@ impl Prefs {
         let details = w.get_status_details();
         let menu_bar = w.get_menu_bar();
         let alternate_rows = w.get_alternate_rows();
+        let size_unit = usize::try_from(w.get_size_unit())
+            .ok()
+            .and_then(|i| SizeUnit::ALL.get(i).copied())
+            .unwrap_or_default();
+        let size_standard = usize::try_from(w.get_size_standard())
+            .ok()
+            .and_then(|i| SizeStandard::ALL.get(i).copied())
+            .unwrap_or_default();
         let language = usize::try_from(w.get_language())
             .ok()
             .and_then(|i| LanguageChoice::ALL.get(i).copied())
@@ -1223,6 +1256,8 @@ impl Prefs {
             s.status_details = details;
             s.menu_bar = menu_bar;
             s.alternate_rows = alternate_rows;
+            s.size_unit = size_unit;
+            s.size_standard = size_standard;
             s.language = language;
         });
         self.apply_look();
@@ -1237,7 +1272,27 @@ impl Prefs {
         self.apply_status_details();
         self.apply_menu_bar();
         self.apply_behaviour();
+        self.apply_size_style();
         self.fill_menus();
+    }
+
+    /// Shows sizes in the format of the settings, when it changed.
+    pub fn apply_size_style(&self) {
+        let style = {
+            let s = self.settings.borrow();
+            format::SizeStyle {
+                unit: s.size_unit,
+                standard: s.size_standard,
+            }
+        };
+        if format::size_style() == style {
+            return;
+        }
+        format::set_size_style(style);
+        if let Some(m) = self.main.upgrade() {
+            crate::with_model(&m, |model| model.relabel());
+            crate::refresh_status(&m);
+        }
     }
 
     /// Shows the windows in the language of the language setting, when it

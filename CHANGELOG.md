@@ -235,6 +235,10 @@ First version, 0.1.0, not released yet.
   readable on it.
 - A double-click in the Folder column opens the containing folder, as
   `Ctrl+Enter` does (Window page, on; off opens the item as before).
+- Size format (automatic, bytes, KB, MB, GB) and size units (1 KB =
+  1024 bytes, 1 KiB = 1024 bytes, 1 KB = 1000 bytes) on the Appearance
+  page, for the Size column and the status line; the defaults keep the
+  earlier output.
 
 ### Project
 

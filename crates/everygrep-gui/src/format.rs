@@ -1,5 +1,7 @@
 //! Text formatting for the result table and status line.
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use everygrep_core::localtime::Zone;
 
 use crate::i18n::tr;
@@ -35,23 +37,179 @@ pub fn count(n: usize) -> String {
     out
 }
 
-/// File size with 1024 steps: `512 B`, `3.4 KB`, `120 MB`.
+/// The unit sizes are shown in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SizeUnit {
+    /// Bytes below one kilobyte, otherwise the largest unit that keeps the
+    /// number at 1 or more (the format before the setting existed).
+    #[default]
+    Auto,
+    Bytes,
+    Kilo,
+    Mega,
+    Giga,
+}
+
+impl SizeUnit {
+    pub const ALL: [SizeUnit; 5] = [
+        SizeUnit::Auto,
+        SizeUnit::Bytes,
+        SizeUnit::Kilo,
+        SizeUnit::Mega,
+        SizeUnit::Giga,
+    ];
+
+    /// The word in the settings file.
+    pub fn id(self) -> &'static str {
+        match self {
+            SizeUnit::Auto => "auto",
+            SizeUnit::Bytes => "bytes",
+            SizeUnit::Kilo => "kb",
+            SizeUnit::Mega => "mb",
+            SizeUnit::Giga => "gb",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<SizeUnit> {
+        SizeUnit::ALL.into_iter().find(|u| u.id() == id)
+    }
+}
+
+/// How big a kilobyte is and how the units are written.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SizeStandard {
+    /// 1 KB = 1024 bytes (the format before the setting existed).
+    #[default]
+    Jedec,
+    /// 1 KiB = 1024 bytes.
+    Iec,
+    /// 1 KB = 1000 bytes.
+    Metric,
+}
+
+impl SizeStandard {
+    pub const ALL: [SizeStandard; 3] =
+        [SizeStandard::Jedec, SizeStandard::Iec, SizeStandard::Metric];
+
+    /// The word in the settings file.
+    pub fn id(self) -> &'static str {
+        match self {
+            SizeStandard::Jedec => "jedec",
+            SizeStandard::Iec => "iec",
+            SizeStandard::Metric => "metric",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<SizeStandard> {
+        SizeStandard::ALL.into_iter().find(|s| s.id() == id)
+    }
+
+    fn base(self) -> u64 {
+        match self {
+            SizeStandard::Jedec | SizeStandard::Iec => 1024,
+            SizeStandard::Metric => 1000,
+        }
+    }
+
+    fn units(self) -> [&'static str; 5] {
+        match self {
+            SizeStandard::Iec => ["B", "KiB", "MiB", "GiB", "TiB"],
+            SizeStandard::Jedec | SizeStandard::Metric => ["B", "KB", "MB", "GB", "TB"],
+        }
+    }
+}
+
+/// The size format of the window: a unit and a standard.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SizeStyle {
+    pub unit: SizeUnit,
+    pub standard: SizeStandard,
+}
+
+impl SizeStyle {
+    fn pack(self) -> u8 {
+        (self.unit as u8) << 4 | self.standard as u8
+    }
+
+    fn unpack(v: u8) -> SizeStyle {
+        SizeStyle {
+            unit: SizeUnit::ALL
+                .get(usize::from(v >> 4))
+                .copied()
+                .unwrap_or_default(),
+            standard: SizeStandard::ALL
+                .get(usize::from(v & 0xf))
+                .copied()
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// The size format [`size`] uses, packed (see [`SizeStyle::pack`]).
+static STYLE: AtomicU8 = AtomicU8::new(0);
+
+/// Shows sizes in `style` from now on.
+pub fn set_size_style(style: SizeStyle) {
+    STYLE.store(style.pack(), Ordering::Relaxed);
+}
+
+/// The size format in use.
+pub fn size_style() -> SizeStyle {
+    SizeStyle::unpack(STYLE.load(Ordering::Relaxed))
+}
+
+/// File size in the size format of the window (by default 1024 steps:
+/// `512 B`, `3.4 KB`, `120 MB`).
 pub fn size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    if bytes < 1024 {
+    size_in(bytes, size_style())
+}
+
+/// File size in `style`. Auto picks the unit; a fixed unit always uses it,
+/// with one decimal below 10 and grouped digits above (`1 234 KB`), and
+/// an empty file is `0` of it.
+pub fn size_in(bytes: u64, style: SizeStyle) -> String {
+    let base = style.standard.base();
+    let units = style.standard.units();
+    let fixed = match style.unit {
+        SizeUnit::Auto => None,
+        SizeUnit::Bytes => return format!("{} B", count_u64(bytes)),
+        SizeUnit::Kilo => Some(1),
+        SizeUnit::Mega => Some(2),
+        SizeUnit::Giga => Some(3),
+    };
+    if let Some(unit) = fixed {
+        let value = bytes as f64 / (base as f64).powi(unit);
+        return if bytes == 0 {
+            format!("0 {}", units[unit as usize])
+        } else if value < 10.0 {
+            format!("{value:.1} {}", units[unit as usize])
+        } else {
+            format!(
+                "{} {}",
+                count_u64(value.round() as u64),
+                units[unit as usize]
+            )
+        };
+    }
+    if bytes < base {
         return format!("{bytes} B");
     }
     let mut value = bytes as f64;
     let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
+    while value >= base as f64 && unit < units.len() - 1 {
+        value /= base as f64;
         unit += 1;
     }
     if value < 10.0 {
-        format!("{value:.1} {}", UNITS[unit])
+        format!("{value:.1} {}", units[unit])
     } else {
-        format!("{value:.0} {}", UNITS[unit])
+        format!("{value:.0} {}", units[unit])
     }
+}
+
+/// [`count`] for a `u64`.
+fn count_u64(n: u64) -> String {
+    usize::try_from(n).map_or_else(|_| n.to_string(), count)
 }
 
 /// Short local date: `25 Oct` in the current year, otherwise `25 Oct 2025`.
@@ -147,6 +305,66 @@ mod tests {
         assert_eq!(size(3 << 20), "3.0 MB");
         assert_eq!(size(120 << 20), "120 MB");
         assert_eq!(size(u64::MAX), "16777216 TB");
+    }
+
+    #[test]
+    fn the_default_style_is_the_old_format() {
+        let d = SizeStyle::default();
+        for bytes in [
+            0,
+            1,
+            1023,
+            1024,
+            1536,
+            10 << 10,
+            3 << 20,
+            120 << 20,
+            5 << 40,
+        ] {
+            assert_eq!(size_in(bytes, d), size(bytes), "{bytes}");
+        }
+        assert_eq!(SizeStyle::unpack(d.pack()), d);
+        for unit in SizeUnit::ALL {
+            for standard in SizeStandard::ALL {
+                let s = SizeStyle { unit, standard };
+                assert_eq!(SizeStyle::unpack(s.pack()), s);
+                assert_eq!(SizeUnit::from_id(unit.id()), Some(unit));
+                assert_eq!(SizeStandard::from_id(standard.id()), Some(standard));
+            }
+        }
+    }
+
+    #[test]
+    fn sizes_follow_the_unit_and_the_standard() {
+        let style = |unit, standard| SizeStyle { unit, standard };
+        use SizeStandard::{Iec, Jedec, Metric};
+        use SizeUnit::{Auto, Bytes, Giga, Kilo, Mega};
+        // Auto: the unit grows with the size, in steps of the standard.
+        assert_eq!(size_in(1023, style(Auto, Iec)), "1023 B");
+        assert_eq!(size_in(1536, style(Auto, Iec)), "1.5 KiB");
+        assert_eq!(size_in(3 << 20, style(Auto, Iec)), "3.0 MiB");
+        assert_eq!(size_in(999, style(Auto, Metric)), "999 B");
+        assert_eq!(size_in(1000, style(Auto, Metric)), "1.0 KB");
+        assert_eq!(size_in(1023, style(Auto, Metric)), "1.0 KB");
+        assert_eq!(size_in(120_000_000, style(Auto, Metric)), "120 MB");
+        // Fixed units, digits grouped by thin spaces.
+        assert_eq!(
+            size_in(1_234_567, style(Bytes, Jedec)),
+            "1\u{2009}234\u{2009}567 B"
+        );
+        assert_eq!(size_in(0, style(Kilo, Jedec)), "0 KB");
+        assert_eq!(size_in(512, style(Kilo, Jedec)), "0.5 KB");
+        assert_eq!(size_in(5 << 20, style(Kilo, Jedec)), "5\u{2009}120 KB");
+        assert_eq!(size_in(5 << 20, style(Kilo, Iec)), "5\u{2009}120 KiB");
+        assert_eq!(size_in(5_000_000, style(Kilo, Metric)), "5\u{2009}000 KB");
+        assert_eq!(size_in(3 << 20, style(Mega, Jedec)), "3.0 MB");
+        assert_eq!(size_in(1 << 30, style(Mega, Iec)), "1\u{2009}024 MiB");
+        assert_eq!(size_in(1 << 20, style(Giga, Jedec)), "0.0 GB");
+        assert_eq!(size_in(15_000_000_000, style(Giga, Metric)), "15 GB");
+        assert_eq!(
+            size_in(u64::MAX, style(Bytes, Jedec)),
+            "18\u{2009}446\u{2009}744\u{2009}073\u{2009}709\u{2009}551\u{2009}615 B"
+        );
     }
 
     #[test]

@@ -363,7 +363,12 @@ The behaviour chosen for indexing and searching.
 
 - UI text is short, in sentence case, and never blames the user.
 - Numbers use thin-space grouping (`617 178`). Sizes use KB/MB/GB with 1024
-  steps. Dates show `25 Oct` within the current year, otherwise `25 Oct 2025`;
+  steps by default, the unit chosen by the size (bytes below 1 KB). Two
+  settings (Appearance page) change that for the Size column and the
+  status line: the size format (automatic, or always bytes, KB, MB or GB;
+  a fixed unit groups its digits and shows one decimal below 10) and the
+  size units (1 KB = 1024 bytes, 1 KiB = 1024 bytes written `KiB`,
+  `MiB`, or 1 KB = 1000 bytes). Size searches keep 1024 steps. Dates show `25 Oct` within the current year, otherwise `25 Oct 2025`;
   the full timestamp is in a tooltip.
 - All strings live in one catalog per language so they can be translated:
   gettext files in `crates/everygrep-gui/translations/`, used by both the

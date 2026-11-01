@@ -10,7 +10,7 @@ use everygrep_core::sort::FolderSize;
 
 use crate::clipboard::Operation;
 use crate::engine::{Busy, IndexState, Stopped, TaskKind};
-use crate::format;
+use crate::format::{self, SizeStandard, SizeUnit};
 use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
 use crate::transfer::Outcome;
@@ -345,6 +345,26 @@ pub fn theme(t: ThemeChoice) -> &'static str {
 }
 
 /// Choices for how tightly the result list is packed.
+/// Choices for the size format.
+pub fn size_unit(u: SizeUnit) -> &'static str {
+    match u {
+        SizeUnit::Auto => tr("Automatic"),
+        SizeUnit::Bytes => tr("Bytes"),
+        SizeUnit::Kilo => "KB",
+        SizeUnit::Mega => "MB",
+        SizeUnit::Giga => "GB",
+    }
+}
+
+/// Choices for the size units.
+pub fn size_standard(s: SizeStandard) -> &'static str {
+    match s {
+        SizeStandard::Jedec => tr("1 KB = 1024 bytes"),
+        SizeStandard::Iec => tr("1 KiB = 1024 bytes"),
+        SizeStandard::Metric => tr("1 KB = 1000 bytes"),
+    }
+}
+
 pub fn density(d: Density) -> &'static str {
     match d {
         Density::Comfortable => tr("Comfortable"),

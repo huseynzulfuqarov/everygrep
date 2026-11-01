@@ -1777,3 +1777,39 @@ msgstr "Qovluq sütununda iki klik qovluğu açır"
 #: ui/settings.slint
 msgid "Off: a double-click anywhere in a row opens the item itself."
 msgstr "Söndürüləndə sətrin istənilən yerində iki klik elementin özünü açır."
+
+#: ui/settings.slint
+msgid "Sizes"
+msgstr "Ölçülər"
+
+#: ui/settings.slint
+msgid "Size format"
+msgstr "Ölçü formatı"
+
+#: ui/settings.slint
+msgid "Size units"
+msgstr "Ölçü standartı"
+
+#: ui/settings.slint
+msgid "For the Size column and the status line. Automatic shows bytes below one kilobyte, then the largest unit that fits. Size searches (size:) always count 1 KB as 1024 bytes."
+msgstr "Ölçü sütunu və status sətri üçün. Avtomatik bir kilobaytdan az ölçünü baytla, qalanını sığan ən böyük vahidlə göstərir. Ölçü axtarışları (size:) 1 KB-ı həmişə 1024 bayt sayır."
+
+#: src/labels.rs
+msgid "Automatic"
+msgstr "Avtomatik"
+
+#: src/labels.rs
+msgid "Bytes"
+msgstr "Bayt"
+
+#: src/labels.rs
+msgid "1 KB = 1024 bytes"
+msgstr "1 KB = 1024 bayt"
+
+#: src/labels.rs
+msgid "1 KiB = 1024 bytes"
+msgstr "1 KiB = 1024 bayt"
+
+#: src/labels.rs
+msgid "1 KB = 1000 bytes"
+msgstr "1 KB = 1000 bayt"

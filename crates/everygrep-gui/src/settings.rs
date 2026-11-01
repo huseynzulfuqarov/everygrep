@@ -52,6 +52,7 @@ use everygrep_core::sort::FolderSize;
 
 use crate::commands::{self, Chord, Scope};
 use crate::engine::DriveSettings;
+use crate::format::{SizeStandard, SizeUnit};
 use crate::i18n::{self, Lang};
 
 /// Search history entries kept by default (the number before settings
@@ -239,6 +240,10 @@ pub struct Settings {
     /// Whether every second row of the result list has a slightly
     /// different background.
     pub alternate_rows: bool,
+    /// The unit of the sizes in the Size column and the status line.
+    pub size_unit: SizeUnit,
+    /// How big a kilobyte is, and whether units are written KB or KiB.
+    pub size_standard: SizeStandard,
     /// Whether the status line shows the size, date and path of the selected
     /// item (and the number and size of several).
     pub status_details: bool,
@@ -284,6 +289,8 @@ impl Default for Settings {
             theme: ThemeChoice::System,
             density: Density::Comfortable,
             alternate_rows: true,
+            size_unit: SizeUnit::Auto,
+            size_standard: SizeStandard::Jedec,
             status_details: true,
             menu_bar: true,
             language: LanguageChoice::System,
@@ -466,6 +473,12 @@ impl Settings {
                 .is_some(),
             "status-details" => put_flag(&mut self.status_details),
             "alternate-row-color" => put_flag(&mut self.alternate_rows),
+            "size-format" => SizeUnit::from_id(value)
+                .map(|u| self.size_unit = u)
+                .is_some(),
+            "size-units" => SizeStandard::from_id(value)
+                .map(|s| self.size_standard = s)
+                .is_some(),
             "menu-bar" => put_flag(&mut self.menu_bar),
             "language" => LanguageChoice::ALL
                 .into_iter()
@@ -703,6 +716,12 @@ impl Settings {
             self.alternate_rows,
             d.alternate_rows,
         );
+        if self.size_unit != d.size_unit {
+            line(&mut out, "size-format", self.size_unit.id());
+        }
+        if self.size_standard != d.size_standard {
+            line(&mut out, "size-units", self.size_standard.id());
+        }
         if self.language != d.language {
             line(&mut out, "language", self.language.id());
         }
@@ -787,6 +806,8 @@ impl Settings {
                 self.theme = d.theme;
                 self.density = d.density;
                 self.alternate_rows = d.alternate_rows;
+                self.size_unit = d.size_unit;
+                self.size_standard = d.size_standard;
                 self.status_details = d.status_details;
                 self.menu_bar = d.menu_bar;
                 self.language = d.language;
@@ -875,7 +896,8 @@ fn is_known(key: &str) -> bool {
     let mut probe = Settings::default();
     // Every known key accepts at least one of these values.
     [
-        "true", "all", "quit", "total", "system", "compact", "1", "/", "keep", "A-1",
+        "true", "all", "quit", "total", "system", "compact", "1", "/", "keep", "A-1", "auto",
+        "jedec",
     ]
     .iter()
     .any(|v| probe.set(key, v))
@@ -1071,6 +1093,8 @@ pub(crate) mod tests {
             theme: ThemeChoice::Dark,
             density: Density::Compact,
             alternate_rows: false,
+            size_unit: SizeUnit::Mega,
+            size_standard: SizeStandard::Iec,
             status_details: false,
             menu_bar: false,
             drives: DriveSettings {
@@ -1097,6 +1121,8 @@ pub(crate) mod tests {
         assert!(text.contains("status-details = false\n"));
         assert!(text.contains("menu-bar = false\n"));
         assert!(text.contains("alternate-row-color = false\n"));
+        assert!(text.contains("size-format = mb\n"));
+        assert!(text.contains("size-units = iec\n"));
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));
