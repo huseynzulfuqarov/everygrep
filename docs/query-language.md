@@ -80,7 +80,9 @@ and `?` do not cross a `/`, and `**` matches any run including `/`, the same
 rule as the index's exclude patterns: `path:/home/me/*.txt` finds
 `/home/me/a.txt` but not `/home/me/docs/a.txt`, `path:/home/me/**.txt` finds
 both, `path:/home/me/**/a.txt` the second. In a name, which has no `/`, `**`
-is the same as `*`. The open side of `prefix:` or `suffix:` crosses folders:
+is the same as `*`. In names that are not valid UTF-8, each invalid byte
+counts as one character for `?` and `*`, so they still stop at a `/`.
+The open side of `prefix:` or `suffix:` crosses folders:
 `prefix:path:/home/me/d*` also finds all entries below `/home/me/docs`.
 
 ## Modifiers

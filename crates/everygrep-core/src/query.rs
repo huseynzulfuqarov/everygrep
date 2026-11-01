@@ -692,7 +692,8 @@ fn is_word_char(c: char) -> bool {
 
 /// The first character of `bytes`, if they start with valid UTF-8.
 fn first_char(bytes: &[u8]) -> Option<char> {
-    let len = char_len(*bytes.first()?).min(bytes.len());
+    bytes.first()?;
+    let len = char_len(bytes, 0);
     std::str::from_utf8(&bytes[..len]).ok()?.chars().next()
 }
 
@@ -927,7 +928,7 @@ fn glob_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usiz
             }
             Some(b'?') => {
                 p += 1;
-                s += char_len(subject[s]);
+                s += char_len(subject, s);
             }
             Some(&c) if !escaped && c == subject[s] => {
                 marks.push(s);
@@ -936,7 +937,7 @@ fn glob_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usiz
             }
             _ => match star {
                 Some((sp, ss, kept)) => {
-                    let next = ss + char_len(subject[ss]);
+                    let next = ss + char_len(subject, ss);
                     star = Some((sp, next, kept));
                     marks.truncate(kept);
                     p = sp + 1;
@@ -1041,7 +1042,7 @@ pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
             }
             Some(b'?') => {
                 p += 1;
-                s += char_len(subject[s]);
+                s += char_len(subject, s);
             }
             Some(&c) if !escaped && c == subject[s] => {
                 p += 1;
@@ -1049,7 +1050,7 @@ pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
             }
             _ => match star {
                 Some((sp, ss)) => {
-                    let next = ss + char_len(subject[ss]);
+                    let next = ss + char_len(subject, ss);
                     star = Some((sp, next));
                     p = sp + 1;
                     s = next;
@@ -1116,7 +1117,7 @@ fn glob_path_table(pattern: &[u8], subject: &[u8]) -> (Vec<GlobPart>, Vec<Vec<bo
                     next[0] = row[0];
                 }
                 while j < n {
-                    let end = (j + char_len(subject[j])).min(n);
+                    let end = j + char_len(subject, j);
                     let from = if part == GlobPart::One {
                         row[j]
                     } else {
@@ -1155,9 +1156,9 @@ fn glob_path_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range
                 marks.push(j - 1);
                 j - 1
             }
-            GlobPart::One => (0..j).rev().find(|&k| {
-                row[k] && subject[k] != b'/' && (k + char_len(subject[k])).min(subject.len()) == j
-            })?,
+            GlobPart::One => (0..j)
+                .rev()
+                .find(|&k| row[k] && subject[k] != b'/' && k + char_len(subject, k) == j)?,
             GlobPart::Star => (0..=j)
                 .rev()
                 .take_while(|&k| k == j || subject[k] != b'/')
@@ -1176,14 +1177,19 @@ fn glob_path_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range
     Some(ranges)
 }
 
-/// Length of the UTF-8 sequence that starts with `b` (1 for invalid bytes).
-fn char_len(b: u8) -> usize {
-    match b {
-        0xF0..=0xF7 => 4,
-        0xE0..=0xEF => 3,
-        0xC0..=0xDF => 2,
-        _ => 1,
+/// Length of the character at `at` of `bytes`: its UTF-8 sequence when that
+/// is complete and valid, else 1, so an invalid byte is a character of its
+/// own and never swallows the bytes after it (such as a `/`).
+fn char_len(bytes: &[u8], at: usize) -> usize {
+    if bytes[at] < 0x80 {
+        return 1;
     }
+    let end = (at + 4).min(bytes.len());
+    bytes[at..end]
+        .utf8_chunks()
+        .next()
+        .and_then(|chunk| chunk.valid().chars().next())
+        .map_or(1, char::len_utf8)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3831,6 +3837,40 @@ mod tests {
         assert!(glob_match(b"*", b""));
         assert!(glob_match(b"a*b*c", b"axxbyyc"));
         assert!(!glob_match(b"a*b", b"ac"));
+    }
+
+    #[test]
+    fn invalid_utf8_bytes_are_single_characters_in_wildcards() {
+        // A lead byte without its continuation bytes is one character and
+        // does not swallow the bytes after it.
+        assert!(!glob_match(b"?", b"\xc3x"));
+        assert!(glob_match(b"??", b"\xc3x"));
+        assert!(glob_match(b"*x", b"\xe2x"));
+        assert!(glob_match(b"?x", b"\xe2x"));
+        assert!(glob_match(b"??", b"\xe2\x82"));
+        assert!(!glob_match(b"?", b"\xe2\x82"));
+        assert!(glob_match(b"?", "\u{20ac}".as_bytes()));
+        assert!(glob_match(b"?", b"\xff"));
+        // In a path, `?` and `*` stop at the `/` after an invalid byte.
+        assert!(!glob_match(b"/r/?", b"/r/\xe2/x"));
+        assert!(!glob_match(b"/r/*", b"/r/\xe2/x"));
+        assert!(!glob_match(b"/r/*", b"/r/a\xf0/x"));
+        assert!(glob_match(b"/r/?/x", b"/r/\xe2/x"));
+        assert!(glob_match(b"/r/**", b"/r/\xe2/x"));
+        assert!(glob_match(b"/r/?\xe2", b"/r/x\xe2"));
+
+        // The same through a query against indexed names.
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        let odd = store.add(Some(root), b"\xe2", true, Meta::default());
+        store.add(Some(odd), b"x", false, Meta::default());
+        store.add(Some(root), b"\xc3x", false, Meta::default());
+        let t = Tree { store };
+        assert_eq!(t.find("path:/r/?"), ["\u{fffd}"]);
+        assert_eq!(t.find("path:/r/*"), ["\u{fffd}", "\u{fffd}x"]);
+        assert_eq!(t.find("path:/r/?/x"), ["x"]);
+        assert_eq!(t.find("?"), ["x", "\u{fffd}"]);
+        assert_eq!(t.find("??"), ["\u{fffd}x"]);
     }
 
     /// Highlighted ranges of a name for `q`.

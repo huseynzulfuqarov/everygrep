@@ -82,7 +82,8 @@ First version, 0.1.0, not released yet.
   part used to turn off every wildcard of the term. **Behaviour
   change:** against the full path `*` and `?` no longer cross a `/`; `**`
   does (`path:/home/me/*.txt` no longer finds files in subfolders), as in the
-  exclude patterns.
+  exclude patterns. A byte that is not valid UTF-8 is one character for
+  `?` and `*`; a broken sequence no longer swallows the `/` after it.
 - Wildcard scope is configurable in Settings → Search, with per-term
   `wholename:` / `nowholename:` overrides; whole-name matching
   remains the default. `wholename:` on text
