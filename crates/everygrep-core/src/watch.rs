@@ -5,6 +5,9 @@
 //! `MOVED_FROM`/`MOVED_TO` pair with the same cookie becomes a rename, which keeps
 //! the node id so paths below a renamed folder stay correct for free. A move out
 //! of the watched trees is a removal; a move in from outside is a creation.
+//! The two halves of a rename may be read in two batches, so a `MOVED_FROM`
+//! without its `MOVED_TO` waits for one more batch before it counts as a
+//! move out.
 //!
 //! A new folder is watched before its contents are read, so entries created
 //! while it is being read are either seen by the read or reported as events.
@@ -124,6 +127,9 @@ pub struct Watcher {
     recheck_from: usize,
     /// Folders found unmounted by the last batch.
     unmounted: Vec<NodeId>,
+    /// Moves whose `MOVED_TO` was not in the last batch, by cookie: the node,
+    /// back at its old name, and that name.
+    waiting_moves: HashMap<u32, (NodeId, Vec<u8>)>,
 }
 
 impl Watcher {
@@ -144,6 +150,7 @@ impl Watcher {
             unsettled: HashMap::new(),
             recheck_from: 0,
             unmounted: Vec::new(),
+            waiting_moves: HashMap::new(),
         };
         for root in online_roots(index) {
             w.watch_root(index, root);
@@ -281,7 +288,7 @@ impl Watcher {
     /// folder times from the last batch to keep. A caller that applies only
     /// non-empty batches should also apply an empty one when this holds.
     pub fn has_pending(&self) -> bool {
-        !self.unsettled.is_empty()
+        !self.unsettled.is_empty() || !self.waiting_moves.is_empty()
     }
 
     /// Waits up to `timeout` for events and applies them to `index`. When enough
@@ -325,6 +332,12 @@ impl Watcher {
             .into_iter()
             .filter_map(|dir| remap.get(dir.index()).copied().flatten())
             .collect();
+        self.waiting_moves = std::mem::take(&mut self.waiting_moves)
+            .into_iter()
+            .filter_map(|(cookie, (node, name))| {
+                Some((cookie, (remap.get(node.index()).copied().flatten()?, name)))
+            })
+            .collect();
         remap
     }
 
@@ -334,6 +347,22 @@ impl Watcher {
         // Nodes between MOVED_FROM and MOVED_TO, parked under a name that no real
         // file can have, so a new entry with the old name is not mistaken for them.
         let mut moved_out: HashMap<u32, NodeId> = HashMap::new();
+        // The names moved away in this batch, by cookie.
+        let mut moved_names: HashMap<u32, Vec<u8>> = HashMap::new();
+        // Moves left over from the last batch: this one is their last chance.
+        let mut last_chance: HashSet<u32> = HashSet::new();
+        for (cookie, (node, _)) in std::mem::take(&mut self.waiting_moves) {
+            if !index.store().is_live(node) {
+                continue;
+            }
+            let parent = index.store().parent(node);
+            if index.rename(node, parent, &parked_name(cookie)).is_ok() {
+                moved_out.insert(cookie, node);
+                last_chance.insert(cookie);
+            } else {
+                stats.removed += index.remove(node).len();
+            }
+        }
         // Folders whose time is read again at the end.
         let mut touched: HashSet<NodeId> = HashSet::new();
         // Entries that were not found where the index put them when their event
@@ -397,6 +426,8 @@ impl Watcher {
                         if let Some(previous) = moved_out.insert(ev.cookie, node) {
                             stats.removed += index.remove(previous).len();
                         }
+                        last_chance.remove(&ev.cookie);
+                        moved_names.insert(ev.cookie, name.to_vec());
                     } else {
                         stats.removed += index.remove(node).len();
                     }
@@ -440,9 +471,27 @@ impl Watcher {
                 }
             }
         }
-        // A move whose destination was never reported left the watched trees.
-        for node in moved_out.into_values() {
-            stats.removed += index.remove(node).len();
+        // A move whose destination was not reported may have its other half in
+        // the next batch: it goes back to its old name until then (the index
+        // lags behind the disk as for any event not read yet). One left over
+        // from the last batch, or whose old name is taken again, left the
+        // watched trees.
+        for (cookie, node) in moved_out {
+            let back = match moved_names.remove(&cookie) {
+                Some(name) if !last_chance.contains(&cookie) => {
+                    let parent = index.store().parent(node);
+                    (index.find_child(parent, &name).is_none()
+                        && index.rename(node, parent, &name).is_ok())
+                    .then_some(name)
+                }
+                _ => None,
+            };
+            match back {
+                Some(name) => {
+                    self.waiting_moves.insert(cookie, (node, name));
+                }
+                None => stats.removed += index.remove(node).len(),
+            }
         }
         // An entry created in a folder that was then renamed was looked for at
         // the folder's old path. Look again where the folder is now.
@@ -1074,6 +1123,63 @@ mod tests {
             ]
         );
         assert_eq!(f.watcher.watch_count(), 2);
+    }
+
+    /// Reads events until one has `mask`.
+    fn read_until(w: &mut Watcher, mask: Mask) -> Vec<Event> {
+        let mut events = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !events.iter().any(|e: &Event| e.mask.contains(mask)) && Instant::now() < deadline {
+            events.extend(w.wait(Some(Duration::from_millis(50))).unwrap());
+        }
+        events
+    }
+
+    #[test]
+    fn a_rename_read_in_two_batches_stays_a_rename() {
+        let mut f = Fixture::new("split-rename");
+        for i in 0..20 {
+            fs::write(f.root().join(format!("docs/f{i}.txt")), b"x").unwrap();
+        }
+        assert!(f.settle(|i| i.len() == 23));
+        f.settle(|_| false);
+        let docs = f
+            .index
+            .find_child(Some(f.index.roots()[0]), b"docs")
+            .unwrap();
+        let papers = f.root().join("papers");
+        fs::rename(f.root().join("docs"), &papers).unwrap();
+        let events = read_until(&mut f.watcher, Mask::MOVED_TO);
+        let to = events
+            .iter()
+            .position(|e| e.mask.contains(Mask::MOVED_TO))
+            .unwrap();
+        let first = f.watcher.apply(&mut f.index, &events[..to]);
+        assert_eq!(first.removed, 0, "{first:?}");
+        assert!(f.watcher.has_pending());
+        // Between the batches the folder is still at its old name.
+        assert!(has(&f.index, &f.root().join("docs/a.txt")));
+        let second = f.watcher.apply(&mut f.index, &events[to..]);
+        assert_eq!((second.moved, second.added, second.removed), (1, 0, 0));
+        assert_eq!(
+            f.index.find_child(Some(f.index.roots()[0]), b"papers"),
+            Some(docs)
+        );
+        assert!(has(&f.index, &papers.join("f7.txt")));
+        assert_eq!(f.index.len(), 23);
+    }
+
+    #[test]
+    fn a_move_out_is_removed_after_one_more_batch() {
+        let mut f = Fixture::new("split-move-out");
+        let file = f.root().join("docs/a.txt");
+        fs::rename(&file, f.base.join("outside/a.txt")).unwrap();
+        let events = read_until(&mut f.watcher, Mask::MOVED_FROM);
+        assert_eq!(f.watcher.apply(&mut f.index, &events).removed, 0);
+        assert!(has(&f.index, &file));
+        assert!(f.watcher.has_pending());
+        assert_eq!(f.watcher.apply(&mut f.index, &[]).removed, 1);
+        assert!(!has(&f.index, &file));
     }
 
     #[test]
