@@ -68,6 +68,17 @@ impl DetailColumns {
     }
 }
 
+/// The parts of the status line: the result count, the details of the
+/// selection (shortened first when room runs out), the index and the time
+/// the last search took.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Status {
+    pub count: String,
+    pub detail: String,
+    pub index: String,
+    pub time: String,
+}
+
 /// Details kept for at most this many rows; scrolling far enough starts over.
 const MAX_CACHED_DETAILS: usize = 4096;
 
@@ -346,10 +357,16 @@ impl ResultsModel {
             );
             let modified = format::timestamp(meta.mtime_ns, &self.zone);
             let path = store.path(id);
+            let home = self.home.as_deref().map(String::from_utf8_lossy);
+            let path = format::short_path(
+                &path.to_string_lossy(),
+                home.as_deref(),
+                format::STATUS_PATH_MAX,
+            );
             return Some(labels::item_details(
                 &size,
                 &modified,
-                &path.to_string_lossy(),
+                &path,
                 index.is_offline(id),
             ));
         }
@@ -389,36 +406,37 @@ impl ResultsModel {
             .then(|| store.path(id))
     }
 
-    /// Text for the left and right side of the status line.
-    pub fn status(&self) -> (String, String) {
+    /// Texts of the status line.
+    pub fn status(&self) -> Status {
         let results = self.ids.borrow().len();
-        let indexed = labels::indexed(self.indexed.get());
-        let state = labels::state_word(self.state.get());
-        let mut left = labels::results(results);
+        let mut count = labels::results(results);
         let selected = self.selected_count();
-        let described = if self.details.get() {
+        let detail = if self.details.get() {
             self.selection_text(selected)
         } else {
             None
         };
-        if let Some(text) = described {
-            left.push_str(labels::STATUS_GAP);
-            left.push_str(&text);
-        } else if selected > 1 {
-            left.push_str(labels::STATUS_GAP);
-            left.push_str(&labels::selected(selected));
+        if detail.is_none() && selected > 1 {
+            count.push_str(labels::STATUS_GAP);
+            count.push_str(&labels::selected(selected));
         }
-        for part in [indexed.as_str(), state] {
-            left.push_str(labels::STATUS_GAP);
-            left.push_str(part);
-        }
+        let index = [
+            labels::indexed(self.indexed.get()).as_str(),
+            labels::state_word(self.state.get()),
+        ]
+        .join(labels::STATUS_GAP);
         let ms = self.took.get().as_secs_f64() * 1e3;
-        let right = if ms < 10.0 {
+        let time = if ms < 10.0 {
             format!("{ms:.1} ms")
         } else {
             format!("{ms:.0} ms")
         };
-        (left, right)
+        Status {
+            count,
+            detail: detail.unwrap_or_default(),
+            index,
+            time,
+        }
     }
 
     /// The Folder column: `folder` with the home folder shown as `~`, and

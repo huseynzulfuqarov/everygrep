@@ -785,7 +785,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             }
             if paths.len() > MAX_OPEN {
                 if let Some(w) = weak.upgrade() {
-                    error(
+                    info(
                         &w,
                         fill(
                             tr("Select at most {} items to open them at once."),
@@ -808,7 +808,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             let Some(w) = weak.upgrade() else { return };
             let [path] = paths.as_slice() else {
                 if !paths.is_empty() {
-                    error(
+                    info(
                         &w,
                         tr("Select one item to open it with another application.").into(),
                     );
@@ -875,11 +875,11 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 return;
             };
             if model.is_selected(r) && model.selected_count() > 1 {
-                error(&w, tr("Select one item to rename it.").into());
+                info(&w, tr("Select one item to rename it.").into());
                 return;
             }
             if model.targets_offline(Some(r)) {
-                error(&w, labels::offline_refused().into());
+                info(&w, labels::offline_refused().into());
                 return;
             }
             let Some((name, is_dir)) = model.name(r) else {
@@ -1079,20 +1079,20 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 [] => return,
                 [one] if one.is_dir() => one.clone(),
                 [_] => {
-                    error(&w, tr("Select a folder to paste into.").into());
+                    info(&w, tr("Select a folder to paste into.").into());
                     return;
                 }
                 _ => {
-                    error(&w, tr("Select one folder to paste into.").into());
+                    info(&w, tr("Select one folder to paste into.").into());
                     return;
                 }
             };
             let Some((op, sources)) = files_to_paste(&w) else {
-                error(&w, tr("The clipboard holds no files to paste.").into());
+                info(&w, tr("The clipboard holds no files to paste.").into());
                 return;
             };
             if BUSY.swap(true, SeqCst) {
-                error(&w, tr("Another paste is still running.").into());
+                info(&w, tr("Another paste is still running.").into());
                 return;
             }
             let folder = dest.file_name().map_or_else(
@@ -1161,7 +1161,7 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
         let Some(w) = weak.upgrade() else { return };
         let (ids, epoch) = model.snapshot();
         if ids.is_empty() {
-            error(&w, tr("There are no results to export.").into());
+            info(&w, tr("There are no results to export.").into());
             return;
         }
         if BUSY.swap(true, SeqCst) {
@@ -1277,7 +1277,7 @@ fn refuse_offline(weak: &slint::Weak<AppWindow>, model: &ResultsModel, row: Opti
         return false;
     }
     if let Some(w) = weak.upgrade() {
-        error(&w, labels::offline_refused().into());
+        info(&w, labels::offline_refused().into());
     }
     true
 }
@@ -1662,9 +1662,11 @@ fn show_results(w: &AppWindow, result: SearchResult) {
 fn refresh_status(w: &AppWindow) {
     let mut message = None;
     with_model(w, |m| {
-        let (left, right) = m.status();
-        w.set_status_left(left.into());
-        w.set_status_right(right.into());
+        let status = m.status();
+        w.set_status_count(status.count.into());
+        w.set_status_detail(status.detail.into());
+        w.set_status_index(status.index.into());
+        w.set_status_right(status.time.into());
         message = if m.row_count() == 0 {
             labels::loading_message(m.state())
         } else {

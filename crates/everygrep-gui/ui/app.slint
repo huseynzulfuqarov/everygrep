@@ -749,7 +749,11 @@ export component AppWindow inherits Window {
     out property <bool> typing-here: search.focused || keys.has-focus;
 
     in property <[ResultRow]> results;
-    in property <string> status-left;
+    // The status line: result count, details of the selection, the index
+    // and the time of the last search.
+    in property <string> status-count;
+    in property <string> status-detail;
+    in property <string> status-index;
     in property <string> status-right;
     // A long operation ("Indexing: 42%"), empty when none is shown, and
     // whether it can be cancelled with cancel-task().
@@ -848,7 +852,8 @@ export component AppWindow inherits Window {
     callback confirm-accepted();
     callback confirm-cancelled();
 
-    // A short note in the status line, e.g. "Copied 3 paths." or an error.
+    // A short note in the status line, e.g. "Copied 3 paths.", and whether
+    // it reports a failure (drawn in the danger color; hints are muted).
     in property <string> notice;
     in property <bool> notice-error;
 
@@ -1654,12 +1659,35 @@ export component AppWindow inherits Window {
                 padding-right: Theme.s3;
                 spacing: Theme.s4;
                 Text {
-                    text: root.status-left;
+                    text: root.status-count;
+                    font-size: Theme.small;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    min-width: self.preferred-width;
+                    horizontal-stretch: 0;
+                }
+                // Details of the selection: the part that shrinks (elided)
+                // first when the line runs out of room.
+                if root.status-detail != "": Text {
+                    text: root.status-detail;
                     font-size: Theme.small;
                     color: Theme.text-muted;
                     vertical-alignment: center;
                     overflow: elide;
-                    // Shrinks (elided) before the badges and the time do.
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.status-index;
+                    font-size: Theme.small;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    min-width: 0px;
+                    horizontal-stretch: 0;
+                }
+                // Takes the room left, so what follows sits at the right end.
+                Rectangle {
                     min-width: 0px;
                     horizontal-stretch: 1;
                 }
@@ -1698,14 +1726,17 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                // Shown in full up to a width that leaves room for the rest
+                // of the line even in a narrow window.
                 Text {
                     text: root.notice;
                     font-size: Theme.small;
-                    color: root.notice-error ? Theme.danger : Theme.text;
+                    color: root.notice-error ? Theme.danger : Theme.text-muted;
                     vertical-alignment: center;
                     horizontal-alignment: right;
                     overflow: elide;
-                    horizontal-stretch: 1;
+                    min-width: min(self.preferred-width, 360px);
+                    horizontal-stretch: 0;
                 }
                 Text {
                     text: root.status-right;

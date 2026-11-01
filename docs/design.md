@@ -100,10 +100,16 @@ screen; when a change conflicts with them, the rules win or are changed first.
 - **Status line.** Result count, index size, index state, small badges for the
   matching modes that are on, and query time. With one item selected the
   details of that item follow the count: size (for a folder as the folder
-  size setting says), modification time and full path; with several, their
-  number and the total size of the files among them (summed up to 100 000
-  selected items). A setting turns the details off. The left part is elided
-  first, so badges and time stay visible. A long operation that has run for
+  size setting says), modification time and path (the home folder as `~`;
+  a path longer than 60 characters keeps its start and its last components,
+  `~/…/Photos/2024/img.jpg`, while Copy full path still copies all of it);
+  with several, their number and the total size of the files among them
+  (summed up to 100 000 selected items). A setting turns the details off.
+  The details are elided first, so the count, the index state, the badges,
+  the note and the time stay visible. The note (for example "Copied 3
+  paths.") is shown in full up to 360 px; hints such as "Select one folder
+  to paste into." use the muted text color, and only failures (an I/O
+  error, a failed paste, trash or export) are drawn in the danger color. A long operation that has run for
   300 ms shows its progress after the left part ("Indexing: 42%", or a count
   when there is no estimate), updated at most ten times a second, with a
   small Cancel button when it can be cancelled. Cancel keeps the earlier

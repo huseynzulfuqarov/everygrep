@@ -167,6 +167,11 @@ First version, 0.1.0, not released yet.
   window (by default the search field is focused and its text selected).
 - Light and dark themes following the desktop, compact density, details of
   the selection in the status line.
+- The status line keeps its note readable: the selection details shrink
+  first, a long path is shortened to its start and last components
+  (`~/…/Photos/2024/img.jpg`), and the note is shown in full. Hints such as
+  "Select one folder to paste into." are no longer drawn in red; only
+  failures are.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is
   hidden.
 - Removable drives mounted by the desktop are indexed automatically, each

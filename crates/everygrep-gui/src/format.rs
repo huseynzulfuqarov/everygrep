@@ -85,6 +85,47 @@ pub fn timestamp(mtime_ns: i64, zone: &Zone) -> String {
     )
 }
 
+/// Longest path, in characters, the status line shows in full.
+pub const STATUS_PATH_MAX: usize = 60;
+
+/// A path short enough for the status line: the home folder as `~`, and
+/// when it is still longer than `max` characters, the start (`~` or `/`)
+/// with only the last components, e.g. `~/…/Photos/2024/img.jpg`. Fewer
+/// components are kept until it fits; the name always stays.
+pub fn short_path(path: &str, home: Option<&str>, max: usize) -> String {
+    let home = home.filter(|h| !h.is_empty() && *h != "/");
+    let (start, rest) = match home.and_then(|h| path.strip_prefix(h)) {
+        Some("") => return "~".to_owned(),
+        Some(rest) if rest.starts_with('/') => ("~", &rest[1..]),
+        _ => match path.strip_prefix('/') {
+            Some(rest) => ("", rest),
+            None => (".", path),
+        },
+    };
+    let shown = match start {
+        "~" => format!("~/{rest}"),
+        _ => path.to_owned(),
+    };
+    if shown.chars().count() <= max {
+        return shown;
+    }
+    let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+    for keep in (1..=3).rev() {
+        if parts.len() <= keep {
+            continue;
+        }
+        let tail = parts[parts.len() - keep..].join("/");
+        let short = match start {
+            "." => format!("…/{tail}"),
+            _ => format!("{start}/…/{tail}"),
+        };
+        if short.chars().count() <= max || keep == 1 {
+            return short;
+        }
+    }
+    shown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +162,32 @@ mod tests {
             timestamp(t + 3_600_000_000_000 * 22 + 41 * 60_000_000_000, &utc),
             "2026-10-25 22:41"
         );
+    }
+
+    #[test]
+    fn long_paths_keep_the_start_and_the_last_components() {
+        let home = Some("/home/me");
+        assert_eq!(short_path("/home/me/a.txt", home, 60), "~/a.txt");
+        assert_eq!(short_path("/home/me", home, 60), "~");
+        assert_eq!(short_path("/home/meat/a", home, 60), "/home/meat/a");
+        assert_eq!(short_path("/srv/a", None, 60), "/srv/a");
+        let deep = "/home/me/one/two/three/four/five/six/seven/Photos/2024/img.jpg";
+        assert_eq!(
+            short_path(deep, home, 60),
+            "~/one/two/three/four/five/six/seven/Photos/2024/img.jpg"
+        );
+        assert_eq!(short_path(deep, home, 30), "~/…/Photos/2024/img.jpg");
+        assert_eq!(short_path(deep, None, 30), "/…/Photos/2024/img.jpg");
+        // Fewer components until it fits; the name always stays.
+        assert_eq!(short_path(deep, home, 18), "~/…/2024/img.jpg");
+        assert_eq!(short_path(deep, home, 5), "~/…/img.jpg");
+        let long_name = format!("/home/me/x/{}", "n".repeat(80));
+        assert_eq!(
+            short_path(&long_name, home, 60),
+            format!("~/…/{}", "n".repeat(80))
+        );
+        // Characters, not bytes, are counted.
+        let wide = format!("/home/me/{}", "ə".repeat(40));
+        assert_eq!(short_path(&wide, home, 60), format!("~/{}", "ə".repeat(40)));
     }
 }
