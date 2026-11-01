@@ -22,7 +22,8 @@ pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
 
 /// Like [`search`], counting the names looked at in `progress` (its total is
 /// set to the size of the index) and stopping when it is cancelled. The
-/// cancel is seen before each group of blocks.
+/// cancel is seen before each group of blocks and before returning results,
+/// including when the query matches every name or the index is empty.
 pub fn search_with_progress(
     index: &Index,
     query: &Query,
@@ -31,9 +32,18 @@ pub fn search_with_progress(
 ) -> Result<Vec<NodeId>, Cancelled> {
     let order = index.order();
     progress.set_total(Some(order.len() as u64));
+    progress.check()?;
     if query.matches_all() {
-        progress.add(order.len() as u64);
-        return Ok(order.iter().collect());
+        let mut out = Vec::with_capacity(order.len());
+        for group in order.blocks().chunks(BLOCKS_PER_TASK) {
+            progress.check()?;
+            for block in group {
+                out.extend_from_slice(block);
+                progress.add(block.len() as u64);
+            }
+        }
+        progress.check()?;
+        return Ok(out);
     }
     let groups: Vec<&[Vec<NodeId>]> = order.blocks().chunks(BLOCKS_PER_TASK).collect();
     let threads = threads.clamp(1, groups.len().max(1));
@@ -48,6 +58,7 @@ pub fn search_with_progress(
         for group in &groups {
             out.extend(scan_group(group)?);
         }
+        progress.check()?;
         return Ok(out);
     }
 
@@ -76,6 +87,7 @@ pub fn search_with_progress(
     for (_, part) in parts {
         out.extend(part);
     }
+    progress.check()?;
     Ok(out)
 }
 
@@ -151,9 +163,35 @@ mod tests {
 
     #[test]
     fn empty_query_returns_all_nodes() {
-        let index = big_index(10);
+        let index = big_index(50_000);
         let m = Query::parse("", QueryOptions::default()).unwrap();
-        assert_eq!(search(&index, &m, 4).len(), 11);
+        for threads in [1, 8] {
+            let progress = Progress::new();
+            let found = search_with_progress(&index, &m, threads, &progress).unwrap();
+            assert_eq!(found, index.order().iter().collect::<Vec<_>>());
+            assert_eq!(progress.total(), Some(index.len() as u64));
+            assert_eq!(progress.done(), index.len() as u64);
+        }
+    }
+
+    #[test]
+    fn cancelled_search_returns_no_results_for_any_query_or_index_size() {
+        for index in [Index::new(NodeStore::new()), big_index(50_000)] {
+            for text in ["", "match"] {
+                let query = Query::parse(text, QueryOptions::default()).unwrap();
+                for threads in [1, 8] {
+                    let progress = Progress::new();
+                    progress.cancel();
+                    assert_eq!(
+                        search_with_progress(&index, &query, threads, &progress),
+                        Err(Cancelled),
+                        "query {text:?}, {} nodes, {threads} threads",
+                        index.len()
+                    );
+                    assert_eq!(progress.done(), 0);
+                }
+            }
+        }
     }
 
     /// Prints search times for 600 000 names, a tenth of them not ASCII. Run

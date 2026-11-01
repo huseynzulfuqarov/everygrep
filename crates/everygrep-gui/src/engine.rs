@@ -2136,6 +2136,34 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_empty_query_keeps_the_previous_results_and_query() {
+        let dir = Scratch::new("cancel-empty-query");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "").unwrap();
+        fs::write(root.join("two.md"), "").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        while probe.results.try_recv().is_ok() {}
+
+        probe.armed.store(true, Ordering::SeqCst);
+        probe.engine.set_query("", QueryOptions::default());
+        assert_eq!(probe.wait_stopped(), Stopped::Search);
+        assert_eq!(probe.engine.query.lock().unwrap().text, "txt");
+        assert_eq!(probe.engine.applied.lock().unwrap().text, "txt");
+        assert!(
+            probe
+                .results
+                .recv_timeout(Duration::from_millis(200))
+                .is_err(),
+            "a cancelled empty query sends no replacement results"
+        );
+        assert_eq!(probe.names("md"), ["two.md"]);
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn newer_query_cancels_the_running_search_without_a_stop() {
         let dir = Scratch::new("newer-query");
         fs::create_dir_all(dir.0.join("a")).unwrap();
