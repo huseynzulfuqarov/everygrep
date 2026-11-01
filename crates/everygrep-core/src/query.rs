@@ -20,7 +20,8 @@
 //! size:>10mb  size:1kb..2mb  size:0  size:large
 //!                     folders match by the total size of the files below them;
 //!                     size:1mb = 1 MiB up to 2 MiB - 1, size:=1mb exactly
-//! modified:<7d        changed within the last 7 days (also h, m, s);
+//! modified:<7d        changed within the last 7 days (also h, m, s; 7d
+//!                     alone is the same);
 //!                     modified:>30d = not changed for 30 days
 //! modified:2026-10-25 changed on that local day (also 2026-10, 2026,
 //!                     today, yesterday, tomorrow, thisweek, lastmonth,
@@ -1653,17 +1654,17 @@ fn parse_size_value(s: &str) -> Option<SizeValue> {
 }
 
 /// `modified:<7d` means newer than 7 days ago; `modified:>7d` means older.
-/// Returns `None` when `spec` is not an age.
+/// An age without a comparison (`modified:7d`) is the same as `<7d`: within
+/// the last 7 days. Returns `None` when `spec` is not an age.
 fn parse_age(spec: &str, now_ns: i64) -> Option<Pred> {
     let spec = spec.trim();
     let (newer, rest) = if let Some(r) = spec.strip_prefix("<=").or_else(|| spec.strip_prefix('<'))
     {
         (true, r)
+    } else if let Some(r) = spec.strip_prefix(">=").or_else(|| spec.strip_prefix('>')) {
+        (false, r)
     } else {
-        (
-            false,
-            spec.strip_prefix(">=").or_else(|| spec.strip_prefix('>'))?,
-        )
+        (true, spec)
     };
     let age = parse_age_ns(rest)?;
     let edge = now_ns.saturating_sub(age);
@@ -2715,6 +2716,12 @@ mod tests {
             ["e-today", "f-yesterday"]
         );
         assert_eq!(find_dated("modified:<1d"), ["e-today", "f-yesterday"]);
+        // Without a comparison an age means "within": the same as `<`.
+        assert_eq!(find_dated("modified:1d"), ["e-today", "f-yesterday"]);
+        assert_eq!(find_dated("modified:3h"), ["e-today"]);
+        assert_eq!(find_dated("modified:7D"), find_dated("modified:<7d"));
+        assert!(dated_error("modified:=7d"));
+        assert!(dated_error("modified:!7d"));
         assert_eq!(
             find_dated("modified:>30d"),
             ["a-dst-day", "b-after-dst", "g-2025", "h-1960"]

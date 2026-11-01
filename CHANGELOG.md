@@ -80,6 +80,8 @@ First version, 0.1.0, not released yet.
   years, months, weeks, days, hours, minutes and seconds.
 - Weekday and month names in dates (`modified:monday`, `modified:fri`, `modified:october`,
   `modified:dec`: the latest such day or month).
+- An age without a comparison, `modified:7d`, means within the last 7 days, like
+  `modified:<7d`; it used to be an error.
 - Filter words in the query, the filter names with a colon: `audio:`,
   `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`,
   `video:` and `code:`, sharing the extension lists of the filter selector

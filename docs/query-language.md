@@ -202,10 +202,13 @@ Ages, relative to now:
 
 | Query | Meaning |
 |---|---|
-| `modified:<7d` | changed within the last 7 days (`<=` is the same) |
+| `modified:<7d`, `modified:7d` | changed within the last 7 days (`<=` is the same) |
 | `modified:>30d` | not changed for 30 days (`>=` is the same) |
 
-Units: `s`, `m` or `min`, `h`, `d`, `w`.
+Units: `s`, `m` or `min`, `h`, `d`, `w`. An age without a comparison means
+"within", like `<`: an age is a span that ends now, so `modified:7d` is the
+same as `modified:last7days` (apart from a day with a daylight saving
+change, which `7d` counts as 24 hours). `=` and `!` do not take an age.
 
 Calendar dates, in the local time zone:
 
