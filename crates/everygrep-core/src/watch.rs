@@ -304,7 +304,9 @@ impl Watcher {
                             && index.rename(node, Some(dir), name).is_ok() =>
                     {
                         stats.moved += 1;
-                        refresh_meta(index, node, &mut stats);
+                        if self.skip.with_metadata || index.store().is_dir(node) {
+                            refresh_meta(index, node, &mut stats);
+                        }
                     }
                     Some(node) => {
                         stats.removed += index.remove(node).len();
@@ -683,12 +685,23 @@ mod tests {
         let mut index = Index::new(store);
         let mut watcher = Watcher::new(&index, &options).unwrap();
         fs::write(base.join("old.txt"), b"changed content").unwrap();
+        fs::rename(base.join("old.txt"), base.join("renamed.txt")).unwrap();
         fs::create_dir(base.join("new")).unwrap();
         fs::write(base.join("new/added.txt"), b"new content").unwrap();
-        watcher
-            .poll(&mut index, Some(Duration::from_secs(2)))
-            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut moved = 0;
+        while !(has(&index, &base.join("new/added.txt")) && has(&index, &base.join("renamed.txt")))
+            && Instant::now() < deadline
+        {
+            moved += watcher
+                .poll(&mut index, Some(Duration::from_millis(50)))
+                .unwrap()
+                .moved;
+        }
         assert!(has(&index, &base.join("new/added.txt")));
+        assert!(has(&index, &base.join("renamed.txt")));
+        assert!(!has(&index, &base.join("old.txt")));
+        assert_eq!(moved, 1, "the rename was applied as a move");
         for id in index.order().iter().filter(|&id| !index.store().is_dir(id)) {
             assert_eq!(index.store().meta(id), Meta::default());
         }

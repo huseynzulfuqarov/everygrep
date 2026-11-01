@@ -22,8 +22,9 @@ First version, 0.1.0, not released yet.
 - The command line tool keeps its own index file, `cli-index.bin`, next to
   the window's `index.bin`, so the two never replace each other's index.
 
-- `--no-meta` stays in effect during catch-up and live updates; directory
-  timestamps remain available so unchanged directories can be skipped.
+- `--no-meta` stays in effect during catch-up and live updates, renames and
+  moves included; directory timestamps remain available so unchanged
+  directories can be skipped.
 
 - CLI save errors return a failure status. Index saves use exclusive random
   temporary files with owner-only permissions and remove them on failure.
