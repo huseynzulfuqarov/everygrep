@@ -1,4 +1,4 @@
-# Index file format (version 4)
+# Index file format (version 6)
 
 The saved index lets EveryGrep start without scanning the disk again. It is
 written and read by `crates/everygrep-core/src/persist.rs`; this page
@@ -27,10 +27,11 @@ of bytes in the name pool.
 | Field | Size | Content |
 |---|---|---|
 | magic | 8 bytes | `EGRPIDX\0` |
-| version | u32 | `4` |
+| version | u32 | `6` |
 | nodes | u64 | `n` |
 | names | u64 | `m` |
 | roots | u32 | number of root paths, then for each: u32 length and the path bytes |
+| rules | u32 + u64 | known flag (0/1) and stable indexing-rule fingerprint; unknown for callers that do not supply rules |
 | parent_kind | n × u32 | bit 31: folder; bit 30: removed (must be 0 in a file); bits 0–29: parent id + 1, or 0 for a root |
 | name_start | n × u32 | offset of the node's name in the name pool |
 | name_len | n × u16 | length of the name in bytes |
@@ -96,7 +97,7 @@ ends (also when closing only hides the window).
 
 The file is decoded while it is read, so memory stays close to the size of
 the index itself. Before anything is allocated, the sizes in the header are
-checked against the file size (`30 × n + m` bytes must follow the roots).
+checked against the file size (`30 × n + m` bytes must follow the roots and rules header).
 After reading:
 
 - the checksum must match;
@@ -112,14 +113,19 @@ After reading:
 
 Any failure gives an `InvalidData` error ("not an index file", "unsupported
 version", "checksum mismatch", …) and the programs scan again instead. A file
-of version 4 loads as described above; a file of any other version is not
-converted; it is replaced by the next save.
+of version 4 or 5 loads with unknown indexing rules. The CLI rebuilds these
+caches and caches with a different rules fingerprint, using the saved roots
+when no roots were specified. Other unsupported versions are replaced by the
+next save.
 
 ## Version history
 
 The version number changes whenever the layout or the meaning of a field
-changes; older versions are rejected, not migrated, except version 4, whose
-layout is the same as version 5's and whose name order is sorted again.
+changes. Versions 4 and 5 remain readable without the rules header; other
+older versions are rejected. A name order from older sorting rules is sorted
+again. The rules fingerprint hashes the enabled switch, raw folder path bytes,
+and both file-pattern lists with length prefixes, using the checksum algorithm
+described above. It identifies cache compatibility, not cryptographic integrity.
 
 | Version | Introduced by the commit |
 |---|---|
@@ -128,5 +134,6 @@ layout is the same as version 5's and whose name order is sorted again.
 | 3 | store modification times in nanoseconds |
 | 4 | recompute folded names on load (the folded name columns and pool were dropped from the file) |
 | 5 | order the index by natural, diacritic-folded names |
+| 6 | record an optional indexing-rule fingerprint |
 
 All of them predate the first release.

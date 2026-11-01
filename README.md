@@ -517,8 +517,8 @@ everygrep shell [options]            read one query per line
 ```
 
 `search` and `shell` load the saved index; they scan and save it first when
-there is none, when `--root` differs from the saved roots, or with
-`--rescan`. Paths are printed in name order, one per line, at most `--limit`
+there is none, when roots or include/exclude rules differ from the saved
+ones, when an older cache has unknown rules, or with `--rescan`. Paths are printed in name order, one per line, at most `--limit`
 (50 by default, `0` for all); counts and timings go to standard error.
 `shell --watch` applies file changes before every query and saves the index
 on exit. Both the shell and the window catch up after installing watches,

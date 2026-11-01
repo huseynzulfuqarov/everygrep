@@ -30,6 +30,9 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- Saved indexes record an indexing-rule fingerprint (format 6). The CLI
+  rebuilds when include/exclude rules change or the saved rules are unknown.
+
 - `--no-meta` stays in effect during catch-up and live updates; directory
   timestamps remain available so unchanged directories can be skipped.
 

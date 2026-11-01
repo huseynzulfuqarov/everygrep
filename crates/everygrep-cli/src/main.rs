@@ -32,7 +32,7 @@ modified:2026-10-01..2026-10-25 modified:today created:today accessed:>30d prefi
 suffix: nopunct: nospace: regex:^img_\\d+ modified:last3days modified:monday limit:100
 
 search and shell load the saved index; they scan and save it first when there
-is none, when --root differs from the saved roots, or with --rescan.
+is none, when roots or indexing rules differ from the saved ones, or with --rescan.
 
 options:
   --root <path>      folder to index (repeatable, default: saved roots or $HOME)
@@ -147,11 +147,16 @@ enum Source {
 /// Loads the saved index if it fits the request, otherwise scans and saves.
 /// Returns the index, the roots it covers and where it came from.
 fn open_index(args: &Args, force_scan: bool) -> io::Result<(Index, Vec<PathBuf>, Source)> {
+    let mut saved_roots = None;
     if !force_scan && !args.rescan {
         if let Some(path) = &args.index_file {
             let started = Instant::now();
             match persist::load(path) {
-                Ok(saved) if args.roots.is_empty() || saved.roots == args.roots => {
+                Ok(saved)
+                    if (args.roots.is_empty() || saved.roots == args.roots)
+                        && saved.rules_hash
+                            == Some(persist::rules_fingerprint(&args.scan.rules.spec())) =>
+                {
                     eprintln!(
                         "loaded {} entries from {} in {:.0} ms, memory {:.1} MiB",
                         saved.index.len(),
@@ -165,14 +170,17 @@ fn open_index(args: &Args, force_scan: bool) -> io::Result<(Index, Vec<PathBuf>,
                     }
                     return Ok((saved.index, saved.roots, Source::Loaded));
                 }
-                Ok(_) => eprintln!("saved index has other roots, scanning"),
+                Ok(saved) => {
+                    saved_roots = Some(saved.roots);
+                    eprintln!("saved index has other roots or indexing rules, scanning");
+                }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => eprintln!("cannot use saved index ({e}), scanning"),
             }
         }
     }
     let roots = if args.roots.is_empty() {
-        home_root()
+        saved_roots.unwrap_or_else(home_root)
     } else {
         args.roots.clone()
     };
@@ -197,7 +205,7 @@ fn report_catch_up(stats: &CatchUpStats, took: std::time::Duration) -> bool {
 fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) -> io::Result<()> {
     if let Some(path) = &args.index_file {
         let started = Instant::now();
-        persist::save(index, roots, path).map_err(|e| {
+        persist::save_with_rules(index, roots, &args.scan.rules.spec(), path).map_err(|e| {
             io::Error::new(
                 e.kind(),
                 format!("could not save index to {}: {e}", path.display()),

@@ -353,3 +353,105 @@ fn loading_a_no_meta_index_does_not_populate_file_metadata() {
     assert!(stderr.contains("re-read 0"), "{stderr}");
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn cached_rules_are_rebuilt_when_tightened_or_relaxed() {
+    let dir = temp_dir("changed-rules");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    let search = |rules: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .env("HOME", dir.join("unused-home"))
+            .args(["search", "--index-file", index.to_str().unwrap()])
+            .args(rules)
+            .arg("Holiday")
+            .output()
+            .unwrap()
+    };
+    for rules in [
+        ["--exclude-files", "*.JPG"],
+        ["--include-files", "*.txt"],
+        ["--exclude", "sub"],
+    ] {
+        assert!(
+            run(&[
+                "index",
+                "--root",
+                tree.to_str().unwrap(),
+                "--index-file",
+                index.to_str().unwrap()
+            ])
+            .status
+            .success()
+        );
+        let tightened = search(&rules);
+        assert!(tightened.status.success());
+        assert!(tightened.stdout.is_empty(), "rules {rules:?} were ignored");
+        assert!(
+            String::from_utf8(tightened.stderr)
+                .unwrap()
+                .contains("indexed")
+        );
+        // The same rules now reuse the saved cache.
+        let unchanged = search(&rules);
+        assert!(unchanged.status.success());
+        assert!(
+            String::from_utf8(unchanged.stderr)
+                .unwrap()
+                .contains("loaded")
+        );
+        let relaxed = search(&[]);
+        assert!(relaxed.status.success());
+        assert!(
+            String::from_utf8(relaxed.stdout)
+                .unwrap()
+                .contains("Holiday-Photo.JPG"),
+            "rules {rules:?} were not relaxed"
+        );
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn legacy_cache_with_unknown_rules_is_rebuilt_using_its_saved_roots() {
+    let dir = temp_dir("legacy-rules");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    assert!(
+        run(&[
+            "index",
+            "--root",
+            tree.to_str().unwrap(),
+            "--index-file",
+            index.to_str().unwrap()
+        ])
+        .status
+        .success()
+    );
+    let saved = everygrep_core::persist::load(&index).unwrap();
+    let order: Vec<_> = saved.index.order().iter().collect();
+    everygrep_core::persist::rewrite_order(&index, 5, &order).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .env("HOME", dir.join("unused-home"))
+        .args(["search", "--index-file", index.to_str().unwrap(), "Holiday"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("Holiday-Photo.JPG")
+    );
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("indexed")
+    );
+    assert!(
+        everygrep_core::persist::load(&index)
+            .unwrap()
+            .rules_hash
+            .is_some()
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}

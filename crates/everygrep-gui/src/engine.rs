@@ -1879,7 +1879,7 @@ mod tests {
     }
 
     #[test]
-    fn version_4_index_is_sorted_again_and_saved_as_version_5() {
+    fn version_4_index_is_sorted_again_and_saved_as_version_6() {
         let dir = Scratch::new("v4-index");
         let a = dir.0.join("a");
         fs::create_dir_all(&a).unwrap();
@@ -1932,9 +1932,9 @@ mod tests {
         assert!(at("file2") < at("file10"), "{names:?}");
         assert_eq!(at("cay").abs_diff(at("Çay")), 1, "{names:?}");
 
-        // Closing saves the new order as version 5, which loads unsorted.
+        // Closing saves the new order as version 6, which needs no sorting.
         probe.engine.shutdown();
-        assert_eq!(fs::read(&index_file).unwrap()[8..12], 5u32.to_le_bytes());
+        assert_eq!(fs::read(&index_file).unwrap()[8..12], 6u32.to_le_bytes());
         let again = persist::load(&index_file).unwrap();
         assert!(!again.reordered);
         assert!(again.index.order().iter().eq(index.order().iter()));

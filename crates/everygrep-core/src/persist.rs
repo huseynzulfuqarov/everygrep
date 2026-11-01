@@ -8,6 +8,7 @@
 //! nodes    u64      number of nodes
 //! names    u64      bytes in the raw name pool
 //! roots    u32      number of root paths, then for each: u32 length + bytes
+//! rules    u32 known flag + u64 rules fingerprint (version 6+)
 //! columns  parent_kind[u32], name_start[u32], name_len[u16], size[u64],
 //!          mtime_ns[i64], name pool, name order[u32]
 //! checksum u64      over all preceding bytes
@@ -28,13 +29,14 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::index::Index;
+use crate::rules::RuleSpec;
 use crate::store::{Columns, Meta, NodeId, NodeStore};
 
 const MAGIC: &[u8; 8] = b"EGRPIDX\0";
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
-/// The oldest version that still loads. Version 4 has the same layout; its
-/// name order is sorted again on load.
+/// The oldest version that still loads. Versions 4 and 5 omit the rules
+/// fingerprint; older name orders are sorted again on load.
 const OLDEST_VERSION: u32 = 4;
 
 /// An index loaded from disk together with the roots it was built from.
@@ -43,6 +45,9 @@ pub struct Saved {
     pub index: Index,
     /// Folders that were scanned to build the index.
     pub roots: Vec<PathBuf>,
+    /// Fingerprint of the indexing rules, or unknown for older files and
+    /// callers of `save` that do not supply their rules.
+    pub rules_hash: Option<u64>,
     /// The saved name order was not in the current order (a file of an older
     /// version) and was sorted again; saving the index stores the new order,
     /// so the next load does not have to sort it.
@@ -61,6 +66,47 @@ pub fn default_path() -> Option<PathBuf> {
 
 /// Writes `index` and its `roots` to `path` atomically.
 pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
+    save_impl(index, roots, None, path)
+}
+
+/// Saves an index with the rules used to build it, so callers can reject a
+/// cache made with different include/exclude lists.
+pub fn save_with_rules(
+    index: &Index,
+    roots: &[PathBuf],
+    rules: &RuleSpec,
+    path: &Path,
+) -> io::Result<()> {
+    save_impl(index, roots, Some(rules_fingerprint(rules)), path)
+}
+
+/// Stable cache identity of all rule fields, including raw folder path bytes.
+/// This is a cache fingerprint, not a cryptographic integrity check.
+pub fn rules_fingerprint(rules: &RuleSpec) -> u64 {
+    let mut buf = Vec::new();
+    put_u32(&mut buf, u32::from(rules.enabled));
+    put_u64(&mut buf, rules.folders.len() as u64);
+    for bytes in rules
+        .folders
+        .iter()
+        .map(|p| p.as_os_str().as_bytes())
+        .chain([
+            rules.include_files.as_bytes(),
+            rules.exclude_files.as_bytes(),
+        ])
+    {
+        put_u64(&mut buf, bytes.len() as u64);
+        buf.extend_from_slice(bytes);
+    }
+    checksum(&buf)
+}
+
+fn save_impl(
+    index: &Index,
+    roots: &[PathBuf],
+    rules_hash: Option<u64>,
+    path: &Path,
+) -> io::Result<()> {
     let compacted;
     let index = if index.needs_compaction() {
         compacted = index.compacted().0;
@@ -86,6 +132,8 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
         );
         buf.extend_from_slice(bytes);
     }
+    put_u32(&mut buf, u32::from(rules_hash.is_some()));
+    put_u64(&mut buf, rules_hash.unwrap_or_default());
     c.parent_kind.iter().for_each(|&v| put_u32(&mut buf, v));
     c.name_start.iter().for_each(|&v| put_u32(&mut buf, v));
     c.name_len
@@ -168,6 +216,33 @@ pub fn rewrite_order(path: &Path, version: u32, order: &[NodeId]) -> io::Result<
     if data.len() < 12 + 8 + 4 * order.len() {
         return Err(invalid("file too short"));
     }
+    let current = u32::from_le_bytes(data[8..12].try_into().expect("4 bytes"));
+    if (current >= 6) != (version >= 6) {
+        let read_u32 = |at: usize| -> io::Result<usize> {
+            let bytes = data
+                .get(at..at + 4)
+                .ok_or_else(|| invalid("file too short"))?;
+            Ok(u32::from_le_bytes(bytes.try_into().expect("4 bytes")) as usize)
+        };
+        let count = read_u32(28)?;
+        let mut at = 32usize;
+        for _ in 0..count {
+            at = at
+                .checked_add(4 + read_u32(at)?)
+                .ok_or_else(|| invalid("root too long"))?;
+        }
+        if current >= 6 {
+            if at.checked_add(12).is_none_or(|end| end > data.len() - 8) {
+                return Err(invalid("file too short"));
+            }
+            data.drain(at..at + 12);
+        } else {
+            if at > data.len() - 8 {
+                return Err(invalid("file too short"));
+            }
+            data.splice(at..at, [0; 12]);
+        }
+    }
     data[8..12].copy_from_slice(&version.to_le_bytes());
     let body = data.len() - 8;
     let start = body - 4 * order.len();
@@ -206,7 +281,8 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     if r.bytes(MAGIC.len())? != MAGIC {
         return Err(invalid("not an index file"));
     }
-    if !(OLDEST_VERSION..=VERSION).contains(&r.u32()?) {
+    let version = r.u32()?;
+    if !(OLDEST_VERSION..=VERSION).contains(&version) {
         return Err(invalid("unsupported version"));
     }
     let nodes = r.len()?;
@@ -217,6 +293,18 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         let len = r.u32()? as usize;
         roots.push(PathBuf::from(std::ffi::OsStr::from_bytes(&r.bytes(len)?)));
     }
+    let rules_hash = if version >= 6 {
+        let known = r.u32()?;
+        r.fill(8)?;
+        let hash = u64::from_le_bytes(r.scratch[..8].try_into().expect("8 bytes"));
+        match known {
+            0 => None,
+            1 => Some(hash),
+            _ => return Err(invalid("invalid rules fingerprint flag")),
+        }
+    } else {
+        None
+    };
     // 4+4+2+8+8 bytes of columns and 4 of name order per node.
     let expected = (nodes as u64)
         .checked_mul(30)
@@ -266,6 +354,7 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     Ok(Saved {
         index,
         roots,
+        rules_hash,
         reordered,
     })
 }
@@ -522,6 +611,30 @@ mod tests {
     }
 
     #[test]
+    fn rules_fingerprint_round_trips_and_legacy_files_have_unknown_rules() {
+        let path = temp_file("rules");
+        let index = sample();
+        let rules = RuleSpec {
+            folders: vec!["cache".into()],
+            include_files: "*.txt".into(),
+            exclude_files: "old*".into(),
+            ..RuleSpec::default()
+        };
+        save_with_rules(&index, &["/data".into()], &rules, &path).unwrap();
+        assert_eq!(
+            load(&path).unwrap().rules_hash,
+            Some(rules_fingerprint(&rules))
+        );
+        let order: Vec<_> = index.order().iter().collect();
+        for version in [4, 5] {
+            save_with_rules(&index, &["/data".into()], &rules, &path).unwrap();
+            rewrite_order(&path, version, &order).unwrap();
+            assert_eq!(load(&path).unwrap().rules_hash, None);
+        }
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
     fn saving_after_changes_writes_a_compacted_index() {
         let path = temp_file("compact");
         let mut index = sample();
@@ -578,9 +691,9 @@ mod tests {
         let saved = load(&path).unwrap();
         assert!(saved.reordered);
         assert!(saved.index.order().iter().eq(index.order().iter()));
-        // Saved again, it is version 5 and loads without sorting.
+        // Saved again, it is the current version and loads without sorting.
         save(&saved.index, &saved.roots, &path).unwrap();
-        assert_eq!(fs::read(&path).unwrap()[8..12], 5u32.to_le_bytes());
+        assert_eq!(fs::read(&path).unwrap()[8..12], VERSION.to_le_bytes());
         let again = load(&path).unwrap();
         fs::remove_file(&path).unwrap();
         assert!(!again.reordered);
@@ -604,7 +717,7 @@ mod tests {
         let err = load(&path).err().expect("not a permutation");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
 
-        for version in [3, 6] {
+        for version in [3, 7] {
             save_with_order(&index, &path, version, &backwards);
             let err = load(&path).err().expect("unsupported version");
             assert_eq!(err.to_string(), "unsupported version");
