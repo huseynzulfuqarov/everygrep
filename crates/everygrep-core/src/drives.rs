@@ -234,6 +234,20 @@ pub fn is_safe_uuid(uuid: &str) -> bool {
         && uuid.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
+/// UUIDs become file names in the volumes folder: one that could name a
+/// file elsewhere (`../x`, `/x`) is refused before anything is written or
+/// removed.
+fn check_uuid(uuid: &str) -> io::Result<()> {
+    if is_safe_uuid(uuid) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("not a usable drive UUID: {uuid:?}"),
+        ))
+    }
+}
+
 /// A link folder such as `/dev/disk/by-uuid`: (name, link target as
 /// written, device numbers of the target if it is a device).
 type Links = Vec<(String, PathBuf, Option<(u32, u32)>)>;
@@ -418,8 +432,10 @@ impl DriveInfo {
         is_safe_uuid(&info.uuid).then_some(info)
     }
 
-    /// Writes the info file atomically.
+    /// Writes the info file atomically. A UUID that [`is_safe_uuid`]
+    /// rejects is an `InvalidInput` error.
     pub fn save(&self, env: &DriveEnv) -> io::Result<()> {
+        check_uuid(&self.uuid)?;
         write_atomic(&env.info_path(&self.uuid), self.to_text().as_bytes())
     }
 }
@@ -441,8 +457,10 @@ pub fn known_drives(env: &DriveEnv) -> Vec<DriveInfo> {
 }
 
 /// Removes what is kept about a drive: its saved index and, with
-/// `info`, its notes too.
+/// `info`, its notes too. A UUID that [`is_safe_uuid`] rejects is an
+/// `InvalidInput` error, and nothing is removed.
 pub fn forget(env: &DriveEnv, uuid: &str, info: bool) -> io::Result<()> {
+    check_uuid(uuid)?;
     let mut result = Ok(());
     let mut paths = vec![env.index_path(uuid)];
     if info {
@@ -535,6 +553,70 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// Map from UUID to the drive, for quick lookups.
 pub fn by_uuid(drives: &[Drive]) -> HashMap<&str, &Drive> {
     drives.iter().map(|d| (d.uuid.as_str(), d)).collect()
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    /// A volumes folder inside a scratch folder that is removed on drop.
+    struct Volumes(PathBuf);
+
+    impl Volumes {
+        fn new(tag: &str) -> (Self, DriveEnv) {
+            let base = std::env::temp_dir().join(format!(
+                "everygrep-drive-bounds-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&base);
+            fs::create_dir_all(base.join("volumes")).unwrap();
+            let env = DriveEnv {
+                mountinfo: base.join("mountinfo"),
+                media_dirs: vec![PathBuf::from("/run/media/u")],
+                by_uuid: base.join("by-uuid"),
+                by_label: base.join("by-label"),
+                volumes_dir: base.join("volumes"),
+            };
+            (Self(base), env)
+        }
+    }
+
+    impl Drop for Volumes {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn unsafe_uuids_neither_remove_nor_write_files() {
+        let (dir, env) = Volumes::new("uuid");
+        let victim = dir.0.join("victim.bin");
+        fs::write(&victim, b"keep").unwrap();
+        let absolute = dir.0.join("abs");
+        fs::write(absolute.with_extension("bin"), b"keep").unwrap();
+        for uuid in ["../victim", &absolute.to_string_lossy(), "", "a/b"] {
+            let err = forget(&env, uuid, true).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{uuid:?}");
+            let info = DriveInfo {
+                uuid: uuid.to_owned(),
+                ..DriveInfo::default()
+            };
+            let err = info.save(&env).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{uuid:?}");
+        }
+        assert!(victim.exists());
+        assert!(absolute.with_extension("bin").exists());
+        assert!(!dir.0.join("victim.info").exists());
+        assert!(!dir.0.join("abs.info").exists());
+        // A plain UUID still works.
+        let info = DriveInfo {
+            uuid: "AB-12".into(),
+            ..DriveInfo::default()
+        };
+        info.save(&env).unwrap();
+        forget(&env, "AB-12", true).unwrap();
+        assert!(!env.info_path("AB-12").exists());
+    }
 }
 
 #[cfg(test)]
