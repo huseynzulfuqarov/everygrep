@@ -34,7 +34,11 @@ First version, 0.1.0, not released yet.
   attribute letters (`R` read-only, `H` hidden, `D` directory, `L` link,
   `X` executable) read from the file system on demand, so the index stays
   the same size; sorting by them reads them for every result on several
-  threads, with progress and cancel.
+  threads, with progress and cancel. While file changes are watched, the
+  creation times and attributes read for a sort are kept for the refreshes
+  that follow, and only entries that changed are read again (about 5 ms
+  instead of 20 ms, and a tenth of the CPU time, for 100 000 results);
+  access times are always read again, since reading a file changes them.
 - Progress counters and cooperative cancelling for scans, searches, sorts
   and catch-ups, and an estimate of a scan's size from the used inodes of
   the file systems it reads.

@@ -19,11 +19,18 @@
 //! [`crate::details`]), on several threads. Entries without the value (no
 //! birth time on that file system, gone, on a drive that is not connected)
 //! sort before all others, after them when descending.
+//!
+//! [`sort_cached`] keeps the creation times or attributes it read in a
+//! [`DetailCache`] for the next sort of the same results, such as the
+//! refresh after file changes, and reads again only the nodes the index
+//! logged as changed (see [`Index::changed_since`]). Access times are always
+//! read again: reading a file changes them, and no event says so.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
-use crate::details::Details;
+use crate::details::{Attributes, Details};
 use crate::index::Index;
 use crate::kind::{FileKind, classify};
 use crate::progress::{Cancelled, Progress};
@@ -115,6 +122,150 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
     let _ = sort_with_progress(index, ids, sort, threads, &Progress::new());
 }
 
+/// Creation times or attributes read by [`sort_cached`], by node id, so a
+/// later sort of the same results does not read them again.
+///
+/// # What it trusts
+///
+/// A value stays until the index logs its node as changed (see
+/// [`Index::changed_since`]): new metadata (an `IN_ATTRIB` event, a write),
+/// a rename or move, a removal, or a node replaced by another. The cache
+/// follows the log at the start of every sort and forgets all values when
+/// the log was reset (a drive went offline or came back, too many changes)
+/// or when the index is another one (another [`Index::stamp`], such as after
+/// a compaction). Callers forget it all with
+/// [`set_generation`](Self::set_generation) for what the index cannot know:
+/// their own id epochs, and anything that may have changed while file
+/// changes were not watched.
+///
+/// So the values are only as current as the events applied to the index.
+/// Changes no event reports stay unseen: below a folder whose watch could
+/// not be added (for example when the inotify watch limit is reached),
+/// through a hard link in another folder, or made by another machine on a
+/// network file system. Use [`sort_with_progress`] where nothing watches the
+/// index.
+///
+/// # Size
+///
+/// It keeps values for one sort key, the one of the last sort, and drops
+/// all when the key changes. After a sort, it holds at most twice as many
+/// values as that sort had results: when it holds more, only the values of
+/// the listed nodes are kept. Entries that could not be read are not kept,
+/// nor those on drives that are not connected. A creation time takes 24
+/// bytes and an attribute 8, plus one byte of table control each, in a hash
+/// table at most 7/8 full (about 29 to 57 and 10 to 21 bytes per value).
+#[derive(Default)]
+pub struct DetailCache {
+    /// [`Index::stamp`] of the index the ids belong to.
+    stamp: u64,
+    /// [`Index::change_seq`] the cache has followed up to.
+    seq: u64,
+    /// See [`set_generation`](Self::set_generation).
+    generation: u64,
+    created: IdMap<Option<i64>>,
+    attributes: IdMap<Option<Attributes>>,
+}
+
+impl DetailCache {
+    /// An empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Forgets every value when `generation` is not the one given last.
+    pub fn set_generation(&mut self, generation: u64) {
+        if generation != self.generation {
+            self.clear();
+            self.generation = generation;
+        }
+    }
+
+    /// Forgets every value and frees the memory.
+    pub fn clear(&mut self) {
+        self.created = IdMap::default();
+        self.attributes = IdMap::default();
+    }
+
+    /// Number of values kept.
+    pub fn len(&self) -> usize {
+        self.created.len() + self.attributes.len()
+    }
+
+    /// Whether no value is kept.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Approximate heap memory used, in bytes.
+    pub fn heap_bytes(&self) -> usize {
+        fn bytes<V>(map: &IdMap<V>) -> usize {
+            map.capacity() * (std::mem::size_of::<(NodeId, V)>() + 1)
+        }
+        bytes(&self.created) + bytes(&self.attributes)
+    }
+
+    /// Drops what the index says may have changed since the last sort.
+    fn follow(&mut self, index: &Index) {
+        if self.stamp != index.stamp() {
+            self.clear();
+            self.stamp = index.stamp();
+        } else {
+            match index.changed_since(self.seq) {
+                None => self.clear(),
+                Some(changed) if !self.is_empty() => {
+                    for id in changed {
+                        self.created.remove(id);
+                        self.attributes.remove(id);
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        self.seq = index.change_seq();
+    }
+}
+
+/// A hash map keyed by node id.
+type IdMap<V> = HashMap<NodeId, V, BuildHasherDefault<IdHasher>>;
+
+/// Hashes node ids by one multiplication. Ids are small dense numbers; an odd
+/// factor keeps them distinct in the low bits the table uses for buckets
+/// and spreads them over the high bits it uses for its tags.
+#[derive(Default)]
+struct IdHasher(u64);
+
+impl Hasher for IdHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+
+    fn write_u32(&mut self, n: u32) {
+        self.0 = u64::from(n).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Like [`sort_with_progress`], but creation times and attributes are taken
+/// from `cache` where it has them, and those read are kept there (see
+/// [`DetailCache`] for when that is right). The order is the same as
+/// without the cache as long as the index has applied every change.
+pub fn sort_cached(
+    index: &Index,
+    ids: &mut [NodeId],
+    sort: Sort,
+    threads: usize,
+    progress: &Progress,
+    cache: &mut DetailCache,
+) -> Result<(), Cancelled> {
+    cache.follow(index);
+    sort_maybe_cached(index, ids, sort, threads, progress, Some(cache))
+}
+
 /// Ids whose keys are computed between two looks at the progress.
 const KEY_BATCH: usize = 16 * 1024;
 
@@ -129,6 +280,17 @@ pub fn sort_with_progress(
     threads: usize,
     progress: &Progress,
 ) -> Result<(), Cancelled> {
+    sort_maybe_cached(index, ids, sort, threads, progress, None)
+}
+
+fn sort_maybe_cached(
+    index: &Index,
+    ids: &mut [NodeId],
+    sort: Sort,
+    threads: usize,
+    progress: &Progress,
+    cache: Option<&mut DetailCache>,
+) -> Result<(), Cancelled> {
     progress.set_total(Some(2 * ids.len() as u64));
     let store = index.store();
     // Path sorts by folder first, and names within one folder are unique, so
@@ -138,7 +300,7 @@ pub fn sort_with_progress(
     } else {
         order_equal_names(store, ids, threads, progress)?
     };
-    let sorted = sort_ordered(index, ids, sort, threads, progress);
+    let sorted = sort_ordered(index, ids, sort, threads, progress, cache);
     if sorted.is_err() {
         // In the input, equal names are in parent id order.
         for &(from, to) in &runs {
@@ -156,7 +318,17 @@ fn sort_ordered(
     sort: Sort,
     threads: usize,
     progress: &Progress,
+    mut cache: Option<&mut DetailCache>,
 ) -> Result<(), Cancelled> {
+    // Values are kept for the current key only.
+    if let Some(c) = cache.as_deref_mut() {
+        if sort.key != SortKey::Created {
+            c.created = IdMap::default();
+        }
+        if sort.key != SortKey::Attributes {
+            c.attributes = IdMap::default();
+        }
+    }
     let n = ids.len() as u64;
     let store = index.store();
     let desc = sort.descending;
@@ -224,15 +396,18 @@ fn sort_ordered(
             sort_directed(ids, threads, desc, k, progress)?;
         }
         SortKey::Created => {
-            let k = detail_keys(index, ids, threads, progress, |d| d.created_ns)?;
+            let kept = cache.map(|c| &mut c.created);
+            let k = detail_keys(index, ids, threads, progress, |d| d.created_ns, kept)?;
             sort_directed(ids, threads, desc, k, progress)?;
         }
         SortKey::Accessed => {
-            let k = detail_keys(index, ids, threads, progress, |d| d.accessed_ns)?;
+            // Never cached: reads change it without an event.
+            let k = detail_keys(index, ids, threads, progress, |d| d.accessed_ns, None)?;
             sort_directed(ids, threads, desc, k, progress)?;
         }
         SortKey::Attributes => {
-            let k = detail_keys(index, ids, threads, progress, |d| d.attributes)?;
+            let kept = cache.map(|c| &mut c.attributes);
+            let k = detail_keys(index, ids, threads, progress, |d| d.attributes, kept)?;
             sort_directed(ids, threads, desc, k, progress)?;
         }
     }
@@ -244,36 +419,58 @@ const DETAIL_BATCH: usize = 1024;
 
 /// `key(details)` for every id, reading the details from the file system on
 /// up to `threads` threads. Entries on a drive that is not connected are not
-/// read and have no details.
-fn detail_keys<K: Send>(
+/// read and have no details. With `kept`, keys found there are not read
+/// again, and keys read are added (see [`DetailCache`]).
+fn detail_keys<K: Copy + Send + Sync>(
     index: &Index,
     ids: &[NodeId],
     threads: usize,
     progress: &Progress,
     key: impl Fn(&Details) -> K + Sync,
+    kept: Option<&mut IdMap<K>>,
 ) -> Result<Vec<K>, Cancelled> {
     let store = index.store();
-    let read = |id: NodeId| {
+    let known = kept.as_deref();
+    // The key and, when it was read now, whether it can be kept.
+    let look = |id: NodeId| {
         if index.is_offline(id) {
-            Details::default()
+            (key(&Details::default()), None)
+        } else if let Some(&k) = known.and_then(|m| m.get(&id)) {
+            (k, None)
         } else {
-            Details::read(&store.path(id), store.name(id))
+            let d = Details::read(&store.path(id), store.name(id));
+            // Not kept when unreadable: a change of a folder above (its
+            // permissions) can make it readable without an event for it.
+            (key(&d), Some(d.attributes.is_some()))
         }
     };
     let part = ids.len().div_ceil(threads.max(1)).max(DETAIL_BATCH);
-    let parts: Vec<Result<Vec<K>, Cancelled>> = std::thread::scope(|scope| {
+    // Keys, keys read that can be kept, number of reads.
+    type Part<K> = Result<(Vec<K>, Vec<(NodeId, K)>, u64), Cancelled>;
+    let parts: Vec<Part<K>> = std::thread::scope(|scope| {
         let workers: Vec<_> = ids
             .chunks(part)
             .map(|chunk| {
-                let (read, key) = (&read, &key);
+                let look = &look;
                 scope.spawn(move || {
                     let mut keys = Vec::with_capacity(chunk.len());
+                    let mut read = Vec::new();
+                    let mut reads = 0;
                     for batch in chunk.chunks(DETAIL_BATCH) {
                         progress.check()?;
-                        keys.extend(batch.iter().map(|&id| key(&read(id))));
+                        for &id in batch {
+                            let (k, fresh) = look(id);
+                            keys.push(k);
+                            if let Some(keep) = fresh {
+                                reads += 1;
+                                if keep {
+                                    read.push((id, k));
+                                }
+                            }
+                        }
                         progress.add(batch.len() as u64);
                     }
-                    Ok(keys)
+                    Ok((keys, read, reads))
                 })
             })
             .collect();
@@ -283,10 +480,43 @@ fn detail_keys<K: Send>(
             .collect()
     });
     let mut keys = Vec::with_capacity(ids.len());
+    let mut read = Vec::new();
+    let mut reads = 0;
     for part in parts {
-        keys.extend(part?);
+        let (k, r, n) = part?;
+        keys.extend(k);
+        read.extend(r);
+        reads += n;
+    }
+    count_reads(reads);
+    if let Some(map) = kept {
+        map.extend(read);
+        if map.len() > 2 * ids.len() {
+            let old = std::mem::take(map);
+            map.extend(ids.iter().filter_map(|id| old.get(id).map(|&k| (*id, k))));
+        }
     }
     Ok(keys)
+}
+
+#[cfg(test)]
+thread_local! {
+    static READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Adds `n` to [`detail_reads`] in tests.
+#[cfg(test)]
+fn count_reads(n: u64) {
+    READS.with(|r| r.set(r.get() + n));
+}
+
+#[cfg(not(test))]
+fn count_reads(_: u64) {}
+
+/// Details read from the file system by sorts on this thread so far.
+#[cfg(test)]
+fn detail_reads() -> u64 {
+    READS.with(std::cell::Cell::get)
 }
 
 /// `key(position, id)` for every id, in batches with a look at the progress
@@ -1252,5 +1482,359 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A temporary folder `files/` with `f0` .. `f{n-1}` (every third one
+    /// executable, every fifth read-only), scanned and watched.
+    struct Live {
+        base: std::path::PathBuf,
+        index: Index,
+        watcher: crate::watch::Watcher,
+    }
+
+    impl Live {
+        fn new(tag: &str, n: usize) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let base = std::env::temp_dir()
+                .join(format!("everygrep-sort-cache-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            let dir = base.join("files");
+            std::fs::create_dir_all(&dir).unwrap();
+            for i in 0..n {
+                let path = dir.join(format!("f{i}"));
+                std::fs::write(&path, b"x").unwrap();
+                let mode = match i {
+                    _ if i % 5 == 0 => 0o444,
+                    _ if i % 3 == 0 => 0o755,
+                    _ => 0o644,
+                };
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            }
+            let mut store = NodeStore::new();
+            crate::scan::scan(&mut store, std::slice::from_ref(&base), &Default::default());
+            let index = Index::new(store);
+            let watcher = crate::watch::Watcher::new(&index, &Default::default()).unwrap();
+            Self {
+                base,
+                index,
+                watcher,
+            }
+        }
+
+        fn path(&self, name: &str) -> std::path::PathBuf {
+            self.base.join("files").join(name)
+        }
+
+        fn files(&self) -> NodeId {
+            let root = self.index.roots()[0];
+            self.index.find_child(Some(root), b"files").unwrap()
+        }
+
+        /// Applies events until `done` holds; panics after five seconds.
+        fn settle(&mut self, done: impl Fn(&Index) -> bool) {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !done(&self.index) {
+                assert!(std::time::Instant::now() < deadline, "events did not come");
+                self.watcher
+                    .poll(&mut self.index, Some(std::time::Duration::from_millis(50)))
+                    .unwrap();
+            }
+            // Anything else already queued.
+            self.watcher
+                .poll(&mut self.index, Some(std::time::Duration::from_millis(50)))
+                .unwrap();
+        }
+
+        /// Sorts all nodes by creation time, attributes and access time,
+        /// each up and down, with one cache per key (`caches`) and without;
+        /// asserts the orders are the same. Returns the names by attributes.
+        fn check(&self, caches: &mut [DetailCache; 3]) -> Vec<String> {
+            let all = Query::parse("", QueryOptions::default()).unwrap();
+            let ids = search(&self.index, &all, 1);
+            let mut order = Vec::new();
+            let keys = [SortKey::Created, SortKey::Attributes, SortKey::Accessed];
+            for (key, cache) in keys.into_iter().zip(caches.iter_mut()) {
+                for descending in [false, true] {
+                    let s = Sort {
+                        key,
+                        descending,
+                        ..Sort::default()
+                    };
+                    let (mut plain, mut cached) = (ids.clone(), ids.clone());
+                    sort(&self.index, &mut plain, s, 2);
+                    let progress = Progress::new();
+                    sort_cached(&self.index, &mut cached, s, 2, &progress, cache).unwrap();
+                    assert_eq!(progress.done(), 2 * ids.len() as u64);
+                    let names = |v: &[NodeId]| -> Vec<String> {
+                        v.iter()
+                            .map(|&id| String::from_utf8_lossy(self.index.store().name(id)).into())
+                            .collect()
+                    };
+                    assert_eq!(names(&cached), names(&plain), "{s:?}");
+                    if key == SortKey::Attributes && !descending {
+                        order = names(&plain);
+                    }
+                    // Values for one key and the listed nodes only.
+                    assert!(cache.len() <= ids.len(), "{} > {}", cache.len(), ids.len());
+                }
+            }
+            order
+        }
+    }
+
+    impl Drop for Live {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                self.base.join("files"),
+                std::fs::Permissions::from_mode(0o755),
+            );
+            let _ = std::fs::remove_dir_all(&self.base);
+        }
+    }
+
+    #[test]
+    fn cached_details_sort_like_fresh_ones_after_changes() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        let mut live = Live::new("changes", 12);
+        let mut caches: [DetailCache; 3] = Default::default();
+        let before = live.check(&mut caches);
+        let [created, attributes, accessed] = &caches;
+        assert!(!created.is_empty() && !attributes.is_empty() && accessed.is_empty());
+
+        // chmod: a plain file becomes read-only.
+        fs::set_permissions(live.path("f1"), fs::Permissions::from_mode(0o444)).unwrap();
+        let f1 = live.index.find_child(Some(live.files()), b"f1").unwrap();
+        let seq = live.index.change_seq();
+        live.settle(|i| i.changed_since(seq).is_none_or(|c| c.contains(&f1)));
+        let after = live.check(&mut caches);
+        assert_ne!(after, before, "the change must show in the order");
+
+        // Replaced by a new file (new inode, new birth time, executable).
+        let tmp = live.base.join("files/n.tmp");
+        fs::write(&tmp, b"new").unwrap();
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::rename(&tmp, live.path("f2")).unwrap();
+        live.settle(|i| {
+            i.find_child(Some(i.roots()[0]), b"files").is_some_and(|d| {
+                i.find_child(Some(d), b"n.tmp").is_none() && i.find_child(Some(d), b"f2").is_some()
+            })
+        });
+        live.check(&mut caches);
+
+        // Renamed: the name decides the hidden attribute.
+        fs::rename(live.path("f4"), live.path(".f4")).unwrap();
+        let files = live.files();
+        live.settle(|i| i.find_child(Some(files), b".f4").is_some());
+        live.check(&mut caches);
+
+        // Removed.
+        fs::remove_file(live.path("f6")).unwrap();
+        live.settle(|i| i.find_child(Some(files), b"f6").is_none());
+        live.check(&mut caches);
+
+        // New ids (compaction): the cached ids would name other nodes.
+        assert!(!caches[1].is_empty());
+        live.index.take_removed();
+        live.index.compact_in_place();
+        live.check(&mut caches);
+
+        // A drive that is not connected is not read, cached or not.
+        let root = live.index.roots()[0];
+        live.index.set_offline(root, true);
+        live.check(&mut caches);
+        assert!(caches.iter().all(DetailCache::is_empty));
+        // Changed while it was away, then back.
+        fs::set_permissions(live.path("f3"), fs::Permissions::from_mode(0o444)).unwrap();
+        live.index.set_offline(root, false);
+        live.check(&mut caches);
+
+        // Another generation (the engine's id epoch) forgets all values.
+        assert!(!caches[1].is_empty());
+        caches[1].set_generation(7);
+        assert!(caches[1].is_empty());
+        live.check(&mut caches);
+    }
+
+    #[test]
+    fn repeated_sorts_read_only_what_changed() {
+        let mut live = Live::new("reads", 40);
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let ids = search(&live.index, &all, 1);
+        let n = ids.len() as u64;
+        let mut cache = DetailCache::new();
+        let reads = |index: &Index, key, ids: &[NodeId], cache: &mut DetailCache| {
+            let s = Sort {
+                key,
+                ..Sort::default()
+            };
+            let before = detail_reads();
+            let mut v = ids.to_vec();
+            sort_cached(index, &mut v, s, 3, &Progress::new(), cache).unwrap();
+            detail_reads() - before
+        };
+        assert_eq!(reads(&live.index, SortKey::Attributes, &ids, &mut cache), n);
+        assert_eq!(reads(&live.index, SortKey::Attributes, &ids, &mut cache), 0);
+        assert_eq!(cache.len() as u64, n);
+        assert!(cache.heap_bytes() >= cache.len() * 9);
+        // Access times change on every read without an event: always read.
+        assert_eq!(reads(&live.index, SortKey::Accessed, &ids, &mut cache), n);
+        assert_eq!(reads(&live.index, SortKey::Accessed, &ids, &mut cache), n);
+        // Only the current key is kept.
+        assert!(cache.is_empty());
+        assert_eq!(reads(&live.index, SortKey::Created, &ids, &mut cache), n);
+        assert_eq!(reads(&live.index, SortKey::Created, &ids, &mut cache), 0);
+
+        // One changed node is read again, and only it.
+        let files = live.files();
+        let f7 = live.index.find_child(Some(files), b"f7").unwrap();
+        live.index.note_changed(f7);
+        assert_eq!(reads(&live.index, SortKey::Created, &ids, &mut cache), 1);
+
+        // A much shorter result drops the values of nodes no longer listed.
+        assert_eq!(reads(&live.index, SortKey::Created, &[f7], &mut cache), 0);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(
+            reads(&live.index, SortKey::Created, &ids, &mut cache),
+            n - 1
+        );
+
+        // Entries that cannot be read are not kept: what keeps them from
+        // being read may change without an event for them.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            live.base.join("files"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        let unreadable = 40;
+        live.index.note_changed(files);
+        for &id in &ids {
+            if live.index.store().parent(id) == Some(files) {
+                live.index.note_changed(id);
+            }
+        }
+        // `files` is read again and kept; the files below it cannot be read.
+        assert_eq!(
+            reads(&live.index, SortKey::Created, &ids, &mut cache),
+            unreadable + 1
+        );
+        assert_eq!(
+            reads(&live.index, SortKey::Created, &ids, &mut cache),
+            unreadable
+        );
+        // Readable again: read once more, then kept.
+        std::fs::set_permissions(
+            live.base.join("files"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        assert_eq!(
+            reads(&live.index, SortKey::Created, &ids, &mut cache),
+            unreadable
+        );
+        assert_eq!(reads(&live.index, SortKey::Created, &ids, &mut cache), 0);
+    }
+
+    /// Prints the time and file system reads of sorting 100 000 files by
+    /// creation time and attributes, without and with a [`DetailCache`].
+    /// The files are made in `$EVERYGREP_BENCH_DIR` (default `/var/tmp`) and
+    /// removed afterwards. Run with
+    /// `cargo test --release -p everygrep-core detail_cache_timing -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing only"]
+    fn detail_cache_timing() {
+        let parent = std::env::var_os("EVERYGREP_BENCH_DIR")
+            .map_or_else(|| std::path::PathBuf::from("/var/tmp"), Into::into);
+        let base = parent.join(format!("everygrep-detail-bench-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for d in 0..100 {
+            let dir = base.join(format!("d{d}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            for f in 0..1000 {
+                std::fs::write(dir.join(format!("f{f}.txt")), b"").unwrap();
+            }
+            if d % 20 == 19 {
+                eprintln!("made {} files", (d + 1) * 1000);
+            }
+        }
+        let mut store = NodeStore::new();
+        crate::scan::scan(&mut store, std::slice::from_ref(&base), &Default::default());
+        let mut index = Index::new(store);
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let ids = search(&index, &all, 1);
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        eprintln!("{} results, {threads} threads", ids.len());
+        let run = |index: &Index, key, cache: Option<&mut DetailCache>| {
+            let s = Sort {
+                key,
+                ..Sort::default()
+            };
+            let mut v = ids.clone();
+            let reads = detail_reads();
+            let started = std::time::Instant::now();
+            match cache {
+                Some(c) => sort_cached(index, &mut v, s, threads, &Progress::new(), c).unwrap(),
+                None => sort(index, &mut v, s, threads),
+            }
+            (
+                started.elapsed().as_secs_f64() * 1e3,
+                detail_reads() - reads,
+            )
+        };
+        // User and system time of this process, in ms (from `/proc`, in
+        // steps of 10 ms; averaged over many runs).
+        let cpu_ms = || {
+            let stat = std::fs::read_to_string("/proc/self/stat").unwrap();
+            let rest = &stat[stat.rfind(')').unwrap() + 2..];
+            let f: Vec<u64> = rest
+                .split(' ')
+                .skip(11)
+                .take(2)
+                .map(|x| x.parse().unwrap())
+                .collect();
+            (f[0] + f[1]) as f64 * 10.0
+        };
+        const REPEATS: u32 = 20;
+        for key in [SortKey::Created, SortKey::Attributes] {
+            let mut caches = [None, Some(DetailCache::new())];
+            for cache in &mut caches {
+                let label = if cache.is_some() {
+                    "with cache"
+                } else {
+                    "without cache"
+                };
+                let (ms, reads) = run(&index, key, cache.as_mut());
+                eprintln!("{key:?} {label}, first: {ms:.1} ms, {reads} reads");
+                let (mut total, mut all_reads, cpu) = (0.0, 0, cpu_ms());
+                for _ in 0..REPEATS {
+                    let (ms, reads) = run(&index, key, cache.as_mut());
+                    total += ms;
+                    all_reads += reads;
+                }
+                let n = f64::from(REPEATS);
+                eprintln!(
+                    "{key:?} {label}, repeated (mean of {REPEATS}): {:.1} ms, {:.0} ms CPU, {} reads",
+                    total / n,
+                    (cpu_ms() - cpu) / n,
+                    all_reads / u64::from(REPEATS)
+                );
+            }
+            let mut cache = caches[1].take().unwrap();
+            eprintln!(
+                "  cache: {} values, {} KiB",
+                cache.len(),
+                cache.heap_bytes() / 1024
+            );
+            // A refresh after 1000 changed files.
+            for &id in ids.iter().step_by(ids.len() / 1000) {
+                index.note_changed(id);
+            }
+            let (ms, reads) = run(&index, key, Some(&mut cache));
+            eprintln!("{key:?} with cache, after ~1000 changes: {ms:.1} ms, {reads} reads");
+        }
+        std::fs::remove_dir_all(&base).unwrap();
+        eprintln!("removed {}", base.display());
     }
 }

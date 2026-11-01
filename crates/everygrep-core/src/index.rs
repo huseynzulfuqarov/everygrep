@@ -1,6 +1,7 @@
 //! The searchable index: node storage plus a name-sorted order of all live nodes.
 
 use std::cmp::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use crate::fold::fold;
 use crate::order::{Position, SortedIds};
@@ -19,6 +20,72 @@ pub struct Index {
     /// Roots whose folder is not reachable now (a drive that was removed).
     /// Their nodes stay searchable but are not read, watched or caught up.
     offline: Vec<NodeId>,
+    /// Nodes whose details read from the file system may have changed.
+    changes: ChangeLog,
+    /// Different for every index built; see [`stamp`](Index::stamp).
+    stamp: u64,
+}
+
+/// Most entries the change log holds; one more resets it.
+const CHANGE_LOG_MAX: usize = 1 << 16;
+
+/// Ids of nodes whose details from the file system (attributes, creation
+/// time; see [`crate::details`]) may differ from what was read before, for
+/// readers that keep such details (see
+/// [`DetailCache`](crate::sort::DetailCache)).
+///
+/// Each entry has a sequence number. A reader remembers the number it has
+/// seen up to and asks for what came after it. The log is never drained by
+/// a reader, so several can follow it; instead it is reset when it grows
+/// past [`CHANGE_LOG_MAX`] or when whole drives change. A reset skips one
+/// number, so every reader that was behind or exactly up to date learns
+/// that it has to forget all it holds. At most 256 KiB (4 bytes per entry).
+#[derive(Default)]
+struct ChangeLog {
+    /// Sequence number of `ids[0]`.
+    start: u64,
+    ids: Vec<NodeId>,
+}
+
+impl ChangeLog {
+    fn push(&mut self, id: NodeId) {
+        if self.ids.len() >= CHANGE_LOG_MAX {
+            self.reset();
+        }
+        self.ids.push(id);
+    }
+
+    fn extend(&mut self, ids: &[NodeId]) {
+        if self.ids.len() + ids.len() > CHANGE_LOG_MAX {
+            self.reset();
+            if ids.len() > CHANGE_LOG_MAX {
+                // A reset says any node may have changed, and that covers
+                // these ids too.
+                return;
+            }
+        }
+        self.ids.extend_from_slice(ids);
+    }
+
+    fn reset(&mut self) {
+        self.start = self.end() + 1;
+        self.ids.clear();
+    }
+
+    fn end(&self) -> u64 {
+        self.start + self.ids.len() as u64
+    }
+
+    fn since(&self, seq: u64) -> Option<&[NodeId]> {
+        let from = usize::try_from(seq.checked_sub(self.start)?).ok()?;
+        self.ids.get(from..)
+    }
+}
+
+/// The stamp of the next index built.
+fn next_stamp() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, AtomicOrdering::Relaxed)
 }
 
 /// Why a rename was refused.
@@ -47,6 +114,8 @@ impl Index {
             by_name: SortedIds::from_sorted(ids),
             removed_log: Vec::new(),
             offline: Vec::new(),
+            changes: ChangeLog::default(),
+            stamp: next_stamp(),
         }
     }
 
@@ -74,6 +143,8 @@ impl Index {
             by_name: SortedIds::from_sorted(by_name),
             removed_log: Vec::new(),
             offline: Vec::new(),
+            changes: ChangeLog::default(),
+            stamp: next_stamp(),
         })
     }
 
@@ -88,12 +159,57 @@ impl Index {
     /// Marks a root as offline (its folder cannot be reached, as for a
     /// removed drive) or online again. Offline roots keep their nodes; scans,
     /// catch-ups and watchers leave them alone.
+    ///
+    /// A change resets the change log (see
+    /// [`changed_since`](Self::changed_since)): a drive that comes back may
+    /// have been changed elsewhere, with nothing to say which entries.
     pub fn set_offline(&mut self, root: NodeId, offline: bool) {
         debug_assert!(self.store.parent(root).is_none(), "only roots go offline");
+        let was = self.offline.contains(&root);
         self.offline.retain(|&r| r != root);
         if offline && self.store.is_live(root) {
             self.offline.push(root);
         }
+        if was != self.offline.contains(&root) {
+            self.changes.reset();
+        }
+    }
+
+    /// A number different for every index built (also by
+    /// [`compacted`](Self::compacted), [`compact_in_place`](Self::compact_in_place)
+    /// and [`extract`](Self::extract)) and never reused in the process. State
+    /// kept per node id outside the index belongs to the index with this
+    /// stamp; under another stamp the same ids may mean other nodes.
+    pub fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// The sequence number the next entry of the change log gets. Pass it to
+    /// [`changed_since`](Self::changed_since) later.
+    pub fn change_seq(&self) -> u64 {
+        self.changes.end()
+    }
+
+    /// Ids of nodes whose file system details (attributes, creation time,
+    /// see [`crate::details`]) may have changed since `seq` was
+    /// [`change_seq`](Self::change_seq), in no particular order and possibly
+    /// repeated. `None` when the log was reset since: then any node may have
+    /// changed.
+    ///
+    /// Logged are nodes given new metadata ([`set_meta`](Self::set_meta),
+    /// [`insert`](Self::insert) of an existing name), renamed or moved, or
+    /// removed, and those passed to [`note_changed`](Self::note_changed).
+    /// New nodes are not logged: their ids were never handed out before.
+    /// The log resets when a root goes offline or online, and when it would
+    /// hold more than 65 536 entries.
+    pub fn changed_since(&self, seq: u64) -> Option<&[NodeId]> {
+        self.changes.since(seq)
+    }
+
+    /// Logs `id` as changed (see [`changed_since`](Self::changed_since))
+    /// without changing anything else, for changes only the caller knows of.
+    pub fn note_changed(&mut self, id: NodeId) {
+        self.changes.push(id);
     }
 
     /// Roots marked offline.
@@ -134,6 +250,8 @@ impl Index {
             by_name: SortedIds::from_sorted(ids),
             removed_log: Vec::new(),
             offline,
+            changes: ChangeLog::default(),
+            stamp: next_stamp(),
         };
         (index, remap)
     }
@@ -228,6 +346,7 @@ impl Index {
         if let Some(existing) = self.find_child(parent, name) {
             if self.store.is_dir(existing) == is_dir {
                 self.store.set_meta(existing, meta);
+                self.changes.push(existing);
                 return existing;
             }
             self.remove(existing);
@@ -241,6 +360,7 @@ impl Index {
     pub fn set_meta(&mut self, id: NodeId, meta: Meta) {
         if self.store.is_live(id) {
             self.store.set_meta(id, meta);
+            self.changes.push(id);
         }
     }
 
@@ -266,6 +386,7 @@ impl Index {
         }
         self.offline.retain(|&r| r != id);
         self.removed_log.extend_from_slice(&doomed);
+        self.changes.extend(&doomed);
         doomed
     }
 
@@ -315,6 +436,8 @@ impl Index {
         self.store.set_parent(id, new_parent);
         self.store.set_name(id, new_name);
         self.insert_into_order(id);
+        // The name decides the hidden attribute.
+        self.changes.push(id);
         Ok(())
     }
 
@@ -371,6 +494,8 @@ impl Index {
             by_name: SortedIds::from_sorted(ids),
             removed_log: Vec::new(),
             offline,
+            changes: ChangeLog::default(),
+            stamp: next_stamp(),
         };
         (index, remap)
     }
@@ -952,5 +1077,93 @@ mod tests {
         main.set_offline(usb, true);
         main.remove(usb);
         assert!(main.offline_roots().is_empty());
+    }
+
+    /// Ids logged since `seq`, sorted, or `None` when the log was reset.
+    fn changed(index: &Index, seq: u64) -> Option<Vec<NodeId>> {
+        index.changed_since(seq).map(|ids| {
+            let mut ids = ids.to_vec();
+            ids.sort_unstable();
+            ids
+        })
+    }
+
+    #[test]
+    fn detail_changes_are_logged() {
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        let d = index.insert(Some(root), b"d", true, Meta::default());
+        let x = index.insert(Some(d), b"x", false, Meta::default());
+        let y = index.insert(Some(root), b"y", false, Meta::default());
+        let seq = index.change_seq();
+        // New nodes are not logged: no reader can know their ids yet.
+        assert_eq!(changed(&index, seq), Some(vec![]));
+
+        index.set_meta(y, Meta::default());
+        assert_eq!(changed(&index, seq), Some(vec![y]));
+        let seq = index.change_seq();
+        // An existing node found again by insert gets new metadata.
+        index.insert(Some(root), b"y", false, Meta::default());
+        assert_eq!(changed(&index, seq), Some(vec![y]));
+        let seq = index.change_seq();
+        index.rename(x, Some(root), b".x").unwrap();
+        assert_eq!(changed(&index, seq), Some(vec![x]));
+        let seq = index.change_seq();
+        // Renaming over a node logs the moved node and the replaced one.
+        index.rename(x, Some(root), b"y").unwrap();
+        assert_eq!(changed(&index, seq), Some(vec![x, y]));
+        let seq = index.change_seq();
+        let z = index.insert(Some(d), b"z", false, Meta::default());
+        index.remove(d);
+        assert_eq!(changed(&index, seq), Some(vec![d, z]));
+        let seq = index.change_seq();
+        index.note_changed(root);
+        assert_eq!(changed(&index, seq), Some(vec![root]));
+        assert_eq!(changed(&index, index.change_seq()), Some(vec![]));
+    }
+
+    #[test]
+    fn change_log_resets_when_drives_come_and_go_or_it_grows_too_long() {
+        let mut main = tree(b"/home/u", &[b"a.txt"]);
+        let usb = main.graft(&tree(b"/media/u/USB", &[b"c.txt"]))[0];
+        let seq = main.change_seq();
+        main.set_offline(usb, true);
+        assert_eq!(main.changed_since(seq), None);
+        let seq = main.change_seq();
+        assert_eq!(changed(&main, seq), Some(vec![]));
+        // Already offline: nothing changes.
+        main.set_offline(usb, true);
+        assert_eq!(changed(&main, seq), Some(vec![]));
+        main.set_offline(usb, false);
+        assert_eq!(main.changed_since(seq), None);
+
+        let seq = main.change_seq();
+        for _ in 0..CHANGE_LOG_MAX {
+            main.note_changed(usb);
+        }
+        assert_eq!(
+            main.changed_since(seq).map(<[NodeId]>::len),
+            Some(CHANGE_LOG_MAX)
+        );
+        main.note_changed(usb);
+        assert_eq!(main.changed_since(seq), None);
+        assert_eq!(changed(&main, main.change_seq()), Some(vec![]));
+    }
+
+    #[test]
+    fn every_new_index_has_its_own_stamp() {
+        let mut main = tree(b"/home/u", &[b"a.txt", b"b.txt"]);
+        let first = main.stamp();
+        let a = main
+            .find_child(main.roots().first().copied(), b"a.txt")
+            .unwrap();
+        main.remove(a);
+        main.take_removed();
+        let (copy, _) = main.compacted();
+        let (part, _) = main.extract(&main.roots());
+        assert!(copy.stamp() != first && part.stamp() != first && copy.stamp() != part.stamp());
+        main.compact_in_place();
+        assert_ne!(main.stamp(), first);
+        assert_ne!(Index::new(NodeStore::new()).stamp(), main.stamp());
     }
 }

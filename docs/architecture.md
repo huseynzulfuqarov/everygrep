@@ -69,6 +69,35 @@ not kept in the index; `details.rs` reads them with `lstat` (`statx` with the
 birth time) for the rows on screen, and the sort reads them for every result
 on several threads.
 
+A `DetailCache` keeps the creation times or attributes one sort read, by
+node id, for the next sort of the same results (the refresh after file
+changes). The index logs every node whose details may have changed: new
+metadata (`set_meta`, an `insert` of an existing name), renames and moves,
+removals, and `note_changed` for an attribute change of a root, which only
+its own watch reports. The log has sequence numbers; at the start of each
+sort the cache drops the logged nodes it has values for. It forgets
+all values when the log was reset (more than 65 536 entries, or a drive went
+offline or came back, since a drive can change elsewhere) or when the index
+is another one (`Index::stamp`, new after a compaction or a scan). The engine
+uses the cache only while its watch loop applies changes, and also forgets it
+on every id epoch, at the start of every watch session (a catch-up finds new
+and removed entries, not changed attributes) and when events were lost.
+Access times are never cached: reading a file changes them, and inotify's
+`IN_ACCESS` is not watched. Entries on an offline drive are never read or
+served, and entries that cannot be read are not kept, because a permission
+change of a folder above makes them readable without an event of their own.
+Values are kept for the current sort key only, and for at most twice as
+many nodes as the last result (then only those of the listed nodes stay);
+a creation time takes about 29 to 57 bytes, an attribute 10 to 21.
+
+The values are only as current as the events applied: a change no event
+reports stays unseen until the node changes again or the cache is dropped.
+That is the case below a folder whose watch could not be added (the inotify
+watch limit), for a change made through a hard link in another folder, and
+for changes made by another machine on a network file system. The window's
+own cache of the details of the visible rows is not affected: it reads them
+again for every new result.
+
 ### Query language (`query.rs`, `fold.rs`, `filter.rs`, `kind.rs`)
 
 `Query::parse` turns the text into a tree of AND, OR and NOT nodes over

@@ -36,7 +36,7 @@ use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
 use everygrep_core::rules::IndexRules;
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
 use everygrep_core::search::search_with_progress;
-use everygrep_core::sort::{Sort, sort_with_progress};
+use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::sync::folders_below;
 use everygrep_core::watch::Watcher;
@@ -362,6 +362,18 @@ pub struct Engine {
     /// The query that gave the results shown; a cancelled search goes back
     /// to it.
     applied: Mutex<QueryState>,
+    /// Creation times or attributes read by the last sort, used by the next
+    /// one while file changes are applied (see [`DetailCache`]). Only the
+    /// search thread uses it.
+    details: Mutex<DetailCache>,
+    /// Bumped, under the index write lock, whenever the details cache must
+    /// forget all values: new ids (with `epoch`), and the start of every
+    /// watch session and lost events, since changes were not applied
+    /// meanwhile.
+    details_generation: AtomicU64,
+    /// Whether file changes are being applied to the index now (the watch
+    /// loop runs). Only then is the details cache used.
+    applying_changes: AtomicBool,
 }
 
 /// What the search thread runs: the query text, its options and the result order.
@@ -407,6 +419,9 @@ impl Engine {
             query: Mutex::new(QueryState::default()),
             shown: Mutex::new(Arc::new(Vec::new())),
             epoch: AtomicU64::new(0),
+            details: Mutex::new(DetailCache::new()),
+            details_generation: AtomicU64::new(0),
+            applying_changes: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             searches: Mutex::new(None),
@@ -674,13 +689,7 @@ impl Engine {
                             if self.is_current(generation) {
                                 task.set_kind(TaskKind::Sorting);
                                 task.progress().restart(None);
-                                sort_with_progress(
-                                    &index,
-                                    &mut ids,
-                                    state.sort,
-                                    threads,
-                                    task.progress(),
-                                )?;
+                                self.sort(&index, &mut ids, state.sort, threads, task.progress())?;
                             }
                             Ok(ids)
                         });
@@ -710,6 +719,41 @@ impl Engine {
         }
     }
 
+    /// Sorts results of `index` (read-locked by the caller), with the
+    /// details cache while file changes are applied. Without them nothing
+    /// says what changed, so details are read again and the cache is
+    /// dropped.
+    fn sort(
+        &self,
+        index: &Index,
+        ids: &mut [NodeId],
+        sort: Sort,
+        threads: usize,
+        progress: &Progress,
+    ) -> Result<(), progress::Cancelled> {
+        let mut details = self.details.lock().expect("lock");
+        if self.applying_changes.load(Ordering::SeqCst) {
+            details.set_generation(self.details_generation.load(Ordering::SeqCst));
+            sort_cached(index, ids, sort, threads, progress, &mut details)
+        } else {
+            details.clear();
+            drop(details);
+            sort_with_progress(index, ids, sort, threads, progress)
+        }
+    }
+
+    /// Ids change meaning; call under the index write lock.
+    fn bump_epoch(&self) {
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.forget_details();
+    }
+
+    /// Makes the next sort read all details again; call under the index
+    /// write lock.
+    fn forget_details(&self) {
+        self.details_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// A search or sort for `state` was cancelled: the results shown stay,
     /// and so does the query that gave them, unless a newer request came.
     /// A newer request also cancels it (see `request_search`); that is not
@@ -734,7 +778,7 @@ impl Engine {
     fn replace_index(&self, new: Index) {
         let mut index = self.index.write().expect("index lock");
         *index = new;
-        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.bump_epoch();
     }
 
     fn report(&self, state: IndexState) {
@@ -850,7 +894,16 @@ impl Engine {
                 }
                 drives_to_catch_up.clear();
                 self.report(IndexState::Watching);
+                {
+                    // A catch-up finds new and removed entries, not changed
+                    // attributes, so details read before this session (or
+                    // while nothing was watched) are not trusted.
+                    let _index = self.index.write().expect("index lock");
+                    self.forget_details();
+                    self.applying_changes.store(true, Ordering::SeqCst);
+                }
                 self.watch_loop(&mut watcher);
+                self.applying_changes.store(false, Ordering::SeqCst);
                 false
             }
             Err(_) => {
@@ -944,13 +997,15 @@ impl Engine {
                     let stats = watcher.apply(&mut index, &events);
                     if index.should_compact() {
                         let remap = watcher.compact(&mut index);
-                        self.epoch.fetch_add(1, Ordering::SeqCst);
+                        self.bump_epoch();
                         let mut shown = self.shown.lock().expect("lock");
                         *shown =
                             Arc::new(shown.iter().filter_map(|id| remap[id.index()]).collect());
                         pending_refresh = true;
                     }
                     if stats.overflow {
+                        // Events were lost: details may have changed unseen.
+                        self.forget_details();
                         drop(index);
                         self.rescan_after_overflow(watcher);
                         pending_refresh = true;
@@ -998,7 +1053,7 @@ impl Engine {
         let fresh = self.with_drives(Index::new(store));
         let mut index = self.index.write().expect("index lock");
         *index = fresh;
-        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.bump_epoch();
         if let Ok(mut fresh) = Watcher::new(&index, &options) {
             fresh.catch_up(&mut index);
             *watcher = fresh;
@@ -1725,6 +1780,70 @@ mod tests {
         fs::remove_file(a.join("one.txt")).unwrap();
         std::thread::sleep(Duration::from_millis(700));
         assert_eq!(probe.names("txt"), ["one.txt", "three.txt", "two.txt"]);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn sorting_by_attributes_follows_changes_watched_or_not() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("attributes");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        for name in ["x1.txt", "x2.txt", "x3.txt"] {
+            fs::write(a.join(name), "").unwrap();
+        }
+        let chmod = |name: &str, mode| {
+            fs::set_permissions(a.join(name), fs::Permissions::from_mode(mode)).unwrap();
+        };
+        let probe = Probe::start(vec![a.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        probe.engine.set_sort(Sort {
+            key: everygrep_core::sort::SortKey::Attributes,
+            ..Sort::default()
+        });
+        // Results in their order, asked for until they are `want`.
+        let wait_order = |want: [&str; 3]| {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                while probe.results.try_recv().is_ok() {}
+                probe.engine.set_query("txt", QueryOptions::default());
+                let r = probe
+                    .results
+                    .recv_timeout(Duration::from_secs(20))
+                    .expect("results");
+                let index = probe.engine.index.read().unwrap();
+                let got: Vec<String> = r
+                    .ids
+                    .iter()
+                    .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                    .collect();
+                drop(index);
+                if got == want {
+                    return;
+                }
+                assert!(Instant::now() < deadline, "{got:?}, not {want:?}");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        // Plain < X < R; all plain first.
+        wait_order(["x1.txt", "x2.txt", "x3.txt"]);
+        chmod("x1.txt", 0o444);
+        wait_order(["x2.txt", "x3.txt", "x1.txt"]);
+
+        // A change while nothing watches is still seen after watching again,
+        // though no event reports it.
+        probe.engine.set_watching(false);
+        probe.wait_for(IndexState::Unwatched);
+        chmod("x2.txt", 0o755);
+        probe.engine.set_watching(true);
+        probe.wait_for(IndexState::Watching);
+        wait_order(["x3.txt", "x2.txt", "x1.txt"]);
+
+        // Unwatched, details are read again for every sort.
+        probe.engine.set_watching(false);
+        probe.wait_for(IndexState::Unwatched);
+        chmod("x3.txt", 0o444);
+        wait_order(["x2.txt", "x1.txt", "x3.txt"]);
         probe.engine.shutdown();
     }
 

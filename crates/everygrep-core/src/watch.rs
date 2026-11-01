@@ -267,10 +267,13 @@ impl Watcher {
             let Some(name) = ev.name.as_deref().map(|n| n.as_bytes()) else {
                 // Events about the watched folder itself: its parent reports them too,
                 // except for a root, which has no parent.
-                if ev.mask.intersects(Mask::DELETE_SELF | Mask::MOVE_SELF)
-                    && index.store().parent(dir).is_none()
-                {
-                    stats.removed += index.remove(dir).len();
+                if index.store().parent(dir).is_none() {
+                    if ev.mask.intersects(Mask::DELETE_SELF | Mask::MOVE_SELF) {
+                        stats.removed += index.remove(dir).len();
+                    } else if ev.mask.contains(Mask::ATTRIB) {
+                        // Its attributes may be kept outside the index.
+                        index.note_changed(dir);
+                    }
                 }
                 continue;
             };
@@ -591,6 +594,32 @@ mod tests {
         assert!(f.settle(|i| i.store().meta(id).size == 13));
         fs::remove_file(&new).unwrap();
         assert!(f.settle(|i| !has(i, &new)));
+    }
+
+    #[test]
+    fn attribute_changes_are_logged_for_files_folders_and_roots() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = Fixture::new("attrib");
+        let root = f.index.roots()[0];
+        let docs = f.index.find_child(Some(root), b"docs").unwrap();
+        let a = f.index.find_child(Some(docs), b"a.txt").unwrap();
+        for (path, id, mode) in [
+            (f.root().join("docs/a.txt"), a, 0o444),
+            (f.root().join("docs"), docs, 0o555),
+            // A root has no watched parent; only its own watch sees this.
+            (f.root(), root, 0o555),
+        ] {
+            let seq = f.index.change_seq();
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(
+                f.settle(|i| i.changed_since(seq).is_none_or(|c| c.contains(&id))),
+                "{}",
+                path.display()
+            );
+        }
+        for path in [f.root(), f.root().join("docs")] {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
     }
 
     #[test]
