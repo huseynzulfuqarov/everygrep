@@ -370,8 +370,9 @@ The Cancel button next to it stops the operation and keeps what was there
 before: a cancelled first index is not saved (the next start, or "Rebuild
 index now", indexes again), a cancelled rescan keeps the previous index and
 folders, a cancelled sort or search keeps the results and order shown, and
-a drive whose first reading was cancelled is read again when it is plugged
-in again. Catching up cannot be cancelled. Cancel has no key yet. Hidden files are always indexed.
+a drive whose first reading was cancelled goes on where it stopped when it
+is plugged in again (also after it was removed while being read; not after
+quitting while it was read). Catching up cannot be cancelled. Cancel has no key yet. Hidden files are always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any
 depth, and is kept up to date as files change. Each file counts with its own
@@ -478,6 +479,16 @@ last seen) with "Forget" (for a drive that is not connected) and "Don't
 index this drive" / "Index this drive". A drive whose mount point lies in
 a folder to index, or holds one, is left to that folder.
 
+A folder the window cannot watch, because the limit of inotify watches
+(`fs.inotify.max_user_watches`, shared by all programs of the user) is
+reached, is tried again every 10 seconds and in the meantime checked for
+changes by its modification time; the status line then says "N folders not
+watched", with "watch limit reached" when that is the cause. Raising the
+limit (for example `sysctl fs.inotify.max_user_watches=1048576`) removes
+it. Folders that cannot be read at all are not counted: nothing in them is
+indexed. When a file system mounted inside the indexed folders (not a
+removable drive) is unmounted, its folder is read again as it is now.
+
 EveryGrep notices mounts and unmounts through the kernel's mount table
 (`/proc/self/mountinfo`), which wakes it only when something changes; it
 costs nothing while idle. The command line does not search drives yet.
@@ -573,8 +584,9 @@ collects nothing. It stores:
   `~/.cache/everygrep/cli-index.bin` for the command line (names, sizes and
   modification times of the indexed files, never their contents), and for
   each removable drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same
-  kind of data and `<uuid>.info` with its label, last mount point, when it
-  was last connected and its number of entries;
+  kind of data, `<uuid>.partial` with what a cancelled first reading read,
+  and `<uuid>.info` with its label, last mount point, when it was last
+  connected and its number of entries;
 - the settings, in `~/.config/everygrep/settings`;
 - the search history, in `~/.config/everygrep/history`, only when "Keep the
   history after EveryGrep closes" is on (it is off by default).

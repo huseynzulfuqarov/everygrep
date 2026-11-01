@@ -22,7 +22,15 @@ First version, 0.1.0, not released yet.
   matched against the name or, with a `/`, the full path; compiled once and
   applied the same way by scans, catch-ups and live updates.
 - Live updates with inotify: creations, deletions, renames and moves keep the
-  index current; a queue overflow rebuilds it.
+  index current; a queue overflow rebuilds it. A file created just before
+  its folder is renamed is kept; a rename whose two halves are read in two
+  batches stays a rename; a folder that shows up twice (a bind mount inside
+  the indexed folders) is kept current at both places; a file system
+  unmounted inside the indexed folders is read again at its mount point.
+  A folder's time is saved only once the events before it were applied, so
+  a catch-up after an exit finds what was not applied yet.
+- Folders that could not be watched (watch limit reached) are tried again
+  and checked for changes every 10 seconds; the status line counts them.
 - Catching up on start with changes made while nothing was watching, by
   re-reading only folders whose modification time changed. Watching
   command line shells and the window also catch up after fresh scans and
@@ -255,7 +263,9 @@ First version, 0.1.0, not released yet.
   forgotten, as a setting says; plugged in again they are caught up and
   watched. Settings → Indexing lists the known drives with Forget and
   Don't index this drive. Mounts are noticed through `POLLPRI` on the mount
-  table at no idle cost; fstab mounts are never indexed this way.
+  table at no idle cost; fstab mounts are never indexed this way. A drive
+  hidden by another mount on its mount point is not indexed. A cancelled
+  or interrupted first reading goes on where it stopped the next time.
 - Translations into Azerbaijani and Turkish, with a language setting that
   applies at once; translated desktop entry.
 - Cut, copy and paste of files (`Ctrl+X`, `Ctrl+C`, `Ctrl+V`) into a
