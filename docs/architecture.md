@@ -239,6 +239,20 @@ thread, reading the index in chunks of 20 000 results under short read
 locks; if the ids change meaning meanwhile (a compaction), it stops and
 asks to export again.
 
+### Commands and keys (`commands.rs`, `ui/commands.slint`)
+
+Every command of the main window is one value of the `Command` enum in
+`ui/commands.slint`, shared by Slint and Rust. `commands.rs` gives each a
+stable id, a label and its default keys, and builds the `Keymap` in use. A
+key is bound in a scope: anywhere in the window, the search field or the
+result list. The search field, the list and a focus scope around the rest
+of the window ask Rust which command a key runs (`resolve-key`); a binding
+of the focused control's scope wins over a global one, and the search field
+keeps the keys that edit text. The window's `can-run` and `run` functions
+hold the conditions and the actions of every command in one place. The
+help dialog lists the keys from the keymap. Movement keys, `Tab` and `Esc`
+are fixed.
+
 ### Settings (`settings.rs`, `prefs.rs`)
 
 Settings are a `key = value` text file in `$XDG_CONFIG_HOME/everygrep/settings`

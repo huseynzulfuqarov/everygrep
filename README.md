@@ -167,7 +167,7 @@ executable file.
 | `Alt+U`, `Alt+S` | ignore punctuation, ignore whitespace |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
 | `Ctrl+S` | export the results to a CSV or text file |
-| `Ctrl+N` | new window over the same index |
+| `Ctrl+N` | new window over the same index (also with the menu bar hidden) |
 | `Ctrl+,` | settings |
 | `Ctrl+Q` | quit (also when closing only hides the window) |
 

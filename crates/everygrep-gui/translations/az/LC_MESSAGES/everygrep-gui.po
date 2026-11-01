@@ -783,22 +783,6 @@ msgid "Add or remove one row"
 msgstr "Bir sətri əlavə et və ya çıxar"
 
 #: src/labels.rs
-msgid "Open the containing folder"
-msgstr "Olduğu qovluğu aç"
-
-#: src/labels.rs
-msgid "Copy the name"
-msgstr "Adı kopyala"
-
-#: src/labels.rs
-msgid "Copy the full path"
-msgstr "Tam yolu kopyala"
-
-#: src/labels.rs
-msgid "Move to the trash"
-msgstr "Zibil qutusuna at"
-
-#: src/labels.rs
 msgid "Delete permanently"
 msgstr "Birdəfəlik sil"
 
@@ -813,14 +797,6 @@ msgstr "Əvvəl seçimi, sonra axtarışı təmizlə"
 #: src/labels.rs
 msgid "Focus the search field"
 msgstr "Axtarış sahəsinə keç"
-
-#: src/labels.rs
-msgid "Previous / next search"
-msgstr "Əvvəlki / növbəti axtarış"
-
-#: src/labels.rs
-msgid "Previous / next filter"
-msgstr "Əvvəlki / növbəti filtr"
 
 #: src/labels.rs
 msgid "{} result"
@@ -1268,16 +1244,6 @@ msgstr "copied, but the original could not be removed: {}"
 
 # TODO: translate (English for now)
 #: src/labels.rs
-msgid "Copy the items"
-msgstr "Copy the items"
-
-# TODO: translate (English for now)
-#: src/labels.rs
-msgid "Copy the path of the containing folder"
-msgstr "Copy the path of the containing folder"
-
-# TODO: translate (English for now)
-#: src/labels.rs
 msgid "Copying: {}%"
 msgstr "Copying: {}%"
 
@@ -1293,11 +1259,6 @@ msgstr "Could not paste {0} of {1}: {2}: {3}."
 
 # TODO: translate (English for now)
 #: src/labels.rs
-msgid "Cut the items"
-msgstr "Cut the items"
-
-# TODO: translate (English for now)
-#: src/labels.rs
 msgid "Moving: {}%"
 msgstr "Moving: {}%"
 
@@ -1305,16 +1266,6 @@ msgstr "Moving: {}%"
 #: src/labels.rs
 msgid "Moving…"
 msgstr "Moving…"
-
-# TODO: translate (English for now)
-#: src/labels.rs
-msgid "Open with another application"
-msgstr "Open with another application"
-
-# TODO: translate (English for now)
-#: src/labels.rs
-msgid "Paste into the selected folder"
-msgstr "Paste into the selected folder"
 
 # TODO: translate (English for now)
 #: src/labels.rs
@@ -1650,3 +1601,15 @@ msgstr "Try again in a moment, or end it in System Monitor."
 #: src/labels.rs
 msgid "Cannot terminate the existing instance: {}"
 msgstr "Cannot terminate the existing instance: {}"
+
+#: src/commands.rs
+msgid "Previous filter"
+msgstr "Əvvəlki filtr"
+
+#: src/commands.rs
+msgid "Next filter"
+msgstr "Növbəti filtr"
+
+#: src/commands.rs
+msgid "Tools"
+msgstr "Alətlər"

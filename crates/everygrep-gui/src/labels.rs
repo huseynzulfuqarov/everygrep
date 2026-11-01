@@ -668,57 +668,6 @@ pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
     (parts.join(" "), error)
 }
 
-/// The keyboard shortcuts dialog: keys and what they do.
-pub fn shortcuts() -> Vec<(&'static str, &'static str)> {
-    vec![
-        (
-            "↑ ↓ PgUp PgDn Home End",
-            tr("Move in the results and select"),
-        ),
-        (tr("Shift + movement"), tr("Extend the selection")),
-        (
-            tr("Ctrl + movement"),
-            tr("Move without changing the selection"),
-        ),
-        ("Ctrl+Space", tr("Add or remove one row")),
-        ("Ctrl+A", tr("Select all")),
-        ("Ctrl+I", tr("Invert selection")),
-        ("Enter", tr("Open")),
-        ("Ctrl+Enter", tr("Open the containing folder")),
-        ("Shift+Enter", tr("Open with another application")),
-        ("Ctrl+X", tr("Cut the items")),
-        ("Ctrl+C", tr("Copy the items")),
-        ("Ctrl+V", tr("Paste into the selected folder")),
-        ("Ctrl+Shift+C", tr("Copy the full path")),
-        ("Ctrl+Alt+C", tr("Copy the name")),
-        (
-            "Ctrl+Alt+Shift+C",
-            tr("Copy the path of the containing folder"),
-        ),
-        ("F2", tr("Rename")),
-        ("Delete", tr("Move to the trash")),
-        ("Shift+Delete", tr("Delete permanently")),
-        ("Menu, Shift+F10", tr("Context menu")),
-        ("Esc", tr("Clear the selection, then the search")),
-        ("Ctrl+F, Ctrl+L", tr("Focus the search field")),
-        ("Alt+← / Alt+→", tr("Previous / next search")),
-        ("Alt+C", tr("Match case")),
-        ("Alt+W", tr("Match whole words")),
-        ("Alt+P", tr("Match the full path")),
-        ("Alt+D", tr("Match diacritics")),
-        ("Alt+R", tr("Regular expression")),
-        ("Alt+B", tr("Match prefix")),
-        ("Alt+E", tr("Match suffix")),
-        ("Alt+U", tr("Ignore punctuation")),
-        ("Alt+S", tr("Ignore whitespace")),
-        ("Alt+↑ / Alt+↓", tr("Previous / next filter")),
-        ("Ctrl+S", tr("Export results")),
-        ("Ctrl+N", tr("New window")),
-        ("Ctrl+,", tr("Settings")),
-        ("Ctrl+Q", tr("Quit")),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

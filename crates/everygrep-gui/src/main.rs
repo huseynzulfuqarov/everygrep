@@ -3,6 +3,7 @@
 mod actions;
 mod autostart;
 mod clipboard;
+mod commands;
 mod engine;
 mod export;
 mod filetype;
@@ -59,12 +60,12 @@ const SETTINGS_DELAY: Duration = Duration::from_millis(300);
 fn main() -> Result<(), slint::PlatformError> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let args = match parse_args(raw.iter().cloned()) {
-        Ok(Command::Run(args)) => args,
-        Ok(Command::Help) => {
+        Ok(Cli::Run(args)) => args,
+        Ok(Cli::Help) => {
             println!("{USAGE}");
             return Ok(());
         }
-        Ok(Command::Version) => {
+        Ok(Cli::Version) => {
             println!("everygrep-gui {}", everygrep_core::VERSION);
             return Ok(());
         }
@@ -472,8 +473,9 @@ fn set_filter_names(w: &AppWindow) {
     w.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
 }
 
+/// The keyboard shortcuts dialog, from the keys in use.
 fn set_shortcuts(w: &AppWindow) {
-    let shortcuts: Vec<ShortcutRow> = labels::shortcuts()
+    let shortcuts: Vec<ShortcutRow> = commands::with_current(|k| k.help_rows())
         .into_iter()
         .map(|(keys, action)| ShortcutRow {
             keys: keys.into(),
@@ -499,6 +501,15 @@ pub fn relabel(w: &AppWindow) {
 fn connect_menus(w: &AppWindow) {
     w.set_version(everygrep_core::VERSION.into());
     set_shortcuts(w);
+    w.on_resolve_key(|scope, text, ctrl, alt, shift, meta| {
+        let chord = commands::Chord::from_event(&text, ctrl, alt, shift, meta);
+        match (commands::Scope::from_index(scope), chord) {
+            (Some(scope), Some(chord)) => {
+                commands::with_current(|k| k.resolve(scope, &chord)).unwrap_or(Command::None)
+            }
+            _ => Command::None,
+        }
+    });
     let pick = |all_len: usize, i: i32| usize::try_from(i).ok().filter(|&i| i < all_len);
     w.on_choose_theme(move |i| {
         let i = pick(ThemeChoice::ALL.len(), i);
@@ -630,7 +641,7 @@ struct Presentation {
 /// parse (they were checked by the launch already) change nothing.
 fn presentation(args: &[String]) -> Presentation {
     match parse_args(args.iter().cloned()) {
-        Ok(Command::Run(a)) => Presentation {
+        Ok(Cli::Run(a)) => Presentation {
             query: (!a.query.is_empty()).then_some(a.query),
             options: a.options_given.then_some(a.options),
             show_type: a.show_type,
@@ -1412,7 +1423,7 @@ options:
 
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
-enum Command {
+enum Cli {
     Run(Args),
     Help,
     Version,
@@ -1422,15 +1433,15 @@ enum Command {
 /// Without roots the saved roots, or the home folder, are used. An unknown
 /// option or value is an error, so a mistyped flag never opens a window on
 /// the default roots; after `--` every argument is a query word.
-fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
+fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
     let mut out = Args::default();
     let mut words: Vec<String> = Vec::new();
     let mut args = args.into_iter();
     while let Some(a) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{a} needs a value"));
         match a.as_str() {
-            "-h" | "--help" => return Ok(Command::Help),
-            "-V" | "--version" => return Ok(Command::Version),
+            "-h" | "--help" => return Ok(Cli::Help),
+            "-V" | "--version" => return Ok(Cli::Version),
             "--root" => out.roots.push(PathBuf::from(value()?)),
             "--index-file" => out.index_file = Some(PathBuf::from(value()?)),
             "--filter" => {
@@ -1493,7 +1504,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
         }
     }
     out.query = words.join(" ");
-    Ok(Command::Run(out))
+    Ok(Cli::Run(out))
 }
 
 /// The sort for a header column of the window (0 name, 1 folder, 2 size,
@@ -1698,13 +1709,13 @@ fn is_loading_message(text: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn parse(list: &[&str]) -> Result<Command, String> {
+    fn parse(list: &[&str]) -> Result<Cli, String> {
         parse_args(list.iter().map(|s| (*s).to_owned()))
     }
 
     fn args(list: &[&str]) -> Args {
         match parse(list) {
-            Ok(Command::Run(a)) => a,
+            Ok(Cli::Run(a)) => a,
             other => panic!("{list:?} gave {other:?}"),
         }
     }
@@ -1719,9 +1730,9 @@ mod tests {
 
     #[test]
     fn help_version_and_mistakes_never_open_a_window() {
-        assert_eq!(parse(&["--help"]), Ok(Command::Help));
-        assert_eq!(parse(&["a", "-h"]), Ok(Command::Help));
-        assert_eq!(parse(&["-V"]), Ok(Command::Version));
+        assert_eq!(parse(&["--help"]), Ok(Cli::Help));
+        assert_eq!(parse(&["a", "-h"]), Ok(Cli::Help));
+        assert_eq!(parse(&["-V"]), Ok(Cli::Version));
         // `--help` after `--` is a query word.
         assert_eq!(args(&["--", "--help"]).query, "--help");
         for wrong in [
@@ -1870,7 +1881,7 @@ mod tests {
         );
         // The arguments parse back to the same index.
         let back = parse_args(args.iter().map(|a| a.to_string_lossy().into_owned()));
-        let Ok(Command::Run(a)) = back else {
+        let Ok(Cli::Run(a)) = back else {
             panic!("{back:?}")
         };
         assert!(a.new_instance && a.query.is_empty());

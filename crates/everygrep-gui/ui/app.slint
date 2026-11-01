@@ -1,5 +1,7 @@
 import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+import { Command } from "commands.slint";
+export { Command }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
 export { StalledDialog } from "stalled.slint";
 
@@ -177,7 +179,7 @@ component SearchField inherits Rectangle {
     callback down-pressed();
     callback escape-pressed();
     callback modes-changed();
-    // Window-wide shortcuts; returns whether the key was used.
+    // The keys of the window's commands; returns whether the key was used.
     callback shortcut(KeyEvent) -> bool;
     public function focus-and-select() {
         input.focus();
@@ -1015,67 +1017,137 @@ export component AppWindow inherits Window {
         root.results-replaced();
     }
 
-    // Shortcuts that work in the search field and in the list.
-    function shortcut(event: KeyEvent) -> bool {
-        if (event.modifiers.control && !event.modifiers.alt) {
-            if (event.text == ",") {
-                root.open-settings();
-                return true;
-            }
-            if ((event.text == "i" || event.text == "I") && !event.modifiers.shift) {
-                if (root.results.length > 0) {
-                    root.invert-selection();
-                    keys.focus();
-                }
-                return true;
-            }
-            if (event.text == "q" || event.text == "Q") {
-                root.quit();
-                return true;
-            }
-            if ((event.text == "s" || event.text == "S") && !event.modifiers.shift) {
-                root.export-results();
-                return true;
-            }
+    // The command a key runs while the focus is in a scope (0 anywhere,
+    // 1 the search field, 2 the result list); Command.none for none. See
+    // src/commands.rs.
+    callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
+
+    // File actions that are refused, with a note, for an item on a drive
+    // that is not connected.
+    function needs-online(c: Command) -> bool {
+        return c == Command.open || c == Command.open-folder || c == Command.open-with
+            || c == Command.cut || c == Command.copy || c == Command.paste
+            || c == Command.rename || c == Command.trash || c == Command.delete-permanently;
+    }
+
+    // Whether a command can run now; menu items are enabled by it.
+    function can-run(c: Command) -> bool {
+        if (root.confirm-open) {
             return false;
         }
-        if (!event.modifiers.alt || event.modifiers.control) {
-            return false;
+        if (root.needs-online(c)) {
+            return root.current >= 0 && !root.current-offline
+                && (c != Command.rename || root.rename-row < 0);
         }
-        if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
-            root.history-go(event.text == Key.LeftArrow ? -1 : 1);
-            return true;
+        if (c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
+                || c == Command.toggle-row || c == Command.context-menu) {
+            return root.current >= 0;
         }
-        if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+        if (c == Command.export-results || c == Command.select-all || c == Command.invert-selection) {
+            return root.results.length > 0;
+        }
+        return c != Command.none;
+    }
+
+    // Runs a command.
+    function run(c: Command) {
+        if (c == Command.new-window) {
+            root.new-window();
+        } else if (c == Command.export-results) {
+            root.export-results();
+        } else if (c == Command.quit) {
+            root.quit();
+        } else if (c == Command.open) {
+            root.activate(root.current);
+        } else if (c == Command.open-folder) {
+            root.open-folder(root.current);
+        } else if (c == Command.open-with) {
+            root.open-with(root.current);
+        } else if (c == Command.cut) {
+            root.cut-items(root.current);
+        } else if (c == Command.copy) {
+            root.copy-items(root.current);
+        } else if (c == Command.paste) {
+            root.paste-items(root.current);
+        } else if (c == Command.copy-name) {
+            root.copy-names(root.current);
+        } else if (c == Command.copy-path) {
+            root.copy-folders(root.current);
+        } else if (c == Command.copy-full-path) {
+            root.copy-paths(root.current);
+        } else if (c == Command.select-all) {
+            root.select-all();
+            keys.focus();
+        } else if (c == Command.invert-selection) {
+            root.invert-selection();
+            keys.focus();
+        } else if (c == Command.toggle-row) {
+            root.select(root.current, 1);
+        } else if (c == Command.rename) {
+            root.rename-start(root.current);
+        } else if (c == Command.trash) {
+            root.trash(root.current);
+        } else if (c == Command.delete-permanently) {
+            root.delete-request(root.current);
+        } else if (c == Command.focus-search) {
+            search.focus-and-select();
+        } else if (c == Command.context-menu) {
+            root.show-menu-at-current();
+        } else if (c == Command.match-case) {
+            root.match-case = !root.match-case;
+            root.options-edited();
+        } else if (c == Command.whole-words) {
+            root.whole-words = !root.whole-words;
+            root.options-edited();
+        } else if (c == Command.match-path) {
+            root.match-path = !root.match-path;
+            root.options-edited();
+        } else if (c == Command.match-diacritics) {
+            root.match-diacritics = !root.match-diacritics;
+            root.options-edited();
+        } else if (c == Command.regex) {
+            root.use-regex = !root.use-regex;
+            root.options-edited();
+        } else if (c == Command.match-prefix) {
+            root.match-prefix = !root.match-prefix;
+            root.options-edited();
+        } else if (c == Command.match-suffix) {
+            root.match-suffix = !root.match-suffix;
+            root.options-edited();
+        } else if (c == Command.ignore-punctuation) {
+            root.ignore-punctuation = !root.ignore-punctuation;
+            root.options-edited();
+        } else if (c == Command.ignore-whitespace) {
+            root.ignore-whitespace = !root.ignore-whitespace;
+            root.options-edited();
+        } else if (c == Command.previous-filter || c == Command.next-filter) {
             let n = root.filter-names.length;
             if (n > 0) {
-                root.filter-index = Math.mod(root.filter-index + (event.text == Key.UpArrow ? -1 : 1), n);
+                root.filter-index = Math.mod(root.filter-index + (c == Command.previous-filter ? -1 : 1), n);
                 root.options-edited();
             }
-            return true;
+        } else if (c == Command.previous-search) {
+            root.history-go(-1);
+        } else if (c == Command.next-search) {
+            root.history-go(1);
+        } else if (c == Command.settings) {
+            root.open-settings();
         }
-        if (event.text == "c" || event.text == "C") {
-            root.match-case = !root.match-case;
-        } else if (event.text == "w" || event.text == "W") {
-            root.whole-words = !root.whole-words;
-        } else if (event.text == "p" || event.text == "P") {
-            root.match-path = !root.match-path;
-        } else if (event.text == "d" || event.text == "D") {
-            root.match-diacritics = !root.match-diacritics;
-        } else if (event.text == "r" || event.text == "R") {
-            root.use-regex = !root.use-regex;
-        } else if (event.text == "b" || event.text == "B") {
-            root.match-prefix = !root.match-prefix;
-        } else if (event.text == "e" || event.text == "E") {
-            root.match-suffix = !root.match-suffix;
-        } else if (event.text == "u" || event.text == "U") {
-            root.ignore-punctuation = !root.ignore-punctuation;
-        } else if (event.text == "s" || event.text == "S") {
-            root.ignore-whitespace = !root.ignore-whitespace;
-        } else {
+    }
+
+    // Runs the command of a key pressed with the focus in `scope`; returns
+    // whether the key belongs to a command (it is used even when the
+    // command cannot run now). A file action on an offline item runs, so
+    // the program can say why it is refused.
+    function dispatch(scope: int, event: KeyEvent) -> bool {
+        let c = root.resolve-key(scope, event.text, event.modifiers.control, event.modifiers.alt,
+            event.modifiers.shift, event.modifiers.meta);
+        if (c == Command.none) {
             return false;
         }
-        root.options-edited();
+        if (root.can-run(c) || (!root.confirm-open && root.current >= 0 && root.needs-online(c))) {
+            root.run(c);
+        }
         true
     }
 
@@ -1172,578 +1244,531 @@ export component AppWindow inherits Window {
     property <bool> current-offline: root.current >= 0 && root.current < root.results.length
         && root.results[root.current].offline;
 
-    VerticalLayout {
-        // Top bar
-        Rectangle {
-            height: Theme.top-bar-height;
-            background: Theme.surface;
-            HorizontalLayout {
-                padding-left: Theme.s3;
-                padding-right: Theme.s3;
-                padding-top: (Theme.top-bar-height - Theme.field-height) / 2;
-                padding-bottom: (Theme.top-bar-height - Theme.field-height) / 2;
-                spacing: Theme.s2;
-                search := SearchField {
-                    horizontal-stretch: 1;
-                    edited(text) => {
-                        root.current = root.results.length > 0 ? 0 : -1;
-                        list.content-y = 0;
-                        root.query-edited(text);
+    // Keys pressed while the focus is on a control without keys of its own
+    // (the filter selector, a button) run the global commands. It never
+    // takes the focus itself.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if (root.dispatch(0, event)) {
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            // Top bar
+            Rectangle {
+                height: Theme.top-bar-height;
+                background: Theme.surface;
+                HorizontalLayout {
+                    padding-left: Theme.s3;
+                    padding-right: Theme.s3;
+                    padding-top: (Theme.top-bar-height - Theme.field-height) / 2;
+                    padding-bottom: (Theme.top-bar-height - Theme.field-height) / 2;
+                    spacing: Theme.s2;
+                    search := SearchField {
+                        horizontal-stretch: 1;
+                        edited(text) => {
+                            root.current = root.results.length > 0 ? 0 : -1;
+                            list.content-y = 0;
+                            root.query-edited(text);
+                        }
+                        modes-changed => { root.options-edited(); }
+                        shortcut(event) => { root.dispatch(1, event) }
+                        accepted => {
+                            if (root.search-pending) {
+                                root.search-now();
+                            } else {
+                                root.history-record();
+                                if (root.current >= 0) {
+                                    root.activate(root.current);
+                                }
+                            }
+                        }
+                        down-pressed => {
+                            keys.focus();
+                            root.move-to(root.current < 0 ? 0 : root.current + 1, 0);
+                        }
+                        escape-pressed => {
+                            self.text = "";
+                            root.query-edited("");
+                        }
                     }
-                    modes-changed => { root.options-edited(); }
-                    shortcut(event) => { root.shortcut(event) }
-                    accepted => {
-                        if (root.search-pending) {
-                            root.search-now();
-                        } else {
-                            root.history-record();
-                            if (root.current >= 0) {
-                                root.activate(root.current);
+                    ComboBox {
+                        width: 160px;
+                        horizontal-stretch: 0;
+                        accessible-label: @tr("Filter");
+                        model: root.filter-names;
+                        current-index <=> root.filter-index;
+                        selected => { root.options-edited(); }
+                    }
+                    // Overflow menu, in place of the menu bar when that is hidden.
+                    if !root.show-menu-bar: more-menu := ContextMenuArea {
+                        width: 34px;
+                        Menu {
+                            MenuItem {
+                                title: @tr("Settings");
+                                activated => { root.open-settings(); }
+                            }
+                            MenuItem {
+                                title: @tr("Keyboard shortcuts");
+                                activated => { root.shortcuts-open = true; }
+                            }
+                            MenuItem {
+                                title: @tr("About EveryGrep");
+                                activated => { root.about-open = true; }
+                            }
+                            MenuSeparator { }
+                            MenuItem {
+                                title: @tr("Show the menu bar");
+                                activated => {
+                                    root.show-menu-bar = true;
+                                    root.menu-bar-changed(true);
+                                }
+                            }
+                            MenuSeparator { }
+                            MenuItem {
+                                title: @tr("Quit");
+                                activated => { root.quit(); }
+                            }
+                        }
+                        Rectangle {
+                            border-radius: Theme.radius;
+                            background: more-touch.has-hover ? Theme.hover : transparent;
+                            accessible-role: button;
+                            accessible-label: @tr("More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)");
+                            accessible-action-default => { more-menu.show({ x: 0, y: self.height }); }
+                            more-touch := TouchArea {
+                                clicked => { more-menu.show({ x: 0, y: self.height }); }
+                            }
+                            Image {
+                                source: @image-url("icons/more.svg");
+                                colorize: Theme.text-muted;
+                                width: Theme.icon;
+                                height: Theme.icon;
                             }
                         }
                     }
-                    down-pressed => {
-                        keys.focus();
-                        root.move-to(root.current < 0 ? 0 : root.current + 1, 0);
+                }
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+
+            // Column headers (positioned directly, so they never feed back into
+            // the window's layout). Right-click shows or hides optional columns.
+            Rectangle {
+                height: Theme.header-height;
+                background: Theme.surface-alt;
+                header-menu := ContextMenuArea {
+                    Menu {
+                        // Activating a checkable item flips its check mark, which
+                        // is tied to the column flag both ways.
+                        MenuItem {
+                            title: @tr("Type");
+                            checkable: true;
+                            checked <=> root.show-type;
+                            activated => { root.column-shown(4, root.show-type); }
+                        }
+                        MenuItem {
+                            title: @tr("Extension");
+                            checkable: true;
+                            checked <=> root.show-ext;
+                            activated => { root.column-shown(5, root.show-ext); }
+                        }
+                        MenuItem {
+                            title: @tr("Created");
+                            checkable: true;
+                            checked <=> root.show-created;
+                            activated => { root.column-shown(6, root.show-created); }
+                        }
+                        MenuItem {
+                            title: @tr("Accessed");
+                            checkable: true;
+                            checked <=> root.show-accessed;
+                            activated => { root.column-shown(7, root.show-accessed); }
+                        }
+                        MenuItem {
+                            title: @tr("Attributes");
+                            checkable: true;
+                            checked <=> root.show-attrs;
+                            activated => { root.column-shown(8, root.show-attrs); }
+                        }
                     }
-                    escape-pressed => {
-                        self.text = "";
-                        root.query-edited("");
+                    HeaderCell {
+                        x: Theme.s1;
+                        width: root.name-width - Theme.s1;
+                        height: parent.height;
+                        label: @tr("Name");
+                        sorted: root.sort-column == 0;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(0); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    HeaderCell {
+                        x: root.name-width;
+                        width: root.folder-width;
+                        height: parent.height;
+                        label: @tr("Folder");
+                        sorted: root.sort-column == 1;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(1); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    HeaderCell {
+                        x: root.name-width + root.folder-width;
+                        width: root.size-width;
+                        height: parent.height;
+                        label: @tr("Size");
+                        align: right;
+                        sorted: root.sort-column == 2;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(2); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    HeaderCell {
+                        x: root.name-width + root.folder-width + root.size-width;
+                        width: root.date-width;
+                        height: parent.height;
+                        label: @tr("Modified");
+                        sorted: root.sort-column == 3;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(3); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    if root.show-type: HeaderCell {
+                        x: root.type-x;
+                        width: root.type-width;
+                        height: parent.height;
+                        label: @tr("Type");
+                        sorted: root.sort-column == 4;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(4); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    if root.show-ext: HeaderCell {
+                        x: root.ext-x;
+                        width: root.ext-width;
+                        height: parent.height;
+                        label: @tr("Extension");
+                        sorted: root.sort-column == 5;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(5); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    if root.show-created: HeaderCell {
+                        x: root.created-x;
+                        width: root.created-width;
+                        height: parent.height;
+                        label: @tr("Created");
+                        sorted: root.sort-column == 6;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(6); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    if root.show-accessed: HeaderCell {
+                        x: root.accessed-x;
+                        width: root.accessed-width;
+                        height: parent.height;
+                        label: @tr("Accessed");
+                        sorted: root.sort-column == 7;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(7); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
+                    }
+                    if root.show-attrs: HeaderCell {
+                        x: root.attr-x;
+                        width: root.attr-width;
+                        height: parent.height;
+                        label: @tr("Attributes");
+                        sorted: root.sort-column == 8;
+                        descending: root.sort-descending;
+                        clicked => { root.sort-by(8); }
+                        right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
                     }
                 }
-                ComboBox {
-                    width: 160px;
-                    horizontal-stretch: 0;
-                    accessible-label: @tr("Filter");
-                    model: root.filter-names;
-                    current-index <=> root.filter-index;
-                    selected => { root.options-edited(); }
+                // Boundary grips, on top of the cells.
+                ColumnGrip {
+                    x: root.name-width - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(0, delta); }
                 }
-                // Overflow menu, in place of the menu bar when that is hidden.
-                if !root.show-menu-bar: more-menu := ContextMenuArea {
-                    width: 34px;
+                ColumnGrip {
+                    x: root.name-width + root.folder-width - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(1, delta); }
+                }
+                ColumnGrip {
+                    x: root.name-width + root.folder-width + root.size-width - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(2, delta); }
+                }
+                // One on the left edge of each optional column shown.
+                if root.show-type: ColumnGrip {
+                    x: root.type-x - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(4, delta); }
+                }
+                if root.show-ext: ColumnGrip {
+                    x: root.ext-x - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(5, delta); }
+                }
+                if root.show-created: ColumnGrip {
+                    x: root.created-x - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(6, delta); }
+                }
+                if root.show-accessed: ColumnGrip {
+                    x: root.accessed-x - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(7, delta); }
+                }
+                if root.show-attrs: ColumnGrip {
+                    x: root.attr-x - self.width / 2;
+                    height: parent.height;
+                    dragged(delta) => { root.drag-boundary(8, delta); }
+                }
+            }
+            Rectangle { height: 1px; background: Theme.line; }
+
+            // Results
+            keys := FocusScope {
+                vertical-stretch: 1;
+                // Shift extends the selection, Ctrl moves the cursor alone.
+                property <int> move-mode: 0;
+                key-pressed(event) => {
+                    if (root.dispatch(2, event)) {
+                        return accept;
+                    }
+                    // Movement and Esc are fixed; every other key is a command.
+                    self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
+                    if (event.modifiers.alt || event.modifiers.meta) {
+                        return reject;
+                    }
+                    if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
+                    if (event.text == Key.UpArrow) {
+                        if (root.current <= 0 && !event.modifiers.shift) { search.focus-and-select(); } else { root.move-to(root.current - 1, self.move-mode); }
+                        return accept;
+                    }
+                    if (event.text == Key.PageDown) { root.move-to(root.current + root.page, self.move-mode); return accept; }
+                    if (event.text == Key.PageUp) { root.move-to(root.current - root.page, self.move-mode); return accept; }
+                    if (event.text == Key.Home) { root.move-to(0, self.move-mode); return accept; }
+                    if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
+                    // Esc clears the selection first, then goes back to the search.
+                    if (event.text == Key.Escape) {
+                        if (!root.clear-selection()) { search.focus-and-select(); }
+                        return accept;
+                    }
+                    reject
+                }
+
+                menu-area := ContextMenuArea {
+                    enabled: root.current >= 0;
                     Menu {
                         MenuItem {
-                            title: @tr("Settings");
-                            activated => { root.open-settings(); }
+                            title: @tr("Open");
+                            enabled: !root.current-offline;
+                            activated => { root.activate(root.current); }
                         }
                         MenuItem {
-                            title: @tr("Keyboard shortcuts");
-                            activated => { root.shortcuts-open = true; }
+                            title: @tr("Open with…");
+                            enabled: !root.current-offline;
+                            activated => { root.open-with(root.current); }
                         }
                         MenuItem {
-                            title: @tr("About EveryGrep");
-                            activated => { root.about-open = true; }
+                            title: @tr("Open containing folder");
+                            enabled: !root.current-offline;
+                            activated => { root.open-folder(root.current); }
                         }
                         MenuSeparator { }
                         MenuItem {
-                            title: @tr("Show the menu bar");
-                            activated => {
-                                root.show-menu-bar = true;
-                                root.menu-bar-changed(true);
-                            }
+                            title: @tr("Cut");
+                            enabled: !root.current-offline;
+                            activated => { root.cut-items(root.current); }
+                        }
+                        MenuItem {
+                            title: @tr("Copy");
+                            enabled: !root.current-offline;
+                            activated => { root.copy-items(root.current); }
+                        }
+                        MenuItem {
+                            title: @tr("Paste into folder");
+                            enabled: !root.current-offline;
+                            activated => { root.paste-items(root.current); }
                         }
                         MenuSeparator { }
                         MenuItem {
-                            title: @tr("Quit");
-                            activated => { root.quit(); }
+                            title: @tr("Copy name");
+                            activated => { root.copy-names(root.current); }
+                        }
+                        MenuItem {
+                            title: @tr("Copy path");
+                            activated => { root.copy-folders(root.current); }
+                        }
+                        MenuItem {
+                            title: @tr("Copy full path");
+                            activated => { root.copy-paths(root.current); }
+                        }
+                        MenuSeparator { }
+                        MenuItem {
+                            title: @tr("Rename");
+                            enabled: !root.current-offline;
+                            activated => { root.rename-start(root.current); }
+                        }
+                        MenuItem {
+                            title: @tr("Move to trash");
+                            enabled: !root.current-offline;
+                            activated => { root.trash(root.current); }
+                        }
+                        MenuItem {
+                            title: @tr("Delete permanently…");
+                            enabled: !root.current-offline;
+                            activated => { root.delete-request(root.current); }
                         }
                     }
-                    Rectangle {
-                        border-radius: Theme.radius;
-                        background: more-touch.has-hover ? Theme.hover : transparent;
-                        accessible-role: button;
-                        accessible-label: @tr("More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)");
-                        accessible-action-default => { more-menu.show({ x: 0, y: self.height }); }
-                        more-touch := TouchArea {
-                            clicked => { more-menu.show({ x: 0, y: self.height }); }
+
+                list := ListView {
+                    for row[i] in root.results: Row {
+                        data: row;
+                        current: i == root.current && keys.has-focus;
+                        name-width: root.name-width;
+                        folder-width: root.folder-width;
+                        size-width: root.size-width;
+                        date-width: root.date-width;
+                        type-width: root.type-width;
+                        ext-width: root.ext-width;
+                        created-width: root.created-width;
+                        accessed-width: root.accessed-width;
+                        attr-width: root.attr-width;
+                        pressed(mods) => {
+                            root.current = i;
+                            keys.focus();
+                            root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
                         }
-                        Image {
-                            source: @image-url("icons/more.svg");
-                            colorize: Theme.text-muted;
-                            width: Theme.icon;
-                            height: Theme.icon;
+                        right-pressed(x, y) => {
+                            root.current = i;
+                            keys.focus();
+                            if (!root.is-selected(i)) { root.select(i, 0); }
+                            menu-area.show({ x: x, y: i * Theme.row-height + list.content-y + y });
                         }
+                        double-clicked => { root.activate(i); }
+                        editing: i == root.rename-row;
+                        edit-text <=> root.rename-text;
+                        edit-stem: root.rename-stem;
+                        edit-commit(text) => { root.rename-commit(text); }
+                        edit-cancel => { root.rename-cancel(); }
                     }
                 }
-            }
-        }
-        Rectangle { height: 1px; background: Theme.line; }
-
-        // Column headers (positioned directly, so they never feed back into
-        // the window's layout). Right-click shows or hides optional columns.
-        Rectangle {
-            height: Theme.header-height;
-            background: Theme.surface-alt;
-            header-menu := ContextMenuArea {
-                Menu {
-                    // Activating a checkable item flips its check mark, which
-                    // is tied to the column flag both ways.
-                    MenuItem {
-                        title: @tr("Type");
-                        checkable: true;
-                        checked <=> root.show-type;
-                        activated => { root.column-shown(4, root.show-type); }
-                    }
-                    MenuItem {
-                        title: @tr("Extension");
-                        checkable: true;
-                        checked <=> root.show-ext;
-                        activated => { root.column-shown(5, root.show-ext); }
-                    }
-                    MenuItem {
-                        title: @tr("Created");
-                        checkable: true;
-                        checked <=> root.show-created;
-                        activated => { root.column-shown(6, root.show-created); }
-                    }
-                    MenuItem {
-                        title: @tr("Accessed");
-                        checkable: true;
-                        checked <=> root.show-accessed;
-                        activated => { root.column-shown(7, root.show-accessed); }
-                    }
-                    MenuItem {
-                        title: @tr("Attributes");
-                        checkable: true;
-                        checked <=> root.show-attrs;
-                        activated => { root.column-shown(8, root.show-attrs); }
-                    }
-                }
-                HeaderCell {
-                    x: Theme.s1;
-                    width: root.name-width - Theme.s1;
-                    height: parent.height;
-                    label: @tr("Name");
-                    sorted: root.sort-column == 0;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(0); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                HeaderCell {
-                    x: root.name-width;
-                    width: root.folder-width;
-                    height: parent.height;
-                    label: @tr("Folder");
-                    sorted: root.sort-column == 1;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(1); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                HeaderCell {
-                    x: root.name-width + root.folder-width;
-                    width: root.size-width;
-                    height: parent.height;
-                    label: @tr("Size");
-                    align: right;
-                    sorted: root.sort-column == 2;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(2); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                HeaderCell {
-                    x: root.name-width + root.folder-width + root.size-width;
-                    width: root.date-width;
-                    height: parent.height;
-                    label: @tr("Modified");
-                    sorted: root.sort-column == 3;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(3); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                if root.show-type: HeaderCell {
-                    x: root.type-x;
-                    width: root.type-width;
-                    height: parent.height;
-                    label: @tr("Type");
-                    sorted: root.sort-column == 4;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(4); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                if root.show-ext: HeaderCell {
-                    x: root.ext-x;
-                    width: root.ext-width;
-                    height: parent.height;
-                    label: @tr("Extension");
-                    sorted: root.sort-column == 5;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(5); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                if root.show-created: HeaderCell {
-                    x: root.created-x;
-                    width: root.created-width;
-                    height: parent.height;
-                    label: @tr("Created");
-                    sorted: root.sort-column == 6;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(6); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                if root.show-accessed: HeaderCell {
-                    x: root.accessed-x;
-                    width: root.accessed-width;
-                    height: parent.height;
-                    label: @tr("Accessed");
-                    sorted: root.sort-column == 7;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(7); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-                if root.show-attrs: HeaderCell {
-                    x: root.attr-x;
-                    width: root.attr-width;
-                    height: parent.height;
-                    label: @tr("Attributes");
-                    sorted: root.sort-column == 8;
-                    descending: root.sort-descending;
-                    clicked => { root.sort-by(8); }
-                    right-pressed(x, y) => { header-menu.show({ x: self.x + x, y: y }); }
-                }
-            }
-            // Boundary grips, on top of the cells.
-            ColumnGrip {
-                x: root.name-width - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(0, delta); }
-            }
-            ColumnGrip {
-                x: root.name-width + root.folder-width - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(1, delta); }
-            }
-            ColumnGrip {
-                x: root.name-width + root.folder-width + root.size-width - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(2, delta); }
-            }
-            // One on the left edge of each optional column shown.
-            if root.show-type: ColumnGrip {
-                x: root.type-x - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(4, delta); }
-            }
-            if root.show-ext: ColumnGrip {
-                x: root.ext-x - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(5, delta); }
-            }
-            if root.show-created: ColumnGrip {
-                x: root.created-x - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(6, delta); }
-            }
-            if root.show-accessed: ColumnGrip {
-                x: root.accessed-x - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(7, delta); }
-            }
-            if root.show-attrs: ColumnGrip {
-                x: root.attr-x - self.width / 2;
-                height: parent.height;
-                dragged(delta) => { root.drag-boundary(8, delta); }
-            }
-        }
-        Rectangle { height: 1px; background: Theme.line; }
-
-        // Results
-        keys := FocusScope {
-            vertical-stretch: 1;
-            // Shift extends the selection, Ctrl moves the cursor alone.
-            property <int> move-mode: 0;
-            key-pressed(event) => {
-                if (root.shortcut(event)) {
-                    return accept;
-                }
-                self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
-                if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
-                if (event.text == Key.UpArrow) {
-                    if (root.current <= 0 && !event.modifiers.shift) { search.focus-and-select(); } else { root.move-to(root.current - 1, self.move-mode); }
-                    return accept;
-                }
-                if (event.text == Key.PageDown) { root.move-to(root.current + root.page, self.move-mode); return accept; }
-                if (event.text == Key.PageUp) { root.move-to(root.current - root.page, self.move-mode); return accept; }
-                if (event.text == Key.Home) { root.move-to(0, self.move-mode); return accept; }
-                if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
-                if (event.text == " " && event.modifiers.control) {
-                    if (root.current >= 0) { root.select(root.current, 1); }
-                    return accept;
-                }
-                if (event.modifiers.control && (event.text == "a" || event.text == "A")) {
-                    root.select-all();
-                    return accept;
-                }
-                if (event.text == Key.Return) {
-                    if (root.current >= 0) {
-                        if (event.modifiers.control) {
-                            root.open-folder(root.current);
-                        } else if (event.modifiers.shift) {
-                            root.open-with(root.current);
-                        } else {
-                            root.activate(root.current);
-                        }
-                    }
-                    return accept;
-                }
-                if (event.text == Key.F2) {
-                    if (root.current >= 0) { root.rename-start(root.current); }
-                    return accept;
-                }
-                if (event.text == Key.Delete) {
-                    if (root.current >= 0) {
-                        if (event.modifiers.shift) { root.delete-request(root.current); } else { root.trash(root.current); }
-                    }
-                    return accept;
-                }
-                // Ctrl+C copies the items as files, as in a file manager;
-                // with Shift the full path, with Alt the name, with both
-                // the containing folder, all as text.
-                if (event.modifiers.control && (event.text == "c" || event.text == "C")) {
-                    if (root.current >= 0) {
-                        if (event.modifiers.alt && event.modifiers.shift) {
-                            root.copy-folders(root.current);
-                        } else if (event.modifiers.alt) {
-                            root.copy-names(root.current);
-                        } else if (event.modifiers.shift) {
-                            root.copy-paths(root.current);
-                        } else {
-                            root.copy-items(root.current);
-                        }
-                    }
-                    return accept;
-                }
-                if (event.modifiers.control && !event.modifiers.alt && !event.modifiers.shift
-                        && (event.text == "x" || event.text == "X")) {
-                    if (root.current >= 0) { root.cut-items(root.current); }
-                    return accept;
-                }
-                if (event.modifiers.control && !event.modifiers.alt && !event.modifiers.shift
-                        && (event.text == "v" || event.text == "V")) {
-                    if (root.current >= 0) { root.paste-items(root.current); }
-                    return accept;
-                }
-                if (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift)) {
-                    root.show-menu-at-current();
-                    return accept;
-                }
-                // Esc clears the selection first, then goes back to the search.
-                if (event.text == Key.Escape) {
-                    if (!root.clear-selection()) { search.focus-and-select(); }
-                    return accept;
-                }
-                if (event.modifiers.control && (event.text == "f" || event.text == "l")) {
-                    search.focus-and-select();
-                    return accept;
-                }
-                reject
-            }
-
-            menu-area := ContextMenuArea {
-                enabled: root.current >= 0;
-                Menu {
-                    MenuItem {
-                        title: @tr("Open");
-                        enabled: !root.current-offline;
-                        activated => { root.activate(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Open with…");
-                        enabled: !root.current-offline;
-                        activated => { root.open-with(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Open containing folder");
-                        enabled: !root.current-offline;
-                        activated => { root.open-folder(root.current); }
-                    }
-                    MenuSeparator { }
-                    MenuItem {
-                        title: @tr("Cut");
-                        enabled: !root.current-offline;
-                        activated => { root.cut-items(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Copy");
-                        enabled: !root.current-offline;
-                        activated => { root.copy-items(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Paste into folder");
-                        enabled: !root.current-offline;
-                        activated => { root.paste-items(root.current); }
-                    }
-                    MenuSeparator { }
-                    MenuItem {
-                        title: @tr("Copy name");
-                        activated => { root.copy-names(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Copy path");
-                        activated => { root.copy-folders(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Copy full path");
-                        activated => { root.copy-paths(root.current); }
-                    }
-                    MenuSeparator { }
-                    MenuItem {
-                        title: @tr("Rename");
-                        enabled: !root.current-offline;
-                        activated => { root.rename-start(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Move to trash");
-                        enabled: !root.current-offline;
-                        activated => { root.trash(root.current); }
-                    }
-                    MenuItem {
-                        title: @tr("Delete permanently…");
-                        enabled: !root.current-offline;
-                        activated => { root.delete-request(root.current); }
-                    }
                 }
 
-            list := ListView {
-                for row[i] in root.results: Row {
-                    data: row;
-                    current: i == root.current && keys.has-focus;
-                    name-width: root.name-width;
-                    folder-width: root.folder-width;
-                    size-width: root.size-width;
-                    date-width: root.date-width;
-                    type-width: root.type-width;
-                    ext-width: root.ext-width;
-                    created-width: root.created-width;
-                    accessed-width: root.accessed-width;
-                    attr-width: root.attr-width;
-                    pressed(mods) => {
-                        root.current = i;
-                        keys.focus();
-                        root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
-                    }
-                    right-pressed(x, y) => {
-                        root.current = i;
-                        keys.focus();
-                        if (!root.is-selected(i)) { root.select(i, 0); }
-                        menu-area.show({ x: x, y: i * Theme.row-height + list.content-y + y });
-                    }
-                    double-clicked => { root.activate(i); }
-                    editing: i == root.rename-row;
-                    edit-text <=> root.rename-text;
-                    edit-stem: root.rename-stem;
-                    edit-commit(text) => { root.rename-commit(text); }
-                    edit-cancel => { root.rename-cancel(); }
-                }
-            }
-            }
-
-            Text {
-                visible: root.message != "";
-                text: root.message;
-                color: Theme.text-muted;
-                font-size: Theme.body;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                wrap: word-wrap;
-            }
-        }
-
-        // Status line
-        Rectangle { height: 1px; background: Theme.line; }
-        Rectangle {
-            height: Theme.status-height;
-            background: Theme.surface-alt;
-            HorizontalLayout {
-                padding-left: Theme.s3;
-                padding-right: Theme.s3;
-                spacing: Theme.s4;
                 Text {
-                    text: root.status-count;
-                    font-size: Theme.small;
+                    visible: root.message != "";
+                    text: root.message;
                     color: Theme.text-muted;
+                    font-size: Theme.body;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
-                    min-width: self.preferred-width;
-                    horizontal-stretch: 0;
+                    wrap: word-wrap;
                 }
-                // Details of the selection: the part that shrinks (elided)
-                // first when the line runs out of room.
-                if root.status-detail != "": Text {
-                    text: root.status-detail;
-                    font-size: Theme.small;
-                    color: Theme.text-muted;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    min-width: 0px;
-                    horizontal-stretch: 1;
-                }
-                Text {
-                    text: root.status-index;
-                    font-size: Theme.small;
-                    color: Theme.text-muted;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    min-width: 0px;
-                    horizontal-stretch: 0;
-                }
-                // Takes the room left, so what follows sits at the right end.
-                Rectangle {
-                    min-width: 0px;
-                    horizontal-stretch: 1;
-                }
-                // The long operation running, and its Cancel button.
-                if root.progress-text != "": Text {
-                    text: root.progress-text;
-                    font-size: Theme.small;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                }
-                if root.can-cancel: VerticalLayout {
-                    alignment: center;
-                    StatusButton {
-                        text: @tr("Cancel");
-                        clicked => { root.cancel-task(); }
-                    }
-                }
-                // Matching modes that are on.
+            }
+
+            // Status line
+            Rectangle { height: 1px; background: Theme.line; }
+            Rectangle {
+                height: Theme.status-height;
+                background: Theme.surface-alt;
                 HorizontalLayout {
-                    spacing: Theme.s1;
-                    alignment: start;
-                    for badge in root.badges: VerticalLayout {
+                    padding-left: Theme.s3;
+                    padding-right: Theme.s3;
+                    spacing: Theme.s4;
+                    Text {
+                        text: root.status-count;
+                        font-size: Theme.small;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        min-width: self.preferred-width;
+                        horizontal-stretch: 0;
+                    }
+                    // Details of the selection: the part that shrinks (elided)
+                    // first when the line runs out of room.
+                    if root.status-detail != "": Text {
+                        text: root.status-detail;
+                        font-size: Theme.small;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        min-width: 0px;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: root.status-index;
+                        font-size: Theme.small;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        min-width: 0px;
+                        horizontal-stretch: 0;
+                    }
+                    // Takes the room left, so what follows sits at the right end.
+                    Rectangle {
+                        min-width: 0px;
+                        horizontal-stretch: 1;
+                    }
+                    // The long operation running, and its Cancel button.
+                    if root.progress-text != "": Text {
+                        text: root.progress-text;
+                        font-size: Theme.small;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    if root.can-cancel: VerticalLayout {
                         alignment: center;
-                        Rectangle {
-                            height: Theme.badge-height;
-                            width: badge-text.preferred-width + 2 * Theme.s1 + 2px;
-                            border-radius: 4px;
-                            background: Theme.selection;
-                            badge-text := Text {
-                                text: badge;
-                                font-size: Theme.small - 1px;
-                                color: Theme.selection-text;
-                                vertical-alignment: center;
-                                horizontal-alignment: center;
+                        StatusButton {
+                            text: @tr("Cancel");
+                            clicked => { root.cancel-task(); }
+                        }
+                    }
+                    // Matching modes that are on.
+                    HorizontalLayout {
+                        spacing: Theme.s1;
+                        alignment: start;
+                        for badge in root.badges: VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                height: Theme.badge-height;
+                                width: badge-text.preferred-width + 2 * Theme.s1 + 2px;
+                                border-radius: 4px;
+                                background: Theme.selection;
+                                badge-text := Text {
+                                    text: badge;
+                                    font-size: Theme.small - 1px;
+                                    color: Theme.selection-text;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: center;
+                                }
                             }
                         }
                     }
-                }
-                // Shown in full up to a width that leaves room for the rest
-                // of the line even in a narrow window.
-                Text {
-                    text: root.notice;
-                    font-size: Theme.small;
-                    color: root.notice-error ? Theme.danger : Theme.text-muted;
-                    vertical-alignment: center;
-                    horizontal-alignment: right;
-                    overflow: elide;
-                    min-width: min(self.preferred-width, 360px);
-                    horizontal-stretch: 0;
-                }
-                Text {
-                    text: root.status-right;
-                    font-size: Theme.small;
-                    color: Theme.text-muted;
-                    vertical-alignment: center;
-                    horizontal-alignment: right;
+                    // Shown in full up to a width that leaves room for the rest
+                    // of the line even in a narrow window.
+                    Text {
+                        text: root.notice;
+                        font-size: Theme.small;
+                        color: root.notice-error ? Theme.danger : Theme.text-muted;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                        overflow: elide;
+                        min-width: min(self.preferred-width, 360px);
+                        horizontal-stretch: 0;
+                    }
+                    Text {
+                        text: root.status-right;
+                        font-size: Theme.small;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                    }
                 }
             }
         }

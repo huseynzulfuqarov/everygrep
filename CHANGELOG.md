@@ -174,6 +174,10 @@ First version, 0.1.0, not released yet.
   failures are.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is
   hidden.
+- One table of the window's commands drives its keys and the keyboard
+  shortcuts dialog. `Ctrl+N` opens a new window with the menu bar hidden
+  too, and the global keys also work while the filter selector has the
+  focus.
 - Removable drives mounted by the desktop are indexed automatically, each
   into its own file and recognised by file system UUID. A removed drive's
   entries stay searchable, dimmed and with file actions refused, or are
