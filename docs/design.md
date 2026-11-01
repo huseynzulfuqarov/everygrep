@@ -190,6 +190,7 @@ words.
 | Cut / copy the items (as files) | `Ctrl+X` / `Ctrl+C` | context menu |
 | Paste into the selected folder | `Ctrl+V` | context menu |
 | Copy the full path / the name / the containing folder | `Ctrl+Shift+C` / `Ctrl+Alt+C` / `Ctrl+Alt+Shift+C` | context menu |
+| Copy the full path / the containing folder in double quotes | none by default | context menu, Edit menu |
 | Rename | `F2`; `Enter` renames, `Esc` or a click elsewhere cancels | context menu |
 | Move to trash | `Delete` | context menu |
 | Delete permanently | `Shift+Delete` | context menu |
@@ -209,7 +210,9 @@ words.
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per
-line on the clipboard. Opening is limited to 20 items at once. The selection
+line on the clipboard; the quoted copies put each line in double quotes, and
+"Copy full path adds quotes" (Window page, off by default) makes Copy full
+path quote too. Opening is limited to 20 items at once. The selection
 follows the files, not the row numbers: it stays when the list is sorted again
 or refreshed after file changes, and a new query clears it.
 

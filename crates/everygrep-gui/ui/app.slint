@@ -885,9 +885,11 @@ export component AppWindow inherits Window {
     callback select(int, int);
     // Actions on the selection, or on the given row when it is not selected.
     callback copy-names(int);
-    callback copy-paths(int);
-    // The containing folders.
-    callback copy-folders(int);
+    // The full paths; with true each in double quotes (otherwise as the
+    // "Copy full path adds quotes" setting says).
+    callback copy-paths(int, bool);
+    // The containing folders; with true each in double quotes.
+    callback copy-folders(int, bool);
     // Files to the clipboard, and pasting them into the given folder row.
     callback cut-items(int);
     callback copy-items(int);
@@ -1086,6 +1088,7 @@ export component AppWindow inherits Window {
                 && (c != Command.rename || root.rename-row < 0);
         }
         if (c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
+                || c == Command.copy-path-quoted || c == Command.copy-full-path-quoted
                 || c == Command.toggle-row || c == Command.context-menu) {
             return root.current >= 0;
         }
@@ -1120,9 +1123,13 @@ export component AppWindow inherits Window {
         } else if (c == Command.copy-name) {
             root.copy-names(root.current);
         } else if (c == Command.copy-path) {
-            root.copy-folders(root.current);
+            root.copy-folders(root.current, false);
         } else if (c == Command.copy-full-path) {
-            root.copy-paths(root.current);
+            root.copy-paths(root.current, false);
+        } else if (c == Command.copy-path-quoted) {
+            root.copy-folders(root.current, true);
+        } else if (c == Command.copy-full-path-quoted) {
+            root.copy-paths(root.current, true);
         } else if (c == Command.select-all) {
             root.select-all();
             keys.focus();
@@ -1744,6 +1751,16 @@ export component AppWindow inherits Window {
                             enabled: root.can-run(Command.copy-full-path);
                             activated => { root.run(Command.copy-full-path); }
                         }
+                        MenuItem {
+                            title: @tr("Copy path with quotes");
+                            enabled: root.can-run(Command.copy-path-quoted);
+                            activated => { root.run(Command.copy-path-quoted); }
+                        }
+                        MenuItem {
+                            title: @tr("Copy full path with quotes");
+                            enabled: root.can-run(Command.copy-full-path-quoted);
+                            activated => { root.run(Command.copy-full-path-quoted); }
+                        }
                         MenuSeparator { }
                         MenuItem {
                             title: @tr("Rename");
@@ -2163,6 +2180,18 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.copy-full-path;
                 enabled: root.can-run(Command.copy-full-path);
                 activated => { root.run(Command.copy-full-path); }
+            }
+            MenuItem {
+                title: @tr("Copy path with quotes");
+                shortcut: root.menu-keys.copy-path-quoted;
+                enabled: root.can-run(Command.copy-path-quoted);
+                activated => { root.run(Command.copy-path-quoted); }
+            }
+            MenuItem {
+                title: @tr("Copy full path with quotes");
+                shortcut: root.menu-keys.copy-full-path-quoted;
+                enabled: root.can-run(Command.copy-full-path-quoted);
+                activated => { root.run(Command.copy-full-path-quoted); }
             }
             MenuSeparator { }
             MenuItem {

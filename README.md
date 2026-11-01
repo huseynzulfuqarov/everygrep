@@ -155,6 +155,7 @@ executable file.
 | `Ctrl+Shift+C` | copy the full path (one per line) |
 | `Ctrl+Alt+C` | copy the name |
 | `Ctrl+Alt+Shift+C` | copy the path of the containing folder (each folder once) |
+| — | copy path / full path with quotes: each in double quotes (context menu, Edit menu; a key can be set) |
 | `F2` | rename in place (`Enter` renames, `Esc` cancels) |
 | `Delete` | move to the trash (`gio trash`) |
 | `Shift+Delete` | delete permanently, after a confirmation |
@@ -257,6 +258,7 @@ the program behaves as before, except that folders show their total size.
 | | remember the shown columns and their widths | on |
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
 | | a double-click in the Folder column opens the containing folder (off: the item) | on |
+| | copy full path adds quotes (each path in double quotes) | off |
 | | focus the search field and select its text when the window is shown again | on |
 | | sort dates newest first / sort sizes largest first: the direction of the first click on a date or Size header | off |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
@@ -379,7 +381,7 @@ size-width = 120
 search at every key press, `rename-select-name-only` the selection of
 the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
-opens, `focus-search-on-show`
+opens, `copy-full-path-quotes` the quotes around copied full paths, `focus-search-on-show`
 whether showing the window again focuses the search field.
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
 and the file pattern lists; a pattern that does not compile is reported and

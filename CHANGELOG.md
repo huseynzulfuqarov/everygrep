@@ -242,6 +242,9 @@ First version, 0.1.0, not released yet.
 - View → Refresh (`F5`, changeable on the Keyboard page): runs the
   search again and reads the creation times, access times and attributes
   of the shown rows, and those a sort needs, afresh.
+- Copy path with quotes and Copy full path with quotes (context menu, Edit
+  menu, no key by default): one path per line, each in double quotes. "Copy
+  full path adds quotes" (Window page, off) makes Copy full path quote too.
 
 ### Project
 

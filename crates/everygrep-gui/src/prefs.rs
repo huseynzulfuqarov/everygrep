@@ -677,6 +677,7 @@ impl Prefs {
         w.set_remember_columns(s.remember_columns);
         w.set_rename_name_only(s.rename_name_only);
         w.set_path_click_opens_folder(s.path_click_opens_folder);
+        w.set_copy_full_path_quotes(s.copy_full_path_quotes);
         w.set_focus_on_show(s.focus_on_show);
         w.set_dates_newest_first(s.dates_newest_first);
         w.set_sizes_largest_first(s.sizes_largest_first);
@@ -1370,6 +1371,7 @@ impl Prefs {
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
         let path_click = w.get_path_click_opens_folder();
+        let quotes = w.get_copy_full_path_quotes();
         let focus_on_show = w.get_focus_on_show();
         let dates_newest_first = w.get_dates_newest_first();
         let sizes_largest_first = w.get_sizes_largest_first();
@@ -1381,6 +1383,7 @@ impl Prefs {
             s.remember_columns = remember;
             s.rename_name_only = name_only;
             s.path_click_opens_folder = path_click;
+            s.copy_full_path_quotes = quotes;
             s.focus_on_show = focus_on_show;
             if !remember {
                 s.columns = Columns::default();
@@ -1518,6 +1521,11 @@ impl Prefs {
     /// Whether renaming preselects the name without its extension.
     pub fn rename_name_only(&self) -> bool {
         self.settings.borrow().rename_name_only
+    }
+
+    /// Whether Copy full path puts each path in double quotes.
+    pub fn copy_full_path_quotes(&self) -> bool {
+        self.settings.borrow().copy_full_path_quotes
     }
 
     /// Whether showing the window focuses the search field.

@@ -904,22 +904,28 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     });
     window.on_copy_paths({
         let (weak, model) = (weak.clone(), model.clone());
-        move |r| {
+        move |r, quoted| {
             let paths = model.targets(row(r));
             if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
-                w.invoke_copy_text(actions::paths_text(&paths).into());
+                let mut quote = quoted;
+                prefs::with(|p| quote |= p.copy_full_path_quotes());
+                let text = actions::paths_text(&paths);
+                let text = if quote { actions::quoted(&text) } else { text };
+                w.invoke_copy_text(text.into());
                 info(&w, labels::copied_paths(paths.len()));
             }
         }
     });
     window.on_copy_folders({
         let (weak, model) = (weak.clone(), model.clone());
-        move |r| {
+        move |r, quoted| {
             let paths = model.targets(row(r));
             let text = actions::folders_text(&paths);
             if let (Some(w), false) = (weak.upgrade(), text.is_empty()) {
+                let count = text.lines().count();
+                let text = if quoted { actions::quoted(&text) } else { text };
                 w.invoke_copy_text(text.as_str().into());
-                info(&w, labels::copied_folders(text.lines().count()));
+                info(&w, labels::copied_folders(count));
             }
         }
     });

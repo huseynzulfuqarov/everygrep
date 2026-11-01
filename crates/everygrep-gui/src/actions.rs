@@ -24,6 +24,15 @@ pub fn paths_text(paths: &[PathBuf]) -> String {
     join_lines(paths.iter().map(|p| p.as_os_str()))
 }
 
+/// Each line of `text` in double quotes, for pasting into a shell or a
+/// file dialog: `"/home/me/a b.txt"`.
+pub fn quoted(text: &str) -> String {
+    text.split('\n')
+        .map(|line| format!("\"{line}\""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// File names, one per line, for the clipboard.
 pub fn names_text(paths: &[PathBuf]) -> String {
     join_lines(paths.iter().map(|p| p.file_name().unwrap_or(p.as_os_str())))
@@ -268,6 +277,21 @@ mod tests {
         assert_eq!(stem_len("notes", false), 5);
         assert_eq!(stem_len("photos.2026", true), 11);
         assert_eq!(stem_len("şəkil.png", false), "şəkil".len());
+    }
+
+    #[test]
+    fn quoting_wraps_every_line() {
+        assert_eq!(quoted("/a b/c.txt"), "\"/a b/c.txt\"");
+        assert_eq!(quoted("/a\n/b c"), "\"/a\"\n\"/b c\"");
+        let paths = [
+            PathBuf::from("/x/one.txt"),
+            PathBuf::from("/y/two words.pdf"),
+        ];
+        assert_eq!(
+            quoted(&paths_text(&paths)),
+            "\"/x/one.txt\"\n\"/y/two words.pdf\""
+        );
+        assert_eq!(quoted(&folders_text(&paths)), "\"/x\"\n\"/y\"");
     }
 
     #[test]

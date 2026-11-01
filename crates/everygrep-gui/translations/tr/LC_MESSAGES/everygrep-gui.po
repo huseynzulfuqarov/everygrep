@@ -1817,3 +1817,23 @@ msgstr "1 KB = 1000 bayt"
 #: src/commands.rs
 msgid "Refresh"
 msgstr "Yenile"
+
+#: src/commands.rs
+msgid "Copy path with quotes"
+msgstr "Yolu tırnakla kopyala"
+
+#: src/commands.rs
+msgid "Copy full path with quotes"
+msgstr "Tam yolu tırnakla kopyala"
+
+#: ui/settings.slint
+msgid "Copying"
+msgstr "Kopyalama"
+
+#: ui/settings.slint
+msgid "Copy full path adds quotes"
+msgstr "Tam yol kopyalanırken tırnak ekle"
+
+#: ui/settings.slint
+msgid "Each path is put in double quotes, as Copy full path with quotes does."
+msgstr "Her yol, \"Tam yolu tırnakla kopyala\" komutundaki gibi çift tırnak içine alınır."
