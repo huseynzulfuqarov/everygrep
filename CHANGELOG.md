@@ -13,6 +13,10 @@ First version, 0.1.0, not released yet.
 - Previous/next filter navigation can wrap or stop at the ends of the list
   (Settings → Search); a boundary with wrapping off leaves the search alone.
 
+- Wildcard scope is configurable in Settings → Search, with per-term
+  `wholename:` / `nowholename:` overrides; whole-name matching
+  remains the default.
+
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names

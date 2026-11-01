@@ -1878,3 +1878,6 @@ msgstr "Etkin eşleştirme kiplerini durum satırında göster"
 
 msgid "Wrap when moving to the next or previous filter"
 msgstr "Sonraki veya önceki filtreye geçerken listeyi döngüle"
+
+msgid "Match wildcards anywhere in the filename"
+msgstr "Jokerleri dosya adının herhangi bir yerinde eşleştir"

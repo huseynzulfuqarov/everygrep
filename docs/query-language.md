@@ -37,7 +37,14 @@ of a word: `port` finds `report.pdf`. By default matching ignores
 `*` (any run of characters) and `?` (one character) make a term a wildcard
 pattern that must match the **whole** name: `*.pdf` finds names ending in
 `.pdf`, `img_??.png` finds `img_01.png` but not `img_001.png`. Inside quotes
-`*` and `?` are literal.
+`*` and `?` are literal. In the window, Settings → Search → Match wildcards
+anywhere in the filename opens both ends instead (off by default).
+`wholename:ain*` forces whole-name wildcard matching and
+`nowholename:ain*` allows a match inside `main.rs`, regardless of that
+setting. These modifiers affect wildcard terms; ordinary text keeps its
+substring behavior. Explicit `prefix:` / `suffix:` still anchor their side.
+In path mode the open ends can cross folders, while `*` / `?` inside the
+original pattern keep their separator rules.
 
 Against the full path (`path:`, a term with `/`, or the full path mode), `*`
 and `?` do not cross a `/`, and `**` matches any run including `/`, the same
@@ -59,6 +66,7 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `wholeword:` / `nowholeword:` | whole words only: `wholeword:art` finds `pop-art.png` but not `party.png` |
 | `diacritics:` / `nodiacritics:` | match diacritics: `diacritics:café` does not find `cafe` |
 | `path:` / `nopath:` | match the full path instead of the name |
+| `wholename:` / `nowholename:` | match a wildcard against the whole name / anywhere in it |
 | `prefix:` / `noprefix:` | the term must match at the start of the name: `prefix:rep` finds `report.pdf`, not `draft report.pdf` |
 | `suffix:` / `nosuffix:` | the term must match at the end of the name: `suffix:.tar.gz` |
 | `nopunct:` / `punct:` | ignore punctuation / match it: `nopunct:foo-bar` finds `foo_bar.txt`, `foo-bar.txt` and `foobar.txt` |

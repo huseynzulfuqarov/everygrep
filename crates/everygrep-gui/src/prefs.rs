@@ -642,6 +642,7 @@ impl Prefs {
         w.set_default_punctuation(o.ignore_punctuation);
         w.set_default_whitespace(o.ignore_whitespace);
         w.set_default_regex(o.regex);
+        w.set_wildcards_anywhere(o.wildcards_anywhere);
         w.set_as_you_type(s.as_you_type);
         w.set_show_mode_badges(s.show_mode_badges);
         w.set_filter_wrap(s.filter_wrap);
@@ -1187,6 +1188,7 @@ impl Prefs {
             ignore_punctuation: w.get_default_punctuation(),
             ignore_whitespace: w.get_default_whitespace(),
             regex: w.get_default_regex(),
+            wildcards_anywhere: w.get_wildcards_anywhere(),
             filter: usize::try_from(w.get_default_filter())
                 .ok()
                 .and_then(|i| Filter::ALL.get(i).copied())
@@ -1216,11 +1218,13 @@ impl Prefs {
         self.apply_behaviour();
     }
 
-    /// Gives the main window the settings that only change how it reacts
-    /// to the mouse and keys.
+    /// Applies interaction settings and search policy to the main window.
+    /// A changed search policy reruns the current query.
     pub fn apply_behaviour(&self) {
         let Some(m) = self.main.upgrade() else { return };
         let s = self.settings.borrow();
+        let old_options = crate::options(&m);
+        m.set_wildcards_anywhere(s.options.wildcards_anywhere);
         m.set_show_mode_badges(s.show_mode_badges);
         m.set_filter_wrap(s.filter_wrap);
         m.set_select_search_on_click(s.select_search_on_click);
@@ -1229,6 +1233,10 @@ impl Prefs {
         });
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);
+        drop(s);
+        if old_options != crate::options(&m) {
+            crate::search_now(&m, &self.engine);
+        }
     }
 
     /// Gives the main window the "search as you type" setting.

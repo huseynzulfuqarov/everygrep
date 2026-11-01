@@ -832,6 +832,7 @@ export component AppWindow inherits Window {
     // Words for the modes that are on, shown in the status line.
     in property <[string]> badges;
     in property <bool> show-mode-badges: true;
+    in property <bool> wildcards-anywhere;
     in property <bool> filter-wrap: true;
     callback options-changed();
 

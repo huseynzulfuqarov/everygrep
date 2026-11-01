@@ -234,6 +234,11 @@ previous filter controls whether the ends wrap (on by default). With it off,
 the selection stays at the first or last filter. Keys can be changed on the
 Keyboard page.
 
+Settings → Search → Match wildcards anywhere in the filename is off by
+default, preserving whole-name matching. `wholename:` / `nowholename:`
+override it for one wildcard term. Changing the setting reruns the current
+query; prefix/suffix anchors and quoted literal wildcards still work.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the

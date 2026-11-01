@@ -6,7 +6,7 @@
 //! !draft              not
 //! <a b>|c             grouping
 //! "two words"         quotes make spaces and operators literal
-//! *.pdf  img_??.png   wildcards match the whole name; in a path * and ?
+//! *.pdf  img_??.png   wildcards match the whole name by default; * and ?
 //!                     stop at /, ** does not
 //! case:Readme         match case for this term
 //! wholeword:art              whole words only: "art" but not "party"
@@ -91,6 +91,8 @@ pub struct QueryOptions {
     /// The whole query is one regular expression; operators and modifiers
     /// are not read.
     pub regex: bool,
+    /// Match wildcards anywhere in the filename.
+    pub wildcards_anywhere: bool,
     /// Only entries of this kind match, in addition to the query text.
     pub filter: Filter,
 }
@@ -1300,6 +1302,7 @@ impl Parser {
         let mut on_path = self.options.match_path;
         let mut whole_word = self.options.whole_words;
         let mut diacritics = self.options.match_diacritics;
+        let mut whole_filename = !self.options.wildcards_anywhere;
         let mut prefix = self.options.prefix;
         let mut suffix = self.options.suffix;
         let mut squeeze = Squeeze {
@@ -1321,6 +1324,8 @@ impl Parser {
                 "nowholeword" => whole_word = false,
                 "diacritics" => diacritics = true,
                 "nodiacritics" => diacritics = false,
+                "wholename" => whole_filename = true,
+                "nowholename" => whole_filename = false,
                 "prefix" => prefix = true,
                 "noprefix" => prefix = false,
                 "suffix" => suffix = true,
@@ -1402,13 +1407,14 @@ impl Parser {
             }
             pattern = kept;
         }
-        if glob && prefix != suffix {
-            // A pattern matches the whole name; open the side that is not
-            // anchored, across folders of a path too.
-            if prefix {
-                pattern.extend_from_slice(b"**");
-            } else {
+        if glob && (!whole_filename || prefix != suffix) {
+            // Open the unanchored sides, across folders of a path too.
+            // Explicit prefix/suffix anchors still apply in anywhere mode.
+            if !prefix {
                 pattern.splice(0..0, *b"**");
+            }
+            if !suffix {
+                pattern.extend_from_slice(b"**");
             }
         }
         Ok(Some(Node::Leaf(Pred::Text(TextPred {
@@ -1521,6 +1527,8 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "modified",
     "created",
     "accessed",
+    "wholename",
+    "nowholename",
     "prefix",
     "noprefix",
     "suffix",
@@ -2271,6 +2279,34 @@ mod tests {
         assert_eq!(t.find("main.??"), ["main.rs"]);
         assert!(t.find("mai*").contains(&"main.rs".to_string()));
         assert!(t.find("ain*").is_empty());
+    }
+
+    #[test]
+    fn wildcard_scope_is_switchable_and_overridable() {
+        let t = Tree::new();
+        let anywhere = QueryOptions {
+            wildcards_anywhere: true,
+            ..QueryOptions::default()
+        };
+        assert!(t.find("ain*").is_empty());
+        assert_eq!(t.find_with("ain*", anywhere), ["main.rs"]);
+        assert_eq!(spans_with("main.rs", "ain*", anywhere, false), [(1, 4)]);
+        assert_eq!(t.find("nowholename:ain*"), ["main.rs"]);
+        assert!(t.find_with("wholename:ain*", anywhere).is_empty());
+        assert_eq!(t.find_with("wholename:main.??", anywhere), ["main.rs"]);
+        assert!(t.find_with("prefix:ain*", anywhere).is_empty());
+        assert!(t.find_with("suffix:*.pd", anywhere).is_empty());
+        assert_eq!(
+            t.find_with("suffix:*.pdf", anywhere),
+            ["Report-2026.PDF", "draft report.pdf"]
+        );
+        assert_eq!(t.find_with("prefix:suffix:main.??", anywhere), ["main.rs"]);
+        assert_eq!(t.find("case:nowholename:ain*"), ["main.rs"]);
+        assert_eq!(t.find_with("path:src/*.??", anywhere), ["main.rs"]);
+        assert_eq!(t.find_with("regex:^main", anywhere), ["main.rs"]);
+        let mut t = t;
+        t.store.add(None, b"ain*", false, Meta::default());
+        assert_eq!(t.find_with("\"ain*\"", anywhere), ["ain*"]);
     }
 
     #[test]

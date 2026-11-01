@@ -241,9 +241,10 @@ fn main() -> Result<(), slint::PlatformError> {
     refresh_status(&window);
     // The search thread runs the query now and again once the index is
     // loaded, so the first results appear as soon as they can.
-    if !args.query.is_empty() || start_options != QueryOptions::default() {
+    let initial_options = options(&window);
+    if !args.query.is_empty() || initial_options != QueryOptions::default() {
         window.set_query(args.query.as_str().into());
-        engine.set_query(&args.query, start_options);
+        engine.set_query(&args.query, initial_options);
         prefs.record(&args.query);
     }
 
@@ -1675,6 +1676,7 @@ fn options(w: &AppWindow) -> QueryOptions {
         ignore_punctuation: w.get_ignore_punctuation(),
         ignore_whitespace: w.get_ignore_whitespace(),
         regex: w.get_use_regex(),
+        wildcards_anywhere: w.get_wildcards_anywhere(),
         filter: usize::try_from(w.get_filter_index())
             .ok()
             .and_then(|i| Filter::ALL.get(i).copied())

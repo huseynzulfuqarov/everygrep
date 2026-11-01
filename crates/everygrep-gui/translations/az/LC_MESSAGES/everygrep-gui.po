@@ -1878,3 +1878,6 @@ msgstr "Aktiv uyğunlaşdırma rejimlərini status sətrində göstər"
 
 msgid "Wrap when moving to the next or previous filter"
 msgstr "Növbəti və ya əvvəlki filtrə keçərkən siyahını dövr et"
+
+msgid "Match wildcards anywhere in the filename"
+msgstr "Wildcard-ları fayl adının istənilən yerində uyğunlaşdır"

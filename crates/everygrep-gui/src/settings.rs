@@ -462,6 +462,7 @@ impl Settings {
             "match-suffix" => put_flag(&mut self.options.suffix),
             "ignore-punctuation" => put_flag(&mut self.options.ignore_punctuation),
             "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
+            "wildcards-anywhere" => put_flag(&mut self.options.wildcards_anywhere),
             "regex" => put_flag(&mut self.options.regex),
             "filter-wrap" => put_flag(&mut self.filter_wrap),
             "show-mode-badges" => put_flag(&mut self.show_mode_badges),
@@ -665,6 +666,12 @@ impl Settings {
             od.ignore_whitespace,
         );
         flag(&mut out, "regex", o.regex, od.regex);
+        flag(
+            &mut out,
+            "wildcards-anywhere",
+            o.wildcards_anywhere,
+            od.wildcards_anywhere,
+        );
         flag(
             &mut out,
             "show-mode-badges",
@@ -1122,6 +1129,7 @@ pub(crate) mod tests {
                 ignore_punctuation: true,
                 ignore_whitespace: true,
                 regex: true,
+                wildcards_anywhere: true,
                 filter: Filter::Picture,
             },
             as_you_type: false,
