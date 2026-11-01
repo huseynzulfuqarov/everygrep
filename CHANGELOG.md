@@ -77,7 +77,9 @@ First version, 0.1.0, not released yet.
   modifier values stay literal when the setting is enabled.
 - Settings → Search can evaluate AND before OR. The default retains
   OR-before-AND behavior; explicit groups and negation keep their meaning.
-- Wildcards `*` and `?` matched against the whole name. **Behaviour
+- Wildcards `*` and `?` matched against the whole name; quotes make only
+  the `*` and `?` inside them literal (`*"draft report"*`), where one quoted
+  part used to turn off every wildcard of the term. **Behaviour
   change:** against the full path `*` and `?` no longer cross a `/`; `**`
   does (`path:/home/me/*.txt` no longer finds files in subfolders), as in the
   exclude patterns.

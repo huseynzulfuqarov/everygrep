@@ -914,7 +914,13 @@ fn glob_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usiz
     let mut star: Option<(usize, usize, usize)> = None;
     let mut marks: Vec<usize> = Vec::new();
     while s < subject.len() {
+        let escaped = pattern.get(p) == Some(&GLOB_ESCAPE);
         match pattern.get(p) {
+            Some(_) if escaped && pattern.get(p + 1) == Some(&subject[s]) => {
+                marks.push(s);
+                p += 2;
+                s += 1;
+            }
             Some(b'*') => {
                 star = Some((p, s, marks.len()));
                 p += 1;
@@ -923,7 +929,7 @@ fn glob_marks(pattern: &[u8], subject: &[u8]) -> Option<Vec<std::ops::Range<usiz
                 p += 1;
                 s += char_len(subject[s]);
             }
-            Some(&c) if c == subject[s] => {
+            Some(&c) if !escaped && c == subject[s] => {
                 marks.push(s);
                 p += 1;
                 s += 1;
@@ -1004,10 +1010,15 @@ impl Mapped {
     }
 }
 
+/// In a wildcard pattern, makes the next byte (a quoted `*` or `?`) literal.
+/// Text from a query is UTF-8, which never has this byte, and an escape
+/// never matches a byte of the subject.
+const GLOB_ESCAPE: u8 = 0xFF;
+
 /// Matches a whole subject against a pattern where `*` is any run of characters
 /// except `/`, `**` any run including `/`, and `?` exactly one character (one
 /// UTF-8 sequence) other than `/`. In a name, which has no `/`, `**` is the
-/// same as `*`.
+/// same as `*`. A byte after [`GLOB_ESCAPE`] is literal.
 pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
     if subject.contains(&b'/') {
         return glob_path_table(pattern, subject)
@@ -1018,7 +1029,12 @@ pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
     let (mut p, mut s) = (0, 0);
     let mut star: Option<(usize, usize)> = None;
     while s < subject.len() {
+        let escaped = pattern.get(p) == Some(&GLOB_ESCAPE);
         match pattern.get(p) {
+            Some(_) if escaped && pattern.get(p + 1) == Some(&subject[s]) => {
+                p += 2;
+                s += 1;
+            }
             Some(b'*') => {
                 star = Some((p, s));
                 p += 1;
@@ -1027,7 +1043,7 @@ pub fn glob_match(pattern: &[u8], subject: &[u8]) -> bool {
                 p += 1;
                 s += char_len(subject[s]);
             }
-            Some(&c) if c == subject[s] => {
+            Some(&c) if !escaped && c == subject[s] => {
                 p += 1;
                 s += 1;
             }
@@ -1065,6 +1081,10 @@ fn glob_path_table(pattern: &[u8], subject: &[u8]) -> (Vec<GlobPart>, Vec<Vec<bo
     let mut i = 0;
     while i < pattern.len() {
         let part = match pattern[i] {
+            GLOB_ESCAPE if i + 1 < pattern.len() => {
+                i += 1;
+                GlobPart::Byte(pattern[i])
+            }
             b'*' if pattern.get(i + 1) == Some(&b'*') => {
                 while pattern.get(i + 1) == Some(&b'*') {
                     i += 1;
@@ -1508,7 +1528,16 @@ impl Parser {
             }
             rest = tail;
         }
-        let quoted = rest.contains('\u{0}');
+        // `*` and `?` are wildcards outside quotes and literal inside them.
+        let mut glob = false;
+        let mut quoted = false;
+        for c in rest.chars() {
+            match c {
+                '\u{0}' => quoted = !quoted,
+                '*' | '?' if !quoted => glob = true,
+                _ => {}
+            }
+        }
         let text: String = rest.chars().filter(|&c| c != '\u{0}').collect();
         if text.is_empty() {
             return Ok(None);
@@ -1521,29 +1550,20 @@ impl Parser {
                 on_path: m.on_path,
             }))));
         }
-        let glob = !quoted && (text.contains('*') || text.contains('?'));
         if m.exact_name && !glob {
             // Both ends anchored: the name (or path) equals the term.
             (m.prefix, m.suffix) = (true, true);
         }
         m.on_path |= text.contains('/');
         self.uses_path |= m.on_path;
-        let mut pattern = if m.case {
-            text.into_bytes()
+        let mut pattern = if glob {
+            glob_pattern(rest, &m)
         } else {
-            fold(text.as_bytes())
+            literal_pattern(&text, &m)
         };
-        if !m.diacritics {
-            pattern = crate::fold::strip_diacritics(&pattern);
-        }
-        if m.squeeze.any() {
-            let mut kept = Vec::with_capacity(pattern.len());
-            squeeze_into(&pattern, m.squeeze, glob, &mut kept);
-            // Nothing left (`nopunct:-`): no condition, like an empty term.
-            if kept.is_empty() {
-                return Ok(None);
-            }
-            pattern = kept;
+        // Nothing left (`nopunct:-`): no condition, like an empty term.
+        if m.squeeze.any() && pattern.is_empty() {
+            return Ok(None);
         }
         if glob && (!m.whole_filename || m.prefix != m.suffix) {
             // Open the unanchored sides, across folders of a path too.
@@ -1586,6 +1606,57 @@ impl Parser {
             None => Node::Leaf(kind),
         })
     }
+}
+
+/// Literal text of a term prepared as names are for matching: folded
+/// unless `case` is set, without diacritics unless `diacritics` is set,
+/// without the characters the ignore modes leave out.
+fn literal_pattern(text: &str, m: &TermMods) -> Vec<u8> {
+    let mut pattern = if m.case {
+        text.as_bytes().to_vec()
+    } else {
+        fold(text.as_bytes())
+    };
+    if !m.diacritics {
+        pattern = crate::fold::strip_diacritics(&pattern);
+    }
+    if m.squeeze.any() {
+        let mut kept = Vec::with_capacity(pattern.len());
+        squeeze_into(&pattern, m.squeeze, false, &mut kept);
+        pattern = kept;
+    }
+    pattern
+}
+
+/// A wildcard pattern from a word with quote markers (`\u{0}`): the `*` and
+/// `?` outside quotes are wildcards; the text between them is prepared
+/// like [`literal_pattern`], and a `*` or `?` in it is escaped with
+/// [`GLOB_ESCAPE`].
+fn glob_pattern(word: &str, m: &TermMods) -> Vec<u8> {
+    let mut pattern = Vec::with_capacity(word.len());
+    let mut run = String::new();
+    let flush = |run: &mut String, pattern: &mut Vec<u8>| {
+        for b in literal_pattern(run, m) {
+            if b == b'*' || b == b'?' {
+                pattern.push(GLOB_ESCAPE);
+            }
+            pattern.push(b);
+        }
+        run.clear();
+    };
+    let mut quoted = false;
+    for c in word.chars() {
+        match c {
+            '\u{0}' => quoted = !quoted,
+            '*' | '?' if !quoted => {
+                flush(&mut run, &mut pattern);
+                pattern.push(c as u8);
+            }
+            c => run.push(c),
+        }
+    }
+    flush(&mut run, &mut pattern);
+    pattern
 }
 
 /// The settings of one term, from the query's options and its modifiers.
@@ -2663,6 +2734,52 @@ mod tests {
         assert_eq!(t.find("\"draft report\""), ["draft report.pdf"]);
         assert_eq!(t.find("\"(1)\""), ["photo (1).png"]);
         assert_eq!(t.find("(1)"), ["photo (1).png"]);
+    }
+
+    #[test]
+    fn quotes_make_only_their_own_wildcards_literal() {
+        let t = named(&[
+            "draft report.pdf",
+            "my Draft Report v2.pdf",
+            "draft-report.pdf",
+            "a*b.txt",
+            "axb.txt",
+            "what?.txt",
+            "whatx.txt",
+        ]);
+        // The wildcards outside the quotes still work.
+        assert_eq!(
+            t.find("*\"draft report\"*"),
+            ["draft report.pdf", "my Draft Report v2.pdf"]
+        );
+        assert_eq!(t.find("\"draft report\"*"), ["draft report.pdf"]);
+        assert_eq!(t.find("\"a*\"*"), ["a*b.txt"]);
+        assert_eq!(t.find("a\"*\"?.txt"), ["a*b.txt"]);
+        assert_eq!(t.find("*\"?\".txt"), ["what?.txt"]);
+        assert_eq!(t.find("what?.txt"), ["what?.txt", "whatx.txt"]);
+        // Quoted wildcards alone stay plain text.
+        assert_eq!(t.find("\"*\""), ["a*b.txt"]);
+        assert_eq!(t.find("\"?\""), ["what?.txt"]);
+        // Case, the ignore modes and paths treat the quoted part as text.
+        assert_eq!(
+            t.find("case:*\"Draft Report\"*"),
+            ["my Draft Report v2.pdf"]
+        );
+        assert_eq!(t.find("nopunct:*\"draft-report\"*"), ["draft-report.pdf"]);
+        assert_eq!(t.find("nopunct:\"a*\"b*"), ["a*b.txt"]);
+        assert_eq!(
+            t.find("path:/r/*/*\"draft report\"*"),
+            ["draft report.pdf", "my Draft Report v2.pdf"]
+        );
+        assert_eq!(t.find("path:/r/*/\"a*\"*"), ["a*b.txt"]);
+        let anywhere = with(|o| o.wildcards_anywhere = true);
+        assert_eq!(t.find_with("\"a*\"?", anywhere), ["a*b.txt"]);
+        // Only the literal parts are highlighted.
+        assert_eq!(
+            spans("my Draft Report v2.pdf", "*\"draft report\"*"),
+            [(3, 15)]
+        );
+        assert_eq!(spans("a*b.txt", "\"a*\"*"), [(0, 2)]);
     }
 
     #[test]

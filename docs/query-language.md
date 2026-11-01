@@ -61,7 +61,8 @@ of a word: `port` finds `report.pdf`. By default matching ignores
 `*` (any run of characters) and `?` (one character) make a term a wildcard
 pattern that must match the **whole** name: `*.pdf` finds names ending in
 `.pdf`, `img_??.png` finds `img_01.png` but not `img_001.png`. Inside quotes
-`*` and `?` are literal. In the window, Settings → Search → Match wildcards
+`*` and `?` are literal, and only there: `*"draft report"*` finds names
+containing `draft report`, `"a*"*` names starting with `a*`. In the window, Settings → Search → Match wildcards
 anywhere in the filename opens both ends instead (off by default).
 `wholename:ain*` forces whole-name wildcard matching
 and `nowholename:ain*` allows a match inside `main.rs`, regardless of that
