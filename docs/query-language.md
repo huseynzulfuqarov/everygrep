@@ -217,6 +217,8 @@ Calendar dates, in the local time zone:
 | `modified:thisweek`, `modified:lastweek`, `modified:nextweek` | this, last, next calendar week (Monday to Sunday) |
 | `modified:thismonth`, `modified:lastmonth`, `modified:nextmonth` | this, last, next calendar month |
 | `modified:thisyear`, `modified:lastyear`, `modified:nextyear` | this, last, next calendar year |
+| `modified:monday` … `modified:sunday`, `modified:mon` … `modified:sun` | the latest such day, today included: on a Wednesday `monday` is two days ago and `wednesday` is today |
+| `modified:january` … `modified:december`, `modified:jan` … `modified:dec` | the latest such month, the current one included: in October 2026 `oct` is October 2026 and `dec` is December 2025 |
 | `modified:>2026-10-25` | after that day (from the next midnight) |
 | `modified:>=2026-10` | from the start of October 2026 |
 | `modified:<2026` | before 2026 |

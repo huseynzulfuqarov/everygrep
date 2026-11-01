@@ -78,6 +78,8 @@ First version, 0.1.0, not released yet.
   `accessed:` with the same values, read from disk while searching.
 - Dates that end or start now: `last3days`, `next2hours`, `next-1-day`, in
   years, months, weeks, days, hours, minutes and seconds.
+- Weekday and month names in dates (`modified:monday`, `modified:fri`, `modified:october`,
+  `modified:dec`: the latest such day or month).
 - Filter words in the query, the filter names with a colon: `audio:`,
   `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`,
   `video:` and `code:`, sharing the extension lists of the filter selector

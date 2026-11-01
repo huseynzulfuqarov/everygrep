@@ -28,6 +28,7 @@
 //!                     months or years; 2026-10-01..2026-10-25 is inclusive
 //! modified:last3days        from 3 days before now up to now (also past3days,
 //!                     pastweek, next2hours, prev2weeks = whole weeks)
+//! modified:monday  modified:oct  the latest such day / month; modified:mtd  modified:ytd to date
 //! created:today  accessed:>30d   creation / access time, read from disk while searching
 //! prefix:rep          the name starts with the term
 //! suffix:.tar.gz      the name ends with the term
@@ -1859,15 +1860,65 @@ fn day_period(days: i64, unit: Unit) -> Period {
     }
 }
 
+/// Weekday names from Monday, long and short.
+const WEEKDAYS: [[&str; 2]; 7] = [
+    ["monday", "mon"],
+    ["tuesday", "tue"],
+    ["wednesday", "wed"],
+    ["thursday", "thu"],
+    ["friday", "fri"],
+    ["saturday", "sat"],
+    ["sunday", "sun"],
+];
+
+/// Month names, long and short.
+const MONTHS: [[&str; 2]; 12] = [
+    ["january", "jan"],
+    ["february", "feb"],
+    ["march", "mar"],
+    ["april", "apr"],
+    ["may", "may"],
+    ["june", "jun"],
+    ["july", "jul"],
+    ["august", "aug"],
+    ["september", "sep"],
+    ["october", "oct"],
+    ["november", "nov"],
+    ["december", "dec"],
+];
+
 /// `today`, `yesterday`, `tomorrow`, and `this`/`current`, `last`/`previous`/
 /// `prev` or `next`/`coming` with `week`, `month` or `year` (`lastweek`).
-/// `word` is lowercase, without `-` and `_`.
+/// A weekday name (`monday`, `mon`) is the latest such day up to today, a
+/// month name (`october`, `oct`) the latest such month up to the current
+/// one. `word` is lowercase, without `-` and `_`.
 fn parse_relative_period(word: &str, today: i64) -> Option<Period> {
     match word {
         "today" => return Some(day_period(today, Unit::Day)),
         "yesterday" => return Some(day_period(today - 1, Unit::Day)),
         "tomorrow" => return Some(day_period(today + 1, Unit::Day)),
         _ => {}
+    }
+    if let Some(weekday) = WEEKDAYS.iter().position(|names| names.contains(&word)) {
+        // The latest such day on or before today; Monday is 0 here (day 0,
+        // 1970-01-01, was a Thursday).
+        let back = ((today + 3).rem_euclid(7) - weekday as i64).rem_euclid(7);
+        return Some(day_period(today - back, Unit::Day));
+    }
+    if let Some(index) = MONTHS.iter().position(|names| names.contains(&word)) {
+        // The latest such month up to the current one.
+        let (year, month, _) = civil_from_days(today);
+        let month_number = index as u32 + 1;
+        return Some(Period {
+            year: if month_number <= month {
+                year
+            } else {
+                year - 1
+            },
+            month: month_number,
+            day: 1,
+            unit: Unit::Month,
+        });
     }
     const STEPS: [(&str, i64); 7] = [
         ("this", 0),
@@ -1935,12 +1986,24 @@ fn split_count(word: &str) -> Option<(Option<i64>, &str)> {
 /// - `next<n><unit>` and `coming<n><unit>`: from now up to `n` units ahead.
 /// - `prev[n]<week|month|year>` and `previous…`: the `n` whole calendar
 ///   weeks, months or years before the current one.
+/// - `mtd` and `ytd`: from the start of the month or year up to now.
 ///
 /// Units are years, months, weeks, days, hours, minutes (`mins`) and
 /// seconds (`secs`), singular or plural. Days, weeks, months and years keep
 /// the local wall clock time (`last1month` on 31 March starts on the last
 /// day of February at the same time).
 fn parse_moving_span(word: &str, now_ns: i64, today: i64, zone: &Zone) -> Option<Span> {
+    let to_date = match word {
+        "mtd" => Some(Unit::Month),
+        "ytd" => Some(Unit::Year),
+        _ => None,
+    };
+    if let Some(unit) = to_date {
+        return Some(Span {
+            start: calendar_period(unit, 0, today).start_ns(zone),
+            end: now_ns,
+        });
+    }
     for prefix in ["previous", "prev"] {
         if let Some(rest) = word.strip_prefix(prefix) {
             let (n, unit) = split_count(rest)?;
@@ -2853,6 +2916,59 @@ mod tests {
             "modified:next-hours",
             "modified:coming3",
         ] {
+            let zone = Zone::from_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+            let q = Query::parse_with(bad, QueryOptions::default(), now, Some(zone));
+            assert!(q.is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn weekday_and_month_names_and_to_date() {
+        // Wednesday 2026-10-21 12:00 local.
+        let now = at(2026, 10, 21, 12, 0, 2);
+        let entries = [
+            ("wed", at(2026, 10, 21, 8, 0, 2)),
+            ("tue", at(2026, 10, 20, 23, 59, 2)),
+            ("mon", at(2026, 10, 19, 0, 0, 2)),
+            ("sun", at(2026, 10, 18, 10, 0, 2)),
+            ("thu-last", at(2026, 10, 15, 10, 0, 2)),
+            ("thu-older", at(2026, 10, 8, 10, 0, 2)),
+            ("oct-first", at(2026, 10, 1, 0, 0, 2)),
+            ("jan", at(2026, 1, 5, 10, 0, 1)),
+            ("dec-2025", at(2025, 12, 24, 10, 0, 1)),
+            ("dec-2026", at(2026, 12, 1, 10, 0, 1)),
+            ("later-today", at(2026, 10, 21, 18, 0, 2)),
+        ];
+        let find = |q: &str| find_at(&entries, now, q);
+        // A weekday is the latest such day, today included.
+        assert_eq!(find("modified:wednesday"), ["later-today", "wed"]);
+        assert_eq!(find("modified:Wed"), find("modified:today"));
+        assert_eq!(find("modified:tuesday"), ["tue"]);
+        assert_eq!(find("modified:mon"), ["mon"]);
+        assert_eq!(find("modified:sunday"), ["sun"]);
+        assert_eq!(find("modified:sun"), ["sun"]);
+        assert_eq!(find("modified:thursday"), ["thu-last"]);
+        assert!(find("modified:fri").is_empty());
+        assert!(find("modified:saturday").is_empty());
+        assert_eq!(
+            find("modified:>=monday"),
+            ["dec-2026", "later-today", "mon", "tue", "wed"]
+        );
+        assert_eq!(find("modified:sun..tue"), ["mon", "sun", "tue"]);
+        // A month is the latest such month, the current one included.
+        assert_eq!(find("modified:october").len(), 8);
+        assert_eq!(find("modified:oct"), find("modified:thismonth"));
+        assert_eq!(find("modified:january"), ["jan"]);
+        assert_eq!(find("modified:jan"), ["jan"]);
+        assert_eq!(find("modified:december"), ["dec-2025"]);
+        assert_eq!(find("modified:Dec"), ["dec-2025"]);
+        assert!(find("modified:may").is_empty());
+        // Month and year to date end now.
+        assert_eq!(find("modified:mtd").len(), 7);
+        assert!(!find("modified:mtd").contains(&"later-today".to_owned()));
+        assert_eq!(find("modified:ytd").len(), 8);
+        assert!(find("modified:ytd").contains(&"jan".to_owned()));
+        for bad in ["modified:mondays", "modified:septembre", "modified:wtd"] {
             let zone = Zone::from_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
             let q = Query::parse_with(bad, QueryOptions::default(), now, Some(zone));
             assert!(q.is_err(), "{bad}");
