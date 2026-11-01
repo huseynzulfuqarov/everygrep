@@ -1887,3 +1887,27 @@ msgstr "Hərfi AND / OR / NOT operatorlarına icazə ver"
 
 msgid "Evaluate AND before OR"
 msgstr "AND operatorunu OR-dan əvvəl hesabla"
+
+msgid "Show hidden files"
+msgstr "Gizli faylları göstər"
+
+msgid "Hide hidden files"
+msgstr "Gizli faylları gizlət"
+
+msgid "Only hidden files"
+msgstr "Yalnız gizli fayllar"
+
+msgid "Cycle hidden files"
+msgstr "Gizli fayl rejimini dəyiş"
+
+msgid "Hidden files"
+msgstr "Gizli fayllar"
+
+msgid "Hidden excluded"
+msgstr "Gizlilər çıxarılıb"
+
+msgid "Hidden only"
+msgstr "Yalnız gizlilər"
+
+msgid "Dotfiles and the contents of dot-prefixed folders. This filters results without changing the index."
+msgstr "Nöqtə ilə başlayan fayllar və qovluqların məzmunu. İndeksi dəyişmədən nəticələri süzür."

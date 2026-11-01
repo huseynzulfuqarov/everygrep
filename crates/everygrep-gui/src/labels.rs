@@ -4,7 +4,7 @@
 
 use everygrep_core::filter::Filter;
 use everygrep_core::kind::FileKind;
-use everygrep_core::query::QueryOptions;
+use everygrep_core::query::{HiddenFiles, QueryOptions};
 use everygrep_core::rules::{RuleError, RuleList};
 use everygrep_core::sort::FolderSize;
 
@@ -73,9 +73,19 @@ pub fn extension(name: &str, is_dir: bool) -> &str {
     }
 }
 
+pub fn hidden_files(mode: HiddenFiles) -> &'static str {
+    match mode {
+        HiddenFiles::Show => tr("Show hidden files"),
+        HiddenFiles::Hide => tr("Hide hidden files"),
+        HiddenFiles::Only => tr("Only hidden files"),
+    }
+}
+
 /// Short words for the matching modes that are on, for the status line.
 pub fn mode_badges(o: &QueryOptions) -> Vec<&'static str> {
     [
+        (o.hidden_files == HiddenFiles::Hide, tr("Hidden excluded")),
+        (o.hidden_files == HiddenFiles::Only, tr("Hidden only")),
         (o.case_sensitive, tr("Case")),
         (o.whole_words, tr("Whole words")),
         (o.match_path, tr("Path")),

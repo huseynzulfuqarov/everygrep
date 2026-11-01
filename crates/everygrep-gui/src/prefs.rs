@@ -11,7 +11,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use everygrep_core::filter::Filter;
-use everygrep_core::query::QueryOptions;
+use everygrep_core::query::{HiddenFiles, QueryOptions};
 use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::normalize_roots;
 use everygrep_core::sort::FolderSize;
@@ -641,6 +641,18 @@ impl Prefs {
         w.set_default_suffix(o.suffix);
         w.set_default_punctuation(o.ignore_punctuation);
         w.set_default_whitespace(o.ignore_whitespace);
+        w.set_hidden_files(
+            HiddenFiles::ALL
+                .iter()
+                .position(|&h| h == o.hidden_files)
+                .unwrap_or(0) as i32,
+        );
+        w.set_hidden_names(ModelRc::new(VecModel::from(
+            HiddenFiles::ALL
+                .into_iter()
+                .map(|h| SharedString::from(labels::hidden_files(h)))
+                .collect::<Vec<_>>(),
+        )));
         w.set_default_regex(o.regex);
         w.set_and_before_or(o.and_before_or);
         w.set_literal_operators(o.literal_operators);
@@ -1175,6 +1187,16 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Sets the visibility filter through the same saved choice as Settings.
+    pub fn choose_hidden_files(&self, index: i32) {
+        let Some(&mode) = HiddenFiles::ALL.get(index as usize) else {
+            return;
+        };
+        self.change(|s| s.options.hidden_files = mode);
+        self.apply_behaviour();
+        self.refresh();
+    }
+
     fn search_changed(&self) {
         let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
             return;
@@ -1189,6 +1211,10 @@ impl Prefs {
             suffix: w.get_default_suffix(),
             ignore_punctuation: w.get_default_punctuation(),
             ignore_whitespace: w.get_default_whitespace(),
+            hidden_files: HiddenFiles::ALL
+                .get(w.get_hidden_files() as usize)
+                .copied()
+                .unwrap_or_default(),
             regex: w.get_default_regex(),
             and_before_or: w.get_and_before_or(),
             literal_operators: w.get_literal_operators(),
@@ -1231,6 +1257,12 @@ impl Prefs {
         m.set_wildcards_anywhere(s.options.wildcards_anywhere);
         m.set_literal_operators(s.options.literal_operators);
         m.set_and_before_or(s.options.and_before_or);
+        m.set_hidden_files(
+            HiddenFiles::ALL
+                .iter()
+                .position(|&h| h == s.options.hidden_files)
+                .unwrap_or(0) as i32,
+        );
         m.set_show_mode_badges(s.show_mode_badges);
         m.set_filter_wrap(s.filter_wrap);
         m.set_select_search_on_click(s.select_search_on_click);
@@ -1241,6 +1273,7 @@ impl Prefs {
         m.set_path_click_opens_folder(s.path_click_opens_folder);
         drop(s);
         if old_options != crate::options(&m) {
+            crate::show_badges(&m);
             crate::search_now(&m, &self.engine);
         }
     }

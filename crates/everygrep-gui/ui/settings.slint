@@ -158,6 +158,8 @@ export component SettingsWindow inherits Window {
     in-out property <int> history-size;
     in property <int> history-max;
     in-out property <bool> history-on-disk;
+    in-out property <int> hidden-files;
+    in property <[string]> hidden-names;
     callback search-changed();
 
     // Appearance
@@ -502,6 +504,19 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.and-before-or;
                                 toggled => { root.search-changed(); }
                             }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Hidden files");
+                                    model: root.hidden-names;
+                                    current-index <=> root.hidden-files;
+                                    selected => { root.search-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("Dotfiles and the contents of dot-prefixed folders. This filters results without changing the index."); }
                             CheckBox {
                                 text: @tr("Show active matching modes in the status line");
                                 checked <=> root.show-mode-badges;

@@ -1887,3 +1887,27 @@ msgstr "AND / OR / NOT sözcük işleçlerine izin ver"
 
 msgid "Evaluate AND before OR"
 msgstr "AND işlecini OR’dan önce değerlendir"
+
+msgid "Show hidden files"
+msgstr "Gizli dosyaları göster"
+
+msgid "Hide hidden files"
+msgstr "Gizli dosyaları gizle"
+
+msgid "Only hidden files"
+msgstr "Yalnızca gizli dosyalar"
+
+msgid "Cycle hidden files"
+msgstr "Gizli dosya kipini değiştir"
+
+msgid "Hidden files"
+msgstr "Gizli dosyalar"
+
+msgid "Hidden excluded"
+msgstr "Gizliler hariç"
+
+msgid "Hidden only"
+msgstr "Yalnız gizliler"
+
+msgid "Dotfiles and the contents of dot-prefixed folders. This filters results without changing the index."
+msgstr "Noktayla başlayan dosyalar ve klasörlerin içeriği. Dizini değiştirmeden sonuçları süzer."

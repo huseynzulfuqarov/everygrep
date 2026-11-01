@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use everygrep_core::filter::Filter;
-use everygrep_core::query::QueryOptions;
+use everygrep_core::query::{HiddenFiles, QueryOptions};
 use everygrep_core::sort::{FolderSize, Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
@@ -270,6 +270,7 @@ fn main() -> Result<(), slint::PlatformError> {
             engine.refresh();
         }
     });
+    window.on_choose_hidden_files(|i| prefs::with(|p| p.choose_hidden_files(i)));
     window.on_options_changed({
         let (engine, weak) = (engine.clone(), weak.clone());
         move || {
@@ -1675,6 +1676,10 @@ fn options(w: &AppWindow) -> QueryOptions {
         suffix: w.get_match_suffix(),
         ignore_punctuation: w.get_ignore_punctuation(),
         ignore_whitespace: w.get_ignore_whitespace(),
+        hidden_files: HiddenFiles::ALL
+            .get(w.get_hidden_files() as usize)
+            .copied()
+            .unwrap_or_default(),
         regex: w.get_use_regex(),
         and_before_or: w.get_and_before_or(),
         literal_operators: w.get_literal_operators(),

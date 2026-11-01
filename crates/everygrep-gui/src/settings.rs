@@ -46,7 +46,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use everygrep_core::filter::Filter;
-use everygrep_core::query::QueryOptions;
+use everygrep_core::query::{HiddenFiles, QueryOptions};
 use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::sort::FolderSize;
 
@@ -465,6 +465,9 @@ impl Settings {
             "wildcards-anywhere" => put_flag(&mut self.options.wildcards_anywhere),
             "literal-operators" => put_flag(&mut self.options.literal_operators),
             "and-before-or" => put_flag(&mut self.options.and_before_or),
+            "hidden-files" => HiddenFiles::from_id(value)
+                .map(|h| self.options.hidden_files = h)
+                .is_some(),
             "regex" => put_flag(&mut self.options.regex),
             "filter-wrap" => put_flag(&mut self.filter_wrap),
             "show-mode-badges" => put_flag(&mut self.show_mode_badges),
@@ -641,6 +644,9 @@ impl Settings {
         }
         flag(&mut out, "filter-wrap", self.filter_wrap, d.filter_wrap);
         let (o, od) = (&self.options, &d.options);
+        if o.hidden_files != od.hidden_files {
+            line(&mut out, "hidden-files", o.hidden_files.id());
+        }
         if o.filter != od.filter {
             line(&mut out, "filter", o.filter.id());
         }
@@ -974,7 +980,7 @@ fn is_known(key: &str) -> bool {
     // Every known key accepts at least one of these values.
     [
         "true", "all", "quit", "total", "system", "compact", "1", "/", "keep", "A-1", "auto",
-        "jedec",
+        "jedec", "show",
     ]
     .iter()
     .any(|v| probe.set(key, v))
@@ -1137,6 +1143,7 @@ pub(crate) mod tests {
                 suffix: true,
                 ignore_punctuation: true,
                 ignore_whitespace: true,
+                hidden_files: HiddenFiles::Only,
                 regex: true,
                 and_before_or: true,
                 literal_operators: true,
@@ -1230,6 +1237,21 @@ pub(crate) mod tests {
         assert!(text.contains("sort-sizes-largest-first = true\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
+    }
+
+    #[test]
+    fn hidden_file_choices_round_trip_validate_and_reset() {
+        for mode in HiddenFiles::ALL {
+            let mut s = Settings::parse(&format!("hidden-files = {}\n", mode.id()));
+            assert!(s.problems.is_empty());
+            assert_eq!(s.options.hidden_files, mode);
+            assert_eq!(Settings::parse(&s.to_text()).options.hidden_files, mode);
+            s.reset(Page::Search);
+            assert_eq!(s.options.hidden_files, HiddenFiles::Show);
+        }
+        let s = Settings::parse("hidden-files = invalid\n");
+        assert_eq!(s.problems.len(), 1);
+        assert_eq!(s.options.hidden_files, HiddenFiles::Show);
     }
 
     #[test]

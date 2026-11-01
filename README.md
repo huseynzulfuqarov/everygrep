@@ -249,6 +249,14 @@ precedence. It is off by default: `report pdf|main` keeps meaning
 `report AND (pdf OR main)`. With it on, the query means
 `(report AND pdf) OR main`. Explicit `<...>` groups override either order.
 
+Search → Hidden files and Settings → Search offer Show / Hide / Only
+hidden files (Show by default). `Ctrl+H` cycles these modes; each choice can
+also get its own key in Keyboard settings. The choice is saved and applies
+to the current search, including regex and empty queries, alongside the kind
+filter. Dotfiles and all descendants of dot-prefixed folders count as hidden,
+including hidden components in an indexed root path. No entries are removed
+from the index and no rescan is needed.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the

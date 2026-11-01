@@ -33,6 +33,14 @@ Negation still binds first; explicit `<...>` groups work in both modes,
 including nested groups. Word and symbolic operators use the same setting.
 The whole-query regex mode is unaffected.
 
+The window has a separate Hidden files result filter (Search menu and
+Search settings): Show (default), Hide, Only. `Ctrl+H` cycles it. It combines
+with the kind filter and the query, including regex mode and empty queries.
+A dot-prefixed entry or any descendant of a dot-prefixed folder is hidden;
+components in an indexed root path count too. This checks indexed names,
+with no disk access, rescanning or removal from the index. The Attributes
+column retains its own-name `H` meaning.
+
 ## Plain text
 
 A term without wildcards matches anywhere in the name, not only at the start

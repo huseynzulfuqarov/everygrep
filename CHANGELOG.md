@@ -24,6 +24,10 @@ First version, 0.1.0, not released yet.
 - Settings → Search can evaluate AND before OR. The default retains
   OR-before-AND behavior; explicit groups and negation keep their meaning.
 
+- Hidden-file results can be shown, hidden or shown alone, independently of
+  file kind, from Search or Settings (`Ctrl+H` cycles). The saved choice
+  includes dot-prefixed folders and their contents, without changing the index.
+
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names

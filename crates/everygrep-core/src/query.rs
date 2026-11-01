@@ -64,6 +64,34 @@ use crate::kind::{FileKind, classify};
 use crate::localtime::{Zone, civil_from_days, days_from_civil, days_in_month};
 use crate::store::{NodeId, NodeStore};
 
+/// Visibility of dotfiles and descendants of dot-prefixed folders in results.
+/// This filters the existing index and never removes entries from it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HiddenFiles {
+    #[default]
+    Show,
+    Hide,
+    Only,
+}
+
+impl HiddenFiles {
+    pub const ALL: [Self; 3] = [Self::Show, Self::Hide, Self::Only];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Show => "show",
+            Self::Hide => "hide",
+            Self::Only => "only",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|v| v.id().eq_ignore_ascii_case(id))
+    }
+}
+
 /// Options that change how a query matches names.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct QueryOptions {
@@ -99,6 +127,8 @@ pub struct QueryOptions {
     pub wildcards_anywhere: bool,
     /// Only entries of this kind match, in addition to the query text.
     pub filter: Filter,
+    /// Show, hide or return only hidden entries, independently of the kind filter.
+    pub hidden_files: HiddenFiles,
 }
 
 /// Why a query could not be parsed.
@@ -137,6 +167,7 @@ enum Pred {
     Regex(RegexPred),
     IsFile,
     IsDir,
+    Hidden(bool),
     /// Entries that pass a result filter.
     Kind(Filter),
     /// Extensions without the leading dot (may contain dots, such as
@@ -298,9 +329,7 @@ impl Query {
         if p.pos < p.tokens.len() {
             return Err(ParseError("unexpected '>'".into()));
         }
-        if options.filter != Filter::All {
-            root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
-        }
+        root = filter_options(root, options);
         Ok(Self {
             root,
             // The executable filter may read the path of a node.
@@ -323,9 +352,7 @@ impl Query {
         };
         let uses_path =
             (options.match_path && !text.is_empty()) || options.filter == Filter::Executable;
-        if options.filter != Filter::All {
-            root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
-        }
+        root = filter_options(root, options);
         Ok(Self {
             root,
             uses_path,
@@ -362,6 +389,36 @@ impl Query {
     }
 }
 
+/// Applies both result filters, including for empty queries and regex mode.
+fn filter_options(mut root: Node, options: QueryOptions) -> Node {
+    if options.filter != Filter::All {
+        root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
+    }
+    match options.hidden_files {
+        HiddenFiles::Show => root,
+        HiddenFiles::Hide => and_also(root, Node::Leaf(Pred::Hidden(false))),
+        HiddenFiles::Only => and_also(root, Node::Leaf(Pred::Hidden(true))),
+    }
+}
+
+/// Checks names in the index only, including a root's absolute path. Walking
+/// parents also handles renames and moves without an extra visibility cache.
+fn hidden_entry(store: &NodeStore, mut id: NodeId) -> bool {
+    loop {
+        if store
+            .name(id)
+            .split(|&b| b == b'/')
+            .any(|part| part.starts_with(b".") && part != b"." && part != b"..")
+        {
+            return true;
+        }
+        match store.parent(id) {
+            Some(parent) => id = parent,
+            None => return false,
+        }
+    }
+}
+
 /// `node` and `extra` together, keeping cheap conditions first.
 fn and_also(node: Node, extra: Node) -> Node {
     let mut items = match node {
@@ -388,6 +445,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
     match pred {
         Pred::IsFile => !store.is_dir(id),
         Pred::IsDir => store.is_dir(id),
+        Pred::Hidden(hidden) => hidden_entry(store, id) == *hidden,
         Pred::Kind(filter) => {
             let kind = classify(store.name(id), store.is_dir(id));
             filter.accepts(kind)
@@ -2319,6 +2377,88 @@ mod tests {
         assert_eq!(t.find("photo jpg|png"), ["photo (1).png", "photo.jpg"]);
         assert_eq!(t.find("report !draft !folder:"), ["Report-2026.PDF"]);
         assert_eq!(t.find("<draft|main> !rs"), ["draft report.pdf"]);
+    }
+
+    #[test]
+    fn hidden_file_filter_keeps_the_index_and_combines_with_queries() {
+        let mut t = Tree {
+            store: NodeStore::new(),
+        };
+        let root = t.store.add(None, b"/data", true, Meta::default());
+        let visible = t
+            .store
+            .add(Some(root), b"visible.txt", false, Meta::default());
+        let dot = t
+            .store
+            .add(Some(root), b".secret.txt", false, Meta::default());
+        let dir = t.store.add(Some(root), b".cache", true, Meta::default());
+        let nested = t.store.add(Some(dir), b"nested", true, Meta::default());
+        t.store
+            .add(Some(nested), b"ordinary.txt", false, Meta::default());
+        t.store.add(Some(root), b"a.b.txt", false, Meta::default());
+        let show = QueryOptions::default();
+        let hide = QueryOptions {
+            hidden_files: HiddenFiles::Hide,
+            ..show
+        };
+        let only = QueryOptions {
+            hidden_files: HiddenFiles::Only,
+            ..show
+        };
+        assert_eq!(t.find_with("", show).len(), 7);
+        assert_eq!(t.find_with("", hide), ["/data", "a.b.txt", "visible.txt"]);
+        assert_eq!(
+            t.find_with("", only),
+            [".cache", ".secret.txt", "nested", "ordinary.txt"]
+        );
+        assert_eq!(t.find_with("ext:txt !secret", only), ["ordinary.txt"]);
+        assert_eq!(
+            t.find_with(
+                "",
+                QueryOptions {
+                    filter: Filter::Folder,
+                    ..only
+                }
+            ),
+            [".cache", "nested"]
+        );
+        assert_eq!(
+            t.find_with(
+                "txt$",
+                QueryOptions {
+                    regex: true,
+                    ..only
+                }
+            ),
+            [".secret.txt", "ordinary.txt"]
+        );
+        assert_eq!(
+            t.find_with(
+                "",
+                QueryOptions {
+                    regex: true,
+                    ..hide
+                }
+            ),
+            t.find_with("", hide)
+        );
+        assert!(!Query::parse("", hide).unwrap().matches_all());
+        assert!(!Query::parse("", only).unwrap().matches_all());
+        assert!(Query::parse("", show).unwrap().matches_all());
+        // A parent rename or move changes visibility without rescanning.
+        t.store.set_name(dir, b"cache");
+        assert_eq!(t.find_with("", only), [".secret.txt"]);
+        t.store.set_parent(visible, Some(dir));
+        t.store.set_name(dir, b".cache");
+        assert!(t.find_with("visible", hide).is_empty());
+        t.store.set_name(dot, b"public.txt");
+        assert_eq!(t.find_with("public", hide), ["public.txt"]);
+        // A hidden component can be inside the stored absolute root name.
+        t.store
+            .add(None, b"/offline/.private/data", true, Meta::default());
+        assert!(t.find_with("/offline/", hide).is_empty());
+        assert_eq!(t.find_with("/offline/", only), ["/offline/.private/data"]);
+        assert_eq!(t.find_with("", show).len(), 8, "no entry was removed");
     }
 
     #[test]

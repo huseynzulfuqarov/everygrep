@@ -110,6 +110,10 @@ screen; when a change conflicts with them, the rules win or are changed first.
   files below it, at any depth (a setting can show the number of items or
   nothing instead); sorting by Size mixes folders and files by that total,
   as every other column does, since folders are never forced first.
+- **Hidden files.** Search menu and Search settings share a saved Show/Hide/Only
+  result filter, independent of the kind selector. Ctrl+H cycles it; all three
+  choices can have custom keys. Hidden folders include their descendants.
+  The default shows all entries and changing visibility never rebuilds the index.
 - **Status line.** Result count, index size, index state, small badges for the
   matching modes that are on (switchable on the Search settings page), and query time. With one item selected the
   details of that item follow the count: size (for a folder as the folder
