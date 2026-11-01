@@ -126,13 +126,15 @@ enum Pred {
     IsDir,
     /// Entries that pass a result filter.
     Kind(Filter),
-    /// Folded extensions without the leading dot (may contain dots, such as
+    /// Extensions without the leading dot (may contain dots, such as
     /// `tar.gz`), wildcard patterns for an extension (`jp*`), and `none`,
-    /// which also accepts files that have no extension.
+    /// which also accepts files that have no extension. They are folded and
+    /// compared with the folded name unless `case` is set.
     Ext {
         exts: Vec<Vec<u8>>,
         globs: Vec<Vec<u8>>,
         none: bool,
+        case: bool,
     },
     Size {
         min: u64,
@@ -360,11 +362,20 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                     && kind == FileKind::File
                     && executable_on_disk(store, id, scratch))
         }
-        Pred::Ext { exts, globs, none } => {
+        Pred::Ext {
+            exts,
+            globs,
+            none,
+            case,
+        } => {
             if store.is_dir(id) {
                 return false;
             }
-            let name = store.folded_name(id);
+            let name = if *case {
+                store.name(id)
+            } else {
+                store.folded_name(id)
+            };
             // A dot at the very start (".bashrc") does not begin an extension.
             let has_ext = name
                 .iter()
@@ -1300,7 +1311,7 @@ impl Parser {
                 "folder" | "folders" | "dir" => {
                     return Ok(Some(self.with_rest(Pred::IsDir, tail)?));
                 }
-                "ext" => return Ok(Some(Node::Leaf(parse_ext(&value)))),
+                "ext" => return Ok(Some(Node::Leaf(parse_ext(&value, case)))),
                 "size" => return parse_size(&value).map(Some),
                 "modified" => {
                     return self.parse_modified(&value).map(|p| Some(Node::Leaf(p)));
@@ -1489,16 +1500,27 @@ const KNOWN_MODIFIERS: &[&str] = &[
 
 /// `ext:pdf;jpg` or `ext:pdf|jpg`; `ext:jp*` with wildcards. Empty entries (as
 /// in a trailing `;`) are ignored; `ext:` on its own matches files without an
-/// extension.
-fn parse_ext(list: &str) -> Pred {
+/// extension. Case is ignored unless `case` is set.
+fn parse_ext(list: &str, case: bool) -> Pred {
     let (globs, exts): (Vec<Vec<u8>>, Vec<Vec<u8>>) = list
         .split([';', '|'])
         .map(|e| e.trim().trim_start_matches('.'))
         .filter(|e| !e.is_empty())
-        .map(|e| fold(e.as_bytes()))
+        .map(|e| {
+            if case {
+                e.as_bytes().to_vec()
+            } else {
+                fold(e.as_bytes())
+            }
+        })
         .partition(|e| e.contains(&b'*') || e.contains(&b'?'));
     let none = exts.is_empty() && globs.is_empty();
-    Pred::Ext { exts, globs, none }
+    Pred::Ext {
+        exts,
+        globs,
+        none,
+        case,
+    }
 }
 
 /// `size:` values: a number with an optional unit or a size word, after an
@@ -2121,7 +2143,7 @@ mod tests {
         assert_eq!(t.find("ext:jpg;png"), ["a.jpg", "b.PNG"]);
         assert_eq!(t.find("ext:.jpg|.png;"), ["a.jpg", "b.PNG"]);
         assert_eq!(t.find("<ext:jpg|png>"), ["a.jpg", "b.PNG"]);
-        assert_eq!(t.find("case:ext:jpg|png"), ["a.jpg", "b.PNG"]);
+        assert_eq!(t.find("case:ext:jpg|png"), ["a.jpg"]);
         assert_eq!(t.find("ext:jpg|png !b"), ["a.jpg"]);
         // A spaced `|` is still an OR.
         assert_eq!(t.find("ext:jpg | notes"), ["a.jpg", "notes"]);
@@ -2134,6 +2156,32 @@ mod tests {
         // `*` is any extension; files without one and folders stay out.
         assert_eq!(t.find("ext:*").len(), 5);
         assert!(t.find("ext:*").iter().all(|n| n != "notes"));
+    }
+
+    #[test]
+    fn extensions_match_case_only_when_asked() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        for name in [&b"a.jpg"[..], b"b.JPG", b"c.Jpg", b"d.TAR.GZ", b"e.tar.gz"] {
+            store.add(Some(root), name, false, Meta::default());
+        }
+        let t = Tree { store };
+        assert_eq!(t.find("ext:JPG"), ["a.jpg", "b.JPG", "c.Jpg"]);
+        assert_eq!(t.find("case:ext:JPG"), ["b.JPG"]);
+        assert_eq!(t.find("case:ext:.jpg"), ["a.jpg"]);
+        assert_eq!(t.find("case:ext:J*"), ["b.JPG", "c.Jpg"]);
+        assert_eq!(t.find("case:ext:TAR.GZ"), ["d.TAR.GZ"]);
+        assert_eq!(t.find("case:ext:*.gz"), ["e.tar.gz"]);
+        // The match case mode applies too; `nocase:` turns it off.
+        let case = QueryOptions {
+            case_sensitive: true,
+            ..QueryOptions::default()
+        };
+        assert_eq!(t.find_with("ext:jpg", case), ["a.jpg"]);
+        assert_eq!(
+            t.find_with("nocase:ext:jpg", case),
+            ["a.jpg", "b.JPG", "c.Jpg"]
+        );
     }
 
     #[test]

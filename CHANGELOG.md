@@ -85,6 +85,8 @@ First version, 0.1.0, not released yet.
   have an execute bit, looked up on disk while searching.
 - `ext:` lists separated by `;` or `|` (`ext:jpg|png` is one list, no
   longer `ext:jpg` OR the text `png`), with wildcard entries (`ext:jp*`).
+  `ext:` follows `case:` and the match case mode (`case:ext:JPG` finds
+  only upper-case `.JPG`); by default it still ignores case.
 - Size grammar: units `kib`, `mib`, … next to `kb`, `mb`, …; `==`, `!=`,
   `<>`, `=>`, `=<`, `!`; ranges written either way round; size words
   `empty`, `tiny`, `small`, `medium`, `large`, `huge`, `gigantic`.

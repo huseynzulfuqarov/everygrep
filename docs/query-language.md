@@ -141,8 +141,10 @@ side where it has a word character.
 
 ## Extensions
 
-`ext:pdf;jpg` matches **files** whose name ends in `.pdf` or `.jpg` (case and
-a leading dot are ignored: `ext:.PDF` works too). `|` separates the list like
+`ext:pdf;jpg` matches **files** whose name ends in `.pdf` or `.jpg` (a
+leading dot is ignored, and so is case: `ext:.PDF` works too). With `case:`
+or the match case mode the case counts: `case:ext:JPG` finds `a.JPG` but not
+`a.jpg`. `|` separates the list like
 `;`: `ext:jpg|png` is one list, not `ext:jpg` OR the text `png` (a `|` with
 spaces around it, `ext:jpg | png`, is still an OR). `ext:` on its own matches
 files without an extension. A dot at the very start of a name does not begin
