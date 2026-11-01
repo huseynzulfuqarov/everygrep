@@ -1891,8 +1891,8 @@ msgid "Match wildcards anywhere in the filename"
 msgstr "Jokerleri dosya adının herhangi bir yerinde eşleştir"
 
 #: ui/settings.slint
-msgid "Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term."
-msgstr "Kapalıyken joker kalıpları dosya adının tamamıyla eşleşir. wholename: ve nowholename: bunu tek bir joker terimi için değiştirir."
+msgid "Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term; wholename: on text without wildcards matches the whole name exactly."
+msgstr "Kapalıyken joker kalıpları dosya adının tamamıyla eşleşir. wholename: ve nowholename: bunu tek bir joker terimi için değiştirir; joker içermeyen metinde wholename: dosya adının metinle birebir aynı olmasını gerektirir."
 
 msgid "Allow literal AND / OR / NOT operators"
 msgstr "AND / OR / NOT sözcük işleçlerine izin ver"

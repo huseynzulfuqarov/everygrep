@@ -236,8 +236,10 @@ the selection stays at the first or last filter. Keys can be changed on the
 Keyboard page.
 
 Settings → Search → Match wildcards anywhere in the filename is off by
-default, preserving whole-name matching. `wholename:` / `nowholename:`
-override it for one wildcard term. Changing the setting reruns the current
+default, preserving whole-name matching. `wholename:` /
+`nowholename:` override it for one wildcard term; `wholename:` on text without
+wildcards matches the whole name exactly (`wholename:main.rs` finds `main.rs`, not
+`main.rs.bak`). Changing the setting reruns the current
 query; prefix/suffix anchors and quoted literal wildcards still work.
 
 Settings → Search → Allow literal AND / OR / NOT operators enables the

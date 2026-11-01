@@ -84,7 +84,8 @@ First version, 0.1.0, not released yet.
 
 - Wildcard scope is configurable in Settings → Search, with per-term
   `wholename:` / `nowholename:` overrides; whole-name matching
-  remains the default.
+  remains the default. `wholename:` on text
+  without wildcards matches the whole name exactly.
 
 - Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
   operators. The default keeps these words literal; quoted words and

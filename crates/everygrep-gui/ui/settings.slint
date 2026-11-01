@@ -495,7 +495,7 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.wildcards-anywhere;
                                 toggled => { root.search-changed(); }
                             }
-                            Note { text: @tr("Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term."); }
+                            Note { text: @tr("Off: a wildcard pattern must match the whole name. wholename: and nowholename: change this for one term; wholename: on text without wildcards matches the whole name exactly."); }
                             CheckBox {
                                 text: @tr("Allow literal AND / OR / NOT operators");
                                 checked <=> root.literal-operators;

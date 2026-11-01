@@ -1418,6 +1418,9 @@ impl Parser {
         let mut whole_word = self.options.whole_words;
         let mut diacritics = self.options.match_diacritics;
         let mut whole_filename = !self.options.wildcards_anywhere;
+        // Written `wholename:`: text without wildcards must then be the
+        // whole name too, not only a part of it.
+        let mut exact_name = false;
         let mut prefix = self.options.prefix;
         let mut suffix = self.options.suffix;
         let mut squeeze = Squeeze {
@@ -1439,8 +1442,8 @@ impl Parser {
                 "nowholeword" => whole_word = false,
                 "diacritics" => diacritics = true,
                 "nodiacritics" => diacritics = false,
-                "wholename" => whole_filename = true,
-                "nowholename" => whole_filename = false,
+                "wholename" => (whole_filename, exact_name) = (true, true),
+                "nowholename" => (whole_filename, exact_name) = (false, false),
                 "prefix" => prefix = true,
                 "noprefix" => prefix = false,
                 "suffix" => suffix = true,
@@ -1503,6 +1506,10 @@ impl Parser {
             }))));
         }
         let glob = !quoted && (text.contains('*') || text.contains('?'));
+        if exact_name && !glob {
+            // Both ends anchored: the name (or path) equals the term.
+            (prefix, suffix) = (true, true);
+        }
         let on_path = on_path || text.contains('/');
         self.uses_path |= on_path;
         let mut pattern = if case {
@@ -2635,6 +2642,59 @@ mod tests {
         let mut t = t;
         t.store.add(None, b"ain*", false, Meta::default());
         assert_eq!(t.find_with("\"ain*\"", anywhere), ["ain*"]);
+    }
+
+    #[test]
+    fn whole_filename_text_matches_the_whole_name_exactly() {
+        let mut t = Tree::new();
+        t.store.add(None, b"main.rs.bak", false, Meta::default());
+        // Plain text stays a substring match by default.
+        assert_eq!(t.find("main.rs"), ["main.rs", "main.rs.bak"]);
+        for q in [
+            "wholename:main.rs",
+            "wholename:main.rs",
+            "WHOLENAME:main.rs",
+        ] {
+            assert_eq!(t.find(q), ["main.rs"], "{q}");
+        }
+        assert!(t.find("wholename:main").is_empty());
+        assert!(t.find("wholename:ain.rs").is_empty());
+        // Case follows the case setting and modifiers.
+        assert_eq!(t.find("wholename:MAIN.RS"), ["main.rs"]);
+        assert!(t.find("case:wholename:MAIN.RS").is_empty());
+        let case = QueryOptions {
+            case_sensitive: true,
+            ..QueryOptions::default()
+        };
+        assert!(t.find_with("wholename:MAIN.RS", case).is_empty());
+        assert_eq!(t.find_with("wholename:main.rs", case), ["main.rs"]);
+        // Quoted text is still literal and whole.
+        assert_eq!(
+            t.find("wholename:\"draft report.pdf\""),
+            ["draft report.pdf"]
+        );
+        assert!(t.find("wholename:\"draft report\"").is_empty());
+        // The last modifier wins; wildcards keep their own rules.
+        assert_eq!(
+            t.find("wholename:nowholename:main.rs"),
+            ["main.rs", "main.rs.bak"]
+        );
+        let anywhere = QueryOptions {
+            wildcards_anywhere: true,
+            ..QueryOptions::default()
+        };
+        assert!(t.find_with("wholename:ain*", anywhere).is_empty());
+        assert_eq!(t.find_with("wholename:main.??", anywhere), ["main.rs"]);
+        // The whole name is highlighted.
+        assert_eq!(
+            spans_with(
+                "main.rs",
+                "wholename:main.rs",
+                QueryOptions::default(),
+                false
+            ),
+            [(0, 7)]
+        );
     }
 
     #[test]
