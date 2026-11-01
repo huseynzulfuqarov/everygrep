@@ -2,8 +2,14 @@
 //!
 //! [`search`](crate::search::search) returns ids in name order. [`sort`] reorders
 //! such a list by another key. Each key is computed once per node, then the keys
-//! are sorted; equal keys keep the name order of the input, so the result is
+//! are sorted; equal keys keep the name order, so the result is
 //! deterministic. Folders are not forced before files.
+//!
+//! The name order of the index breaks ties between equal names by the parent's
+//! node id, which is fast to keep but means nothing to a reader. [`sort`]
+//! orders such runs of equal names by their folder path instead (the order of
+//! [`SortKey::Path`]), for every key, so the same name in many folders comes
+//! out by folder and stays so after refreshes, inserts and renames.
 //!
 //! By size, folders count with what [`FolderSize`] says: their total size
 //! (sorted together with files), their number of items, or nothing.
@@ -26,7 +32,7 @@ use crate::store::{NodeId, NodeStore};
 /// Column to sort results by.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SortKey {
-    /// Name, the order the index keeps.
+    /// Name; the same name in several folders by folder path.
     #[default]
     Name,
     /// Containing folder, then name.
@@ -101,7 +107,7 @@ const PARALLEL_MIN: usize = 64 * 1024;
 /// [`search`](crate::search::search), by `sort`.
 ///
 /// A descending sort reverses the key only: nodes with equal keys stay in
-/// ascending name order. For [`SortKey::Name`] and [`SortKey::Path`] the name is
+/// ascending name order (equal names by ascending folder path). For [`SortKey::Name`] and [`SortKey::Path`] the name is
 /// part of the key, so their descending order is the exact reverse.
 /// Up to `threads` threads sort large lists.
 pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
@@ -123,8 +129,35 @@ pub fn sort_with_progress(
     threads: usize,
     progress: &Progress,
 ) -> Result<(), Cancelled> {
+    progress.set_total(Some(2 * ids.len() as u64));
+    let store = index.store();
+    // Path sorts by folder first, and names within one folder are unique, so
+    // it needs no name order.
+    let runs = if sort.key == SortKey::Path {
+        Vec::new()
+    } else {
+        order_equal_names(store, ids, threads, progress)?
+    };
+    let sorted = sort_ordered(index, ids, sort, threads, progress);
+    if sorted.is_err() {
+        // In the input, equal names are in parent id order.
+        for &(from, to) in &runs {
+            ids[from..to].sort_unstable_by_key(|&id| store.parent_key(id));
+        }
+    }
+    sorted
+}
+
+/// [`sort_with_progress`] on ids in name order whose equal names are already
+/// in folder order.
+fn sort_ordered(
+    index: &Index,
+    ids: &mut [NodeId],
+    sort: Sort,
+    threads: usize,
+    progress: &Progress,
+) -> Result<(), Cancelled> {
     let n = ids.len() as u64;
-    progress.set_total(Some(2 * n));
     let store = index.store();
     let desc = sort.descending;
     match sort.key {
@@ -328,6 +361,131 @@ fn sort_by_keys<K: Ord + Send + Copy>(
     Ok(())
 }
 
+/// Puts the runs of equal names in `ids` (which is in the index's name order)
+/// in folder path order, in place, looking for them on up to `threads`
+/// threads. Returns the runs as `start..end` ranges. When cancelled, `ids` are
+/// left as they were.
+///
+/// Equal raw names have equal folded names, so they are next to each other in
+/// the name order and one look at each neighbour finds them; only folders that
+/// hold a repeated name get a path key.
+fn order_equal_names(
+    store: &NodeStore,
+    ids: &mut [NodeId],
+    threads: usize,
+    progress: &Progress,
+) -> Result<Vec<(usize, usize)>, Cancelled> {
+    let same = same_as_previous(store, ids, threads, progress)?;
+    // An id equal to its previous one continues the run that one belongs to.
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for &i in &same {
+        let i = i as usize;
+        match runs.last_mut() {
+            Some((_, end)) if *end == i => *end = i + 1,
+            _ => runs.push((i - 1, i + 1)),
+        }
+    }
+    if runs.is_empty() {
+        return Ok(runs);
+    }
+    let tied: Vec<NodeId> = runs
+        .iter()
+        .flat_map(|&(from, to)| ids[from..to].iter().copied())
+        .collect();
+    let ranks = folder_ranks(store, &tied);
+    // Sorts the runs of one group in its part of `ids`, which starts at
+    // position `base`. Names in one folder are unique, so the folder rank
+    // alone decides.
+    let sort_runs = |runs: &[(usize, usize)], part: &mut [NodeId], base: usize| {
+        let mut keyed: Vec<(u32, NodeId)> = Vec::new();
+        for &(from, to) in runs {
+            let run = &mut part[from - base..to - base];
+            keyed.clear();
+            keyed.extend(
+                run.iter()
+                    .map(|&id| (store.parent(id).map_or(0, |p| ranks[p.index()]), id)),
+            );
+            keyed.sort_unstable();
+            for (slot, &(_, id)) in run.iter_mut().zip(&keyed) {
+                *slot = id;
+            }
+        }
+    };
+    let threads = threads.max(1);
+    if threads == 1 || tied.len() < PARALLEL_MIN {
+        sort_runs(&runs, ids, 0);
+        return Ok(runs);
+    }
+    // Groups of whole runs with about the same number of ids each, one per
+    // thread; their parts of `ids` do not overlap.
+    let per = tied.len().div_ceil(threads);
+    let mut groups: Vec<&[(usize, usize)]> = Vec::new();
+    let (mut first, mut count) = (0, 0);
+    for (r, &(from, to)) in runs.iter().enumerate() {
+        count += to - from;
+        if count >= per || r + 1 == runs.len() {
+            groups.push(&runs[first..=r]);
+            (first, count) = (r + 1, 0);
+        }
+    }
+    std::thread::scope(|scope| {
+        let (mut rest, mut base) = (&mut *ids, 0);
+        for group in groups {
+            let end = group.last().expect("groups are not empty").1;
+            let (part, tail) = std::mem::take(&mut rest).split_at_mut(end - base);
+            let sort_runs = &sort_runs;
+            scope.spawn(move || sort_runs(group, part, base));
+            (rest, base) = (tail, end);
+        }
+    });
+    Ok(runs)
+}
+
+/// Positions `i` (in increasing order) where `ids[i]` has the same raw name as
+/// `ids[i - 1]`, found on up to `threads` threads.
+fn same_as_previous(
+    store: &NodeStore,
+    ids: &[NodeId],
+    threads: usize,
+    progress: &Progress,
+) -> Result<Vec<u32>, Cancelled> {
+    let scan = |from: usize, to: usize| -> Result<Vec<u32>, Cancelled> {
+        let mut out = Vec::new();
+        for start in (from.max(1)..to).step_by(KEY_BATCH) {
+            progress.check()?;
+            for i in start..to.min(start + KEY_BATCH) {
+                if store.name(ids[i]) == store.name(ids[i - 1]) {
+                    out.push(u32::try_from(i).expect("result count fits in u32"));
+                }
+            }
+        }
+        Ok(out)
+    };
+    let threads = threads.max(1);
+    if threads == 1 || ids.len() < PARALLEL_MIN {
+        return scan(0, ids.len());
+    }
+    let part = ids.len().div_ceil(threads);
+    let parts: Vec<Result<Vec<u32>, Cancelled>> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..ids.len())
+            .step_by(part)
+            .map(|from| {
+                let scan = &scan;
+                scope.spawn(move || scan(from, (from + part).min(ids.len())))
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().expect("name comparer"))
+            .collect()
+    });
+    let mut same = Vec::new();
+    for part in parts {
+        same.extend(part?);
+    }
+    Ok(same)
+}
+
 /// Sorts `v`, splitting large slices into one run per thread that are sorted in
 /// parallel and then merged pairwise, also in parallel.
 fn par_sort_unstable<T: Ord + Send + Copy>(v: &mut [T], threads: usize) {
@@ -381,15 +539,20 @@ fn merge_halves<T: Ord + Copy>(v: &mut [T], mid: usize) {
 /// folded names, then on raw names. Returns a table indexed by node id; ranks
 /// start at 1, so 0 is left for roots, which have no parent.
 fn folder_ranks(store: &NodeStore, ids: &[NodeId]) -> Vec<u32> {
-    let mut folders: Vec<NodeId> = ids.iter().filter_map(|&id| store.parent(id)).collect();
-    folders.sort_unstable();
-    folders.dedup();
+    let mut ranks = vec![0; store.len()];
+    // Collect each parent once, marking it in the rank table meanwhile.
+    let mut folders: Vec<NodeId> = Vec::new();
+    for p in ids.iter().filter_map(|&id| store.parent(id)) {
+        if ranks[p.index()] == 0 {
+            ranks[p.index()] = 1;
+            folders.push(p);
+        }
+    }
     let mut keyed: Vec<(PathKey, NodeId)> = folders
         .into_iter()
         .map(|f| (path_key(store, f), f))
         .collect();
     keyed.sort_unstable();
-    let mut ranks = vec![0; store.len()];
     for (rank, (_, folder)) in (1..).zip(&keyed) {
         ranks[folder.index()] = rank;
     }
@@ -515,6 +678,74 @@ mod tests {
         let mut desc = asc;
         desc.reverse();
         check(SortKey::Name, &asc, &desc);
+    }
+
+    /// Full paths of all nodes named `name`, sorted by `key`.
+    fn paths_named(index: &Index, name: &str, key: SortKey, descending: bool) -> Vec<String> {
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let mut ids = search(index, &all, 1);
+        let s = Sort {
+            key,
+            descending,
+            folders: FolderSize::None,
+        };
+        sort(index, &mut ids, s, 1);
+        ids.iter()
+            .filter(|&&id| index.store().name(id) == name.as_bytes())
+            .map(|&id| index.store().path(id).to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn equal_names_sort_by_folder_path() {
+        // Folders made in an order unlike their path order, so ids (and the
+        // order of the index) disagree with the folder paths.
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        let z = index.insert(Some(root), b"z", true, Meta::default());
+        let m = index.insert(Some(root), b"M", true, Meta::default());
+        let a = index.insert(Some(root), b"a", true, Meta::default());
+        let deep = index.insert(Some(z), b"a", true, Meta::default());
+        for folder in [z, deep, m, a, root] {
+            index.insert(Some(folder), b"readme.md", false, Meta::default());
+        }
+        let asc = [
+            "/r/readme.md",
+            "/r/a/readme.md",
+            "/r/M/readme.md",
+            "/r/z/readme.md",
+            "/r/z/a/readme.md",
+        ];
+        let desc: Vec<&str> = asc.iter().rev().copied().collect();
+        assert_eq!(paths_named(&index, "readme.md", SortKey::Name, false), asc);
+        assert_eq!(paths_named(&index, "readme.md", SortKey::Name, true), desc);
+        // Ties of other keys keep that name order, in both directions.
+        for key in [SortKey::Size, SortKey::Modified, SortKey::Type] {
+            for descending in [false, true] {
+                assert_eq!(
+                    paths_named(&index, "readme.md", key, descending),
+                    asc,
+                    "{key:?} {descending}"
+                );
+            }
+        }
+
+        // A renamed folder moves its file to the new folder path, and a new
+        // file lands at its folder's place.
+        index.rename(a, Some(root), b"zz").unwrap();
+        let b = index.insert(Some(root), b"b", true, Meta::default());
+        index.insert(Some(b), b"readme.md", false, Meta::default());
+        assert_eq!(
+            paths_named(&index, "readme.md", SortKey::Name, false),
+            [
+                "/r/readme.md",
+                "/r/b/readme.md",
+                "/r/M/readme.md",
+                "/r/z/readme.md",
+                "/r/z/a/readme.md",
+                "/r/zz/readme.md",
+            ]
+        );
     }
 
     #[test]
@@ -901,34 +1132,124 @@ mod tests {
         }
     }
 
+    /// `n` files with only `n / 300` distinct names spread over 3 000 folders
+    /// made in an order unlike their path order: every name occurs about 300
+    /// times.
+    fn dup_index(n: usize) -> Index {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/r", true, Meta::default());
+        let dirs: Vec<NodeId> = (0..3000)
+            .map(|d| {
+                let name = format!("dir-{:05}", (d * 7919) % 3000);
+                s.add(Some(root), name.as_bytes(), true, Meta::default())
+            })
+            .collect();
+        for i in 0..n {
+            // Within one folder (`i % 3000`) the names differ.
+            let name = format!("name-{:06}.js", (i / 3000 + (i % 3000) * 7) % (n / 300));
+            let meta = Meta {
+                size: (i as u64 * 2_654_435_761) % 4096,
+                mtime_ns: 0,
+            };
+            s.add(Some(dirs[i % dirs.len()]), name.as_bytes(), false, meta);
+        }
+        Index::new(s)
+    }
+
+    #[test]
+    fn many_equal_names_sort_by_folder_on_any_thread_count() {
+        let index = dup_index(120_000);
+        let store = index.store();
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let found = search(&index, &all, 1);
+        for key in KEYS {
+            let s = Sort {
+                key,
+                ..Sort::default()
+            };
+            let mut serial = found.clone();
+            sort(&index, &mut serial, s, 1);
+            let mut parallel = found.clone();
+            sort(&index, &mut parallel, s, 7);
+            assert_eq!(serial, parallel, "{key:?}");
+        }
+        let mut ids = found;
+        sort(&index, &mut ids, Sort::default(), 7);
+        let folder = |id| path_key(store, store.parent(id).unwrap());
+        for w in ids.windows(2) {
+            if store.name(w[0]) == store.name(w[1]) {
+                assert!(folder(w[0]) < folder(w[1]));
+            }
+        }
+    }
+
+    #[test]
+    fn cancel_after_ordering_equal_names_restores_the_input() {
+        let index = dup_index(120_000);
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let found = search(&index, &all, 1);
+        let s = Sort {
+            key: SortKey::Size,
+            ..Sort::default()
+        };
+        let mut cancelled_once = false;
+        for _ in 0..20 {
+            let progress = Progress::new();
+            let mut ids = found.clone();
+            let result = std::thread::scope(|scope| {
+                // Cancels once the keys are being computed, which is after
+                // the equal names were put in folder order.
+                scope.spawn(|| {
+                    while progress.done() == 0 {
+                        std::hint::spin_loop();
+                    }
+                    progress.cancel();
+                });
+                let result = sort_with_progress(&index, &mut ids, s, 1, &progress);
+                progress.add(1); // Lets the canceller end if the sort did not count.
+                result
+            });
+            if result.is_err() {
+                assert_eq!(ids, found);
+                cancelled_once = true;
+                break;
+            }
+        }
+        assert!(cancelled_once);
+    }
+
     /// Prints sort times for 600 000 nodes. Run with
     /// `cargo test --release -p everygrep-core sort_timing -- --ignored --nocapture`.
     #[test]
     #[ignore = "timing only"]
     fn sort_timing() {
-        let index = big_index(600_000);
-        let all = Query::parse("", QueryOptions::default()).unwrap();
-        let ids = search(&index, &all, 1);
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let cases = KEYS.iter().map(|&key| (key, FolderSize::Total)).chain([
-            (SortKey::Size, FolderSize::Items),
-            (SortKey::Size, FolderSize::None),
-        ]);
-        for (key, folders) in cases {
-            for t in [1, threads] {
-                let mut v = ids.clone();
-                let started = std::time::Instant::now();
-                let s = Sort {
-                    key,
-                    descending: false,
-                    folders,
-                };
-                sort(&index, &mut v, s, t);
-                eprintln!(
-                    "{key:?} ({folders:?}) {} nodes, {t} threads: {:.1} ms",
-                    v.len(),
-                    started.elapsed().as_secs_f64() * 1e3
-                );
+        for (label, index) in [
+            ("unique names", big_index(600_000)),
+            ("~300 of each name", dup_index(600_000)),
+        ] {
+            let all = Query::parse("", QueryOptions::default()).unwrap();
+            let ids = search(&index, &all, 1);
+            let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+            let cases = KEYS.iter().map(|&key| (key, FolderSize::Total)).chain([
+                (SortKey::Size, FolderSize::Items),
+                (SortKey::Size, FolderSize::None),
+            ]);
+            for (key, folders) in cases {
+                for t in [1, threads] {
+                    let mut v = ids.clone();
+                    let started = std::time::Instant::now();
+                    let s = Sort {
+                        key,
+                        descending: false,
+                        folders,
+                    };
+                    sort(&index, &mut v, s, t);
+                    eprintln!(
+                        "{label}: {key:?} ({folders:?}) {} nodes, {t} threads: {:.1} ms",
+                        v.len(),
+                        started.elapsed().as_secs_f64() * 1e3
+                    );
+                }
             }
         }
     }

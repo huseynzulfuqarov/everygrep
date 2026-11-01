@@ -28,6 +28,8 @@ First version, 0.1.0, not released yet.
   written atomically, decoded while it is read.
 - Total size and item count of every folder, kept current on every change.
 - Sorting by name, folder, size, modification time, type or extension.
+  The same name in several folders sorts by folder path (also as the tie
+  order of the other columns), not by when the folders were indexed.
 - Creation time (birth time, where the file system keeps it), access time and
   attribute letters (`R` read-only, `H` hidden, `D` directory, `L` link,
   `X` executable) read from the file system on demand, so the index stays
