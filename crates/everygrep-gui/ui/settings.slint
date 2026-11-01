@@ -149,6 +149,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> default-whitespace;
     in-out property <bool> as-you-type;
     in-out property <bool> show-mode-badges;
+    in-out property <bool> literal-operators;
     in-out property <bool> wildcards-anywhere;
     in-out property <bool> filter-wrap;
     in-out property <bool> select-search-on-click;
@@ -488,6 +489,11 @@ export component SettingsWindow inherits Window {
                             CheckBox {
                                 text: @tr("Match wildcards anywhere in the filename");
                                 checked <=> root.wildcards-anywhere;
+                                toggled => { root.search-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Allow literal AND / OR / NOT operators");
+                                checked <=> root.literal-operators;
                                 toggled => { root.search-changed(); }
                             }
                             CheckBox {

@@ -1881,3 +1881,6 @@ msgstr "Növbəti və ya əvvəlki filtrə keçərkən siyahını dövr et"
 
 msgid "Match wildcards anywhere in the filename"
 msgstr "Wildcard-ları fayl adının istənilən yerində uyğunlaşdır"
+
+msgid "Allow literal AND / OR / NOT operators"
+msgstr "Hərfi AND / OR / NOT operatorlarına icazə ver"

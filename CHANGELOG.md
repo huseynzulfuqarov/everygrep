@@ -17,6 +17,10 @@ First version, 0.1.0, not released yet.
   `wholename:` / `nowholename:` overrides; whole-name matching
   remains the default.
 
+- Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
+  operators. The default keeps these words literal; quoted words and
+  modifier values stay literal when the setting is enabled.
+
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names

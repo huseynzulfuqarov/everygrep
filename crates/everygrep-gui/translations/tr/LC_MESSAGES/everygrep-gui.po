@@ -1881,3 +1881,6 @@ msgstr "Sonraki veya önceki filtreye geçerken listeyi döngüle"
 
 msgid "Match wildcards anywhere in the filename"
 msgstr "Jokerleri dosya adının herhangi bir yerinde eşleştir"
+
+msgid "Allow literal AND / OR / NOT operators"
+msgstr "AND / OR / NOT sözcük işleçlerine izin ver"

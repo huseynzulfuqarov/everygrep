@@ -19,6 +19,13 @@ A missing closing quote, a missing `>` or an unexpected `>` is an error; the
 window shows it under the search field, the command line prints `bad query:`.
 Empty alternatives (`a\|`, `\|b`) are ignored.
 
+Settings → Search → Allow literal AND / OR / NOT operators (off by
+default) recognizes standalone, unquoted uppercase `AND`, `OR`, `NOT` as
+operators alongside space, `|`, `!`. They use the same precedence and grouping.
+Lowercase `and` / `or` / `not`, quoted words (`"OR"`), substrings (`candy`)
+and modifier values (`case:OR`, `regex:OR`) remain text. The whole-query regex
+mode bypasses operator parsing. Changing the setting reruns the current query.
+
 ## Plain text
 
 A term without wildcards matches anywhere in the name, not only at the start

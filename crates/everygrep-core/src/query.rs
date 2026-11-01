@@ -91,6 +91,8 @@ pub struct QueryOptions {
     /// The whole query is one regular expression; operators and modifiers
     /// are not read.
     pub regex: bool,
+    /// Allow literal AND / OR / NOT operators.
+    pub literal_operators: bool,
     /// Match wildcards anywhere in the filename.
     pub wildcards_anywhere: bool,
     /// Only entries of this kind match, in addition to the query text.
@@ -279,7 +281,7 @@ impl Query {
         if options.regex {
             return Self::parse_regex(text, options);
         }
-        let tokens = lex(text)?;
+        let tokens = lex(text, options.literal_operators)?;
         let mut p = Parser {
             tokens,
             pos: 0,
@@ -1106,19 +1108,27 @@ fn char_len(b: u8) -> usize {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Token {
     Word(String),
+    And,
     Or,
     Not,
     Open,
     Close,
 }
 
-fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
+fn lex(text: &str, literal_operators: bool) -> Result<Vec<Token>, ParseError> {
     let mut tokens = Vec::new();
     let mut word = String::new();
     let mut quoted = false;
     let flush = |word: &mut String, tokens: &mut Vec<Token>| {
         if !word.is_empty() {
-            tokens.push(Token::Word(std::mem::take(word)));
+            let word = std::mem::take(word);
+            let token = match word.as_str() {
+                "AND" if literal_operators => Token::And,
+                "OR" if literal_operators => Token::Or,
+                "NOT" if literal_operators => Token::Not,
+                _ => Token::Word(word),
+            };
+            tokens.push(token);
         }
     };
     for c in text.chars() {
@@ -1233,8 +1243,8 @@ impl Parser {
             match t {
                 Token::Close if in_group => break,
                 Token::Close => return Err(ParseError("unexpected '>'".into())),
-                Token::Or => {
-                    // A leading or doubled `|` is ignored.
+                Token::And | Token::Or => {
+                    // Leading or repeated binary operators are ignored.
                     self.pos += 1;
                 }
                 _ => items.extend(self.parse_or(in_group)?),
@@ -1293,7 +1303,7 @@ impl Parser {
                 self.parse_word(&w)
             }
             Some(Token::Close) => Err(ParseError("unexpected '>'".into())),
-            Some(Token::Or) | None => Ok(None),
+            Some(Token::And | Token::Or) | None => Ok(None),
         }
     }
 
@@ -2262,6 +2272,50 @@ mod tests {
         assert_eq!(t.find("photo jpg|png"), ["photo (1).png", "photo.jpg"]);
         assert_eq!(t.find("report !draft !folder:"), ["Report-2026.PDF"]);
         assert_eq!(t.find("<draft|main> !rs"), ["draft report.pdf"]);
+    }
+
+    #[test]
+    fn literal_operators_are_opt_in_standalone_uppercase_words() {
+        let mut t = Tree::new();
+        let on = QueryOptions {
+            literal_operators: true,
+            ..QueryOptions::default()
+        };
+        assert!(t.find("photo OR main").is_empty());
+        assert_eq!(t.find_with("photo OR main", on), t.find("photo|main"));
+        assert_eq!(
+            t.find_with("report AND pdf NOT draft", on),
+            ["Report-2026.PDF"]
+        );
+        assert_eq!(
+            t.find_with("<photo OR main> AND NOT jpg", on),
+            ["main.rs", "photo (1).png"]
+        );
+        assert_eq!(
+            t.find_with("report AND pdf OR main", on),
+            t.find("report pdf|main")
+        );
+        t.store.add(None, b"AND OR NOT", false, Meta::default());
+        assert_eq!(t.find_with("\"AND OR NOT\"", on), ["AND OR NOT"]);
+        assert_eq!(t.find_with("\"AND\"", on), ["AND OR NOT"]);
+        assert_eq!(t.find_with("case:OR", on), ["AND OR NOT"]);
+        assert_eq!(t.find_with("AND", QueryOptions::default()), ["AND OR NOT"]);
+        assert_eq!(t.find_with("photo or main", on), t.find("photo or main"));
+        assert_eq!(
+            t.find_with("regex:OR", on),
+            [
+                "AND OR NOT",
+                "Report-2026.PDF",
+                "draft report.pdf",
+                "report"
+            ]
+        );
+        assert_eq!(
+            spans_with("draft report.pdf", "report AND NOT draft", on, false),
+            [(6, 12)]
+        );
+        assert!(Query::parse("<photo OR main", on).is_err());
+        assert!(Query::parse("\"OR", on).is_err());
     }
 
     #[test]

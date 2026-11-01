@@ -239,6 +239,11 @@ default, preserving whole-name matching. `wholename:` / `nowholename:`
 override it for one wildcard term. Changing the setting reruns the current
 query; prefix/suffix anchors and quoted literal wildcards still work.
 
+Settings → Search → Allow literal AND / OR / NOT operators enables the
+standalone uppercase words as operators (off by default). Quote a word such
+as `"OR"` to search for it literally; lowercase words and values such as
+`case:OR` remain text. The symbolic operators keep working in both modes.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the
