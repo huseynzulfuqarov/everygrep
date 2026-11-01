@@ -3,8 +3,11 @@
 //! File managers put files on the clipboard in two formats:
 //! `x-special/gnome-copied-files` (`copy` or `cut`, then one `file://` URI
 //! per line) and `text/uri-list` (RFC 2483: one URI per line, each ended by
-//! CR LF). Slint 1.18 can only put plain text on the clipboard, so these are
-//! offered through the X11 clipboard of XWayland (see [`crate::x11clip`]).
+//! CR LF). KDE programs such as Dolphin read only the URI list and tell a
+//! cut from a copy by a separate `application/x-kde-cutselection` type,
+//! `1` for a cut. Slint 1.18 can only put plain text on the clipboard, so
+//! these are offered through the X11 clipboard of XWayland (see
+//! [`crate::x11clip`]).
 //! The window also remembers the files and the operation here. Without
 //! XWayland, Cut and Copy put the full paths on the clipboard as text, and
 //! Paste in this window uses what was remembered while the clipboard still
@@ -38,6 +41,15 @@ pub fn gnome_copied_files(op: Operation, paths: &[PathBuf]) -> Vec<u8> {
         out.push_str(&file_uri(path));
     }
     out.into_bytes()
+}
+
+/// The `application/x-kde-cutselection` payload: `1` for a cut, `0` for a
+/// copy. Without it KDE programs paste a cut as a copy.
+pub fn kde_cut_selection(op: Operation) -> Vec<u8> {
+    match op {
+        Operation::Copy => b"0".to_vec(),
+        Operation::Cut => b"1".to_vec(),
+    }
 }
 
 /// The `text/uri-list` payload: one URI per line, each ended by CR LF.
@@ -137,6 +149,12 @@ mod tests {
             b"cut\nfile:///tmp/%C5%9F%C9%99kil.png"
         );
         assert_eq!(gnome_copied_files(Operation::Copy, &[]), b"copy");
+    }
+
+    #[test]
+    fn kde_cut_selection_bytes() {
+        assert_eq!(kde_cut_selection(Operation::Cut), b"1");
+        assert_eq!(kde_cut_selection(Operation::Copy), b"0");
     }
 
     #[test]

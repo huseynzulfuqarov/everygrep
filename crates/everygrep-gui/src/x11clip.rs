@@ -6,7 +6,8 @@
 //! own, but it passes the X11 clipboard of XWayland on to Wayland programs
 //! with every type it offers. So Cut and Copy make a hidden X11 window own
 //! `CLIPBOARD` and offer the files as `x-special/gnome-copied-files`,
-//! `text/uri-list` and text (the full paths). Paste reads another owner's
+//! `text/uri-list` with `application/x-kde-cutselection` (how KDE programs
+//! tell a cut), and text (the full paths). Paste reads another owner's
 //! files in that order.
 //!
 //! One thread owns the connection and answers the X server; the window
@@ -52,16 +53,19 @@ pub enum Target {
     Targets,
     GnomeCopiedFiles,
     UriList,
+    /// Whether the URI list is a cut, for KDE programs.
+    KdeCutSelection,
     Utf8String,
     TextPlainUtf8,
 }
 
 impl Target {
     /// Every type offered, in the order of the `TARGETS` answer.
-    pub const ALL: [Target; 5] = [
+    pub const ALL: [Target; 6] = [
         Target::Targets,
         Target::GnomeCopiedFiles,
         Target::UriList,
+        Target::KdeCutSelection,
         Target::Utf8String,
         Target::TextPlainUtf8,
     ];
@@ -80,6 +84,7 @@ impl Target {
             Target::Targets => "TARGETS",
             Target::GnomeCopiedFiles => "x-special/gnome-copied-files",
             Target::UriList => "text/uri-list",
+            Target::KdeCutSelection => "application/x-kde-cutselection",
             Target::Utf8String => "UTF8_STRING",
             Target::TextPlainUtf8 => "text/plain;charset=utf-8",
         }
@@ -99,6 +104,7 @@ pub fn payload(target: Target, held: &Held) -> Option<Vec<u8>> {
         Target::Targets => None,
         Target::GnomeCopiedFiles => Some(clipboard::gnome_copied_files(held.op, &held.paths)),
         Target::UriList => Some(clipboard::uri_list(&held.paths)),
+        Target::KdeCutSelection => Some(clipboard::kde_cut_selection(held.op)),
         Target::Utf8String | Target::TextPlainUtf8 => Some(held.text.as_bytes().to_vec()),
     }
 }
@@ -584,13 +590,19 @@ mod tests {
             Some(Target::GnomeCopiedFiles)
         );
         assert_eq!(Target::by_name("text/uri-list"), Some(Target::UriList));
+        assert_eq!(
+            Target::by_name("application/x-kde-cutselection"),
+            Some(Target::KdeCutSelection)
+        );
         // Not offered: the answer is a refusal.
         for other in ["MULTIPLE", "TIMESTAMP", "STRING", "image/png", ""] {
             assert_eq!(Target::by_name(other), None, "{other}");
         }
         // TARGETS lists every type, itself first.
         assert_eq!(Target::ALL[0], Target::Targets);
-        assert_eq!(Target::ALL.len(), 5);
+        assert_eq!(Target::ALL.len(), 6);
+        // Not read: it holds no files, only whether the URI list was cut.
+        assert!(!Target::READ_ORDER.contains(&Target::KdeCutSelection));
     }
 
     #[test]
@@ -605,6 +617,7 @@ mod tests {
             payload(Target::UriList, &h).unwrap(),
             b"file:///a%20b/c.txt\r\nfile:///d\r\n"
         );
+        assert_eq!(payload(Target::KdeCutSelection, &h).unwrap(), b"1");
         assert_eq!(payload(Target::Utf8String, &h).unwrap(), b"/a b/c.txt\n/d");
         assert_eq!(
             payload(Target::TextPlainUtf8, &h).unwrap(),
@@ -616,6 +629,7 @@ mod tests {
                 .unwrap()
                 .starts_with(b"copy\n")
         );
+        assert_eq!(payload(Target::KdeCutSelection, &copy).unwrap(), b"0");
     }
 
     #[test]
