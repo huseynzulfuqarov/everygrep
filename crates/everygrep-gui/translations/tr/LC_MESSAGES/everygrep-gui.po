@@ -1611,8 +1611,8 @@ msgid "Close window"
 msgstr "Pencereyi kapat"
 
 #: ui/app.slint
-msgid "Keyboard shortcuts…"
-msgstr "Klavye kısayolları…"
+msgid "Customize shortcuts…"
+msgstr "Kısayolları özelleştir…"
 
 #: ui/app.slint
 msgid "Sort by"

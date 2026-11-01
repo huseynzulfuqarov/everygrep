@@ -728,7 +728,7 @@ pub const COMMANDS: &[Spec] = &[
         cmd: Command::KeyboardSettings,
         id: "tools.keyboard-settings",
         category: Category::Tools,
-        label: || tr("Keyboard shortcuts…"),
+        label: || tr("Customize shortcuts…"),
         defaults: &[],
     },
     Spec {

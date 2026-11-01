@@ -212,7 +212,7 @@ File → Close window (`Ctrl+W`, as the close button: hide or quit as set),
 the appearance choices (optional columns, sort by a column and direction,
 folder size, density, theme, selection details, the menu bar itself), the
 matching modes with their `Alt` keys, the filters and the search history.
-Tools → Settings… and Tools → Keyboard shortcuts… open the settings. Help →
+Tools → Settings… and Tools → Customize shortcuts… open the settings. Help →
 Keyboard shortcuts lists every key; Help → About shows the version and the
 license. The Edit actions show no key in the menu, because menu keys would
 take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in

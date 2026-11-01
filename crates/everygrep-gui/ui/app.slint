@@ -1409,7 +1409,7 @@ export component AppWindow inherits Window {
                                 activated => { root.run(Command.settings); }
                             }
                             MenuItem {
-                                title: @tr("Keyboard shortcuts…");
+                                title: @tr("Customize shortcuts…");
                                 enabled: root.can-run(Command.keyboard-settings);
                                 activated => { root.run(Command.keyboard-settings); }
                             }
@@ -2376,7 +2376,7 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.settings); }
             }
             MenuItem {
-                title: @tr("Keyboard shortcuts…");
+                title: @tr("Customize shortcuts…");
                 shortcut: root.menu-keys.keyboard-settings;
                 enabled: root.can-run(Command.keyboard-settings);
                 activated => { root.run(Command.keyboard-settings); }
