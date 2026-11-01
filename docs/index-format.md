@@ -88,9 +88,10 @@ Before saving, an index with removed slots or unused name bytes is compacted
 into a copy, so files never contain removed nodes. The bytes are written to
 an exclusively created `<file>.tmp-<random>` with owner-only permissions in the
 same folder, synced, and renamed over the file. Failed saves remove their
-temporary file. A
-crash leaves either the old or the new file. The window saves a changed index
-at most every five minutes while it watches, after a rebuild, and when it
+temporary file. After the rename, the parent directory is opened and synced;
+a directory-sync failure is returned to the caller. A bare relative filename
+uses `.` as its parent. Readers see either the old or the complete new file.
+The window saves a changed index at most every five minutes while it watches, after a rebuild, and when it
 ends (also when closing only hides the window).
 
 ## Reading and validation

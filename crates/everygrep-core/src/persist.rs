@@ -19,8 +19,9 @@
 //! 600 000 nodes) and the saved values are not used, so files written before
 //! folder sizes existed (with 0 for folders) load unchanged.
 //!
-//! Files are written to a temporary name, synced and then renamed, so a crash
-//! leaves either the old or the new file, never a half-written one.
+//! Files are written to a temporary name, synced and then renamed. The parent
+//! directory is synced after the rename, persisting the replaced entry as well
+//! as the file contents; readers never see a half-written index.
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -154,9 +155,23 @@ fn save_impl(
     let mut tmp = TempFile::create(path)?;
     tmp.file.write_all(&buf)?;
     tmp.file.sync_all()?;
+    publish(&mut tmp, path, |dir| fs::File::open(dir)?.sync_all())
+}
+
+/// Sync only after the destination has been replaced. A relative filename
+/// without a directory component belongs to the current directory.
+fn publish(
+    tmp: &mut TempFile,
+    path: &Path,
+    sync_directory: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<()> {
     fs::rename(&tmp.path, path)?;
     tmp.renamed = true;
-    Ok(())
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    sync_directory(parent)
 }
 
 /// Owns only an exclusively created file; all failure paths remove it.
@@ -547,6 +562,40 @@ mod tests {
             "everygrep-persist-{tag}-{}.bin",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn publishing_syncs_the_parent_after_rename_and_reports_sync_failure() {
+        let dir = temp_file("directory-sync");
+        fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("index.bin");
+        for fail_sync in [false, true] {
+            fs::write(&destination, b"old").unwrap();
+            let mut tmp = TempFile::create(&destination).unwrap();
+            tmp.file.write_all(b"new complete contents").unwrap();
+            tmp.file.sync_all().unwrap();
+            let tmp_path = tmp.path.clone();
+            let mut synced = false;
+            let result = publish(&mut tmp, &destination, |parent| {
+                assert_eq!(parent, dir);
+                assert!(!tmp_path.exists(), "directory sync preceded rename");
+                assert_eq!(fs::read(&destination).unwrap(), b"new complete contents");
+                synced = true;
+                if fail_sync {
+                    return Err(io::Error::other("directory sync failed"));
+                }
+                fs::File::open(parent)?.sync_all()
+            });
+            assert!(synced, "rename was not followed by directory sync");
+            if fail_sync {
+                assert_eq!(result.unwrap_err().to_string(), "directory sync failed");
+            } else {
+                result.unwrap();
+            }
+            drop(tmp);
+            assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

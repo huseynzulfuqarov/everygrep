@@ -526,3 +526,26 @@ fn non_utf8_text_arguments_return_usage_errors_without_panicking() {
         );
     }
 }
+
+#[test]
+fn a_relative_index_filename_can_be_saved_and_loaded() {
+    let dir = temp_dir("relative-index");
+    let built = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .current_dir(&dir)
+        .args(["index", "--root", "tree", "--index-file", "index.bin"])
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "{:?}", built.stderr);
+    assert!(everygrep_core::persist::load(&dir.join("index.bin")).is_ok());
+    let found = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+        .current_dir(&dir)
+        .args(["search", "--index-file", "index.bin", "notes"])
+        .output()
+        .unwrap();
+    assert!(found.status.success());
+    assert_eq!(
+        String::from_utf8(found.stdout).unwrap().trim(),
+        dir.join("tree/notes.txt").to_str().unwrap()
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}

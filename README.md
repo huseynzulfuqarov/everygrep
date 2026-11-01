@@ -529,8 +529,10 @@ excluded folders and file patterns described under
 `--ignore-punctuation`, `--ignore-whitespace`, `--regex`, `--filter`,
 `--threads`, `--no-meta`; `everygrep` without arguments prints them all. The command line
 is English only. Path arguments preserve non-UTF-8 filenames; queries and
-textual option values must be valid UTF-8. `--no-meta` omits file sizes and timestamps during scans,
-catch-up and watching; folder timestamps are retained for catch-up. Failed index saves return a nonzero exit status.
+textual option values must be valid UTF-8. `--no-meta` omits file sizes and
+timestamps during scans, catch-up and watching; folder timestamps are retained
+for catch-up. Failed index saves return a nonzero exit status. A completed save
+syncs the file and, after rename, its parent directory.
 
 Failed or partial directory listings remain eligible for catch-up even when
 permissions change without changing the directory mtime. Roots absent during a

@@ -30,6 +30,9 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- Index saves sync the parent directory after rename and report directory
+  sync failures to callers.
+
 - The CLI preserves non-UTF-8 root, index and excluded-folder paths, and
   reports invalid textual arguments as usage errors instead of panicking.
 
