@@ -478,7 +478,7 @@ pub fn stopped(s: &Stopped) -> String {
         .to_owned(),
         Stopped::Rescan => tr("Rescan cancelled. The previous index is kept.").to_owned(),
         Stopped::Drive(name) => fill(
-            tr("Indexing {} cancelled. It is read again when it is connected again."),
+            tr("Indexing {} cancelled. It goes on where it stopped when it is connected again."),
             &[name],
         ),
         Stopped::Search => tr("Search cancelled. The list shows the previous results.").to_owned(),

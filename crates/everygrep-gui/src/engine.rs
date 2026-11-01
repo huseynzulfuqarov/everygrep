@@ -38,7 +38,7 @@ use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
 use everygrep_core::search::search_with_progress;
 use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
 use everygrep_core::store::{NodeId, NodeStore};
-use everygrep_core::sync::folders_below;
+use everygrep_core::sync::{folders_below, resume_scan};
 use everygrep_core::watch::Watcher;
 
 /// What the index is doing, for the status line.
@@ -314,7 +314,10 @@ enum DriveCommand {
 /// `None` when the reading was cancelled.
 struct Scanned {
     drive: Drive,
-    index: Option<Index>,
+    /// What was read: all of the drive, or with `complete` false the part
+    /// read before the scan was cancelled.
+    index: Index,
+    complete: bool,
     rules: IndexRules,
 }
 
@@ -1387,11 +1390,13 @@ impl Engine {
         for Scanned {
             drive,
             index: new,
+            complete,
             rules,
         } in scanned
         {
             self.scanning.lock().expect("lock").remove(&drive.uuid);
-            let Some(new) = new else {
+            if !complete {
+                // The scan thread kept what it read (see `start_scan`).
                 self.not_now
                     .lock()
                     .expect("lock")
@@ -1399,11 +1404,17 @@ impl Engine {
                 (self.hooks.on_stopped)(Stopped::Drive(drive_name(&drive)));
                 changed = true;
                 continue;
-            };
+            }
             let Some(v) = volumes.iter_mut().find(|v| v.info.uuid == drive.uuid) else {
                 continue;
             };
-            if !v.online || v.root.is_some() || v.info.path != drive.mount_point {
+            if !v.online {
+                // Removed while it was read: folders that could not be read
+                // any more are marked, so the next scan goes on from here.
+                let _ = save_partial(env, &drive, &new, &rules);
+                continue;
+            }
+            if v.root.is_some() || v.info.path != drive.mount_point {
                 continue;
             }
             let mut index = self.index.write().expect("index lock");
@@ -1415,6 +1426,7 @@ impl Engine {
             v.rules = rules;
             v.info.entries = new.len() as u64;
             let _ = v.info.save(env);
+            let _ = std::fs::remove_file(env.partial_path(&drive.uuid));
             changed = true;
             match watcher.as_deref_mut() {
                 Some(w) => {
@@ -1506,7 +1518,9 @@ impl Engine {
     }
 
     /// Reads a drive for the first time on a helper thread; the result is
-    /// added by the next [`sync_drives`](Self::sync_drives).
+    /// added by the next [`sync_drives`](Self::sync_drives). A scan that is
+    /// cancelled keeps what it read in the drive's partial file, and the next
+    /// scan of the drive goes on from there (see [`resume_scan`]).
     fn start_scan(&self, drive: Drive) {
         if !self
             .scanning
@@ -1519,6 +1533,7 @@ impl Engine {
         let options = self.scan_options();
         let (scanned, changed) = (Arc::clone(&self.scanned), Arc::clone(&self.mounts_changed));
         let tasks = Arc::clone(&self.tasks);
+        let env = self.drive_env.clone();
         let _ = std::thread::Builder::new()
             .name("drive scan".into())
             .spawn(move || {
@@ -1528,14 +1543,30 @@ impl Engine {
                     roots,
                     &options.rules.excluded_paths(),
                 ));
-                let mut store = NodeStore::new();
-                let index = scan_with_progress(&mut store, roots, &options, task.progress())
-                    .ok()
-                    .map(|_| Index::new(store));
+                let partial = env
+                    .as_ref()
+                    .and_then(|env| load_partial(env, &drive, &options.rules));
+                let (index, complete) = match partial {
+                    Some(mut index) => {
+                        // What was read before counts as done.
+                        task.progress().add(index.len() as u64);
+                        let done = resume_scan(&mut index, roots, &options, task.progress());
+                        (index, done.is_ok())
+                    }
+                    None => {
+                        let mut store = NodeStore::new();
+                        let done = scan_with_progress(&mut store, roots, &options, task.progress());
+                        (Index::new(store), done.is_ok())
+                    }
+                };
                 drop(task);
+                if let Some(env) = env.as_ref().filter(|_| !complete) {
+                    let _ = save_partial(env, &drive, &index, &options.rules);
+                }
                 scanned.lock().expect("lock").push(Scanned {
                     drive,
                     index,
+                    complete,
                     rules: options.rules,
                 });
                 changed.store(true, Ordering::SeqCst);
@@ -1682,6 +1713,142 @@ fn save_drive(env: &DriveEnv, index: &Index, v: &mut Volume) -> std::io::Result<
         &env.index_path(&v.info.uuid),
     )?;
     v.info.save(env)
+}
+
+/// Saves the part of `drive` read so far (`index`, read with `rules`), for
+/// the next scan to go on from.
+fn save_partial(
+    env: &DriveEnv,
+    drive: &Drive,
+    index: &Index,
+    rules: &IndexRules,
+) -> std::io::Result<()> {
+    persist::save_with_rules(
+        index,
+        std::slice::from_ref(&drive.mount_point),
+        &rules.spec(),
+        &env.partial_path(&drive.uuid),
+    )
+}
+
+/// The part of `drive` that an earlier scan read, if it was read with
+/// `rules`, with its root renamed to where the drive is mounted now.
+fn load_partial(env: &DriveEnv, drive: &Drive, rules: &IndexRules) -> Option<Index> {
+    let path = env.partial_path(&drive.uuid);
+    let saved = persist::load(&path).ok()?;
+    let mut index = saved.index;
+    let roots = index.roots();
+    if saved.rules_hash != Some(persist::rules_fingerprint(&rules.spec())) || roots.len() > 1 {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+    if let Some(&root) = roots.first() {
+        let name = drive.mount_point.as_os_str().as_bytes();
+        index.rename(root, None, name).ok()?;
+    }
+    Some(index)
+}
+
+#[cfg(test)]
+mod partial_tests {
+    use super::*;
+    use everygrep_core::rules::RuleSpec;
+    use everygrep_core::store::Meta;
+
+    fn paths(index: &Index) -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = index
+            .order()
+            .iter()
+            .map(|id| index.store().path(id))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn a_partly_read_drive_goes_on_at_its_new_mount_point() {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-engine-partial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (first, second) = (base.join("media/OLD"), base.join("media/NEW"));
+        for d in ["a", "b/deep"] {
+            std::fs::create_dir_all(first.join(d)).unwrap();
+            std::fs::write(first.join(d).join("f.txt"), b"f").unwrap();
+        }
+        std::fs::create_dir_all(base.join("volumes")).unwrap();
+        let env = DriveEnv {
+            mountinfo: base.join("mountinfo"),
+            media_dirs: vec![base.join("media")],
+            by_uuid: base.join("by-uuid"),
+            by_label: base.join("by-label"),
+            volumes_dir: base.join("volumes"),
+        };
+        let mut drive = Drive {
+            uuid: "AB-12".into(),
+            label: String::new(),
+            mount_point: first.clone(),
+        };
+        let options = ScanOptions::default();
+        // What a scan cancelled before reading "b" leaves: "b" without its
+        // contents, marked as not read.
+        let mut store = NodeStore::new();
+        scan_with_progress(
+            &mut store,
+            std::slice::from_ref(&first),
+            &options,
+            &Progress::new(),
+        )
+        .unwrap();
+        let mut index = Index::new(store);
+        let root = index.roots()[0];
+        let b = index.find_child(Some(root), b"b").unwrap();
+        for kid in index.store().children(b).collect::<Vec<_>>() {
+            index.remove(kid);
+        }
+        let meta = index.store().meta(b);
+        index.set_meta(
+            b,
+            Meta {
+                mtime_ns: 0,
+                ..meta
+            },
+        );
+        save_partial(&env, &drive, &index, &options.rules).unwrap();
+
+        // Connected again elsewhere.
+        std::fs::rename(&first, &second).unwrap();
+        drive.mount_point = second.clone();
+        let mut resumed = load_partial(&env, &drive, &options.rules).unwrap();
+        resume_scan(
+            &mut resumed,
+            std::slice::from_ref(&second),
+            &options,
+            &Progress::new(),
+        )
+        .unwrap();
+        let mut fresh = NodeStore::new();
+        scan_with_progress(
+            &mut fresh,
+            std::slice::from_ref(&second),
+            &options,
+            &Progress::new(),
+        )
+        .unwrap();
+        let (found, expected) = (paths(&resumed), paths(&Index::new(fresh)));
+
+        // Read with other rules, it is not used, and it is gone.
+        let other = IndexRules::new(RuleSpec {
+            exclude_files: "*.txt".into(),
+            ..RuleSpec::default()
+        })
+        .unwrap();
+        let with_other_rules = load_partial(&env, &drive, &other).is_none();
+        let removed = !env.partial_path(&drive.uuid).exists();
+        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!(found, expected);
+        assert!(found.contains(&second.join("b/deep/f.txt")));
+        assert!(with_other_rules && removed);
+    }
 }
 
 /// Notes about a drive seen for the first time.

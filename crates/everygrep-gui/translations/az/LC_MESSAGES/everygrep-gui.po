@@ -1163,10 +1163,9 @@ msgstr "Indexing cancelled. Nothing was saved; use Rebuild index now in the sett
 msgid "Rescan cancelled. The previous index is kept."
 msgstr "Rescan cancelled. The previous index is kept."
 
-# TODO: translate (English for now)
 #: src/labels.rs
-msgid "Indexing {} cancelled. It is read again when it is connected again."
-msgstr "Indexing {} cancelled. It is read again when it is connected again."
+msgid "Indexing {} cancelled. It goes on where it stopped when it is connected again."
+msgstr "{} indeksləməsi ləğv edildi. Yenidən qoşulanda qaldığı yerdən davam edir."
 
 # TODO: translate (English for now)
 #: src/labels.rs

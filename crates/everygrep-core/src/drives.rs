@@ -99,6 +99,12 @@ impl DriveEnv {
     pub fn info_path(&self, uuid: &str) -> PathBuf {
         self.volumes_dir.join(format!("{uuid}.info"))
     }
+
+    /// What a cancelled first scan of a drive read, for the next scan to go
+    /// on from.
+    pub fn partial_path(&self, uuid: &str) -> PathBuf {
+        self.volumes_dir.join(format!("{uuid}.partial"))
+    }
 }
 
 /// One line of the mount table.
@@ -462,13 +468,13 @@ pub fn known_drives(env: &DriveEnv) -> Vec<DriveInfo> {
     out
 }
 
-/// Removes what is kept about a drive: its saved index and, with
-/// `info`, its notes too. A UUID that [`is_safe_uuid`] rejects is an
+/// Removes what is kept about a drive: its saved index (also one read only
+/// in part) and, with `info`, its notes too. A UUID that [`is_safe_uuid`] rejects is an
 /// `InvalidInput` error, and nothing is removed.
 pub fn forget(env: &DriveEnv, uuid: &str, info: bool) -> io::Result<()> {
     check_uuid(uuid)?;
     let mut result = Ok(());
-    let mut paths = vec![env.index_path(uuid)];
+    let mut paths = vec![env.index_path(uuid), env.partial_path(uuid)];
     if info {
         paths.push(env.info_path(uuid));
     }

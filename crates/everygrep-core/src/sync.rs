@@ -12,10 +12,10 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::index::Index;
-use crate::progress::Progress;
+use crate::progress::{Cancelled, Progress};
 use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
 
@@ -102,11 +102,83 @@ pub(crate) fn catch_up_with(
         .collect();
 
     while let Some(dir) = queue.pop_front() {
+        let mode = Mode::default();
         queue.extend(check_dir(
-            index, dir, skip, false, on_new_dir, progress, &mut stats,
+            index, dir, skip, mode, on_new_dir, progress, &mut stats,
         ));
     }
     stats
+}
+
+/// Finishes a scan that was interrupted: `index` holds what a cancelled
+/// [`crate::scan::scan_with_progress`] of `roots` read (or what an earlier
+/// call of this left), possibly saved and loaded since. Folders it had not
+/// read completely are read; folders it had read are checked as a catch-up
+/// does, so changes made in between are found too. Unlike a catch-up, new
+/// folders are read one at a time, so a cancel is seen after each folder.
+/// `progress` counts the entries added. When it is cancelled, `index` again
+/// holds a state this can go on from.
+pub fn resume_scan(
+    index: &mut Index,
+    roots: &[PathBuf],
+    options: &ScanOptions,
+    progress: &Progress,
+) -> Result<CatchUpStats, Cancelled> {
+    let skip = Skip::new(options);
+    let mut stats = CatchUpStats::default();
+    for root in roots {
+        let name = root.as_os_str().as_bytes();
+        if index.find_child(None, name).is_some() {
+            continue;
+        }
+        // Not reached before the cancel.
+        if let Ok(m) = fs::symlink_metadata(root) {
+            let meta = Meta {
+                mtime_ns: 0,
+                ..skip.meta_of(&m)
+            };
+            index.insert(None, name, m.is_dir(), meta);
+            stats.added += 1;
+            progress.add(1);
+        }
+    }
+    let store = index.store();
+    let mut queue: VecDeque<NodeId> = index
+        .roots()
+        .into_iter()
+        .filter(|&id| store.is_dir(id))
+        .collect();
+    let mode = Mode {
+        force: false,
+        shallow: true,
+    };
+    while let Some(dir) = queue.pop_front() {
+        progress.check()?;
+        let added = stats.added;
+        let subfolders = check_dir(
+            index,
+            dir,
+            &skip,
+            mode,
+            &mut |_: &Index, _| {},
+            &Progress::new(),
+            &mut stats,
+        );
+        progress.add((stats.added - added) as u64);
+        queue.extend(subfolders);
+    }
+    index.take_removed();
+    Ok(stats)
+}
+
+/// How [`check_dir`] reads a folder.
+#[derive(Clone, Copy, Default)]
+struct Mode {
+    /// Read it even when its time is the same.
+    force: bool,
+    /// Add new subfolders without reading them, and return them to be
+    /// checked, instead of adding their whole subtree at once.
+    shallow: bool,
 }
 
 /// Like [`catch_up_with`] for the folders `dirs` only, without going into
@@ -124,20 +196,23 @@ pub(crate) fn recheck_dirs(
     for &dir in dirs {
         if index.store().is_live(dir) && index.store().is_dir(dir) {
             let progress = Progress::new();
-            check_dir(index, dir, skip, force, on_new_dir, &progress, &mut stats);
+            let mode = Mode {
+                force,
+                shallow: false,
+            };
+            check_dir(index, dir, skip, mode, on_new_dir, &progress, &mut stats);
         }
     }
     stats
 }
 
-/// Checks the indexed folder `dir` as described in [`catch_up_with`] (with
-/// `force`, it is read even when its time is the same) and returns its
-/// subfolders that still have to be checked.
+/// Checks the indexed folder `dir` as described in [`catch_up_with`], read
+/// as `mode` says, and returns its subfolders that still have to be checked.
 fn check_dir(
     index: &mut Index,
     dir: NodeId,
     skip: &Skip,
-    force: bool,
+    mode: Mode,
     on_new_dir: &mut dyn FnMut(&Index, NodeId),
     progress: &Progress,
     stats: &mut CatchUpStats,
@@ -171,7 +246,7 @@ fn check_dir(
         index.set_meta(dir, meta);
         return Vec::new();
     }
-    if !force && meta.mtime_ns == index.store().meta(dir).mtime_ns {
+    if !mode.force && meta.mtime_ns == index.store().meta(dir).mtime_ns {
         return kids
             .into_iter()
             .filter(|&k| index.store().is_dir(k))
@@ -235,13 +310,36 @@ fn check_dir(
             still_there => {
                 stats.removed += index.remove(kid).len();
                 if let Some(listed) = still_there {
-                    stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
+                    on_disk.insert(name, listed);
                 }
             }
         }
     }
     for (name, listed) in on_disk {
-        stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
+        match listed {
+            (true, Some(meta)) if mode.shallow => {
+                let child = path.join(OsStr::from_bytes(&name));
+                if skip.accepts(&child, true) {
+                    // Read when it is checked; until then its time is one
+                    // no folder has.
+                    let id = index.insert(
+                        Some(dir),
+                        &name,
+                        true,
+                        Meta {
+                            mtime_ns: 0,
+                            ..meta
+                        },
+                    );
+                    on_new_dir(index, id);
+                    subfolders.push(id);
+                    stats.added += 1;
+                }
+            }
+            listed => {
+                stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
+            }
+        }
     }
     let mtime_ns = if incomplete {
         // The saved time differs from the folder's, so it is read again.
@@ -649,6 +747,73 @@ mod tests {
         catch_up(&mut index, &ScanOptions::default());
         assert_eq!(paths(&index), paths(&index_of(&base)));
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn an_interrupted_scan_goes_on_where_it_stopped() {
+        use crate::persist;
+        use crate::scan::scan_with_progress;
+        let base =
+            std::env::temp_dir().join(format!("everygrep-sync-resume-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        for d in 0..40 {
+            let dir = base.join(format!("d{d}"));
+            fs::create_dir_all(dir.join("sub")).unwrap();
+            for f in 0..30 {
+                fs::write(dir.join(format!("f{f}.txt")), b"x").unwrap();
+            }
+            fs::write(dir.join("sub/s.txt"), b"s").unwrap();
+        }
+        let roots = [base.clone()];
+        let options = ScanOptions::default();
+        let full = index_of(&base).len();
+
+        let mut store = NodeStore::new();
+        let progress = Progress::new();
+        progress.cancel_when_done(300);
+        assert!(scan_with_progress(&mut store, &roots, &options, &progress).is_err());
+        let partial = Index::new(store);
+        assert!(
+            partial.len() > 1 && partial.len() < full,
+            "{}",
+            partial.len()
+        );
+        // Saved and loaded, as when the program ends in between.
+        let file = base.with_extension("partial");
+        persist::save(&partial, &roots, &file).unwrap();
+        let mut index = persist::load(&file).unwrap().index;
+        fs::remove_file(&file).unwrap();
+        let before = index.len();
+        // Changes made meanwhile are found as well.
+        fs::write(base.join("d0/later.txt"), b"l").unwrap();
+        fs::remove_file(base.join("d39/f0.txt")).unwrap();
+        fs::create_dir(base.join("new")).unwrap();
+
+        // Interrupted a second time, then finished.
+        let progress = Progress::new();
+        progress.cancel_when_done(200);
+        assert!(resume_scan(&mut index, &roots, &options, &progress).is_err());
+        assert!(index.len() > before);
+        let progress = Progress::new();
+        let stats = resume_scan(&mut index, &roots, &options, &progress).unwrap();
+        let fresh = index_of(&base);
+        let folders = fresh
+            .order()
+            .iter()
+            .filter(|&id| fresh.store().is_dir(id))
+            .count();
+        let found = (paths(&index), folder_sizes(&index));
+        let again = catch_up(&mut index, &options);
+        fs::remove_dir_all(&base).unwrap();
+
+        assert_eq!(found.0, paths(&fresh));
+        assert_eq!(found.1, folder_sizes(&fresh));
+        // Only what was left was read: not every folder, not every entry.
+        assert!(stats.dirs_rescanned < folders, "{stats:?}");
+        assert!(stats.added < fresh.len() - before, "{stats:?}");
+        assert_eq!(progress.done(), stats.added as u64);
+        // The finished index is complete: a catch-up reads nothing.
+        assert_eq!(again.dirs_rescanned, 0, "{again:?}");
     }
 
     #[test]

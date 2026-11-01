@@ -77,7 +77,8 @@ const PROGRESS_BATCH: u64 = 1024;
 /// Like [`scan`], counting every entry added to `store` in `progress` and
 /// stopping when it is cancelled. The cancel is seen after each folder and
 /// after every [`PROGRESS_BATCH`] entries of a large folder; `store` then
-/// holds part of the tree and should be thrown away.
+/// holds part of the tree, with every folder that was not read completely
+/// marked, so [`crate::sync::resume_scan`] can finish it later.
 pub fn scan_with_progress(
     store: &mut NodeStore,
     roots: &[PathBuf],
@@ -122,10 +123,42 @@ fn walk(
     progress: &Progress,
 ) -> Result<(), Cancelled> {
     let mut pending = vec![(root_id, root.to_path_buf())];
+    let result = walk_pending(store, &mut pending, options, skip, stats, progress);
+    if result.is_err() {
+        // Cancelled: the folders not read yet keep a time no folder has, so a
+        // catch-up of what was read (see [`crate::sync::resume_scan`]) reads
+        // them.
+        for (dir_id, _) in pending {
+            let meta = store.meta(dir_id);
+            store.set_meta(
+                dir_id,
+                Meta {
+                    mtime_ns: 0,
+                    ..meta
+                },
+            );
+        }
+    }
+    result
+}
+
+/// Reads the folders in `pending` and the folders found below them. A
+/// folder is taken off `pending` only once it is being read.
+fn walk_pending(
+    store: &mut NodeStore,
+    pending: &mut Vec<(NodeId, PathBuf)>,
+    options: &ScanOptions,
+    skip: &Skip,
+    stats: &mut ScanStats,
+    progress: &Progress,
+) -> Result<(), Cancelled> {
     let mut unreported = 0;
-    while let Some((dir_id, dir)) = pending.pop() {
+    while !pending.is_empty() {
         progress.add(std::mem::take(&mut unreported));
         progress.check()?;
+        let Some((dir_id, dir)) = pending.pop() else {
+            break;
+        };
         // A failed or partial listing must be retried even if chmod leaves
         // the directory's modification time unchanged.
         let complete_meta = store.meta(dir_id);

@@ -38,6 +38,9 @@ pub struct Progress {
     /// Expected amount of work; 0 when unknown.
     total: AtomicU64,
     cancelled: AtomicBool,
+    /// Tests: cancel once this much work is done (0: never).
+    #[cfg(test)]
+    cancel_at: AtomicU64,
 }
 
 impl Progress {
@@ -47,7 +50,21 @@ impl Progress {
 
     /// Records `n` more units of work done.
     pub fn add(&self, n: u64) {
-        self.done.fetch_add(n, Ordering::Relaxed);
+        let _done = self.done.fetch_add(n, Ordering::Relaxed) + n;
+        #[cfg(test)]
+        {
+            let at = self.cancel_at.load(Ordering::Relaxed);
+            if at > 0 && _done >= at {
+                self.cancel();
+            }
+        }
+    }
+
+    /// Tests: cancels the operation once `n` units of work are done, to
+    /// interrupt it at a known point.
+    #[cfg(test)]
+    pub(crate) fn cancel_when_done(&self, n: u64) {
+        self.cancel_at.store(n, Ordering::Relaxed);
     }
 
     /// Units of work done so far.
