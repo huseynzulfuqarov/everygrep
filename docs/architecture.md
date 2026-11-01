@@ -53,7 +53,13 @@ watched or removed. `Watcher::watch_root`, `unwatch_root` and
 
 The index is the store plus all live node ids sorted by folded name
 (`order.rs`): a list of sorted blocks (built with 512 ids, split above 1024),
-so inserts and removals while watching only shift one block.
+so inserts and removals while watching only shift one block. Names are
+compared by `collate.rs` in natural order: digit runs by value, diacritics
+ignored (letters weigh as their base letters, `ə` as a letter after `e`),
+hyphens and apostrophes skipped; it works on the stored case-folded names
+directly, so it needs no key per node. Equal results break ties by raw name,
+then parent. Search keeps its own folding: with diacritics ignored, `ə`
+matches `e`.
 
 `search()` splits the blocks into groups of 16 and lets worker threads (one
 per CPU by default) take groups one by one; each evaluates the parsed query

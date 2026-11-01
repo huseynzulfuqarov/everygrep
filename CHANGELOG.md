@@ -24,10 +24,15 @@ First version, 0.1.0, not released yet.
 - Catching up on start with changes made while nothing was watching, by
   re-reading only folders whose modification time changed.
 - In-memory compaction during long watch sessions.
-- Saved index (format version 4) with full validation and a checksum,
-  written atomically, decoded while it is read.
+- Saved index (format version 5) with full validation and a checksum,
+  written atomically, decoded while it is read. A version 4 file loads and
+  has its name order sorted again instead of being scanned anew.
 - Total size and item count of every folder, kept current on every change.
 - Sorting by name, folder, size, modification time, type or extension.
+  Names sort in natural order: numbers by value (`file2` before `file10`),
+  case and diacritics ignored (`Çay` next to `cay`, `Ölçü` among the o's
+  instead of after z), `ə` as a letter after `e`, hyphens and apostrophes
+  skipped.
   The same name in several folders sorts by folder path (also as the tie
   order of the other columns), not by when the folders were indexed.
 - Creation time (birth time, where the file system keeps it), access time and

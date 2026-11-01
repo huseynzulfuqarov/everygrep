@@ -797,6 +797,10 @@ impl Engine {
                     *self.indexed_with.lock().expect("lock") =
                         (roots.clone(), self.scan_options().rules);
                     self.replace_index(saved.index);
+                    if saved.reordered {
+                        // Store the new order, so it is not sorted again.
+                        self.dirty.store(true, Ordering::SeqCst);
+                    }
                     loaded = true;
                 }
             }

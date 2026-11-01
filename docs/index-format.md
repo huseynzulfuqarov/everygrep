@@ -45,8 +45,24 @@ whole path (`/home/me`); every other name is one path component, and a path is
 the names from the root down joined by `/`. Symbolic links are stored as
 files, with the size `lstat` reports (the length of the target path).
 
-The name order sorts by the case-folded name (diacritics kept), then the raw
-name, then the parent, which is the order searches walk through.
+The name order sorts by the case-folded name in natural, diacritic-folded
+order, then by the raw name, then by the parent id, which is the order
+searches walk through. The natural order (`collate.rs`) compares units from
+the left:
+
+- a run of ASCII digits is one unit compared by value (`file2` before
+  `file10`, runs of any length); between equal values, more leading zeros
+  come first (`002`, `02`, `2`);
+- letters with diacritics weigh as their base letters (`ç` as `c`, `ı` and
+  `İ` as `i`, `ß` as `ss`), combining marks U+0300–U+036F are skipped, and
+  `ə` is a letter of its own between `e` and `f`;
+- hyphens, apostrophes and control characters are skipped (`a-b` and `ab`
+  are equal and then ordered by raw name);
+- the classes are ordered: space, the punctuation
+  ``! " # $ % & ( ) * , . / : ; ? @ [ \ ] ^ _ ` { | } ~``, then `+ < = >`,
+  then numbers, then the letters `a`–`z`, then every other character by code
+  point, then bytes that are not valid UTF-8 by byte value;
+- a name that runs out of units first comes first.
 
 ## Folder sizes
 
@@ -85,17 +101,23 @@ After reading:
 - every parent link must point to an existing folder (or be 0), names must lie
   inside the pool, and no node may be marked removed;
 - parent chains must end at a root without loops;
-- the name order must be a permutation of the nodes and sorted;
+- the name order must be a permutation of the nodes; if it is not sorted by
+  the current rules (a version 4 file, or rules that changed with an update
+  of the program) it is sorted again, which takes about 0.15 s for 260 000
+  nodes, and the index is saved with the new order at the next save; two
+  nodes with the same parent and name make the file invalid;
 - the folded names used for matching are computed again, not read.
 
 Any failure gives an `InvalidData` error ("not an index file", "unsupported
 version", "checksum mismatch", …) and the programs scan again instead. A file
-of another version is not converted; it is replaced by the next save.
+of version 4 loads as described above; a file of any other version is not
+converted; it is replaced by the next save.
 
 ## Version history
 
 The version number changes whenever the layout or the meaning of a field
-changes; older versions are rejected, not migrated.
+changes; older versions are rejected, not migrated, except version 4, whose
+layout is the same as version 5's and whose name order is sorted again.
 
 | Version | Introduced by the commit |
 |---|---|
@@ -103,5 +125,6 @@ changes; older versions are rejected, not migrated.
 | 2 | keep the name order in blocks and support live index changes |
 | 3 | store modification times in nanoseconds |
 | 4 | recompute folded names on load (the folded name columns and pool were dropped from the file) |
+| 5 | order the index by natural, diacritic-folded names |
 
 All of them predate the first release.

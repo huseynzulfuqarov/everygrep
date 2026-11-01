@@ -159,6 +159,10 @@ fn open_index(args: &Args, force_scan: bool) -> (Index, Vec<PathBuf>, Source) {
                         started.elapsed().as_secs_f64() * 1e3,
                         saved.index.heap_bytes() as f64 / 1048576.0,
                     );
+                    if saved.reordered {
+                        // An older file: store the new name order once.
+                        save_index(args, &saved.index, &saved.roots);
+                    }
                     return (saved.index, saved.roots, Source::Loaded);
                 }
                 Ok(_) => eprintln!("saved index has other roots, scanning"),

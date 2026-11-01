@@ -121,7 +121,11 @@ mod tests {
             .iter()
             .map(|&id| index.store().folded_name(id))
             .collect();
-        assert!(names.windows(2).all(|w| w[0] <= w[1]));
+        assert!(
+            names
+                .windows(2)
+                .all(|w| crate::collate::collate(w[0], w[1]).is_le())
+        );
     }
 
     #[test]

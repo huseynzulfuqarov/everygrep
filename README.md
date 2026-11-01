@@ -127,7 +127,9 @@ search field limits results to one kind (folders, documents, pictures, …); the
 toggles inside the field switch match case, whole words, full path,
 diacritics and regular expressions; the Search menu also has match prefix,
 match suffix, ignore punctuation and ignore whitespace; the modes that are on
-show in the status line. Right-click the
+show in the status line. Results come in natural name order: numbers by value
+(`file2` before `file10`), case and diacritics ignored (`Çay` next to `cay`),
+`ə` after `e`, hyphens and apostrophes skipped. Right-click the
 column headers to show the Type, Extension, Created, Accessed and Attributes
 columns. Created, Accessed and Attributes are not in the index: they are read
 from the file system for the rows on screen while their column is shown, and

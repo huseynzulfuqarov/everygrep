@@ -30,7 +30,11 @@ use crate::index::Index;
 use crate::store::{Columns, Meta, NodeId, NodeStore};
 
 const MAGIC: &[u8; 8] = b"EGRPIDX\0";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
+
+/// The oldest version that still loads. Version 4 has the same layout; its
+/// name order is sorted again on load.
+const OLDEST_VERSION: u32 = 4;
 
 /// An index loaded from disk together with the roots it was built from.
 pub struct Saved {
@@ -38,6 +42,10 @@ pub struct Saved {
     pub index: Index,
     /// Folders that were scanned to build the index.
     pub roots: Vec<PathBuf>,
+    /// The saved name order was not in the current order (a file of an older
+    /// version) and was sorted again; saving the index stores the new order,
+    /// so the next load does not have to sort it.
+    pub reordered: bool,
 }
 
 /// Default location of the index file: `$XDG_CACHE_HOME/everygrep/index.bin`,
@@ -112,8 +120,11 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
 /// of the index itself. The sizes in the header are checked against the file
 /// size before anything is allocated.
 ///
-/// Returns an error of kind `InvalidData` if the file is damaged, from another
-/// version, or inconsistent in any way.
+/// A name order saved by an older version, or sorted by older rules, is
+/// sorted again (see [`Saved::reordered`]).
+///
+/// Returns an error of kind `InvalidData` if the file is damaged, from an
+/// unsupported version, or inconsistent in any way.
 pub fn load(path: &Path) -> io::Result<Saved> {
     let file = fs::File::open(path)?;
     let file_len = file.metadata()?.len();
@@ -130,7 +141,7 @@ pub fn load(path: &Path) -> io::Result<Saved> {
     if r.bytes(MAGIC.len())? != MAGIC {
         return Err(invalid("not an index file"));
     }
-    if r.u32()? != VERSION {
+    if !(OLDEST_VERSION..=VERSION).contains(&r.u32()?) {
         return Err(invalid("unsupported version"));
     }
     let nodes = r.len()?;
@@ -174,8 +185,12 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         name_pool,
     })
     .map_err(invalid)?;
-    let index = Index::from_parts(store, by_name).map_err(invalid)?;
-    Ok(Saved { index, roots })
+    let (index, reordered) = Index::from_parts(store, by_name).map_err(invalid)?;
+    Ok(Saved {
+        index,
+        roots,
+        reordered,
+    })
 }
 
 fn invalid(msg: &'static str) -> io::Error {
@@ -422,6 +437,80 @@ mod tests {
             .map(|id| loaded.store().name(id))
             .collect();
         assert_eq!(names, [&b"/data"[..], b"added.md", b"Docs", b"notes.txt"]);
+    }
+
+    /// Saves `index`, then rewrites the file as `version` with the name order
+    /// `order` and a fresh checksum.
+    fn save_with_order(index: &Index, path: &Path, version: u32, order: &[NodeId]) {
+        save(index, &[PathBuf::from("/data")], path).unwrap();
+        let mut data = fs::read(path).unwrap();
+        data[8..12].copy_from_slice(&version.to_le_bytes());
+        let body = data.len() - 8;
+        let start = body - 4 * order.len();
+        for (slot, id) in data[start..body].chunks_exact_mut(4).zip(order) {
+            slot.copy_from_slice(&id.0.to_le_bytes());
+        }
+        let sum = checksum(&data[..body]);
+        data[body..].copy_from_slice(&sum.to_le_bytes());
+        fs::write(path, &data).unwrap();
+    }
+
+    fn natural_sample() -> Index {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/data", true, Meta::default());
+        for name in ["file10", "file2", "Zoo.txt", "Çay.txt", "a-b", "ab", "Əli"] {
+            s.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        Index::new(s)
+    }
+
+    #[test]
+    fn version_4_file_in_the_old_order_loads_sorted_again() {
+        let path = temp_file("v4");
+        let index = natural_sample();
+        let store = index.store();
+        // Version 4 sorted by folded bytes, then raw bytes.
+        let mut old: Vec<NodeId> = index.order().iter().collect();
+        old.sort_by(|&a, &b| {
+            (store.folded_name(a), store.name(a)).cmp(&(store.folded_name(b), store.name(b)))
+        });
+        assert!(!old.iter().copied().eq(index.order().iter()));
+        save_with_order(&index, &path, 4, &old);
+        let saved = load(&path).unwrap();
+        assert!(saved.reordered);
+        assert!(saved.index.order().iter().eq(index.order().iter()));
+        // Saved again, it is version 5 and loads without sorting.
+        save(&saved.index, &saved.roots, &path).unwrap();
+        assert_eq!(fs::read(&path).unwrap()[8..12], 5u32.to_le_bytes());
+        let again = load(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(!again.reordered);
+        assert!(again.index.order().iter().eq(index.order().iter()));
+    }
+
+    #[test]
+    fn unsorted_order_is_sorted_and_other_versions_are_rejected() {
+        let path = temp_file("order");
+        let index = natural_sample();
+        let mut backwards: Vec<NodeId> = index.order().iter().collect();
+        backwards.reverse();
+        save_with_order(&index, &path, 5, &backwards);
+        let saved = load(&path).unwrap();
+        assert!(saved.reordered);
+        assert!(saved.index.order().iter().eq(index.order().iter()));
+
+        let mut twice = backwards.clone();
+        twice[0] = twice[1];
+        save_with_order(&index, &path, 5, &twice);
+        let err = load(&path).err().expect("not a permutation");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+
+        for version in [3, 6] {
+            save_with_order(&index, &path, version, &backwards);
+            let err = load(&path).err().expect("unsupported version");
+            assert_eq!(err.to_string(), "unsupported version");
+        }
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]

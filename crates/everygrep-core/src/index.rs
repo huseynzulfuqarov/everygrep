@@ -3,13 +3,15 @@
 use std::cmp::Ordering;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
+use crate::collate::collate;
 use crate::fold::fold;
 use crate::order::{Position, SortedIds};
 use crate::store::{Meta, NodeId, NodeStore};
 
 /// Node storage together with the order of live nodes sorted by name.
 ///
-/// Nodes are ordered by folded name, then raw name, then parent. Searching walks
+/// Nodes are ordered by folded name in natural, diacritic-folded order (see
+/// [`collate`]), then by raw name, then by parent. Searching walks
 /// this order, so results come out sorted by name without a separate sort step,
 /// and the same order finds a node by parent and name in `O(log n)`.
 pub struct Index {
@@ -120,8 +122,13 @@ impl Index {
     }
 
     /// Reassembles an index from a loaded store and name order. The order must
-    /// contain every node exactly once and be sorted.
-    pub(crate) fn from_parts(store: NodeStore, by_name: Vec<NodeId>) -> Result<Self, &'static str> {
+    /// contain every node exactly once. An order that is not sorted by the
+    /// current rules (saved by an older version) is sorted again; the flag
+    /// returned with the index tells whether that happened.
+    pub(crate) fn from_parts(
+        store: NodeStore,
+        mut by_name: Vec<NodeId>,
+    ) -> Result<(Self, bool), &'static str> {
         if by_name.len() != store.live_count() {
             return Err("name order has wrong length");
         }
@@ -132,20 +139,27 @@ impl Index {
                 _ => return Err("name order is not a permutation"),
             }
         }
-        if by_name
+        let reordered = by_name
             .windows(2)
-            .any(|w| compare(&store, w[0], w[1]) != Ordering::Less)
-        {
-            return Err("name order is not sorted");
+            .any(|w| compare(&store, w[0], w[1]) != Ordering::Less);
+        if reordered {
+            by_name.sort_unstable_by(|&a, &b| compare(&store, a, b));
+            if by_name
+                .windows(2)
+                .any(|w| compare(&store, w[0], w[1]) == Ordering::Equal)
+            {
+                return Err("two nodes with the same parent and name");
+            }
         }
-        Ok(Self {
+        let index = Self {
             store,
             by_name: SortedIds::from_sorted(by_name),
             removed_log: Vec::new(),
             offline: Vec::new(),
             changes: ChangeLog::default(),
             stamp: next_stamp(),
-        })
+        };
+        Ok((index, reordered))
     }
 
     /// The live roots, in name order.
@@ -527,9 +541,7 @@ impl Index {
         let parent_key = parent.map_or(0, |p| p.0 + 1);
         let store = &self.store;
         self.by_name.search_by(|id| {
-            store
-                .folded_name(id)
-                .cmp(folded)
+            collate(store.folded_name(id), folded)
                 .then_with(|| store.name(id).cmp(name))
                 .then_with(|| store.parent_key(id).cmp(&parent_key))
         })
@@ -549,9 +561,7 @@ impl Index {
 }
 
 fn compare(store: &NodeStore, a: NodeId, b: NodeId) -> Ordering {
-    store
-        .folded_name(a)
-        .cmp(store.folded_name(b))
+    collate(store.folded_name(a), store.folded_name(b))
         .then_with(|| store.name(a).cmp(store.name(b)))
         .then_with(|| store.parent_key(a).cmp(&store.parent_key(b)))
 }
@@ -572,18 +582,85 @@ mod tests {
     }
 
     #[test]
-    fn order_is_case_insensitive_by_name() {
+    fn order_is_natural_and_ignores_case_and_diacritics() {
         let mut s = NodeStore::new();
         let root = s.add(None, b"/r", true, Meta::default());
-        for name in [&b"beta"[..], b"Alpha", b"alpha", b"Gamma"] {
-            s.add(Some(root), name, false, Meta::default());
+        let names_in = [
+            "beta", "Alpha", "alpha", "Gamma", "file10", "file2", "Çay", "cay", "Şəkil", "Sekil",
+            "zoo", "Ölçü", "a-b", "ab",
+        ];
+        for name in names_in {
+            s.add(Some(root), name.as_bytes(), false, Meta::default());
         }
         let index = Index::new(s);
-        let expected: Vec<Vec<u8>> = [&b"/r"[..], b"Alpha", b"alpha", b"beta", b"Gamma"]
-            .iter()
-            .map(|n| n.to_vec())
-            .collect();
+        let expected: Vec<Vec<u8>> = [
+            "/r", "a-b", "ab", "Alpha", "alpha", "beta", "cay", "Çay", "file2", "file10", "Gamma",
+            "Ölçü", "Sekil", "Şəkil", "zoo",
+        ]
+        .iter()
+        .map(|n| n.as_bytes().to_vec())
+        .collect();
         assert_eq!(names(&index), expected);
+    }
+
+    #[test]
+    fn names_that_collate_equal_stay_apart() {
+        let mut index = Index::new(NodeStore::new());
+        let root = index.insert(None, b"/r", true, Meta::default());
+        let sub = index.insert(Some(root), b"sub", true, Meta::default());
+        let names_in: [&[u8]; 4] = [b"a-b", b"ab", b"AB", "äb".as_bytes()];
+        let mut made = Vec::new();
+        for parent in [root, sub] {
+            for name in names_in {
+                made.push((
+                    parent,
+                    name,
+                    index.insert(Some(parent), name, false, Meta::default()),
+                ));
+            }
+        }
+        check_consistent(&index);
+        assert_eq!(index.len(), 2 + 8);
+        for &(parent, name, id) in &made {
+            assert_eq!(index.find_child(Some(parent), name), Some(id));
+        }
+        // Renaming to a name that collates equal to a neighbour keeps both.
+        let (_, _, ab) = made[1];
+        index.rename(ab, Some(root), b"a'b").unwrap();
+        check_consistent(&index);
+        assert_eq!(index.find_child(Some(root), b"a'b"), Some(ab));
+        assert_eq!(index.find_child(Some(root), b"ab"), None);
+        assert_eq!(index.find_child(Some(root), b"a-b"), Some(made[0].2));
+        index.remove(made[0].2);
+        check_consistent(&index);
+        assert_eq!(index.find_child(Some(root), b"a'b"), Some(ab));
+    }
+
+    #[test]
+    fn an_unsorted_saved_order_is_sorted_again() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/r", true, Meta::default());
+        for name in ["file10", "file2", "Zoo", "Çay"] {
+            s.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        let fresh = Index::new(s.compacted().0);
+        let backwards: Vec<NodeId> = (0..5).rev().map(NodeId).collect();
+        let (index, reordered) = Index::from_parts(s.compacted().0, backwards).unwrap();
+        assert!(reordered);
+        assert_eq!(names(&index), names(&fresh));
+        let sorted: Vec<NodeId> = fresh.order().iter().collect();
+        let (_, reordered) = Index::from_parts(s.compacted().0, sorted).unwrap();
+        assert!(!reordered);
+
+        // Not a permutation, or two nodes with one name in one folder.
+        let short = vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3), NodeId(3)];
+        assert!(Index::from_parts(s.compacted().0, short).is_err());
+        s.add(Some(root), b"Zoo", false, Meta::default());
+        let all: Vec<NodeId> = (0..6).map(NodeId).collect();
+        assert_eq!(
+            Index::from_parts(s, all).err(),
+            Some("two nodes with the same parent and name")
+        );
     }
 
     #[test]
