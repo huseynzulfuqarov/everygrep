@@ -57,7 +57,9 @@ so inserts and removals while watching only shift one block. Names are
 compared by `collate.rs` in natural order: digit runs by value, diacritics
 ignored (letters weigh as their base letters, `ə` as a letter after `e`),
 hyphens and apostrophes skipped; it works on the stored case-folded names
-directly, so it needs no key per node. Equal results break ties by raw name,
+directly, so it needs no key per node. Building the order after a scan or
+sorting a loaded one again runs on one thread per CPU (sorted runs, then
+merged in pairs). Equal results break ties by raw name,
 then parent. Search keeps its own folding: with diacritics ignored, `ə`
 matches `e`.
 

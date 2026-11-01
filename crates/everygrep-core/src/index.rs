@@ -110,7 +110,7 @@ impl Index {
             .map(|i| NodeId(u32::try_from(i).expect("store ids fit in u32")))
             .filter(|&id| store.is_live(id))
             .collect();
-        ids.sort_unstable_by(|&a, &b| compare(&store, a, b));
+        sort_by_name(&store, &mut ids);
         Self {
             store,
             by_name: SortedIds::from_sorted(ids),
@@ -143,7 +143,7 @@ impl Index {
             .windows(2)
             .any(|w| compare(&store, w[0], w[1]) != Ordering::Less);
         if reordered {
-            by_name.sort_unstable_by(|&a, &b| compare(&store, a, b));
+            sort_by_name(&store, &mut by_name);
             if by_name
                 .windows(2)
                 .any(|w| compare(&store, w[0], w[1]) == Ordering::Equal)
@@ -560,6 +560,59 @@ impl Index {
     }
 }
 
+/// Lists shorter than this are sorted on one thread.
+const PARALLEL_SORT_MIN: usize = 64 * 1024;
+
+/// Sorts `ids` into the name order, on one thread per CPU for long lists:
+/// each sorts a run, then pairs of runs are merged, also in parallel.
+fn sort_by_name(store: &NodeStore, ids: &mut [NodeId]) {
+    let cmp = |a: &NodeId, b: &NodeId| compare(store, *a, *b);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    if threads == 1 || ids.len() < PARALLEL_SORT_MIN {
+        ids.sort_unstable_by(cmp);
+        return;
+    }
+    let run = ids.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        for chunk in ids.chunks_mut(run) {
+            scope.spawn(move || chunk.sort_unstable_by(cmp));
+        }
+    });
+    let mut merged = vec![NodeId(0); ids.len()];
+    let mut width = run;
+    while width < ids.len() {
+        std::thread::scope(|scope| {
+            for (from, to) in ids.chunks(2 * width).zip(merged.chunks_mut(2 * width)) {
+                scope.spawn(move || merge_runs(from, width, to, cmp));
+            }
+        });
+        ids.copy_from_slice(&merged);
+        width *= 2;
+    }
+}
+
+/// Merges the sorted runs `from[..mid]` and `from[mid..]` into `to`.
+fn merge_runs(
+    from: &[NodeId],
+    mid: usize,
+    to: &mut [NodeId],
+    cmp: impl Fn(&NodeId, &NodeId) -> Ordering,
+) {
+    let (left, right) = from.split_at(mid.min(from.len()));
+    let (mut i, mut j) = (0, 0);
+    for slot in to.iter_mut() {
+        let take_right =
+            i == left.len() || (j < right.len() && cmp(&right[j], &left[i]) == Ordering::Less);
+        if take_right {
+            *slot = right[j];
+            j += 1;
+        } else {
+            *slot = left[i];
+            i += 1;
+        }
+    }
+}
+
 fn compare(store: &NodeStore, a: NodeId, b: NodeId) -> Ordering {
     collate(store.folded_name(a), store.folded_name(b))
         .then_with(|| store.name(a).cmp(store.name(b)))
@@ -601,6 +654,39 @@ mod tests {
         .map(|n| n.as_bytes().to_vec())
         .collect();
         assert_eq!(names(&index), expected);
+    }
+
+    #[test]
+    fn long_lists_sort_on_several_threads_like_on_one() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/r", true, Meta::default());
+        let dirs: Vec<NodeId> = (0..300)
+            .map(|d| {
+                s.add(
+                    Some(root),
+                    format!("d{d}").as_bytes(),
+                    true,
+                    Meta::default(),
+                )
+            })
+            .collect();
+        let words = ["Çay", "cay", "file", "a-b", "ab", "Ölçü", "z"];
+        for i in 0..(PARALLEL_SORT_MIN * 2 + 77) {
+            let h = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+            let name = format!("{}{}", words[i % words.len()], h % 5000);
+            s.add(
+                Some(dirs[i % dirs.len()]),
+                name.as_bytes(),
+                false,
+                Meta::default(),
+            );
+        }
+        let index = Index::new(s);
+        let ids: Vec<NodeId> = index.order().iter().collect();
+        let mut serial = ids.clone();
+        serial.sort_unstable_by(|&a, &b| compare(index.store(), a, b));
+        assert_eq!(ids, serial);
+        check_consistent(&index);
     }
 
     #[test]

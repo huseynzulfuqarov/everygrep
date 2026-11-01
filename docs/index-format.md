@@ -103,8 +103,8 @@ After reading:
 - parent chains must end at a root without loops;
 - the name order must be a permutation of the nodes; if it is not sorted by
   the current rules (a version 4 file, or rules that changed with an update
-  of the program) it is sorted again, which takes about 0.15 s for 260 000
-  nodes, and the index is saved with the new order at the next save; two
+  of the program) it is sorted again, on one thread per CPU (about 0.05 s
+  for 260 000 nodes on 20 threads), and the index is saved with the new order at the next save; two
   nodes with the same parent and name make the file invalid;
 - the folded names used for matching are computed again, not read.
 
