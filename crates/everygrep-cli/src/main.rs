@@ -384,6 +384,11 @@ fn main() -> ExitCode {
                         Ok(_) => {}
                         Err(e) => eprintln!("reading changes failed: {e}"),
                     }
+                    // Folders without a watch report nothing; look at them.
+                    if w.failed_watches() > 0 {
+                        let st = w.recheck_unwatched(&mut index, usize::MAX);
+                        changed |= st.added + st.removed + st.updated > 0;
+                    }
                 }
                 status = run_query(&index, &args, &q, &mut out);
                 if status.is_err() {

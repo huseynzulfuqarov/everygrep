@@ -9,7 +9,7 @@ use everygrep_core::rules::{RuleError, RuleList};
 use everygrep_core::sort::FolderSize;
 
 use crate::clipboard::Operation;
-use crate::engine::{Busy, IndexState, Stopped, TaskKind};
+use crate::engine::{Busy, IndexState, Stopped, TaskKind, Unwatched};
 use crate::format::{self, SizeStandard, SizeUnit};
 use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
@@ -119,6 +119,20 @@ pub fn state_word(state: IndexState) -> &'static str {
         IndexState::Static => tr("not watching changes"),
         IndexState::Unwatched => tr("changes not watched"),
     }
+}
+
+/// Indexed folders whose changes are not watched, for the status line.
+pub fn unwatched(u: Unwatched) -> String {
+    let text = if u.limit_reached {
+        trn(
+            "{} folder not watched: watch limit reached",
+            "{} folders not watched: watch limit reached",
+            u.folders,
+        )
+    } else {
+        trn("{} folder not watched", "{} folders not watched", u.folders)
+    };
+    fill(text, &[&format::count(u.folders)])
 }
 
 /// `3 selected` in the status line, without details of the selection.
@@ -765,6 +779,18 @@ mod tests {
         );
         assert_ne!(on_close(OnClose::Quit), on_close(OnClose::Hide));
         assert_eq!(bad_lines(1).split(' ').next(), Some("One"));
+    }
+
+    #[test]
+    fn unwatched_folders_say_why_when_the_limit_is_the_cause() {
+        let mut u = Unwatched {
+            folders: 1,
+            limit_reached: false,
+        };
+        assert_eq!(unwatched(u), "1 folder not watched");
+        u.folders = 3;
+        u.limit_reached = true;
+        assert_eq!(unwatched(u), "3 folders not watched: watch limit reached");
     }
 
     #[test]

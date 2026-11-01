@@ -378,6 +378,19 @@ pub struct Engine {
     /// Whether file changes are being applied to the index now (the watch
     /// loop runs). Only then is the details cache used.
     applying_changes: AtomicBool,
+    /// Indexed folders the watcher could not watch, for the status line.
+    unwatched: Mutex<Unwatched>,
+}
+
+/// Indexed folders whose changes are not reported, because their watch
+/// could not be added. They are checked again from time to time
+/// ([`RECHECK_UNWATCHED_EVERY`]). Folders that cannot be read are not
+/// counted: none of their entries are indexed either.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Unwatched {
+    pub folders: usize,
+    /// The limit of inotify watches was reached.
+    pub limit_reached: bool,
 }
 
 /// What the search thread runs: the query text, its options and the result order.
@@ -390,6 +403,10 @@ struct QueryState {
 
 const REFRESH_EVERY: Duration = Duration::from_millis(500);
 const SAVE_EVERY: Duration = Duration::from_secs(300);
+/// How often folders that could not be watched are watched again or, failing
+/// that, checked for changes, and how many of them at most each time.
+const RECHECK_UNWATCHED_EVERY: Duration = Duration::from_secs(10);
+const RECHECK_UNWATCHED_MAX: usize = 5000;
 
 impl Engine {
     /// Creates the engine and starts loading in the background. Entries
@@ -426,6 +443,7 @@ impl Engine {
             details: Mutex::new(DetailCache::new()),
             details_generation: AtomicU64::new(0),
             applying_changes: AtomicBool::new(false),
+            unwatched: Mutex::new(Unwatched::default()),
             dirty: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             searches: Mutex::new(None),
@@ -801,6 +819,27 @@ impl Engine {
         (self.hooks.on_state)(state, len);
     }
 
+    /// Indexed folders that are not watched, for the status line.
+    pub fn unwatched(&self) -> Unwatched {
+        *self.unwatched.lock().expect("lock")
+    }
+
+    /// Records the folders `watcher` could not watch (none without one).
+    /// Returns whether that changed.
+    fn note_unwatched(&self, watcher: Option<&Watcher>) -> bool {
+        let mut now = Unwatched::default();
+        for kind in watcher.into_iter().flat_map(Watcher::failed_watch_kinds) {
+            if kind != std::io::ErrorKind::PermissionDenied {
+                now.folders += 1;
+                now.limit_reached |= kind == std::io::ErrorKind::StorageFull;
+            }
+        }
+        let mut unwatched = self.unwatched.lock().expect("lock");
+        let changed = *unwatched != now;
+        *unwatched = now;
+        changed
+    }
+
     fn index_loop(&self) {
         self.report(IndexState::Loading);
         let mut loaded = false;
@@ -917,6 +956,7 @@ impl Engine {
                     }
                 }
                 drives_to_catch_up.clear();
+                self.note_unwatched(Some(&watcher));
                 self.report(IndexState::Watching);
                 {
                     // A catch-up finds new and removed entries, not changed
@@ -928,6 +968,7 @@ impl Engine {
                 }
                 self.watch_loop(&mut watcher);
                 self.applying_changes.store(false, Ordering::SeqCst);
+                self.note_unwatched(None);
                 false
             }
             Err(_) => {
@@ -1007,6 +1048,7 @@ impl Engine {
     fn watch_loop(&self, watcher: &mut Watcher) {
         let mut last_refresh = Instant::now();
         let mut last_save = Instant::now();
+        let mut last_recheck = Instant::now();
         let mut pending_refresh = false;
         while !self.interrupted(true) {
             if self.mounts_changed.swap(false, Ordering::SeqCst)
@@ -1042,6 +1084,20 @@ impl Engine {
                 }
                 Ok(_) => {}
                 Err(_) => std::thread::sleep(Duration::from_millis(250)),
+            }
+            if watcher.failed_watches() > 0 && last_recheck.elapsed() >= RECHECK_UNWATCHED_EVERY {
+                last_recheck = Instant::now();
+                let stats = watcher.recheck_unwatched(
+                    &mut self.index.write().expect("index lock"),
+                    RECHECK_UNWATCHED_MAX,
+                );
+                if stats.added + stats.removed + stats.updated > 0 {
+                    self.dirty.store(true, Ordering::SeqCst);
+                    pending_refresh = true;
+                }
+            }
+            if self.note_unwatched(Some(watcher)) {
+                self.report(IndexState::Watching);
             }
             if pending_refresh && last_refresh.elapsed() >= REFRESH_EVERY {
                 pending_refresh = false;

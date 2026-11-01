@@ -102,114 +102,150 @@ pub(crate) fn catch_up_with(
         .collect();
 
     while let Some(dir) = queue.pop_front() {
-        if !index.store().is_live(dir) {
-            continue;
-        }
-        stats.dirs_checked += 1;
-        progress.add(1);
-        let path = index.store().path(dir);
-        let m = match fs::symlink_metadata(&path) {
-            Ok(m) if m.is_dir() => m,
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                // Not allowed to look (for example under an unsearchable folder):
-                // keep what is indexed.
-                stats.errors += 1;
-                continue;
-            }
-            _ => {
-                stats.removed += index.remove(dir).len();
-                continue;
-            }
-        };
-        let meta = Meta::from_metadata(&m);
-        if index.store().parent(dir).is_some() && !skip.accepts(&path, true) {
-            stats.removed += index.remove(dir).len();
-            continue;
-        }
-        let kids: Vec<NodeId> = index.store().children(dir).collect();
-        if !skip.enters(&path) {
-            index.set_meta(dir, meta);
-            continue;
-        }
-        if meta.mtime_ns == index.store().meta(dir).mtime_ns {
-            queue.extend(kids.into_iter().filter(|&k| index.store().is_dir(k)));
-            continue;
-        }
-
-        let Ok(entries) = fs::read_dir(&path) else {
-            stats.errors += 1;
-            continue;
-        };
-        // Name -> (is folder, metadata if `lstat` worked). A listing that fails part
-        // way leaves the folder as it is, so unread entries are not taken as gone.
-        let mut on_disk: HashMap<Vec<u8>, (bool, Option<Meta>)> = HashMap::new();
-        let mut listing_failed = false;
-        // Some entries were listed but could not be looked at.
-        let mut incomplete = false;
-        for entry in entries {
-            let Ok(entry) = entry else {
-                listing_failed = true;
-                break;
-            };
-            let name = entry.file_name().as_bytes().to_vec();
-            let Ok(ft) = entry.file_type() else {
-                listing_failed = true;
-                break;
-            };
-            if !skip.rules.accepts(&path, &name, ft.is_dir()) {
-                continue;
-            }
-            // No permission to look at the entry (folder readable but not
-            // searchable), or it vanished: the listing still gives its name
-            // and type, so additions and removals are applied, and the
-            // folder is read again next time to fill in what is missing.
-            let meta = skip.entry_meta(&entry, ft.is_dir()).ok();
-            incomplete |= meta.is_none();
-            on_disk.insert(name, (ft.is_dir(), meta));
-        }
-        if listing_failed {
-            stats.errors += 1;
-            continue;
-        }
-        stats.dirs_rescanned += 1;
-        stats.errors += usize::from(incomplete);
-        for kid in kids {
-            if !index.store().is_live(kid) {
-                continue;
-            }
-            let name = index.store().name(kid).to_vec();
-            match on_disk.remove(&name) {
-                Some((is_dir, meta)) if is_dir == index.store().is_dir(kid) => {
-                    if is_dir {
-                        // A folder keeps its saved time until it is visited itself;
-                        // updating it here would hide its own changes.
-                        queue.push_back(kid);
-                    } else if let Some(m) = meta.filter(|&m| m != index.store().meta(kid)) {
-                        index.set_meta(kid, m);
-                        stats.updated += 1;
-                    }
-                }
-                still_there => {
-                    stats.removed += index.remove(kid).len();
-                    if let Some(listed) = still_there {
-                        stats.added +=
-                            add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
-                    }
-                }
-            }
-        }
-        for (name, listed) in on_disk {
-            stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
-        }
-        let mtime_ns = if incomplete {
-            // The saved time differs from the folder's, so it is read again.
-            index.store().meta(dir).mtime_ns
-        } else {
-            meta.mtime_ns
-        };
-        index.set_meta(dir, Meta { mtime_ns, ..meta });
+        queue.extend(check_dir(
+            index, dir, skip, on_new_dir, progress, &mut stats,
+        ));
     }
     stats
+}
+
+/// Like [`catch_up_with`] for the folders `dirs` only, without going into
+/// their subfolders: each is read again when its time changed. For folders
+/// that were not watched (see [`crate::watch::Watcher::recheck_unwatched`]).
+pub(crate) fn recheck_dirs(
+    index: &mut Index,
+    dirs: &[NodeId],
+    skip: &Skip,
+    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+) -> CatchUpStats {
+    let mut stats = CatchUpStats::default();
+    for &dir in dirs {
+        if index.store().is_live(dir) && index.store().is_dir(dir) {
+            check_dir(index, dir, skip, on_new_dir, &Progress::new(), &mut stats);
+        }
+    }
+    stats
+}
+
+/// Checks the indexed folder `dir` as described in [`catch_up_with`] and
+/// returns its subfolders that still have to be checked.
+fn check_dir(
+    index: &mut Index,
+    dir: NodeId,
+    skip: &Skip,
+    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    progress: &Progress,
+    stats: &mut CatchUpStats,
+) -> Vec<NodeId> {
+    if !index.store().is_live(dir) {
+        return Vec::new();
+    }
+    stats.dirs_checked += 1;
+    progress.add(1);
+    let path = index.store().path(dir);
+    let m = match fs::symlink_metadata(&path) {
+        Ok(m) if m.is_dir() => m,
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            // Not allowed to look (for example under an unsearchable folder):
+            // keep what is indexed.
+            stats.errors += 1;
+            return Vec::new();
+        }
+        _ => {
+            stats.removed += index.remove(dir).len();
+            return Vec::new();
+        }
+    };
+    let meta = Meta::from_metadata(&m);
+    if index.store().parent(dir).is_some() && !skip.accepts(&path, true) {
+        stats.removed += index.remove(dir).len();
+        return Vec::new();
+    }
+    let kids: Vec<NodeId> = index.store().children(dir).collect();
+    if !skip.enters(&path) {
+        index.set_meta(dir, meta);
+        return Vec::new();
+    }
+    if meta.mtime_ns == index.store().meta(dir).mtime_ns {
+        return kids
+            .into_iter()
+            .filter(|&k| index.store().is_dir(k))
+            .collect();
+    }
+
+    let Ok(entries) = fs::read_dir(&path) else {
+        stats.errors += 1;
+        return Vec::new();
+    };
+    // Name -> (is folder, metadata if `lstat` worked). A listing that fails part
+    // way leaves the folder as it is, so unread entries are not taken as gone.
+    let mut on_disk: HashMap<Vec<u8>, (bool, Option<Meta>)> = HashMap::new();
+    let mut listing_failed = false;
+    // Some entries were listed but could not be looked at.
+    let mut incomplete = false;
+    for entry in entries {
+        let Ok(entry) = entry else {
+            listing_failed = true;
+            break;
+        };
+        let name = entry.file_name().as_bytes().to_vec();
+        let Ok(ft) = entry.file_type() else {
+            listing_failed = true;
+            break;
+        };
+        if !skip.rules.accepts(&path, &name, ft.is_dir()) {
+            continue;
+        }
+        // No permission to look at the entry (folder readable but not
+        // searchable), or it vanished: the listing still gives its name
+        // and type, so additions and removals are applied, and the
+        // folder is read again next time to fill in what is missing.
+        let meta = skip.entry_meta(&entry, ft.is_dir()).ok();
+        incomplete |= meta.is_none();
+        on_disk.insert(name, (ft.is_dir(), meta));
+    }
+    if listing_failed {
+        stats.errors += 1;
+        return Vec::new();
+    }
+    stats.dirs_rescanned += 1;
+    stats.errors += usize::from(incomplete);
+    let mut subfolders = Vec::new();
+    for kid in kids {
+        if !index.store().is_live(kid) {
+            continue;
+        }
+        let name = index.store().name(kid).to_vec();
+        match on_disk.remove(&name) {
+            Some((is_dir, meta)) if is_dir == index.store().is_dir(kid) => {
+                if is_dir {
+                    // A folder keeps its saved time until it is visited itself;
+                    // updating it here would hide its own changes.
+                    subfolders.push(kid);
+                } else if let Some(m) = meta.filter(|&m| m != index.store().meta(kid)) {
+                    index.set_meta(kid, m);
+                    stats.updated += 1;
+                }
+            }
+            still_there => {
+                stats.removed += index.remove(kid).len();
+                if let Some(listed) = still_there {
+                    stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
+                }
+            }
+        }
+    }
+    for (name, listed) in on_disk {
+        stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
+    }
+    let mtime_ns = if incomplete {
+        // The saved time differs from the folder's, so it is read again.
+        index.store().meta(dir).mtime_ns
+    } else {
+        meta.mtime_ns
+    };
+    index.set_meta(dir, Meta { mtime_ns, ..meta });
+    subfolders
 }
 
 /// Adds the listed entry `name` of the folder `dir` at `dir_path`: with

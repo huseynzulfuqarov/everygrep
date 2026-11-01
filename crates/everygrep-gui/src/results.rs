@@ -464,11 +464,16 @@ impl ResultsModel {
             count.push_str(labels::STATUS_GAP);
             count.push_str(&labels::selected(selected));
         }
-        let index = [
+        let mut index = [
             labels::indexed(self.indexed.get()).as_str(),
             labels::state_word(self.state.get()),
         ]
         .join(labels::STATUS_GAP);
+        let unwatched = self.engine.unwatched();
+        if self.state.get() == IndexState::Watching && unwatched.folders > 0 {
+            index.push_str(labels::STATUS_GAP);
+            index.push_str(&labels::unwatched(unwatched));
+        }
         let ms = self.took.get().as_secs_f64() * 1e3;
         let time = if ms < 10.0 {
             format!("{ms:.1} ms")

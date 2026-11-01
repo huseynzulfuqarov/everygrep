@@ -27,7 +27,7 @@ use crate::inotify::{Event, Inotify, Mask, WatchId};
 use crate::progress::Progress;
 use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
-use crate::sync::{CatchUpStats, add_tree, catch_up_with, online_roots};
+use crate::sync::{CatchUpStats, add_tree, catch_up_with, online_roots, recheck_dirs};
 
 /// What happened while applying a batch of events.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -51,7 +51,8 @@ struct Watches {
     inotify: Inotify,
     dir_of: HashMap<WatchId, NodeId>,
     watch_of: HashMap<NodeId, WatchId>,
-    failed: usize,
+    /// Folders whose watch could not be added, with the kind of error.
+    failed: HashMap<NodeId, io::ErrorKind>,
 }
 
 impl Watches {
@@ -67,8 +68,11 @@ impl Watches {
                     self.watch_of.remove(&old);
                 }
                 self.watch_of.insert(dir, wd);
+                self.failed.remove(&dir);
             }
-            Err(_) => self.failed += 1,
+            Err(e) => {
+                self.failed.insert(dir, e.kind());
+            }
         }
     }
 
@@ -76,6 +80,10 @@ impl Watches {
     fn remap(&mut self, remap: &[Option<NodeId>]) {
         let old = std::mem::take(&mut self.dir_of);
         self.watch_of.clear();
+        self.failed = std::mem::take(&mut self.failed)
+            .into_iter()
+            .filter_map(|(dir, kind)| Some((remap.get(dir.index()).copied().flatten()?, kind)))
+            .collect();
         for (wd, dir) in old {
             match remap.get(dir.index()).copied().flatten() {
                 Some(new) => {
@@ -92,6 +100,7 @@ impl Watches {
     /// Drops the watches of removed folders.
     fn forget(&mut self, removed: &[NodeId]) {
         for id in removed {
+            self.failed.remove(id);
             if let Some(wd) = self.watch_of.remove(id) {
                 self.dir_of.remove(&wd);
                 // The folder may still exist elsewhere (moved out), so stop watching it.
@@ -108,6 +117,8 @@ pub struct Watcher {
     buf: Vec<u8>,
     /// Folder times read at the end of the last batch, kept by the next one.
     unsettled: HashMap<NodeId, Meta>,
+    /// Where the next [`recheck_unwatched`](Self::recheck_unwatched) starts.
+    recheck_from: usize,
 }
 
 impl Watcher {
@@ -121,11 +132,12 @@ impl Watcher {
                 inotify: Inotify::new()?,
                 dir_of: HashMap::new(),
                 watch_of: HashMap::new(),
-                failed: 0,
+                failed: HashMap::new(),
             },
             skip: Skip::new(options),
             buf: Vec::new(),
             unsettled: HashMap::new(),
+            recheck_from: 0,
         };
         for root in online_roots(index) {
             w.watch_root(index, root);
@@ -207,9 +219,56 @@ impl Watcher {
         self.watches.dir_of.len()
     }
 
-    /// Folders that could not be watched (for example permission denied).
+    /// Folders that could not be watched (for example permission denied,
+    /// or the limit of watches reached). Changes inside them are found by
+    /// [`recheck_unwatched`](Self::recheck_unwatched).
     pub fn failed_watches(&self) -> usize {
-        self.watches.failed
+        self.watches.failed.len()
+    }
+
+    /// How many folders could not be watched, by the kind of error:
+    /// `StorageFull` when the limit of inotify watches
+    /// (`fs.inotify.max_user_watches`) was reached, `PermissionDenied` for a
+    /// folder that cannot be read (and so has no entries indexed either).
+    pub fn failed_watch_kinds(&self) -> impl Iterator<Item = io::ErrorKind> + '_ {
+        self.watches.failed.values().copied()
+    }
+
+    /// Tries again to watch up to `max` of the folders that could not be
+    /// watched, and reads again those whose time changed, as a catch-up
+    /// would. Each call goes on where the last one stopped. Call it from time
+    /// to time while [`failed_watches`](Self::failed_watches) is not zero:
+    /// without a watch, changes inside such a folder are not reported.
+    pub fn recheck_unwatched(&mut self, index: &mut Index, max: usize) -> CatchUpStats {
+        // Folders removed by the owner of the index without this watcher.
+        self.watches
+            .failed
+            .retain(|&dir, _| index.store().is_live(dir));
+        let mut failed: Vec<NodeId> = self.watches.failed.keys().copied().collect();
+        failed.sort_unstable_by_key(|id| id.index());
+        let start = failed.partition_point(|id| id.index() < self.recheck_from);
+        let dirs: Vec<NodeId> = failed[start..]
+            .iter()
+            .chain(&failed[..start])
+            .take(max)
+            .copied()
+            .collect();
+        self.recheck_from = dirs.last().map_or(0, |id| id.index() + 1);
+        let mut limit_reached = false;
+        for &dir in &dirs {
+            if !limit_reached && index.store().is_live(dir) {
+                self.watches.watch(index, dir, &self.skip);
+                // The others would fail the same way.
+                limit_reached = self.watches.failed.get(&dir) == Some(&io::ErrorKind::StorageFull);
+            }
+        }
+        let watches = &mut self.watches;
+        let skip = &self.skip;
+        let stats = recheck_dirs(index, &dirs, skip, &mut |idx: &Index, dir| {
+            watches.watch(idx, dir, skip)
+        });
+        self.watches.forget(&index.take_removed());
+        stats
     }
 
     /// Whether [`apply`](Self::apply) has work to do even without events:
@@ -384,14 +443,20 @@ impl Watcher {
             }
         }
         // The times read at the end of the previous batch: every event queued
-        // before them has now been read and applied.
+        // before them has now been read and applied. Only a watched folder
+        // reports its changes; one without a watch keeps its older time.
+        let keeps_time = |index: &Index, watches: &Watches, dir: NodeId| {
+            index.store().is_live(dir)
+                && !incomplete.contains(&dir)
+                && watches.watch_of.contains_key(&dir)
+        };
         for (dir, meta) in std::mem::take(&mut self.unsettled) {
-            if index.store().is_live(dir) && !incomplete.contains(&dir) {
+            if keeps_time(index, &self.watches, dir) {
                 index.set_meta(dir, meta);
             }
         }
         for dir in touched {
-            if index.store().is_live(dir) && !incomplete.contains(&dir) {
+            if keeps_time(index, &self.watches, dir) {
                 if let Ok(m) = fs::symlink_metadata(index.store().path(dir)) {
                     self.unsettled.insert(dir, Meta::from_metadata(&m));
                 }
@@ -801,6 +866,67 @@ mod tests {
             .unwrap();
         let on_disk = Meta::from_metadata(&fs::symlink_metadata(&docs).unwrap());
         assert_eq!(f.index.store().meta(id).mtime_ns, on_disk.mtime_ns);
+    }
+
+    #[test]
+    fn folders_that_could_not_be_watched_are_checked_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = Fixture::new("unwatched");
+        let docs = f.root().join("docs");
+        // Indexed, but not readable while the watches are added.
+        fs::set_permissions(&docs, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_dir(&docs).is_ok() {
+            fs::set_permissions(&docs, fs::Permissions::from_mode(0o755)).unwrap();
+            panic!("test requires an unprivileged user");
+        }
+        f.watcher = Watcher::new(&f.index, &ScanOptions::default()).unwrap();
+        fs::set_permissions(&docs, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(f.watcher.failed_watches(), 1);
+        assert_eq!(
+            f.watcher.failed_watch_kinds().collect::<Vec<_>>(),
+            [io::ErrorKind::PermissionDenied]
+        );
+        // Without a watch nothing reports these.
+        fs::write(docs.join("new.txt"), b"n").unwrap();
+        fs::remove_file(docs.join("a.txt")).unwrap();
+        f.settle(|_| false);
+        assert!(!has(&f.index, &docs.join("new.txt")));
+        assert!(has(&f.index, &docs.join("a.txt")));
+
+        let stats = f.watcher.recheck_unwatched(&mut f.index, 100);
+        assert_eq!((stats.added, stats.removed), (1, 1), "{stats:?}");
+        assert_eq!(f.watcher.failed_watches(), 0);
+        assert!(has(&f.index, &docs.join("new.txt")));
+        assert!(!has(&f.index, &docs.join("a.txt")));
+        // Watched from now on.
+        fs::write(docs.join("later.txt"), b"l").unwrap();
+        assert!(f.settle(|i| has(i, &docs.join("later.txt"))));
+    }
+
+    #[test]
+    fn rechecks_of_unwatched_folders_take_turns() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = Fixture::new("unwatched-turns");
+        let locked: Vec<PathBuf> = (0..3).map(|i| f.root().join(format!("l{i}"))).collect();
+        for dir in &locked {
+            fs::create_dir(dir).unwrap();
+        }
+        let mut store = NodeStore::new();
+        scan(&mut store, &[f.root()], &ScanOptions::default());
+        f.index = Index::new(store);
+        for dir in &locked {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        f.watcher = Watcher::new(&f.index, &ScanOptions::default()).unwrap();
+        assert_eq!(f.watcher.failed_watches(), 3);
+        for dir in &locked {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Two at a time: the second call picks up the one left over.
+        f.watcher.recheck_unwatched(&mut f.index, 2);
+        assert_eq!(f.watcher.failed_watches(), 1);
+        f.watcher.recheck_unwatched(&mut f.index, 2);
+        assert_eq!(f.watcher.failed_watches(), 0);
     }
 
     #[test]

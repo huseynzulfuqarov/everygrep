@@ -1076,6 +1076,18 @@ msgid "{} offline"
 msgstr "{} çevrim dışı"
 
 #: src/labels.rs
+msgid "{} folder not watched"
+msgid_plural "{} folders not watched"
+msgstr[0] "{} klasör izlenmiyor"
+msgstr[1] "{} klasör izlenmiyor"
+
+#: src/labels.rs
+msgid "{} folder not watched: watch limit reached"
+msgid_plural "{} folders not watched: watch limit reached"
+msgstr[0] "{} klasör izlenmiyor: izleme sınırına ulaşıldı"
+msgstr[1] "{} klasör izlenmiyor: izleme sınırına ulaşıldı"
+
+#: src/labels.rs
 msgid "Offline: the drive is not connected"
 msgstr "Çevrim dışı: sürücü bağlı değil"
 
