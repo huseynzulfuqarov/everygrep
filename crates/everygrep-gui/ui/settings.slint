@@ -96,7 +96,7 @@ export component SettingsWindow inherits Window {
     background: Theme.surface;
     default-font-size: Theme.body;
 
-    // 0 indexing, 1 search, 2 appearance, 3 window, 4 keyboard shortcut.
+    // 0 indexing, 1 search, 2 appearance, 3 window, 4 keyboard.
     in-out property <int> page: 0;
     // A problem with the settings file or the last action; empty when fine.
     in property <string> error;
@@ -179,7 +179,18 @@ export component SettingsWindow inherits Window {
     in property <string> folder-size-note;
     callback window-changed();
 
-    // Keyboard shortcut
+    // Keyboard: the commands of the main window shown for the filter, the
+    // chosen one (-1 for none) and its keys.
+    in-out property <string> key-filter;
+    in property <[StandardListViewItem]> key-commands;
+    in-out property <int> key-current: -1;
+    in property <[StandardListViewItem]> key-bindings;
+    in-out property <int> key-binding-current: -1;
+    callback key-filter-edited(string);
+    callback key-command-chosen(int);
+    callback remove-binding(int);
+    callback restore-keys();
+    // Opening EveryGrep with a desktop shortcut.
     in property <[ShortcutCommand]> commands;
     in property <string> shortcut-steps;
     callback copy-command(int);
@@ -238,7 +249,7 @@ export component SettingsWindow inherits Window {
                             { text: @tr("Search") },
                             { text: @tr("Appearance") },
                             { text: @tr("Window") },
-                            { text: @tr("Keyboard shortcut") },
+                            { text: @tr("Keyboard") },
                         ];
                         // Not bound to the page: the list keeps its own
                         // keyboard position, which set-current-item() moves.
@@ -686,6 +697,68 @@ export component SettingsWindow inherits Window {
                             spacing: Theme.s3;
                             alignment: start;
                             vertical-stretch: 1;
+                            Heading { text: @tr("Shortcuts in the window"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Show commands containing:");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    accessible-label: @tr("Show commands containing:");
+                                    text <=> root.key-filter;
+                                    edited(text) => { root.key-filter-edited(text); }
+                                }
+                            }
+                            Rectangle {
+                                height: 220px;
+                                StandardListView {
+                                    accessible-label: @tr("Commands");
+                                    model: root.key-commands;
+                                    current-item <=> root.key-current;
+                                    current-item-changed(i) => { root.key-command-chosen(i); }
+                                }
+                                if root.key-commands.length == 0: Note {
+                                    text: @tr("No command matches.");
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Text {
+                                text: @tr("Shortcuts for the selected command:");
+                                color: Theme.text;
+                            }
+                            Rectangle {
+                                height: 96px;
+                                bindings := StandardListView {
+                                    accessible-label: @tr("Shortcuts for the selected command:");
+                                    model: root.key-bindings;
+                                    current-item <=> root.key-binding-current;
+                                }
+                                if root.key-current >= 0 && root.key-bindings.length == 0: Note {
+                                    text: @tr("None");
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.s2;
+                                Button {
+                                    text: @tr("Remove");
+                                    enabled: root.key-binding-current >= 0
+                                        && root.key-binding-current < root.key-bindings.length;
+                                    clicked => { root.remove-binding(root.key-binding-current); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                Button {
+                                    text: @tr("Reset to defaults");
+                                    clicked => { root.restore-keys(); }
+                                }
+                            }
+                            Note { text: @tr("Movement keys, Tab and Esc cannot be changed. A key of the search field or the result list wins over a global key while that control has the focus."); }
+                            Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Open EveryGrep with a key"); }
                             Note { text: root.shortcut-steps; color: Theme.text; }
                             for c[i] in root.commands: VerticalLayout {

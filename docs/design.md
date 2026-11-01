@@ -295,7 +295,7 @@ window with `Esc` is planned.
 
 Settings open in a separate window (`Ctrl+,`, Tools → Settings…, the overflow
 menu, or `--settings`): a list of pages on the left (Indexing, Search,
-Appearance, Window, Keyboard shortcut), the page on the right. Appearance
+Appearance, Window, Keyboard), the page on the right. Appearance
 holds the language, the theme, the density, the selection details and the
 menu bar. `Ctrl+PgUp`/`Ctrl+PgDn` switch
 pages and `Esc` closes the window.

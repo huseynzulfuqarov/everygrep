@@ -239,10 +239,6 @@ msgid "Window"
 msgstr "Pencere"
 
 #: ui/settings.slint
-msgid "Keyboard shortcut"
-msgstr "Klavye kısayolu"
-
-#: ui/settings.slint
 msgid "Folders to index"
 msgstr "Dizine eklenecek klasörler"
 
@@ -1633,3 +1629,43 @@ msgstr "Azalan"
 #: ui/app.slint
 msgid "More: {}"
 msgstr "Diğer: {}"
+
+#: ui/settings.slint
+msgid "Keyboard"
+msgstr "Klavye"
+
+#: ui/settings.slint
+msgid "Shortcuts in the window"
+msgstr "Penceredeki kısayollar"
+
+#: ui/settings.slint
+msgid "Show commands containing:"
+msgstr "Şunu içeren komutları göster:"
+
+#: ui/settings.slint
+msgid "Commands"
+msgstr "Komutlar"
+
+#: ui/settings.slint
+msgid "No command matches."
+msgstr "Eşleşen komut yok."
+
+#: ui/settings.slint
+msgid "Shortcuts for the selected command:"
+msgstr "Seçili komutun kısayolları:"
+
+#: ui/settings.slint
+msgid "None"
+msgstr "Yok"
+
+#: ui/settings.slint
+msgid "Movement keys, Tab and Esc cannot be changed. A key of the search field or the result list wins over a global key while that control has the focus."
+msgstr "Hareket tuşları, Tab ve Esc değiştirilemez. Arama alanının veya sonuç listesinin bir tuşu, odak ondayken genel tuşa göre önceliklidir."
+
+#: ui/settings.slint
+msgid "Global"
+msgstr "Genel"
+
+#: ui/settings.slint
+msgid "Search field"
+msgstr "Arama alanı"

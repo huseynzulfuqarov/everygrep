@@ -117,7 +117,7 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--ignore-whitespace] [--regex]
               [--columns type,extension,created,accessed,attributes]
               [--new-instance] [--new-window] [--toggle] [--background]
-              [--settings[=indexing|search|appearance|window|shortcut]] [query words...]
+              [--settings[=indexing|search|appearance|window|keyboard]] [query words...]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
@@ -253,7 +253,14 @@ the program behaves as before, except that folders show their total size.
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
 | | focus the search field and select its text when the window is shown again | on |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
-| Keyboard shortcut | how to open EveryGrep with a key (see below) | — |
+| Keyboard | the keys of the window's commands (see below), and how to open EveryGrep with a key | the keys listed above |
+
+On the Keyboard page, "Show commands containing:" filters the commands by
+name, menu or key (case and diacritics ignored). Choose a command to see its
+keys, each with where it works: Global (anywhere in the window), Search field
+or Result list. Remove takes one away; "Reset to defaults" gives every
+command its original keys. Movement keys, `Tab` and `Esc` cannot be
+changed. `--settings=shortcut` still opens this page.
 
 "Same as the desktop" follows the desktop's light or dark style (the
 `color-scheme` of the XDG settings portal) and recolors the window when it
@@ -434,7 +441,7 @@ To open the window with a key, add a GNOME shortcut: Settings → Keyboard →
 View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,
 command `everygrep-gui` (show), `everygrep-gui --toggle` (show or hide) or
 `everygrep-gui --new-window` (new window), then press the keys you want; one
-shortcut per command. The Keyboard shortcut page of the settings shows the
+shortcut per command. The Keyboard page of the settings shows the
 same steps and copies each command. EveryGrep does not grab keys itself: the
 desktop runs the command, so the keys work even when EveryGrep is not
 running.

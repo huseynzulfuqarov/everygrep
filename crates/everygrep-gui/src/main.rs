@@ -1450,7 +1450,7 @@ options:
                          (used when starting on login); nothing happens when
                          EveryGrep already runs
   --settings[=<page>]    open the settings window too, at a page: indexing,
-                         search, appearance, window, shortcut
+                         search, appearance, window, keyboard
   -h, --help             print this help
   -V, --version          print the version";
 
@@ -1890,6 +1890,8 @@ mod tests {
         assert_eq!(args(&["--settings=appearance"]).settings_page, Some(2));
         assert!(parse(&["--settings=nope"]).is_err());
         assert_eq!(present_args(&["--settings=search"]).settings_page, Some(1));
+        assert_eq!(args(&["--settings=keyboard"]).settings_page, Some(4));
+        assert_eq!(args(&["--settings=shortcut"]).settings_page, Some(4));
         assert_eq!(args(&["--", "--settings"]).query, "--settings");
     }
 

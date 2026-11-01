@@ -12,9 +12,6 @@
 //!
 //! Nothing here touches a window, so all of it is tested headless.
 
-// The menus and the keyboard settings use the rest of this module.
-#![allow(dead_code)]
-
 use std::cell::RefCell;
 use std::fmt;
 
@@ -54,6 +51,44 @@ impl Scope {
             .ok()
             .and_then(|i| Scope::ALL.get(i).copied())
     }
+
+    /// The scope's name after a key in a list: `Ctrl+C (Result list)`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Scope::Global => tr("Global"),
+            Scope::Search => tr("Search field"),
+            Scope::List => tr("Result list"),
+        }
+    }
+}
+
+/// A key of a command with its scope, as listed in the keyboard settings.
+pub fn binding_text(scope: Scope, chord: Chord) -> String {
+    format!("{} ({})", chord.display(), scope.name())
+}
+
+/// Whether the keyboard settings list `spec` for the text typed in their
+/// filter: a part of its category, its label or its keys, ignoring case and
+/// diacritics.
+pub fn matches_filter(filter: &str, spec: &Spec, keymap: &Keymap) -> bool {
+    let fold = |text: &str| {
+        everygrep_core::fold::strip_diacritics(&everygrep_core::fold::fold(text.as_bytes()))
+    };
+    let needle = fold(filter.trim());
+    if needle.is_empty() {
+        return true;
+    }
+    let keys: Vec<String> = keymap
+        .of(spec.cmd)
+        .flat_map(|b| [b.chord.display(), b.chord.to_string()])
+        .collect();
+    let hay = fold(&format!(
+        "{} {} {}",
+        spec.category.name(),
+        (spec.label)(),
+        keys.join(" ")
+    ));
+    hay.windows(needle.len()).any(|w| w == needle.as_slice())
 }
 
 /// The key of a [`Chord`], without its modifiers.
@@ -757,6 +792,23 @@ impl Keymap {
             .collect()
     }
 
+    /// Removes the `n`th key of `cmd`; false when it has none such.
+    pub fn remove(&mut self, cmd: Command, n: usize) -> bool {
+        let Some(at) = self
+            .bindings
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.cmd == cmd)
+            .nth(n)
+            .map(|(i, _)| i)
+        else {
+            return false;
+        };
+        self.bindings.remove(at);
+        true
+    }
+
+    #[cfg(test)]
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings
     }
@@ -1256,6 +1308,54 @@ mod tests {
             assert!(fields.contains(&format!("    {v}: keys,")), "{v}");
         }
         assert_eq!(fields.matches(": keys,").count(), variants.len());
+    }
+
+    #[test]
+    fn the_filter_finds_labels_categories_and_keys() {
+        let map = Keymap::default();
+        let found = |filter: &str| -> Vec<&str> {
+            COMMANDS
+                .iter()
+                .filter(|s| matches_filter(filter, s, &map))
+                .map(|s| s.id)
+                .collect()
+        };
+        assert_eq!(found("").len(), COMMANDS.len());
+        assert_eq!(found("  ").len(), COMMANDS.len());
+        assert!(found("copy full").contains(&"edit.copy-full-path"));
+        assert!(found("COPY FULL").contains(&"edit.copy-full-path"));
+        assert_eq!(found("ctrl+shift+c"), ["edit.copy-full-path"]);
+        assert_eq!(found("F2"), ["edit.rename"]);
+        assert!(found("tools").contains(&"tools.settings"));
+        assert!(found("diacritics").contains(&"search.match-diacritics"));
+        // Diacritics in the filter are ignored too.
+        assert!(found("dïacritics").contains(&"search.match-diacritics"));
+        // The arrow and the name both find a key.
+        assert!(found("alt+←").contains(&"search.previous"));
+        assert!(found("alt+left").contains(&"search.previous"));
+        assert!(found("nothing like this").is_empty());
+    }
+
+    #[test]
+    fn keys_are_removed_one_at_a_time() {
+        let mut map = Keymap::default();
+        assert!(map.remove(Command::FocusSearch, 1));
+        assert_eq!(map.display(Command::FocusSearch), "Ctrl+F");
+        assert!(!map.remove(Command::FocusSearch, 1));
+        assert_eq!(
+            map.overrides(),
+            [(
+                "edit.focus-search".to_owned(),
+                vec![(Scope::List, chord("Ctrl+F"))]
+            )]
+        );
+        assert!(map.remove(Command::FocusSearch, 0));
+        assert_eq!(map.overrides(), [("edit.focus-search".to_owned(), vec![])]);
+        assert_eq!(map.resolve(Scope::List, &chord("Ctrl+F")), None);
+        assert_eq!(
+            binding_text(Scope::List, chord("Ctrl+C")),
+            "Ctrl+C (Result list)"
+        );
     }
 
     #[test]

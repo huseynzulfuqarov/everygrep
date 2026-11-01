@@ -15,11 +15,12 @@ use everygrep_core::query::QueryOptions;
 use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::normalize_roots;
 use everygrep_core::sort::FolderSize;
-use slint::{ComponentHandle, ModelRc, SharedString, StandardListViewItem, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 
 use crate::MenuChoice;
 
 use crate::autostart;
+use crate::commands::{self, COMMANDS, Keymap};
 use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
 use crate::i18n;
@@ -28,10 +29,10 @@ use crate::portal::ColorScheme;
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
-use crate::{AppWindow, DriveRow, SettingsWindow, ShortcutCommand, labels};
+use crate::{AppWindow, Command, DriveRow, SettingsWindow, ShortcutCommand, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
-pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "shortcut"];
+pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "keyboard"];
 
 /// The page with the keyboard settings.
 pub const KEYBOARD_PAGE: usize = 4;
@@ -39,7 +40,8 @@ pub const KEYBOARD_PAGE: usize = 4;
 /// The command a desktop shortcut runs, and the flags of its variants.
 const COMMAND: &str = "everygrep-gui";
 
-/// The commands on the Keyboard shortcut page: plain, toggle, new window.
+/// The commands on the Keyboard page for a desktop shortcut: plain, toggle,
+/// new window.
 fn shortcut_commands() -> [String; 3] {
     [
         COMMAND.to_owned(),
@@ -145,6 +147,11 @@ pub struct Prefs {
     language_set: Cell<bool>,
     /// UUIDs of the drives in the settings window's list, in its order.
     listed_drives: RefCell<Vec<String>>,
+    /// The Keyboard page: the text of its filter, the commands listed for
+    /// it in order, and the chosen command.
+    key_filter: RefCell<String>,
+    listed_commands: RefCell<Vec<Command>>,
+    key_chosen: Cell<Option<Command>>,
 }
 
 thread_local! {
@@ -217,6 +224,9 @@ impl Prefs {
             scheme_set: Cell::new(false),
             language_set: Cell::new(false),
             listed_drives: RefCell::default(),
+            key_filter: RefCell::default(),
+            listed_commands: RefCell::default(),
+            key_chosen: Cell::new(None),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
         prefs
@@ -700,7 +710,91 @@ impl Prefs {
             .collect();
         w.set_commands(ModelRc::new(VecModel::from(commands)));
         w.set_shortcut_steps(labels::shortcut_steps().into());
+        self.fill_keys(w);
         w.set_error(self.error.borrow().as_str().into());
+    }
+
+    /// The Keyboard page: the commands that match the filter with their
+    /// keys, and the keys of the chosen one.
+    fn fill_keys(&self, w: &SettingsWindow) {
+        let item = |text: String| StandardListViewItem::from(SharedString::from(text));
+        let filter = self.key_filter.borrow().clone();
+        let (rows, listed, bindings) = commands::with_current(|k| {
+            let listed: Vec<Command> = COMMANDS
+                .iter()
+                .filter(|spec| commands::matches_filter(&filter, spec, k))
+                .map(|spec| spec.cmd)
+                .collect();
+            let rows: Vec<StandardListViewItem> = listed
+                .iter()
+                .filter_map(|&c| commands::spec(c))
+                .map(|spec| {
+                    let keys: Vec<String> = k
+                        .of(spec.cmd)
+                        .map(|b| commands::binding_text(b.scope, b.chord))
+                        .collect();
+                    let head = format!("{} | {}", spec.category.name(), (spec.label)());
+                    item(if keys.is_empty() {
+                        head
+                    } else {
+                        format!("{head}  —  {}", keys.join(", "))
+                    })
+                })
+                .collect();
+            let bindings: Vec<StandardListViewItem> = self
+                .key_chosen
+                .get()
+                .map(|c| {
+                    k.of(c)
+                        .map(|b| item(commands::binding_text(b.scope, b.chord)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (rows, listed, bindings)
+        });
+        let current = self
+            .key_chosen
+            .get()
+            .and_then(|c| listed.iter().position(|&l| l == c))
+            .map_or(-1, |i| i as i32);
+        if bindings.len() as i32 <= w.get_key_binding_current() {
+            w.set_key_binding_current(-1);
+        }
+        // The lists are replaced only when they changed, so a refresh keeps
+        // their scroll position.
+        let same = |model: ModelRc<StandardListViewItem>, rows: &[StandardListViewItem]| {
+            model.row_count() == rows.len() && model.iter().zip(rows).all(|(a, b)| a.text == b.text)
+        };
+        if !same(w.get_key_commands(), &rows) {
+            w.set_key_commands(ModelRc::new(VecModel::from(rows)));
+        }
+        w.set_key_current(current);
+        if !same(w.get_key_bindings(), &bindings) {
+            w.set_key_bindings(ModelRc::new(VecModel::from(bindings)));
+        }
+        *self.listed_commands.borrow_mut() = listed;
+    }
+
+    /// Uses `keymap` from now on: saves the commands whose keys differ from
+    /// the defaults and gives the main window the new keys.
+    fn set_keymap(&self, keymap: Keymap) {
+        let overrides = keymap.overrides();
+        commands::set_current(keymap);
+        self.change(|s| s.set_shortcuts(overrides.clone()));
+        if let Some(m) = self.main.upgrade() {
+            crate::apply_keys(&m);
+        }
+        self.refresh();
+    }
+
+    /// Puts every command back to its default keys.
+    fn restore_keys(&self) {
+        commands::set_current(Keymap::default());
+        self.change(|s| s.reset_shortcuts());
+        if let Some(m) = self.main.upgrade() {
+            crate::apply_keys(&m);
+        }
+        self.refresh();
     }
 
     fn connect(self: &Rc<Self>, w: &SettingsWindow) {
@@ -787,6 +881,45 @@ impl Prefs {
                 m.set_notice(labels::command_copied().into());
             }
         }));
+        w.on_key_filter_edited({
+            let me = me.clone();
+            move |text| {
+                if let Some(p) = me.upgrade() {
+                    *p.key_filter.borrow_mut() = text.to_string();
+                    p.refresh();
+                }
+            }
+        });
+        w.on_key_command_chosen({
+            let me = me.clone();
+            move |i| {
+                if let Some(p) = me.upgrade() {
+                    let chosen = usize::try_from(i)
+                        .ok()
+                        .and_then(|i| p.listed_commands.borrow().get(i).copied());
+                    if chosen != p.key_chosen.get() {
+                        p.key_chosen.set(chosen);
+                        if let Some(w) = p.window.borrow().as_ref() {
+                            w.set_key_binding_current(-1);
+                        }
+                    }
+                    p.refresh();
+                }
+            }
+        });
+        w.on_remove_binding(on_index(|p, i| {
+            let Some(cmd) = p.key_chosen.get() else {
+                return;
+            };
+            let mut keymap = commands::with_current(Keymap::clone);
+            if keymap.remove(cmd, i) {
+                if let Some(w) = p.window.borrow().as_ref() {
+                    w.set_key_binding_current(-1);
+                }
+                p.set_keymap(keymap);
+            }
+        }));
+        w.on_restore_keys(on(|p| p.restore_keys()));
         w.on_reset_page(on_index(|p, i| p.reset(i)));
         w.on_close_window(on(|p| {
             if let Some(w) = p.window.borrow().as_ref() {
@@ -1159,9 +1292,13 @@ pub fn choices<T: Copy + PartialEq>(
     ModelRc::new(VecModel::from(items))
 }
 
-/// The page index for a `--settings=<page>` name.
+/// The page index for a `--settings=<page>` name; `shortcut`, the
+/// Keyboard page's old name, still opens it.
 pub fn page_index(name: &str) -> Option<usize> {
-    PAGES.iter().position(|p| *p == name)
+    match name {
+        "shortcut" => Some(KEYBOARD_PAGE),
+        _ => PAGES.iter().position(|p| *p == name),
+    }
 }
 
 #[cfg(test)]
@@ -1241,7 +1378,9 @@ mod tests {
     fn page_names() {
         assert_eq!(page_index("indexing"), Some(0));
         assert_eq!(page_index("appearance"), Some(2));
+        assert_eq!(page_index("keyboard"), Some(4));
         assert_eq!(page_index("shortcut"), Some(4));
+        assert_eq!(PAGES[KEYBOARD_PAGE], "keyboard");
         assert_eq!(page_index("nope"), None);
     }
 }

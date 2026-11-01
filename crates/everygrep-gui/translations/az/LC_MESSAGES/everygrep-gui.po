@@ -239,10 +239,6 @@ msgid "Window"
 msgstr "Pəncərə"
 
 #: ui/settings.slint
-msgid "Keyboard shortcut"
-msgstr "Klaviatura qısayolu"
-
-#: ui/settings.slint
 msgid "Folders to index"
 msgstr "İndekslənən qovluqlar"
 
@@ -1633,3 +1629,43 @@ msgstr "Azalan"
 #: ui/app.slint
 msgid "More: {}"
 msgstr "Daha çox: {}"
+
+#: ui/settings.slint
+msgid "Keyboard"
+msgstr "Klaviatura"
+
+#: ui/settings.slint
+msgid "Shortcuts in the window"
+msgstr "Pəncərədəki qısayollar"
+
+#: ui/settings.slint
+msgid "Show commands containing:"
+msgstr "Bunu ehtiva edən əmrləri göstər:"
+
+#: ui/settings.slint
+msgid "Commands"
+msgstr "Əmrlər"
+
+#: ui/settings.slint
+msgid "No command matches."
+msgstr "Uyğun əmr yoxdur."
+
+#: ui/settings.slint
+msgid "Shortcuts for the selected command:"
+msgstr "Seçilmiş əmrin qısayolları:"
+
+#: ui/settings.slint
+msgid "None"
+msgstr "Yoxdur"
+
+#: ui/settings.slint
+msgid "Movement keys, Tab and Esc cannot be changed. A key of the search field or the result list wins over a global key while that control has the focus."
+msgstr "Hərəkət düymələri, Tab və Esc dəyişdirilə bilməz. Axtarış sahəsinin və ya nəticə siyahısının düyməsi, fokus onda olanda qlobal düymədən üstündür."
+
+#: ui/settings.slint
+msgid "Global"
+msgstr "Qlobal"
+
+#: ui/settings.slint
+msgid "Search field"
+msgstr "Axtarış sahəsi"

@@ -185,6 +185,11 @@ First version, 0.1.0, not released yet.
   `⋯` menu has the same entries and names their keys for screen readers.
 - Changed keys are saved in the settings file, one `shortcut` line per
   command whose keys differ from the defaults.
+- The settings page "Keyboard shortcut" is now "Keyboard"
+  (`--settings=keyboard`; `shortcut` still works). It lists the window's
+  commands with their keys and where each key works, filtered by "Show
+  commands containing:", and removes keys or resets all of them to the
+  defaults.
 - Removable drives mounted by the desktop are indexed automatically, each
   into its own file and recognised by file system UUID. A removed drive's
   entries stay searchable, dimmed and with file actions refused, or are

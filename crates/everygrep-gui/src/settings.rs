@@ -694,7 +694,6 @@ impl Settings {
     /// Takes the commands whose keys differ from the defaults (see
     /// [`commands::Keymap::overrides`]). A kept line that could not be read
     /// for one of them is dropped, since the new keys replace it.
-    #[allow(dead_code)] // The keyboard settings page uses it.
     pub fn set_shortcuts(&mut self, shortcuts: Vec<(String, Vec<(Scope, Chord)>)>) {
         self.unknown.retain(|line| {
             shortcut_line_id(line).is_none_or(|id| !shortcuts.iter().any(|(i, _)| i == id))
@@ -704,7 +703,6 @@ impl Settings {
 
     /// Puts every command back to its default keys: all `shortcut` lines
     /// go, also those that could not be read.
-    #[allow(dead_code)] // The keyboard settings page uses it.
     pub fn reset_shortcuts(&mut self) {
         self.shortcuts.clear();
         self.unknown.retain(|line| shortcut_line_id(line).is_none());
@@ -809,7 +807,6 @@ fn shortcut_value(id: &str, keys: &[(Scope, Chord)]) -> String {
 }
 
 /// The command id of a `shortcut` line kept as it was read.
-#[allow(dead_code)] // The keyboard settings page uses it.
 fn shortcut_line_id(line: &str) -> Option<&str> {
     let (key, value) = line.split_once('=')?;
     (key.trim_ascii() == "shortcut").then(|| value.trim_ascii().split(' ').next().unwrap_or(""))
