@@ -36,7 +36,7 @@ is none, when roots or indexing rules differ from the saved ones, or with --resc
 
 options:
   --root <path>      folder to index (repeatable, default: saved roots or $HOME)
-  --index-file <p>   index location (default: ~/.cache/everygrep/index.bin)
+  --index-file <p>   index location (default: ~/.cache/everygrep/cli-index.bin)
   --rescan           scan even if a saved index exists
   --watch            shell only: apply file changes before every query and save
                      the index on exit
@@ -79,7 +79,7 @@ fn parse_args() -> Result<Args, String> {
         command,
         query: String::new(),
         roots: Vec::new(),
-        index_file: persist::default_path(),
+        index_file: persist::default_cli_path(),
         rescan: false,
         watch: false,
         scan: ScanOptions::default(),

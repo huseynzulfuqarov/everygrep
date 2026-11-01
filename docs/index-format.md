@@ -6,15 +6,22 @@ describes what that code does.
 
 ## Location
 
-`$XDG_CACHE_HOME/everygrep/index.bin` (only an absolute `XDG_CACHE_HOME` is
-used), otherwise `~/.cache/everygrep/index.bin`. Both programs take
-`--index-file <path>` to use another file. The file is a cache: deleting it
-only makes the next start scan again.
+The window uses `$XDG_CACHE_HOME/everygrep/index.bin` (only an absolute
+`XDG_CACHE_HOME` is used), otherwise `~/.cache/everygrep/index.bin`. The
+command line tool uses `cli-index.bin` in the same folder, so the two
+programs, which usually index with different folders or rules, never replace
+each other's index. Both take `--index-file <path>` to use another file;
+giving both the same file shares it, and each then builds it again whenever
+the other saved it with other folders or rules. The file is a cache:
+deleting it only makes the next start scan again. An `index.bin` written by
+an earlier command line tool is used by the window only if its rules match
+the window's; otherwise the window builds it again, and the command line
+tool builds its own file once.
 
 Each removable drive the window indexed has a file of the same format in
 the `volumes` folder next to it, `volumes/<uuid>.bin`, with one root: the
-drive's mount point when it was saved. The index file itself holds only the
-folders to index. Next to each drive file, `volumes/<uuid>.info` is a small
+drive's mount point when it was saved, and the rules it was read with. The
+index file itself holds only the folders to index. Next to each drive file, `volumes/<uuid>.info` is a small
 text file of `key = value` lines (`uuid`, `label`, `path`, `last-seen` in
 seconds since 1970, `entries`; `\\`, `\n` and `\xHH` escapes in values).
 Deleting a drive's files makes the window forget it.
@@ -114,10 +121,11 @@ After reading:
 
 Any failure gives an `InvalidData` error ("not an index file", "unsupported
 version", "checksum mismatch", …) and the programs scan again instead. A file
-of version 4 or 5 loads with unknown indexing rules. The CLI rebuilds these
-caches and caches with a different rules fingerprint, using the saved roots
-when no roots were specified. Other unsupported versions are replaced by the
-next save.
+of version 4 or 5 loads with unknown indexing rules. Both programs rebuild
+these caches and caches with a different rules fingerprint, using the saved
+roots when no roots were specified; the window reads a drive whose file has
+other or unknown rules again when it is connected. Other unsupported
+versions are replaced by the next save.
 
 ## Version history
 

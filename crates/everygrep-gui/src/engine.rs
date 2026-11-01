@@ -295,6 +295,9 @@ struct Volume {
     /// when its entries are not in the index.
     root: Option<PathBuf>,
     online: bool,
+    /// The rules its entries were read with, saved with them; meaningful
+    /// only while `root` is set.
+    rules: IndexRules,
 }
 
 /// Changes to the drives asked for by the window, carried out on the index
@@ -312,6 +315,7 @@ enum DriveCommand {
 struct Scanned {
     drive: Drive,
     index: Option<Index>,
+    rules: IndexRules,
 }
 
 /// Shared engine state.
@@ -805,14 +809,18 @@ impl Engine {
                 let mut roots = self.roots.lock().expect("lock");
                 if roots.is_empty() || *roots == saved.roots {
                     *roots = saved.roots;
-                    *self.indexed_with.lock().expect("lock") =
-                        (roots.clone(), self.scan_options().rules);
-                    self.replace_index(saved.index);
-                    if saved.reordered {
-                        // Store the new order, so it is not sorted again.
-                        self.dirty.store(true, Ordering::SeqCst);
+                    let rules = self.scan_options().rules;
+                    // An index built with other rules, or saved without
+                    // them, is built again over its folders.
+                    if saved.rules_hash == Some(persist::rules_fingerprint(&rules.spec())) {
+                        *self.indexed_with.lock().expect("lock") = (roots.clone(), rules);
+                        self.replace_index(saved.index);
+                        if saved.reordered {
+                            // Store the new order, so it is not sorted again.
+                            self.dirty.store(true, Ordering::SeqCst);
+                        }
+                        loaded = true;
                     }
-                    loaded = true;
                 }
             }
         }
@@ -1084,7 +1092,10 @@ impl Engine {
         if !self.dirty.swap(false, Ordering::SeqCst) {
             return;
         }
-        let roots = self.roots.lock().expect("lock").clone();
+        // The folders and rules the index in memory was built with, which
+        // differ from the asked-for ones while a new index is being built.
+        let (roots, rules) = self.indexed_with.lock().expect("lock").clone();
+        let rules = rules.spec();
         let mut volumes = self.volumes.lock().expect("lock");
         let index = self.index.read().expect("index lock");
         let drive_roots: Vec<NodeId> = volumes
@@ -1099,14 +1110,14 @@ impl Engine {
             .filter(|_| !self.incomplete.load(Ordering::SeqCst));
         if let Some(path) = own_file {
             ok = if drive_roots.is_empty() {
-                persist::save(&index, &roots, path).is_ok()
+                persist::save_with_rules(&index, &roots, &rules, path).is_ok()
             } else {
                 let own: Vec<NodeId> = index
                     .roots()
                     .into_iter()
                     .filter(|r| !drive_roots.contains(r))
                     .collect();
-                persist::save(&index.extract(&own).0, &roots, path).is_ok()
+                persist::save_with_rules(&index.extract(&own).0, &roots, &rules, path).is_ok()
             };
         }
         if let Some(env) = &self.drive_env {
@@ -1142,11 +1153,18 @@ impl Engine {
         let Some(env) = &self.drive_env else { return };
         let ignored = self.drive_settings.lock().expect("lock").ignored.clone();
         let configured = self.roots();
+        let rules = self.scan_options().rules;
+        let fingerprint = Some(persist::rules_fingerprint(&rules.spec()));
         let mut volumes = self.volumes.lock().expect("lock");
         for mut info in drives::known_drives(env) {
             let mut root = None;
             if !ignored.contains(&info.uuid) {
-                if let Ok(saved) = persist::load(&env.index_path(&info.uuid)) {
+                // A drive read with other rules (or saved without them) is
+                // read again when it is connected.
+                if let Some(saved) = persist::load(&env.index_path(&info.uuid))
+                    .ok()
+                    .filter(|saved| saved.rules_hash == fingerprint)
+                {
                     let mut drive = saved.index;
                     if let [r] = drive.roots()[..] {
                         let name = path_of(drive.store().name(r));
@@ -1168,6 +1186,7 @@ impl Engine {
                 info,
                 root,
                 online: false,
+                rules: rules.clone(),
             });
         }
     }
@@ -1264,7 +1283,12 @@ impl Engine {
         volumes.retain(|v| v.online || v.root.is_some() || env.info_path(&v.info.uuid).exists());
 
         // Drives read for the first time on a helper thread.
-        for Scanned { drive, index: new } in scanned {
+        for Scanned {
+            drive,
+            index: new,
+            rules,
+        } in scanned
+        {
             self.scanning.lock().expect("lock").remove(&drive.uuid);
             let Some(new) = new else {
                 self.not_now
@@ -1287,6 +1311,7 @@ impl Engine {
             }
             let root = index.graft(&new)[0];
             v.root = Some(drive.mount_point.clone());
+            v.rules = rules;
             v.info.entries = new.len() as u64;
             let _ = v.info.save(env);
             changed = true;
@@ -1308,6 +1333,7 @@ impl Engine {
                         info: new_info(drive, now),
                         root: None,
                         online: false,
+                        rules: IndexRules::default(),
                     });
                     volumes.len() - 1
                 }
@@ -1406,7 +1432,11 @@ impl Engine {
                     .ok()
                     .map(|_| Index::new(store));
                 drop(task);
-                scanned.lock().expect("lock").push(Scanned { drive, index });
+                scanned.lock().expect("lock").push(Scanned {
+                    drive,
+                    index,
+                    rules: options.rules,
+                });
                 changed.store(true, Ordering::SeqCst);
             });
     }
@@ -1544,7 +1574,12 @@ fn save_drive(env: &DriveEnv, index: &Index, v: &mut Volume) -> std::io::Result<
     };
     let (drive, _) = index.extract(&[root]);
     v.info.entries = drive.len() as u64;
-    persist::save(&drive, &[name.to_path_buf()], &env.index_path(&v.info.uuid))?;
+    persist::save_with_rules(
+        &drive,
+        &[name.to_path_buf()],
+        &v.rules.spec(),
+        &env.index_path(&v.info.uuid),
+    )?;
     v.info.save(env)
 }
 
@@ -1879,26 +1914,28 @@ mod tests {
     }
 
     #[test]
-    fn version_4_index_is_sorted_again_and_saved_as_version_6() {
-        let dir = Scratch::new("v4-index");
+    fn an_index_in_an_older_name_order_is_sorted_again_and_saved() {
+        let dir = Scratch::new("old-order-index");
         let a = dir.0.join("a");
         fs::create_dir_all(&a).unwrap();
         for name in ["file10", "file2", "cay", "Çay", "Zoo"] {
             fs::write(a.join(name), "").unwrap();
         }
-        // A version 4 file: the index saved, then its name order set to the
-        // order of version 4 (folded bytes, then raw bytes).
+        // A file with the window's rules in the name order of version 4
+        // (folded bytes, then raw bytes). Files of version 4 itself have no
+        // rules and are built again.
         let index_file = dir.0.join("index.bin");
         let roots = normalize_roots(std::slice::from_ref(&a));
         let mut store = NodeStore::new();
         everygrep_core::scan::scan(&mut store, &roots, &ScanOptions::default());
         let index = Index::new(store);
-        persist::save(&index, &roots, &index_file).unwrap();
+        let rules = everygrep_core::rules::RuleSpec::default();
+        persist::save_with_rules(&index, &roots, &rules, &index_file).unwrap();
         let s = index.store();
         let mut old: Vec<NodeId> = index.order().iter().collect();
         old.sort_by(|&x, &y| (s.folded_name(x), s.name(x)).cmp(&(s.folded_name(y), s.name(y))));
         assert!(!old.iter().copied().eq(index.order().iter()));
-        persist::rewrite_order(&index_file, 4, &old).unwrap();
+        persist::rewrite_order(&index_file, 6, &old).unwrap();
         assert!(persist::load(&index_file).unwrap().reordered);
 
         // Unwatched, nothing but the new order changes the loaded index.
@@ -1932,12 +1969,75 @@ mod tests {
         assert!(at("file2") < at("file10"), "{names:?}");
         assert_eq!(at("cay").abs_diff(at("Çay")), 1, "{names:?}");
 
-        // Closing saves the new order as version 6, which needs no sorting.
+        // Closing saves the new order, which needs no sorting.
         probe.engine.shutdown();
         assert_eq!(fs::read(&index_file).unwrap()[8..12], 6u32.to_le_bytes());
         let again = persist::load(&index_file).unwrap();
         assert!(!again.reordered);
+        assert_eq!(again.rules_hash, Some(persist::rules_fingerprint(&rules)));
         assert!(again.index.order().iter().eq(index.order().iter()));
+    }
+
+    /// Waits until the engine watches (or cannot) and returns whether it
+    /// scanned on the way, instead of using the saved index.
+    fn scanned_at_start(probe: &Probe) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut scanned = false;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match probe.states.recv_timeout(left).expect("watching") {
+                IndexState::Scanning => scanned = true,
+                IndexState::Watching | IndexState::Static => return scanned,
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn index_saved_without_or_with_other_rules_is_built_again() {
+        let dir = Scratch::new("cache-rules");
+        let a = dir.0.join("a");
+        for f in ["one.txt", "skip/two.txt"] {
+            fs::create_dir_all(a.join(f).parent().unwrap()).unwrap();
+            fs::write(a.join(f), "").unwrap();
+        }
+        let index_file = dir.0.join("index.bin");
+        let roots = normalize_roots(std::slice::from_ref(&a));
+        // A cache without rules (an older window), holding the whole tree.
+        let mut store = NodeStore::new();
+        everygrep_core::scan::scan(&mut store, &roots, &ScanOptions::default());
+        persist::save(&Index::new(store), &roots, &index_file).unwrap();
+
+        let skip = vec![roots[0].join("skip")];
+        let probe = Probe::start(roots.clone(), skip.clone(), index_file.clone());
+        assert!(
+            scanned_at_start(&probe),
+            "loaded a cache with unknown rules"
+        );
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        let rules = probe.engine.scan_options().rules.spec();
+        probe.engine.shutdown();
+        let saved = persist::load(&index_file).unwrap();
+        assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&rules)));
+
+        // The same rules load it.
+        let probe = Probe::start(roots.clone(), skip, index_file.clone());
+        assert!(!scanned_at_start(&probe), "same rules scanned again");
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        probe.engine.shutdown();
+
+        // Other rules build it again, over the saved folders when none are
+        // asked for.
+        let probe = Probe::start(Vec::new(), Vec::new(), index_file.clone());
+        assert!(scanned_at_start(&probe), "loaded a cache with other rules");
+        assert_eq!(probe.names("txt"), ["one.txt", "two.txt"]);
+        assert_eq!(probe.engine.roots(), roots);
+        probe.engine.shutdown();
+        let saved = persist::load(&index_file).unwrap();
+        assert_eq!(
+            saved.rules_hash,
+            Some(persist::rules_fingerprint(&Default::default()))
+        );
     }
 
     #[test]
@@ -2471,6 +2571,30 @@ mod tests {
         let drive = persist::load(&fake.env.index_path("A1B2-C3D4")).unwrap();
         assert_eq!(drive.roots, std::slice::from_ref(&other));
         assert_eq!(drive.index.len(), 4);
+        // Both were saved with the rules they were read with.
+        let rules = Some(persist::rules_fingerprint(&Default::default()));
+        assert_eq!((saved.rules_hash, drive.rules_hash), (rules, rules));
+
+        // Started with other rules, the drive's saved entries are not used:
+        // it is read again when it is connected.
+        fake.unmount_all();
+        let probe = Probe::start_with(
+            vec![home.clone()],
+            vec![home.join("never")],
+            index_file.clone(),
+            Some((fake.env.clone(), settings.clone())),
+        );
+        probe.wait_for(IndexState::Watching);
+        assert!(probe.names("jpg").is_empty());
+        assert_eq!(probe.engine.drives().len(), 1);
+        assert!(!probe.engine.drives()[0].indexed);
+        probe.engine.shutdown();
+        assert_eq!(
+            persist::load(&fake.env.index_path("A1B2-C3D4"))
+                .unwrap()
+                .rules_hash,
+            rules
+        );
 
         // A new start shows the drive's entries, offline until it is found.
         fake.unmount_all();

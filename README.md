@@ -354,6 +354,9 @@ expression, searched for in the name (in the full path when it contains a
 compile is refused with a message and not saved. The folders to index
 themselves are always indexed. Changing any list or the switch indexes
 again; the same rules apply while watching for changes and when catching up.
+The saved index (and each drive's) records these rules: one saved with other
+rules, or by an older version without them, is built again at the next start
+(a drive when it is next connected).
 
 Long operations show their progress in the status line once they take
 more than 300 ms: indexing, rescanning, reading a drive, catching up,
@@ -519,7 +522,9 @@ everygrep shell [options]            read one query per line
 
 `search` and `shell` load the saved index; they scan and save it first when
 there is none, when roots or include/exclude rules differ from the saved
-ones, when an older cache has unknown rules, or with `--rescan`. Paths are printed in name order, one per line, at most `--limit`
+ones, when an older cache has unknown rules, or with `--rescan`. The
+command line keeps its own index, `~/.cache/everygrep/cli-index.bin`, apart
+from the window's `index.bin`, so neither replaces the other's. Paths are printed in name order, one per line, at most `--limit`
 (50 by default, `0` for all); counts and timings go to standard error.
 `shell --watch` applies file changes before every query and saves the index
 on exit. Both the shell and the window catch up after installing watches,
@@ -554,8 +559,9 @@ is described in [CONTRIBUTING.md](CONTRIBUTING.md#translations).
 All data stays on this computer. EveryGrep makes no network connections and
 collects nothing. It stores:
 
-- the index, in `~/.cache/everygrep/index.bin` (names, sizes and modification
-  times of the indexed files, never their contents), and for each removable
+- the index, in `~/.cache/everygrep/index.bin` for the window and
+  `~/.cache/everygrep/cli-index.bin` for the command line (names, sizes and
+  modification times of the indexed files, never their contents), and for each removable
   drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same kind of data
   and `<uuid>.info` with its label, last mount point, when it was last
   connected and its number of entries;

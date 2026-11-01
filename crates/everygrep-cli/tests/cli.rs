@@ -657,3 +657,35 @@ fn read_only_cache_does_not_abort_search_or_shell() {
     check(output);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn default_cache_is_separate_from_the_window_index() {
+    let dir = temp_dir("default-cache");
+    let tree = dir.join("tree");
+    let cache = dir.join("cache/everygrep");
+    fs::create_dir_all(&cache).unwrap();
+    // The window's index file stays as it is.
+    fs::write(cache.join("index.bin"), b"window index").unwrap();
+    let everygrep = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .env("XDG_CACHE_HOME", dir.join("cache"))
+            .env("HOME", dir.join("unused-home"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let built = everygrep(&["index", "--root", tree.to_str().unwrap()]);
+    assert!(built.status.success(), "{built:?}");
+    let found = everygrep(&["search", "Holiday"]);
+    let stderr = String::from_utf8(found.stderr).unwrap();
+    assert!(found.status.success());
+    assert!(stderr.contains("loaded"), "stderr: {stderr}");
+    assert!(
+        String::from_utf8(found.stdout)
+            .unwrap()
+            .contains("Holiday-Photo.JPG")
+    );
+    assert!(everygrep_core::persist::load(&cache.join("cli-index.bin")).is_ok());
+    assert_eq!(fs::read(cache.join("index.bin")).unwrap(), b"window index");
+    fs::remove_dir_all(&dir).unwrap();
+}

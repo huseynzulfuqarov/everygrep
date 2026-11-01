@@ -55,14 +55,22 @@ pub struct Saved {
     pub reordered: bool,
 }
 
-/// Default location of the index file: `$XDG_CACHE_HOME/everygrep/index.bin`,
-/// falling back to `~/.cache/everygrep/index.bin`.
+/// Default location of the window's index file:
+/// `$XDG_CACHE_HOME/everygrep/index.bin`, falling back to
+/// `~/.cache/everygrep/index.bin`.
 pub fn default_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
     Some(base.join("everygrep").join("index.bin"))
+}
+
+/// Default location of the command line tool's index file: `cli-index.bin`
+/// next to [`default_path`]. The two programs keep separate files, so one
+/// built with other folders or rules never replaces the other's index.
+pub fn default_cli_path() -> Option<PathBuf> {
+    Some(default_path()?.with_file_name("cli-index.bin"))
 }
 
 /// Writes `index` and its `roots` to `path` atomically.
