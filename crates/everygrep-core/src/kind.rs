@@ -287,7 +287,7 @@ mod tests {
             ("install.sh", FileKind::Executable),
             ("setup.exe", FileKind::Executable),
             ("a.woff2", FileKind::Font),
-            ("cachyos.iso", FileKind::DiskImage),
+            ("installer.iso", FileKind::DiskImage),
             ("disk.qcow2", FileKind::DiskImage),
         ];
         for (name, kind) in cases {

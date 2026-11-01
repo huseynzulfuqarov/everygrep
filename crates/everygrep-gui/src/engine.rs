@@ -2409,8 +2409,8 @@ mod tests {
             fs::create_dir_all(&media).unwrap();
             fs::create_dir_all(&by_uuid).unwrap();
             fs::create_dir_all(dir.join("dev/disk/by-label")).unwrap();
-            fs::create_dir_all(dir.join("mnt/D")).unwrap();
-            fs::write(dir.join("mnt/D/windows-file.txt"), "").unwrap();
+            fs::create_dir_all(dir.join("mnt/data")).unwrap();
+            fs::write(dir.join("mnt/data/fixed-disk-file.txt"), "").unwrap();
             let env = DriveEnv {
                 mountinfo: dir.join("mountinfo"),
                 media_dirs: vec![media],
@@ -2424,11 +2424,11 @@ mod tests {
                 mounts: Mutex::new(Vec::new()),
             };
             // A fixed disk under /mnt-like folder, with a UUID: never a drive.
-            fake.link("WINDOWS-D", "nvme0n1p5");
+            fake.link("FIXED-DATA", "sdx5");
             fake.add_line(&format!(
-                "40 1 259:5 / {} ro - ntfs3 {} ro",
-                dir.join("mnt/D").display(),
-                dir.join("dev/nvme0n1p5").display()
+                "40 1 8:85 / {} ro - ext4 {} ro",
+                dir.join("mnt/data").display(),
+                dir.join("dev/sdx5").display()
             ));
             fake
         }
@@ -2535,7 +2535,7 @@ mod tests {
         assert!(status[0].online && status[0].indexed && !status[0].ignored);
         assert_eq!(status[0].uuid, "A1B2-C3D4");
         // The fixed disk in the same table is never indexed.
-        assert!(probe.names("windows-file").is_empty());
+        assert!(probe.names("fixed-disk-file").is_empty());
 
         // Removed: the entries stay, offline, and the drive is saved.
         fake.unmount_all();

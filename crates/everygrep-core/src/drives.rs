@@ -567,7 +567,7 @@ mod tests {
         fs::create_dir_all(dev.join("disk/by-label")).unwrap();
         for (uuid, device) in [
             ("1234-ABCD", "sdz1"),
-            ("0123456789ABCDEF", "nvme9n1p5"),
+            ("0123456789ABCDEF", "sdx5"),
             ("aaaa-bbbb", "sdz2"),
             ("c0ffee00-1111-2222-3333-444455556666", "sdy1"),
         ] {
@@ -590,11 +590,11 @@ mod tests {
     }
 
     const TABLE: &str = "\
-22 1 0:21 / / rw,relatime shared:1 - btrfs /dev/nvme0n1p7 rw
+22 1 0:21 / / rw,relatime shared:1 - btrfs /dev/sda2 rw
 23 22 0:22 / /proc rw shared:2 - proc proc rw
-24 22 0:21 /@home /home rw,relatime shared:3 - btrfs /dev/nvme0n1p7 rw
-40 22 259:5 / /mnt/D ro,relatime shared:20 - ntfs3 $DEV/nvme9n1p5 ro
-41 22 259:6 / /mnt/C rw shared:21 - ntfs3 /dev/nvme0n1p3 rw
+24 22 0:21 /@home /home rw,relatime shared:3 - btrfs /dev/sda2 rw
+40 22 8:85 / /mnt/data ro,relatime shared:20 - ext4 $DEV/sdx5 ro
+41 22 8:83 / /mnt/backup rw shared:21 - xfs /dev/sdx3 rw
 50 22 8:1 / /run/media/u/My\\040Disk rw,nosuid shared:30 - exfat $DEV/sdz1 rw
 51 22 8:2 / /run/media/u/sub/nested rw shared:31 - ext4 $DEV/sdz2 rw
 52 22 8:2 / /media/u/CARD rw shared:32 - vfat $DEV/sdz2 rw
@@ -627,7 +627,7 @@ garbage line
         );
     }
 
-    /// The hard rule: fixed disks, fstab mounts under /mnt (the Windows
+    /// The hard rule: fixed disks, fstab mounts under /mnt (other internal
     /// disks), the root and home file systems and anything outside the
     /// media folders are never drives, whatever their file system.
     #[test]
@@ -642,7 +642,7 @@ garbage line
             );
             assert!(!d.mount_point.starts_with("/mnt"), "{d:?}");
         }
-        // The /mnt/D device has a UUID link, and still is not a drive.
+        // The /mnt/data device has a UUID link, and still is not a drive.
         assert!(drives.iter().all(|d| d.uuid != "0123456789ABCDEF"));
         for m in parse_mountinfo(TABLE.as_bytes()) {
             let media = is_media_mount(&m, &env.media_dirs);
@@ -657,8 +657,8 @@ garbage line
         // Tricks with dots do not get out of the media folders.
         let sneaky = Mount {
             dev: (8, 1),
-            mount_point: "/run/media/u/../../../mnt/D".into(),
-            fs_type: "ntfs3".into(),
+            mount_point: "/run/media/u/../../../mnt/data".into(),
+            fs_type: "ext4".into(),
             source: "/dev/sdz1".into(),
         };
         assert!(!is_media_mount(&sneaky, &env.media_dirs));
