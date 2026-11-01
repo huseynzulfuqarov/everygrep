@@ -184,8 +184,18 @@ impl Zone {
     /// Months and days outside their range roll over as in [`days_from_civil`];
     /// years are clamped to ±1,000,000.
     pub fn local_midnight_to_unix(&self, y: i64, m: u32, d: u32) -> i64 {
+        self.local_time_to_unix(y, m, d, 0)
+    }
+
+    /// The instant whose local time is `secs` seconds after the start of the
+    /// local date `y-m-d` on the wall clock (`secs` below 86 400), in Unix
+    /// seconds. A local time that occurs twice (when clocks go back) is its
+    /// earlier instant; one that is skipped (when clocks go forward) is the
+    /// first existing moment after it. Dates roll over and years are clamped
+    /// as in [`Zone::local_midnight_to_unix`].
+    pub fn local_time_to_unix(&self, y: i64, m: u32, d: u32, secs: i64) -> i64 {
         let y = y.clamp(-YEAR_LIMIT, YEAR_LIMIT);
-        self.local_to_unix(days_from_civil(y, m, d) * DAY)
+        self.local_to_unix(days_from_civil(y, m, d) * DAY + secs)
     }
 
     /// Earliest instant whose local time is `local`, or the first instant after

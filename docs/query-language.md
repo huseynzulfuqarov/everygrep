@@ -286,9 +286,11 @@ Units are `years`, `months`, `weeks`, `days`, `hours`, `minutes` (`mins`)
 and `seconds` (`secs`), singular or plural. `lastweek` without a count is the previous calendar week, while
 `last1week` is the 7 days up to now. Days, weeks, months and years keep the
 local wall clock time, so `last1day` on the day the clocks go back is 25
-hours long, and a day that does not exist in the month is the month's last
-day (`last1month` on 31 March starts on the last day of February at the same
-time). These words may be written with `-` or `_` too (`last-3-days`) and
+hours long, also when the change falls on the day the span starts, and a day
+that does not exist in the month is the month's last day (`last1month` on 31
+March starts on the last day of February at the same time). A time that the
+clocks skip on that day is moved to the first moment after the gap; a time
+they repeat is its earlier occurrence. These words may be written with `-` or `_` too (`last-3-days`) and
 compare by their whole span: `modified:<last3days` is older than 3 days,
 `modified:>last3days` is in the future.
 

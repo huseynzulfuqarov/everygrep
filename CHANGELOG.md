@@ -107,7 +107,9 @@ First version, 0.1.0, not released yet.
   and year (`modified:lastweek`, `modified:>=thismonth`); `created:` and
   `accessed:` with the same values, read from disk while searching.
 - Dates that end or start now: `last3days`, `next2hours`, `next-1-day`, in
-  years, months, weeks, days, hours, minutes and seconds.
+  years, months, weeks, days, hours, minutes and seconds. Their start or end keeps
+  the wall clock time also on a day with a daylight saving change (it used
+  to be off by an hour there).
 - Weekday and month names in dates (`modified:monday`, `modified:fri`, `modified:october`,
   `modified:dec`: the latest such day or month).
 - An age without a comparison, `modified:7d`, means within the last 7 days, like

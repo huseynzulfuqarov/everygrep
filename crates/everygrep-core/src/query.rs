@@ -2361,7 +2361,8 @@ fn parse_moving_span(word: &str, now_ns: i64, today: i64, zone: &Zone) -> Option
 
 /// `now_ns` moved by `n` steps (negative = back). Calendar steps keep the
 /// local wall clock time; a day that does not exist in the target month is
-/// clamped to its last day.
+/// clamped to its last day. A time that the target day repeats is its
+/// earlier instant, one that it skips the first moment after the gap.
 fn shift(now_ns: i64, n: i64, step: Step, zone: &Zone) -> i64 {
     const NS: i64 = 1_000_000_000;
     let local = zone.to_local(now_ns.div_euclid(NS));
@@ -2379,8 +2380,10 @@ fn shift(now_ns: i64, n: i64, step: Step, zone: &Zone) -> i64 {
         Step::Month => add_months(n),
         Step::Year => add_months(12 * n),
     };
-    zone.local_midnight_to_unix(year, month, day)
-        .saturating_add(time)
+    // The same wall clock time on the target day, resolved in its own
+    // offset: a daylight saving change between midnight and that time
+    // must not move it.
+    zone.local_time_to_unix(year, month, day, time)
         .saturating_mul(NS)
         .saturating_add(now_ns.rem_euclid(NS))
 }
@@ -3654,6 +3657,52 @@ mod tests {
             let q = Query::parse_with(bad, QueryOptions::default(), now, Some(zone));
             assert!(q.is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn calendar_spans_keep_the_wall_clock_on_a_daylight_saving_day() {
+        // The Berlin-like zone of `find_at`: clocks go forward on 2026-03-29
+        // (02:00 CET becomes 03:00 CEST) and back on 2026-10-25 (03:00 CEST
+        // becomes 02:00 CET). The target day of each span is the change day.
+        let spring = at(2026, 3, 30, 12, 0, 2);
+        let entries = [
+            ("before", at(2026, 3, 29, 11, 30, 2)),
+            ("after", at(2026, 3, 29, 12, 30, 2)),
+        ];
+        assert_eq!(find_at(&entries, spring, "modified:last1day"), ["after"]);
+        let autumn = at(2026, 10, 26, 12, 0, 1);
+        let entries = [
+            ("before", at(2026, 10, 25, 11, 30, 1)),
+            ("after", at(2026, 10, 25, 12, 30, 1)),
+        ];
+        assert_eq!(find_at(&entries, autumn, "modified:last1day"), ["after"]);
+        assert_eq!(find_at(&entries, autumn, "modified:past1day"), ["after"]);
+        // Forward: the span ends at the same wall clock time on the change day.
+        let saturday = at(2026, 3, 28, 12, 0, 1);
+        let entries = [
+            ("before", at(2026, 3, 29, 11, 30, 2)),
+            ("after", at(2026, 3, 29, 12, 30, 2)),
+        ];
+        assert_eq!(find_at(&entries, saturday, "modified:next1day"), ["before"]);
+        // 02:30 does not exist on 2026-03-29: the first moment after the gap,
+        // 03:00 CEST, ends the span.
+        let night = at(2026, 3, 28, 2, 30, 1);
+        let s = 1_000_000_000;
+        let gap_end = at(2026, 3, 29, 3, 0, 2);
+        let entries = [("edge", gap_end), ("past", gap_end + s)];
+        assert_eq!(find_at(&entries, night, "modified:next1day"), ["edge"]);
+        // 02:30 happens twice on 2026-10-25: the earlier one (CEST) starts it.
+        let night = at(2026, 10, 26, 2, 30, 1);
+        let first = at(2026, 10, 25, 2, 30, 2);
+        let entries = [
+            ("early", first - s),
+            ("first", first),
+            ("second", first + 3_600 * s),
+        ];
+        assert_eq!(
+            find_at(&entries, night, "modified:last1day"),
+            ["first", "second"]
+        );
     }
 
     #[test]
