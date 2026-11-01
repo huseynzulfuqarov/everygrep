@@ -184,9 +184,9 @@ words.
 | Extend the selection | `Shift` + movement | `Shift` + click |
 | Select all | `Ctrl+A` | — |
 | Invert the selection | `Ctrl+I` | Edit menu |
-| Open | `Enter` | double-click, context menu |
+| Open | `Enter` | double-click (not in the Folder column), context menu |
 | Open with another application | `Shift+Enter` | context menu |
-| Open the containing folder | `Ctrl+Enter` | context menu |
+| Open the containing folder | `Ctrl+Enter` | double-click in the Folder column (a setting, on by default), context menu |
 | Cut / copy the items (as files) | `Ctrl+X` / `Ctrl+C` | context menu |
 | Paste into the selected folder | `Ctrl+V` | context menu |
 | Copy the full path / the name / the containing folder | `Ctrl+Shift+C` / `Ctrl+Alt+C` / `Ctrl+Alt+Shift+C` | context menu |
@@ -313,8 +313,10 @@ pages and `Esc` closes the window.
   sizes (Window page) default to the total size, where folders used to show
   an empty Size; "nothing" restores the old look. The menu bar, the
   selection details and the alternate row color (Appearance page) and the
-  selection of the search text on a click (Search page) are also on by
-  default; turning them off restores the earlier look.
+  selection of the search text on a click (Search page) and the opening of
+  the containing folder by a double-click in the Folder column (Window
+  page) are also on by default; turning them off restores the earlier
+  behaviour.
 - Choices that also appear in a menu (View and Search) and in the settings
   are the same setting: changing one place changes the other at once.
 - Every behaviour choice is a setting; nothing is fixed in code that a user

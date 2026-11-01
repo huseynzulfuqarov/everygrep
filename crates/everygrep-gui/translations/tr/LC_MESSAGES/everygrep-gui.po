@@ -1765,3 +1765,15 @@ msgstr "Satırları dönüşümlü renklendir"
 #: ui/settings.slint
 msgid "Every second row has a slightly different background, which makes long rows easier to follow."
 msgstr "Her ikinci satırın arka planı biraz farklıdır; bu, uzun satırları izlemeyi kolaylaştırır."
+
+#: ui/settings.slint
+msgid "Opening"
+msgstr "Açma"
+
+#: ui/settings.slint
+msgid "Double-click in the Folder column opens the folder"
+msgstr "Klasör sütununda çift tıklama klasörü açar"
+
+#: ui/settings.slint
+msgid "Off: a double-click anywhere in a row opens the item itself."
+msgstr "Kapalıyken satırın herhangi bir yerine çift tıklama öğenin kendisini açar."

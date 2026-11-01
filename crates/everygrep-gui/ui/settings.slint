@@ -172,6 +172,7 @@ export component SettingsWindow inherits Window {
     in property <string> on-close-note;
     in-out property <bool> remember-columns;
     in-out property <bool> rename-name-only;
+    in-out property <bool> path-click-opens-folder;
     in-out property <bool> focus-on-show;
     in-out property <bool> dates-newest-first;
     in-out property <bool> sizes-largest-first;
@@ -720,6 +721,14 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.window-changed(); }
                             }
                             Note { text: @tr("Off: the whole name is selected, extension included."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Opening"); }
+                            CheckBox {
+                                text: @tr("Double-click in the Folder column opens the folder");
+                                checked <=> root.path-click-opens-folder;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("Off: a double-click anywhere in a row opens the item itself."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Folder size"); }
                             HorizontalLayout {

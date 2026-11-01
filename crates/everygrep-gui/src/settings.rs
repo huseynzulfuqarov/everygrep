@@ -222,6 +222,9 @@ pub struct Settings {
     /// Whether renaming preselects the name without its extension; off
     /// selects the whole name.
     pub rename_name_only: bool,
+    /// Whether a double-click on the Folder cell of a row opens the
+    /// containing folder instead of the item.
+    pub path_click_opens_folder: bool,
     /// Whether showing the window (at a later launch, or with its shortcut)
     /// moves the keyboard focus to the search field and selects its text;
     /// off keeps the focus where it was.
@@ -274,6 +277,7 @@ impl Default for Settings {
             remember_columns: true,
             columns: Columns::default(),
             rename_name_only: true,
+            path_click_opens_folder: true,
             focus_on_show: true,
             dates_newest_first: false,
             sizes_largest_first: false,
@@ -451,6 +455,7 @@ impl Settings {
                 .is_some(),
             "remember-columns" => put_flag(&mut self.remember_columns),
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
+            "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "focus-search-on-show" => put_flag(&mut self.focus_on_show),
             "sort-dates-newest-first" => put_flag(&mut self.dates_newest_first),
             "sort-sizes-largest-first" => put_flag(&mut self.sizes_largest_first),
@@ -657,6 +662,12 @@ impl Settings {
         );
         flag(
             &mut out,
+            "open-folder-on-path-double-click",
+            self.path_click_opens_folder,
+            d.path_click_opens_folder,
+        );
+        flag(
+            &mut out,
             "focus-search-on-show",
             self.focus_on_show,
             d.focus_on_show,
@@ -786,6 +797,7 @@ impl Settings {
                 self.remember_columns = d.remember_columns;
                 self.columns = d.columns;
                 self.rename_name_only = d.rename_name_only;
+                self.path_click_opens_folder = d.path_click_opens_folder;
                 self.focus_on_show = d.focus_on_show;
                 self.dates_newest_first = d.dates_newest_first;
                 self.sizes_largest_first = d.sizes_largest_first;
@@ -1037,6 +1049,7 @@ pub(crate) mod tests {
             folder_size: FolderSize::Items,
             remember_columns: false,
             rename_name_only: false,
+            path_click_opens_folder: false,
             focus_on_show: false,
             dates_newest_first: true,
             sizes_largest_first: true,
@@ -1092,6 +1105,7 @@ pub(crate) mod tests {
         assert!(text.contains("search-as-you-type = false\n"));
         assert!(text.contains("select-search-on-click = false\n"));
         assert!(text.contains("rename-select-name-only = false\n"));
+        assert!(text.contains("open-folder-on-path-double-click = false\n"));
         assert!(text.contains("focus-search-on-show = false\n"));
         assert!(text.contains("sort-dates-newest-first = true\n"));
         assert!(text.contains("sort-sizes-largest-first = true\n"));

@@ -508,7 +508,8 @@ component Row inherits Rectangle {
     in property <int> edit-stem;
     callback pressed(KeyboardModifiers);
     callback right-pressed(length, length);
-    callback double-clicked();
+    // With the x position of the click in the row.
+    callback double-clicked(length);
     callback edit-commit(string);
     callback edit-cancel();
 
@@ -533,7 +534,7 @@ component Row inherits Rectangle {
                 }
             }
         }
-        double-clicked => { root.double-clicked(); }
+        double-clicked => { root.double-clicked(self.mouse-x); }
     }
     // Focus ring of the keyboard cursor.
     Rectangle {
@@ -807,6 +808,9 @@ export component AppWindow inherits Window {
     in property <bool> select-search-on-click: true;
     // Every second row of the list has the row-alt background (a setting).
     in property <bool> alternate-rows: true;
+    // A double-click on the Folder cell opens the containing folder (a
+    // setting); elsewhere in the row it opens the item.
+    in property <bool> path-click-opens-folder: true;
     // Modes without a toggle in the field: Search menu and Alt keys.
     in-out property <bool> match-prefix;
     in-out property <bool> match-suffix;
@@ -1779,7 +1783,16 @@ export component AppWindow inherits Window {
                             if (!root.is-selected(i)) { root.select(i, 0); }
                             menu-area.show({ x: x, y: i * Theme.row-height + list.content-y + y });
                         }
-                        double-clicked => { root.activate(i); }
+                        // In the Folder column it opens the containing
+                        // folder, when the setting says so.
+                        double-clicked(x) => {
+                            if (root.path-click-opens-folder && x >= root.name-width
+                                    && x < root.name-width + root.folder-width) {
+                                root.open-folder(i);
+                            } else {
+                                root.activate(i);
+                            }
+                        }
                         editing: i == root.rename-row;
                         edit-text <=> root.rename-text;
                         edit-stem: root.rename-stem;

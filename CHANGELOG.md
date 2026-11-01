@@ -233,6 +233,8 @@ First version, 0.1.0, not released yet.
   list has a slightly different background, keeping the text contrast in
   both themes; the offline text color is a little darker so it stays
   readable on it.
+- A double-click in the Folder column opens the containing folder, as
+  `Ctrl+Enter` does (Window page, on; off opens the item as before).
 
 ### Project
 

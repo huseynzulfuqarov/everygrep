@@ -1765,3 +1765,15 @@ msgstr "Sətirləri növbəli rənglə"
 #: ui/settings.slint
 msgid "Every second row has a slightly different background, which makes long rows easier to follow."
 msgstr "Hər ikinci sətrin fonu bir az fərqlənir, bu da uzun sətirləri izləməyi asanlaşdırır."
+
+#: ui/settings.slint
+msgid "Opening"
+msgstr "Açma"
+
+#: ui/settings.slint
+msgid "Double-click in the Folder column opens the folder"
+msgstr "Qovluq sütununda iki klik qovluğu açır"
+
+#: ui/settings.slint
+msgid "Off: a double-click anywhere in a row opens the item itself."
+msgstr "Söndürüləndə sətrin istənilən yerində iki klik elementin özünü açır."

@@ -675,6 +675,7 @@ impl Prefs {
         w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
         w.set_remember_columns(s.remember_columns);
         w.set_rename_name_only(s.rename_name_only);
+        w.set_path_click_opens_folder(s.path_click_opens_folder);
         w.set_focus_on_show(s.focus_on_show);
         w.set_dates_newest_first(s.dates_newest_first);
         w.set_sizes_largest_first(s.sizes_largest_first);
@@ -1185,6 +1186,7 @@ impl Prefs {
         let s = self.settings.borrow();
         m.set_select_search_on_click(s.select_search_on_click);
         m.set_alternate_rows(s.alternate_rows);
+        m.set_path_click_opens_folder(s.path_click_opens_folder);
     }
 
     /// Gives the main window the "search as you type" setting.
@@ -1312,6 +1314,7 @@ impl Prefs {
             .unwrap_or_default();
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
+        let path_click = w.get_path_click_opens_folder();
         let focus_on_show = w.get_focus_on_show();
         let dates_newest_first = w.get_dates_newest_first();
         let sizes_largest_first = w.get_sizes_largest_first();
@@ -1322,12 +1325,14 @@ impl Prefs {
             s.folder_size = folder_size;
             s.remember_columns = remember;
             s.rename_name_only = name_only;
+            s.path_click_opens_folder = path_click;
             s.focus_on_show = focus_on_show;
             if !remember {
                 s.columns = Columns::default();
             }
         });
         self.apply_folder_size();
+        self.apply_behaviour();
         self.refresh();
     }
 

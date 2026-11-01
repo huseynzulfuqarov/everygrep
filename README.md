@@ -148,7 +148,7 @@ executable file.
 | `Ctrl+A` | select all |
 | `Ctrl+I` | invert the selection (also from the search field) |
 | `Enter`, double-click | open |
-| `Ctrl+Enter` | open the containing folder |
+| `Ctrl+Enter`, double-click in the Folder column | open the containing folder |
 | `Shift+Enter` | open with another application, chosen in the desktop's dialog |
 | `Ctrl+X` / `Ctrl+C` | cut / copy the items, to paste them into a folder |
 | `Ctrl+V` | paste into the selected folder |
@@ -253,6 +253,7 @@ the program behaves as before, except that folders show their total size.
 | | start EveryGrep when I log in | off |
 | | remember the shown columns and their widths | on |
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
+| | a double-click in the Folder column opens the containing folder (off: the item) | on |
 | | focus the search field and select its text when the window is shown again | on |
 | | sort dates newest first / sort sizes largest first: the direction of the first click on a date or Size header | off |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
@@ -373,7 +374,9 @@ size-width = 120
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
 search at every key press, `rename-select-name-only` the selection of
-the name without its extension when renaming, `focus-search-on-show`
+the name without its extension when renaming,
+`open-folder-on-path-double-click` what a double-click in the Folder column
+opens, `focus-search-on-show`
 whether showing the window again focuses the search field.
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
 and the file pattern lists; a pattern that does not compile is reported and
