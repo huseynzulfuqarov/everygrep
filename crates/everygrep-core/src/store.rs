@@ -775,7 +775,8 @@ mod tests {
             NodeStore::from_columns(columns_with_parents(vec![DIR_BIT, 1 | DIR_BIT, 2])).is_ok()
         );
         // 0 -> 1 -> 0 has no root
-        assert!(NodeStore::from_columns(columns_with_parents(vec![2, 1])).is_err());
+        let cycle = NodeStore::from_columns(columns_with_parents(vec![DIR_BIT | 2, DIR_BIT | 1]));
+        assert_eq!(cycle.err(), Some("parent cycle"));
         // parent id out of range
         assert!(NodeStore::from_columns(columns_with_parents(vec![0, 9])).is_err());
         // a file cannot be a parent
