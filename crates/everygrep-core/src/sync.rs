@@ -144,6 +144,8 @@ pub(crate) fn catch_up_with(
         // way leaves the folder as it is, so unread entries are not taken as gone.
         let mut on_disk: HashMap<Vec<u8>, (bool, Option<Meta>)> = HashMap::new();
         let mut listing_failed = false;
+        // Some entries were listed but could not be looked at.
+        let mut incomplete = false;
         for entry in entries {
             let Ok(entry) = entry else {
                 listing_failed = true;
@@ -157,19 +159,20 @@ pub(crate) fn catch_up_with(
             if !skip.rules.accepts(&path, &name, ft.is_dir()) {
                 continue;
             }
-            match skip.entry_meta(&entry, ft.is_dir()) {
-                Ok(meta) => {
-                    on_disk.insert(name, (ft.is_dir(), Some(meta)));
-                }
-                // Keep the saved tree retryable if an entry cannot be read.
-                Err(_) => listing_failed = true,
-            }
+            // No permission to look at the entry (folder readable but not
+            // searchable), or it vanished: the listing still gives its name
+            // and type, so additions and removals are applied, and the
+            // folder is read again next time to fill in what is missing.
+            let meta = skip.entry_meta(&entry, ft.is_dir()).ok();
+            incomplete |= meta.is_none();
+            on_disk.insert(name, (ft.is_dir(), meta));
         }
         if listing_failed {
             stats.errors += 1;
             continue;
         }
         stats.dirs_rescanned += 1;
+        stats.errors += usize::from(incomplete);
         for kid in kids {
             if !index.store().is_live(kid) {
                 continue;
@@ -188,32 +191,51 @@ pub(crate) fn catch_up_with(
                 }
                 still_there => {
                     stats.removed += index.remove(kid).len();
-                    if still_there.is_some() {
-                        stats.added += add_tree(
-                            index,
-                            dir,
-                            &name,
-                            &path.join(OsStr::from_bytes(&name)),
-                            skip,
-                            on_new_dir,
-                        );
+                    if let Some(listed) = still_there {
+                        stats.added +=
+                            add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
                     }
                 }
             }
         }
-        for name in on_disk.into_keys() {
-            stats.added += add_tree(
-                index,
-                dir,
-                &name,
-                &path.join(OsStr::from_bytes(&name)),
-                skip,
-                on_new_dir,
-            );
+        for (name, listed) in on_disk {
+            stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
         }
-        index.set_meta(dir, meta);
+        let mtime_ns = if incomplete {
+            // The saved time differs from the folder's, so it is read again.
+            index.store().meta(dir).mtime_ns
+        } else {
+            meta.mtime_ns
+        };
+        index.set_meta(dir, Meta { mtime_ns, ..meta });
     }
     stats
+}
+
+/// Adds the listed entry `name` of the folder `dir` at `dir_path`: with
+/// [`add_tree`] when it could be looked at, otherwise by name and type alone,
+/// with unknown size and time (a folder is then read when it is visited).
+fn add_listed(
+    index: &mut Index,
+    dir: NodeId,
+    name: &[u8],
+    dir_path: &Path,
+    (is_dir, meta): (bool, Option<Meta>),
+    skip: &Skip,
+    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+) -> usize {
+    let path = dir_path.join(OsStr::from_bytes(name));
+    if meta.is_some() {
+        return add_tree(index, dir, name, &path, skip, on_new_dir);
+    }
+    if !skip.accepts(&path, is_dir) {
+        return 0;
+    }
+    let id = index.insert(Some(dir), name, is_dir, Meta::default());
+    if is_dir {
+        on_new_dir(index, id);
+    }
+    1
 }
 
 /// Adds the entry `name` at `path` under `parent`, and for a folder all entries
@@ -331,6 +353,14 @@ mod tests {
             .collect();
         v.sort();
         v
+    }
+
+    fn find(index: &Index, path: &Path) -> NodeId {
+        index
+            .order()
+            .iter()
+            .find(|&id| index.store().path(id) == path)
+            .expect("indexed")
     }
 
     /// Folder paths with their total size and item count.
@@ -476,6 +506,52 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
         assert!(found.contains(&locked.join("a.txt")), "{found:?}");
         assert!(found.contains(&locked.join("deep/b.txt")), "{found:?}");
+    }
+
+    #[test]
+    fn unsearchable_folder_follows_its_listing_and_is_read_again_later() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tree("listed-only");
+        let locked = base.join("keep");
+        let mut index = index_of(&base);
+        let saved_time = index.store().meta(find(&index, &locked)).mtime_ns;
+        fs::remove_file(locked.join("a.txt")).unwrap();
+        fs::write(locked.join("added.txt"), b"added").unwrap();
+        fs::create_dir(locked.join("new-dir")).unwrap();
+        fs::write(locked.join("new-dir/inner.txt"), b"i").unwrap();
+        // Readable but not searchable: listing works, lstat of entries fails.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o444)).unwrap();
+        assert!(
+            fs::symlink_metadata(locked.join("added.txt")).is_err(),
+            "test requires an unprivileged user"
+        );
+        let stats = catch_up(&mut index, &ScanOptions::default());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let found = paths(&index);
+        assert!(!found.contains(&locked.join("a.txt")), "{found:?}");
+        assert!(found.contains(&locked.join("added.txt")), "{found:?}");
+        assert!(found.contains(&locked.join("new-dir")), "{found:?}");
+        assert!(found.contains(&locked.join("deep/b.txt")), "{found:?}");
+        assert_eq!((stats.added, stats.removed), (2, 1), "{stats:?}");
+        // Its saved time is kept, so the next catch-up reads it again.
+        assert_eq!(
+            index.store().meta(find(&index, &locked)).mtime_ns,
+            saved_time
+        );
+        assert_eq!(
+            index.store().meta(find(&index, &locked.join("added.txt"))),
+            Meta::default()
+        );
+
+        // Searchable again: sizes, times and the new folder's contents.
+        catch_up(&mut index, &ScanOptions::default());
+        let fresh = index_of(&base);
+        let sizes = (folder_sizes(&index), folder_sizes(&fresh));
+        let added = index.store().meta(find(&index, &locked.join("added.txt")));
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(paths(&index), paths(&fresh));
+        assert_eq!(sizes.0, sizes.1);
+        assert_eq!(added.size, 5);
     }
 
     #[test]

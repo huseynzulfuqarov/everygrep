@@ -145,7 +145,10 @@ On start, `catch_up` compares the modification time of every indexed folder
 with the saved one and re-reads only the folders that changed; folders that
 vanished are removed with their subtree, new ones are scanned. A file whose
 contents changed without touching its folder keeps its old size and time
-until the next full scan.
+until the next full scan. In a folder that can be listed but not searched
+(no `x` permission), entries are added and removed by the names and types of
+the listing, with unknown size and time, and the folder keeps its saved time
+so the next catch-up reads it again.
 
 While watching, removed slots and unused name bytes accumulate; when they
 make up more than a quarter of the store, it is compacted in place and the

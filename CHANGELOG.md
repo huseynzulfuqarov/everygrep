@@ -32,7 +32,8 @@ First version, 0.1.0, not released yet.
   including changes made before watches were installed.
 
 - Failed directory listings are retried after access returns; saved roots that
-  were absent during scanning are revisited on load.
+  were absent during scanning are revisited on load. A folder that can be
+  listed but not searched still gets its added and removed entries by name.
 
 - In-memory index of file and folder names in packed columns, with names
   stored once and a case-folded copy for matching.
