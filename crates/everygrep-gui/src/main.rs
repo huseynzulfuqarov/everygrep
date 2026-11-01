@@ -327,6 +327,18 @@ fn main() -> Result<(), slint::PlatformError> {
         let prefs = prefs.clone();
         move || prefs.open(None)
     });
+    window.on_open_keyboard_settings({
+        let prefs = prefs.clone();
+        move || prefs.open(Some(prefs::KEYBOARD_PAGE))
+    });
+    window.on_close_window({
+        let (weak, engine, prefs) = (weak.clone(), engine.clone(), prefs.clone());
+        move || {
+            if let Some(w) = weak.upgrade() {
+                close_window(&w, &engine, &prefs, prefs.hide_on_close());
+            }
+        }
+    });
     window.on_new_window(move || {
         if let Ok(exe) = std::env::current_exe() {
             let _ = std::process::Command::new(exe).args(&window_args).spawn();
@@ -473,6 +485,26 @@ fn set_filter_names(w: &AppWindow) {
     w.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
 }
 
+/// Gives the window the keys in use: the menu bar's keys, the ⋯ button's
+/// label and the keyboard shortcuts dialog.
+pub fn apply_keys(w: &AppWindow) {
+    let (menu_keys, more) = commands::with_current(|k| {
+        let items = [
+            Command::Settings,
+            Command::KeyboardSettings,
+            Command::ShortcutsHelp,
+            Command::About,
+            Command::MenuBar,
+            Command::Quit,
+        ]
+        .map(|c| k.labelled(c));
+        (k.menu_keys(), fill(tr("More: {}"), &[&items.join(", ")]))
+    });
+    w.set_menu_keys(menu_keys);
+    w.set_more_label(more.into());
+    set_shortcuts(w);
+}
+
 /// The keyboard shortcuts dialog, from the keys in use.
 fn set_shortcuts(w: &AppWindow) {
     let shortcuts: Vec<ShortcutRow> = commands::with_current(|k| k.help_rows())
@@ -490,7 +522,7 @@ fn set_shortcuts(w: &AppWindow) {
 /// dropped rather than left in the old language.
 pub fn relabel(w: &AppWindow) {
     set_filter_names(w);
-    set_shortcuts(w);
+    apply_keys(w);
     show_badges(w);
     with_model(w, |m| m.relabel());
     w.set_notice("".into());
@@ -500,7 +532,7 @@ pub fn relabel(w: &AppWindow) {
 /// The View menu's appearance choices and the Help menu's dialogs.
 fn connect_menus(w: &AppWindow) {
     w.set_version(everygrep_core::VERSION.into());
-    set_shortcuts(w);
+    apply_keys(w);
     w.on_resolve_key(|scope, text, ctrl, alt, shift, meta| {
         let chord = commands::Chord::from_event(&text, ctrl, alt, shift, meta);
         match (commands::Scope::from_index(scope), chord) {

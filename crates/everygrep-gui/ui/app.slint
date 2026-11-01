@@ -1,7 +1,7 @@
 import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Command } from "commands.slint";
-export { Command }
+import { Command, MenuKeys } from "commands.slint";
+export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
 export { StalledDialog } from "stalled.slint";
 
@@ -49,6 +49,15 @@ export struct ResultRow {
 export struct MenuChoice {
     title: string,
     checked: bool,
+}
+
+// A column of the View → Sort by menu, with its check mark; disabled while
+// the column is hidden.
+struct SortChoice {
+    title: string,
+    column: int,
+    checked: bool,
+    enabled: bool,
 }
 
 // A line of the keyboard shortcuts dialog.
@@ -804,6 +813,15 @@ export component AppWindow inherits Window {
     callback quit();
     // Another window over the same index.
     callback new-window();
+    // Closes the window as its close button does: hides it or quits, as
+    // set on the Window page of the settings.
+    callback close-window();
+    // The settings window at its Keyboard page.
+    callback open-keyboard-settings();
+    // The keys shown in the menu bar, and the accessible label of the ⋯
+    // button; both follow the keyboard settings.
+    in property <MenuKeys> menu-keys;
+    in property <string> more-label;
     // Saves the result list to a file.
     callback export-results();
 
@@ -1053,6 +1071,8 @@ export component AppWindow inherits Window {
     function run(c: Command) {
         if (c == Command.new-window) {
             root.new-window();
+        } else if (c == Command.close-window) {
+            root.close-window();
         } else if (c == Command.export-results) {
             root.export-results();
         } else if (c == Command.quit) {
@@ -1093,33 +1113,54 @@ export component AppWindow inherits Window {
             search.focus-and-select();
         } else if (c == Command.context-menu) {
             root.show-menu-at-current();
+        } else if (c == Command.type-column) {
+            root.show-type = !root.show-type;
+            root.toggled(c);
+        } else if (c == Command.extension-column) {
+            root.show-ext = !root.show-ext;
+            root.toggled(c);
+        } else if (c == Command.created-column) {
+            root.show-created = !root.show-created;
+            root.toggled(c);
+        } else if (c == Command.accessed-column) {
+            root.show-accessed = !root.show-accessed;
+            root.toggled(c);
+        } else if (c == Command.attributes-column) {
+            root.show-attrs = !root.show-attrs;
+            root.toggled(c);
+        } else if (c == Command.selection-details) {
+            root.status-details = !root.status-details;
+            root.toggled(c);
+        } else if (c == Command.menu-bar) {
+            root.show-menu-bar = !root.show-menu-bar;
+            root.toggled(c);
         } else if (c == Command.match-case) {
             root.match-case = !root.match-case;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.whole-words) {
             root.whole-words = !root.whole-words;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.match-path) {
             root.match-path = !root.match-path;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.match-diacritics) {
             root.match-diacritics = !root.match-diacritics;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.regex) {
             root.use-regex = !root.use-regex;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.match-prefix) {
             root.match-prefix = !root.match-prefix;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.match-suffix) {
             root.match-suffix = !root.match-suffix;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.ignore-punctuation) {
             root.ignore-punctuation = !root.ignore-punctuation;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.ignore-whitespace) {
             root.ignore-whitespace = !root.ignore-whitespace;
-            root.options-edited();
+            root.toggled(c);
         } else if (c == Command.previous-filter || c == Command.next-filter) {
             let n = root.filter-names.length;
             if (n > 0) {
@@ -1132,7 +1173,61 @@ export component AppWindow inherits Window {
             root.history-go(1);
         } else if (c == Command.settings) {
             root.open-settings();
+        } else if (c == Command.keyboard-settings) {
+            root.open-keyboard-settings();
+        } else if (c == Command.shortcuts-help) {
+            root.shortcuts-open = true;
+        } else if (c == Command.about) {
+            root.about-open = true;
         }
+    }
+
+    // After an on/off command changed its flag (by a key, or by its
+    // checkable menu item, which flips the flag itself): applies it.
+    function toggled(c: Command) {
+        if (c == Command.type-column) {
+            root.column-shown(4, root.show-type);
+        } else if (c == Command.extension-column) {
+            root.column-shown(5, root.show-ext);
+        } else if (c == Command.created-column) {
+            root.column-shown(6, root.show-created);
+        } else if (c == Command.accessed-column) {
+            root.column-shown(7, root.show-accessed);
+        } else if (c == Command.attributes-column) {
+            root.column-shown(8, root.show-attrs);
+        } else if (c == Command.selection-details) {
+            root.status-details-changed(root.status-details);
+        } else if (c == Command.menu-bar) {
+            root.menu-bar-changed(root.show-menu-bar);
+        } else {
+            root.options-edited();
+        }
+    }
+
+    // View → Sort by: the columns, the shown optional ones enabled, and the
+    // two directions. A new list on every change gives fresh check marks.
+    property <[SortChoice]> sort-items: [
+        { title: @tr("Name"), column: 0, checked: root.sort-column == 0, enabled: true },
+        { title: @tr("Folder"), column: 1, checked: root.sort-column == 1, enabled: true },
+        { title: @tr("Size"), column: 2, checked: root.sort-column == 2, enabled: true },
+        { title: @tr("Modified"), column: 3, checked: root.sort-column == 3, enabled: true },
+        { title: @tr("Type"), column: 4, checked: root.sort-column == 4, enabled: root.show-type },
+        { title: @tr("Extension"), column: 5, checked: root.sort-column == 5, enabled: root.show-ext },
+        { title: @tr("Created"), column: 6, checked: root.sort-column == 6, enabled: root.show-created },
+        { title: @tr("Accessed"), column: 7, checked: root.sort-column == 7, enabled: root.show-accessed },
+        { title: @tr("Attributes"), column: 8, checked: root.sort-column == 8, enabled: root.show-attrs },
+    ];
+    property <[MenuChoice]> sort-order-items: [
+        { title: @tr("Ascending"), checked: !root.sort-descending },
+        { title: @tr("Descending"), checked: root.sort-descending },
+    ];
+
+    // Sorts by a column in a direction.
+    function sort-to(column: int, descending: bool) {
+        root.sort-column = column;
+        root.sort-descending = descending;
+        root.results-replaced();
+        root.sort-changed(column, descending);
     }
 
     // Runs the command of a key pressed with the focus in `scope`; returns
@@ -1309,36 +1404,41 @@ export component AppWindow inherits Window {
                         width: 34px;
                         Menu {
                             MenuItem {
-                                title: @tr("Settings");
-                                activated => { root.open-settings(); }
+                                title: @tr("Settings…");
+                                enabled: root.can-run(Command.settings);
+                                activated => { root.run(Command.settings); }
                             }
                             MenuItem {
+                                title: @tr("Keyboard shortcuts…");
+                                enabled: root.can-run(Command.keyboard-settings);
+                                activated => { root.run(Command.keyboard-settings); }
+                            }
+                            MenuSeparator { }
+                            MenuItem {
                                 title: @tr("Keyboard shortcuts");
-                                activated => { root.shortcuts-open = true; }
+                                activated => { root.run(Command.shortcuts-help); }
                             }
                             MenuItem {
                                 title: @tr("About EveryGrep");
-                                activated => { root.about-open = true; }
+                                activated => { root.run(Command.about); }
                             }
                             MenuSeparator { }
                             MenuItem {
                                 title: @tr("Show the menu bar");
-                                activated => {
-                                    root.show-menu-bar = true;
-                                    root.menu-bar-changed(true);
-                                }
+                                activated => { root.run(Command.menu-bar); }
                             }
                             MenuSeparator { }
                             MenuItem {
                                 title: @tr("Quit");
-                                activated => { root.quit(); }
+                                enabled: root.can-run(Command.quit);
+                                activated => { root.run(Command.quit); }
                             }
                         }
                         Rectangle {
                             border-radius: Theme.radius;
                             background: more-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
-                            accessible-label: @tr("More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)");
+                            accessible-label: root.more-label;
                             accessible-action-default => { more-menu.show({ x: 0, y: self.height }); }
                             more-touch := TouchArea {
                                 clicked => { more-menu.show({ x: 0, y: self.height }); }
@@ -1568,63 +1668,66 @@ export component AppWindow inherits Window {
                     Menu {
                         MenuItem {
                             title: @tr("Open");
-                            enabled: !root.current-offline;
-                            activated => { root.activate(root.current); }
+                            enabled: root.can-run(Command.open);
+                            activated => { root.run(Command.open); }
                         }
                         MenuItem {
                             title: @tr("Open with…");
-                            enabled: !root.current-offline;
-                            activated => { root.open-with(root.current); }
+                            enabled: root.can-run(Command.open-with);
+                            activated => { root.run(Command.open-with); }
                         }
                         MenuItem {
                             title: @tr("Open containing folder");
-                            enabled: !root.current-offline;
-                            activated => { root.open-folder(root.current); }
+                            enabled: root.can-run(Command.open-folder);
+                            activated => { root.run(Command.open-folder); }
                         }
                         MenuSeparator { }
                         MenuItem {
                             title: @tr("Cut");
-                            enabled: !root.current-offline;
-                            activated => { root.cut-items(root.current); }
+                            enabled: root.can-run(Command.cut);
+                            activated => { root.run(Command.cut); }
                         }
                         MenuItem {
                             title: @tr("Copy");
-                            enabled: !root.current-offline;
-                            activated => { root.copy-items(root.current); }
+                            enabled: root.can-run(Command.copy);
+                            activated => { root.run(Command.copy); }
                         }
                         MenuItem {
                             title: @tr("Paste into folder");
-                            enabled: !root.current-offline;
-                            activated => { root.paste-items(root.current); }
+                            enabled: root.can-run(Command.paste);
+                            activated => { root.run(Command.paste); }
                         }
                         MenuSeparator { }
                         MenuItem {
                             title: @tr("Copy name");
-                            activated => { root.copy-names(root.current); }
+                            enabled: root.can-run(Command.copy-name);
+                            activated => { root.run(Command.copy-name); }
                         }
                         MenuItem {
                             title: @tr("Copy path");
-                            activated => { root.copy-folders(root.current); }
+                            enabled: root.can-run(Command.copy-path);
+                            activated => { root.run(Command.copy-path); }
                         }
                         MenuItem {
                             title: @tr("Copy full path");
-                            activated => { root.copy-paths(root.current); }
+                            enabled: root.can-run(Command.copy-full-path);
+                            activated => { root.run(Command.copy-full-path); }
                         }
                         MenuSeparator { }
                         MenuItem {
                             title: @tr("Rename");
-                            enabled: !root.current-offline;
-                            activated => { root.rename-start(root.current); }
+                            enabled: root.can-run(Command.rename);
+                            activated => { root.run(Command.rename); }
                         }
                         MenuItem {
                             title: @tr("Move to trash");
-                            enabled: !root.current-offline;
-                            activated => { root.trash(root.current); }
+                            enabled: root.can-run(Command.trash);
+                            activated => { root.run(Command.trash); }
                         }
                         MenuItem {
                             title: @tr("Delete permanently…");
-                            enabled: !root.current-offline;
-                            activated => { root.delete-request(root.current); }
+                            enabled: root.can-run(Command.delete-permanently);
+                            activated => { root.run(Command.delete-permanently); }
                         }
                     }
 
@@ -1947,140 +2050,175 @@ export component AppWindow inherits Window {
     }
 
     // The menu bar. It is drawn inside the window (GNOME has no global menu
-    // bar). Its shortcuts are handled before the focused field sees the key,
-    // so only keys that mean the same everywhere get one: Ctrl+C, Delete or
-    // F2 keep their meaning in the search field.
+    // bar). Its keys are matched before the focused control sees them, so
+    // it only shows global keys that edit no text and that no control binds
+    // otherwise (see menu-keys); Ctrl+C, Delete or F2 keep their meaning in
+    // the search field.
     if root.show-menu-bar: MenuBar {
         Menu {
             title: @tr("File");
             MenuItem {
                 title: @tr("New window");
-                shortcut: @keys(Control + N);
-                enabled: !root.confirm-open;
-                activated => { root.new-window(); }
+                shortcut: root.menu-keys.new-window;
+                enabled: root.can-run(Command.new-window);
+                activated => { root.run(Command.new-window); }
             }
             MenuItem {
-                title: @tr("Export results…");
-                shortcut: @keys(Control + S);
-                enabled: !root.confirm-open && root.results.length > 0;
-                activated => { root.export-results(); }
+                title: @tr("Close window");
+                shortcut: root.menu-keys.close-window;
+                enabled: root.can-run(Command.close-window);
+                activated => { root.run(Command.close-window); }
             }
             MenuSeparator { }
             MenuItem {
-                title: @tr("Settings…");
-                shortcut: @keys(Control + ",");
-                enabled: !root.confirm-open;
-                activated => { root.open-settings(); }
+                title: @tr("Export results…");
+                shortcut: root.menu-keys.export-results;
+                enabled: root.can-run(Command.export-results);
+                activated => { root.run(Command.export-results); }
             }
             MenuSeparator { }
             MenuItem {
                 title: @tr("Quit");
-                shortcut: @keys(Control + Q);
-                enabled: !root.confirm-open;
-                activated => { root.quit(); }
+                shortcut: root.menu-keys.quit;
+                enabled: root.can-run(Command.quit);
+                activated => { root.run(Command.quit); }
             }
         }
         Menu {
             title: @tr("Edit");
             MenuItem {
                 title: @tr("Cut");
-                enabled: root.current >= 0 && !root.current-offline;
-                activated => { root.cut-items(root.current); }
+                shortcut: root.menu-keys.cut;
+                enabled: root.can-run(Command.cut);
+                activated => { root.run(Command.cut); }
             }
             MenuItem {
                 title: @tr("Copy");
-                enabled: root.current >= 0 && !root.current-offline;
-                activated => { root.copy-items(root.current); }
+                shortcut: root.menu-keys.copy;
+                enabled: root.can-run(Command.copy);
+                activated => { root.run(Command.copy); }
             }
             MenuItem {
                 title: @tr("Paste into folder");
-                enabled: root.current >= 0 && !root.current-offline;
-                activated => { root.paste-items(root.current); }
+                shortcut: root.menu-keys.paste;
+                enabled: root.can-run(Command.paste);
+                activated => { root.run(Command.paste); }
             }
             MenuSeparator { }
             MenuItem {
                 title: @tr("Copy name");
-                enabled: root.current >= 0;
-                activated => { root.copy-names(root.current); }
+                shortcut: root.menu-keys.copy-name;
+                enabled: root.can-run(Command.copy-name);
+                activated => { root.run(Command.copy-name); }
             }
             MenuItem {
                 title: @tr("Copy path");
-                enabled: root.current >= 0;
-                activated => { root.copy-folders(root.current); }
+                shortcut: root.menu-keys.copy-path;
+                enabled: root.can-run(Command.copy-path);
+                activated => { root.run(Command.copy-path); }
             }
             MenuItem {
                 title: @tr("Copy full path");
-                enabled: root.current >= 0;
-                activated => { root.copy-paths(root.current); }
+                shortcut: root.menu-keys.copy-full-path;
+                enabled: root.can-run(Command.copy-full-path);
+                activated => { root.run(Command.copy-full-path); }
             }
             MenuSeparator { }
             MenuItem {
                 title: @tr("Select all");
-                enabled: root.results.length > 0;
-                activated => {
-                    root.select-all();
-                    keys.focus();
-                }
+                shortcut: root.menu-keys.select-all;
+                enabled: root.can-run(Command.select-all);
+                activated => { root.run(Command.select-all); }
             }
             MenuItem {
                 title: @tr("Invert selection");
-                shortcut: @keys(Control + I);
-                enabled: root.results.length > 0;
-                activated => {
-                    root.invert-selection();
-                    keys.focus();
-                }
+                shortcut: root.menu-keys.invert-selection;
+                enabled: root.can-run(Command.invert-selection);
+                activated => { root.run(Command.invert-selection); }
             }
             MenuSeparator { }
             MenuItem {
                 title: @tr("Rename");
-                enabled: root.current >= 0 && root.rename-row < 0 && !root.current-offline;
-                activated => { root.rename-start(root.current); }
+                shortcut: root.menu-keys.rename;
+                enabled: root.can-run(Command.rename);
+                activated => { root.run(Command.rename); }
             }
             MenuItem {
                 title: @tr("Move to trash");
-                enabled: root.current >= 0 && !root.current-offline;
-                activated => { root.trash(root.current); }
+                shortcut: root.menu-keys.trash;
+                enabled: root.can-run(Command.trash);
+                activated => { root.run(Command.trash); }
             }
             MenuItem {
                 title: @tr("Delete permanently…");
-                enabled: root.current >= 0 && !root.current-offline;
-                activated => { root.delete-request(root.current); }
+                shortcut: root.menu-keys.delete-permanently;
+                enabled: root.can-run(Command.delete-permanently);
+                activated => { root.run(Command.delete-permanently); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: @tr("Focus the search field");
+                shortcut: root.menu-keys.focus-search;
+                enabled: root.can-run(Command.focus-search);
+                activated => { root.run(Command.focus-search); }
             }
         }
         Menu {
             title: @tr("View");
             MenuItem {
                 title: @tr("Type column");
+                shortcut: root.menu-keys.type-column;
                 checkable: true;
                 checked <=> root.show-type;
-                activated => { root.column-shown(4, root.show-type); }
+                activated => { root.toggled(Command.type-column); }
             }
             MenuItem {
                 title: @tr("Extension column");
+                shortcut: root.menu-keys.extension-column;
                 checkable: true;
                 checked <=> root.show-ext;
-                activated => { root.column-shown(5, root.show-ext); }
+                activated => { root.toggled(Command.extension-column); }
             }
             MenuItem {
                 title: @tr("Created column");
+                shortcut: root.menu-keys.created-column;
                 checkable: true;
                 checked <=> root.show-created;
-                activated => { root.column-shown(6, root.show-created); }
+                activated => { root.toggled(Command.created-column); }
             }
             MenuItem {
                 title: @tr("Accessed column");
+                shortcut: root.menu-keys.accessed-column;
                 checkable: true;
                 checked <=> root.show-accessed;
-                activated => { root.column-shown(7, root.show-accessed); }
+                activated => { root.toggled(Command.accessed-column); }
             }
             MenuItem {
                 title: @tr("Attributes column");
+                shortcut: root.menu-keys.attributes-column;
                 checkable: true;
                 checked <=> root.show-attrs;
-                activated => { root.column-shown(8, root.show-attrs); }
+                activated => { root.toggled(Command.attributes-column); }
             }
             MenuSeparator { }
+            Menu {
+                title: @tr("Sort by");
+                for item in root.sort-items: MenuItem {
+                    title: item.title;
+                    checkable: true;
+                    checked: item.checked;
+                    enabled: item.enabled && !root.confirm-open;
+                    activated => { root.sort-to(item.column, root.sort-descending); }
+                }
+                MenuSeparator { }
+                for item[i] in root.sort-order-items: MenuItem {
+                    title: item.title;
+                    checkable: true;
+                    checked: item.checked;
+                    enabled: !root.confirm-open;
+                    activated => { root.sort-to(root.sort-column, i == 1); }
+                }
+            }
             Menu {
                 title: @tr("Folder size");
                 for item[i] in root.folder-size-items: MenuItem {
@@ -2111,82 +2249,84 @@ export component AppWindow inherits Window {
             MenuSeparator { }
             MenuItem {
                 title: @tr("Selection details");
+                shortcut: root.menu-keys.selection-details;
                 checkable: true;
                 checked <=> root.status-details;
-                activated => { root.status-details-changed(root.status-details); }
+                activated => { root.toggled(Command.selection-details); }
             }
             MenuItem {
                 title: @tr("Menu bar");
+                shortcut: root.menu-keys.menu-bar;
                 checkable: true;
                 checked <=> root.show-menu-bar;
-                activated => { root.menu-bar-changed(root.show-menu-bar); }
+                activated => { root.toggled(Command.menu-bar); }
             }
         }
         Menu {
             title: @tr("Search");
             MenuItem {
                 title: @tr("Match case");
-                shortcut: @keys(Alt + C);
+                shortcut: root.menu-keys.match-case;
                 checkable: true;
                 checked <=> root.match-case;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.match-case); }
             }
             MenuItem {
                 title: @tr("Match whole words");
-                shortcut: @keys(Alt + W);
+                shortcut: root.menu-keys.whole-words;
                 checkable: true;
                 checked <=> root.whole-words;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.whole-words); }
             }
             MenuItem {
                 title: @tr("Match the full path");
-                shortcut: @keys(Alt + P);
+                shortcut: root.menu-keys.match-path;
                 checkable: true;
                 checked <=> root.match-path;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.match-path); }
             }
             MenuItem {
                 title: @tr("Match diacritics");
-                shortcut: @keys(Alt + D);
+                shortcut: root.menu-keys.match-diacritics;
                 checkable: true;
                 checked <=> root.match-diacritics;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.match-diacritics); }
             }
             MenuItem {
                 title: @tr("Regular expression");
-                shortcut: @keys(Alt + R);
+                shortcut: root.menu-keys.regex;
                 checkable: true;
                 checked <=> root.use-regex;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.regex); }
             }
             MenuSeparator { }
             MenuItem {
                 title: @tr("Match prefix");
-                shortcut: @keys(Alt + B);
+                shortcut: root.menu-keys.match-prefix;
                 checkable: true;
                 checked <=> root.match-prefix;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.match-prefix); }
             }
             MenuItem {
                 title: @tr("Match suffix");
-                shortcut: @keys(Alt + E);
+                shortcut: root.menu-keys.match-suffix;
                 checkable: true;
                 checked <=> root.match-suffix;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.match-suffix); }
             }
             MenuItem {
                 title: @tr("Ignore punctuation");
-                shortcut: @keys(Alt + U);
+                shortcut: root.menu-keys.ignore-punctuation;
                 checkable: true;
                 checked <=> root.ignore-punctuation;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.ignore-punctuation); }
             }
             MenuItem {
                 title: @tr("Ignore whitespace");
-                shortcut: @keys(Alt + S);
+                shortcut: root.menu-keys.ignore-whitespace;
                 checkable: true;
                 checked <=> root.ignore-whitespace;
-                activated => { root.options-edited(); }
+                activated => { root.toggled(Command.ignore-whitespace); }
             }
             MenuSeparator { }
             Menu {
@@ -2201,28 +2341,61 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            MenuItem {
+                title: @tr("Previous filter");
+                shortcut: root.menu-keys.previous-filter;
+                enabled: root.can-run(Command.previous-filter);
+                activated => { root.run(Command.previous-filter); }
+            }
+            MenuItem {
+                title: @tr("Next filter");
+                shortcut: root.menu-keys.next-filter;
+                enabled: root.can-run(Command.next-filter);
+                activated => { root.run(Command.next-filter); }
+            }
             MenuSeparator { }
             MenuItem {
                 title: @tr("Previous search");
-                shortcut: @keys(Alt + LeftArrow);
-                activated => { root.history-go(-1); }
+                shortcut: root.menu-keys.previous-search;
+                enabled: root.can-run(Command.previous-search);
+                activated => { root.run(Command.previous-search); }
             }
             MenuItem {
                 title: @tr("Next search");
-                shortcut: @keys(Alt + RightArrow);
-                activated => { root.history-go(1); }
+                shortcut: root.menu-keys.next-search;
+                enabled: root.can-run(Command.next-search);
+                activated => { root.run(Command.next-search); }
+            }
+        }
+        Menu {
+            title: @tr("Tools");
+            MenuItem {
+                title: @tr("Settings…");
+                shortcut: root.menu-keys.settings;
+                enabled: root.can-run(Command.settings);
+                activated => { root.run(Command.settings); }
+            }
+            MenuItem {
+                title: @tr("Keyboard shortcuts…");
+                shortcut: root.menu-keys.keyboard-settings;
+                enabled: root.can-run(Command.keyboard-settings);
+                activated => { root.run(Command.keyboard-settings); }
             }
         }
         Menu {
             title: @tr("Help");
             MenuItem {
                 title: @tr("Keyboard shortcuts");
-                activated => { root.shortcuts-open = true; }
+                shortcut: root.menu-keys.shortcuts-help;
+                enabled: root.can-run(Command.shortcuts-help);
+                activated => { root.run(Command.shortcuts-help); }
             }
             MenuSeparator { }
             MenuItem {
                 title: @tr("About EveryGrep");
-                activated => { root.about-open = true; }
+                shortcut: root.menu-keys.about;
+                enabled: root.can-run(Command.about);
+                activated => { root.run(Command.about); }
             }
         }
     }

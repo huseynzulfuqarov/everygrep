@@ -178,6 +178,11 @@ First version, 0.1.0, not released yet.
   shortcuts dialog. `Ctrl+N` opens a new window with the menu bar hidden
   too, and the global keys also work while the filter selector has the
   focus.
+- Menus built from the same table: File → Close window (`Ctrl+W`, the
+  close button's action), View → Sort by (column and direction), Search →
+  Previous filter / Next filter (`Alt+↑`/`Alt+↓`), and a Tools menu with
+  Settings… (moved from File, still `Ctrl+,`) and Keyboard shortcuts…. The
+  `⋯` menu has the same entries and names their keys for screen readers.
 - Removable drives mounted by the desktop are indexed automatically, each
   into its own file and recognised by file system UUID. A removed drive's
   entries stay searchable, dimmed and with file actions refused, or are

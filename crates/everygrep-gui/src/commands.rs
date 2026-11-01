@@ -18,8 +18,8 @@
 use std::cell::RefCell;
 use std::fmt;
 
-use crate::Command;
 use crate::i18n::tr;
+use crate::{Command, MenuKeys};
 
 /// Where a binding works.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -328,8 +328,10 @@ impl fmt::Display for Chord {
 pub enum Category {
     File,
     Edit,
+    View,
     Search,
     Tools,
+    Help,
 }
 
 impl Category {
@@ -337,8 +339,10 @@ impl Category {
         match self {
             Category::File => tr("File"),
             Category::Edit => tr("Edit"),
+            Category::View => tr("View"),
             Category::Search => tr("Search"),
             Category::Tools => tr("Tools"),
+            Category::Help => tr("Help"),
         }
     }
 }
@@ -364,6 +368,13 @@ pub const COMMANDS: &[Spec] = &[
         category: Category::File,
         label: || tr("New window"),
         defaults: &[(Global, "Ctrl+N")],
+    },
+    Spec {
+        cmd: Command::CloseWindow,
+        id: "file.close-window",
+        category: Category::File,
+        label: || tr("Close window"),
+        defaults: &[(Global, "Ctrl+W")],
     },
     Spec {
         cmd: Command::ExportResults,
@@ -499,6 +510,55 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[(List, "Menu"), (List, "Shift+F10")],
     },
     Spec {
+        cmd: Command::TypeColumn,
+        id: "view.type-column",
+        category: Category::View,
+        label: || tr("Type column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::ExtensionColumn,
+        id: "view.extension-column",
+        category: Category::View,
+        label: || tr("Extension column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::CreatedColumn,
+        id: "view.created-column",
+        category: Category::View,
+        label: || tr("Created column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::AccessedColumn,
+        id: "view.accessed-column",
+        category: Category::View,
+        label: || tr("Accessed column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::AttributesColumn,
+        id: "view.attributes-column",
+        category: Category::View,
+        label: || tr("Attributes column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::SelectionDetails,
+        id: "view.selection-details",
+        category: Category::View,
+        label: || tr("Selection details"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::MenuBar,
+        id: "view.menu-bar",
+        category: Category::View,
+        label: || tr("Menu bar"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::MatchCase,
         id: "search.match-case",
         category: Category::Search,
@@ -595,6 +655,27 @@ pub const COMMANDS: &[Spec] = &[
         category: Category::Tools,
         label: || tr("Settings"),
         defaults: &[(Global, "Ctrl+Comma")],
+    },
+    Spec {
+        cmd: Command::KeyboardSettings,
+        id: "tools.keyboard-settings",
+        category: Category::Tools,
+        label: || tr("Keyboard shortcuts…"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::ShortcutsHelp,
+        id: "help.shortcuts",
+        category: Category::Help,
+        label: || tr("Keyboard shortcuts"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::About,
+        id: "help.about",
+        category: Category::Help,
+        label: || tr("About EveryGrep"),
+        defaults: &[],
     },
 ];
 
@@ -744,6 +825,78 @@ impl Keymap {
     }
 }
 
+/// Fills a `MenuKeys` field by field: `menu_keys!(keymap; field => Variant, ...)`.
+macro_rules! menu_keys {
+    ($k:expr; $($field:ident => $cmd:ident),* $(,)?) => {
+        MenuKeys {
+            $($field: $k.menu_chord(Command::$cmd).map(Chord::to_keys).unwrap_or_default(),)*
+        }
+    };
+}
+
+impl Keymap {
+    /// The keys of the menu bar's items.
+    pub fn menu_keys(&self) -> MenuKeys {
+        menu_keys!(self;
+            new_window => NewWindow,
+            close_window => CloseWindow,
+            export_results => ExportResults,
+            quit => Quit,
+            open => Open,
+            open_folder => OpenFolder,
+            open_with => OpenWith,
+            cut => Cut,
+            copy => Copy,
+            paste => Paste,
+            copy_name => CopyName,
+            copy_path => CopyPath,
+            copy_full_path => CopyFullPath,
+            select_all => SelectAll,
+            invert_selection => InvertSelection,
+            toggle_row => ToggleRow,
+            rename => Rename,
+            trash => Trash,
+            delete_permanently => DeletePermanently,
+            focus_search => FocusSearch,
+            context_menu => ContextMenu,
+            type_column => TypeColumn,
+            extension_column => ExtensionColumn,
+            created_column => CreatedColumn,
+            accessed_column => AccessedColumn,
+            attributes_column => AttributesColumn,
+            selection_details => SelectionDetails,
+            menu_bar => MenuBar,
+            match_case => MatchCase,
+            whole_words => WholeWords,
+            match_path => MatchPath,
+            match_diacritics => MatchDiacritics,
+            regex => Regex,
+            match_prefix => MatchPrefix,
+            match_suffix => MatchSuffix,
+            ignore_punctuation => IgnorePunctuation,
+            ignore_whitespace => IgnoreWhitespace,
+            previous_filter => PreviousFilter,
+            next_filter => NextFilter,
+            previous_search => PreviousSearch,
+            next_search => NextSearch,
+            settings => Settings,
+            keyboard_settings => KeyboardSettings,
+            shortcuts_help => ShortcutsHelp,
+            about => About,
+        )
+    }
+
+    /// A command's label with its keys, `Settings (Ctrl+,)`, or the label
+    /// alone without keys.
+    pub fn labelled(&self, cmd: Command) -> String {
+        let label = spec(cmd).map_or("", |s| (s.label)());
+        match self.display(cmd) {
+            keys if keys.is_empty() => label.to_owned(),
+            keys => format!("{label} ({keys})"),
+        }
+    }
+}
+
 thread_local! {
     /// The keys of the running window.
     static CURRENT: RefCell<Keymap> = RefCell::default();
@@ -801,7 +954,7 @@ mod tests {
     fn every_command_of_the_window_is_in_the_table() {
         // The variants as written in ui/commands.slint.
         let source = include_str!("../ui/commands.slint");
-        let body = &source[source.find('{').unwrap() + 1..source.rfind('}').unwrap()];
+        let body = &source[source.find('{').unwrap() + 1..source.find('}').unwrap()];
         let names: Vec<&str> = body
             .split(',')
             .map(|v| v.trim())
@@ -832,7 +985,7 @@ mod tests {
     fn defaults_parse_and_never_clash() {
         let map = Keymap::default();
         let b = map.bindings();
-        assert!(b.len() >= COMMANDS.len());
+        assert!(b.len() >= 30);
         for (i, x) in b.iter().enumerate() {
             for y in &b[i + 1..] {
                 assert!(
@@ -972,6 +1125,7 @@ mod tests {
             (&both, "Ctrl+N", C::NewWindow),
             (&both, "Ctrl+Comma", C::Settings),
             (&both, "Ctrl+Q", C::Quit),
+            (&both, "Ctrl+W", C::CloseWindow),
         ];
         for (scopes, text, cmd) in table {
             for &scope in *scopes {
@@ -1030,6 +1184,62 @@ mod tests {
         ] {
             assert!(!chord(text).is_editing(), "{text}");
         }
+    }
+
+    #[test]
+    fn menu_keys_leave_scoped_and_editing_keys_to_the_controls() {
+        let map = Keymap::default();
+        assert_eq!(map.menu_chord(Command::NewWindow), Some(chord("Ctrl+N")));
+        assert_eq!(map.menu_chord(Command::Settings), Some(chord("Ctrl+Comma")));
+        assert_eq!(map.menu_chord(Command::MatchCase), Some(chord("Alt+C")));
+        // List keys would be taken from the search field.
+        assert_eq!(map.menu_chord(Command::Copy), None);
+        assert_eq!(map.menu_chord(Command::Rename), None);
+        assert_eq!(map.menu_chord(Command::TypeColumn), None);
+        // A global key that the list binds differently stays off the menu.
+        let map = Keymap::with_overrides(&[
+            ("edit.copy".to_owned(), vec![(Scope::List, chord("Ctrl+N"))]),
+            (
+                "edit.select-all".to_owned(),
+                vec![(Scope::Global, chord("Ctrl+A"))],
+            ),
+            (
+                "view.menu-bar".to_owned(),
+                vec![(Scope::Global, chord("Ctrl+M"))],
+            ),
+        ]);
+        assert_eq!(map.menu_chord(Command::NewWindow), None);
+        assert_eq!(
+            map.resolve(Scope::Search, &chord("Ctrl+N")),
+            Some(Command::NewWindow)
+        );
+        assert_eq!(
+            map.resolve(Scope::List, &chord("Ctrl+N")),
+            Some(Command::Copy)
+        );
+        assert_eq!(map.menu_chord(Command::SelectAll), None, "an editing key");
+        assert_eq!(map.menu_chord(Command::MenuBar), Some(chord("Ctrl+M")));
+        let keys = map.menu_keys();
+        assert_eq!(keys.menu_bar, chord("Ctrl+M").to_keys());
+        assert_eq!(keys.new_window, slint::Keys::default());
+        assert_eq!(map.labelled(Command::MenuBar), "Menu bar (Ctrl+M)");
+        assert_eq!(map.labelled(Command::About), "About EveryGrep");
+    }
+
+    #[test]
+    fn menu_keys_have_a_field_per_command() {
+        let source = include_str!("../ui/commands.slint");
+        let fields = &source[source.find("struct MenuKeys").unwrap()..];
+        let enum_body = &source[source.find('{').unwrap() + 1..source.find('}').unwrap()];
+        let variants: Vec<&str> = enum_body
+            .split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && *v != "none")
+            .collect();
+        for v in &variants {
+            assert!(fields.contains(&format!("    {v}: keys,")), "{v}");
+        }
+        assert_eq!(fields.matches(": keys,").count(), variants.len());
     }
 
     #[test]

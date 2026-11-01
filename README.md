@@ -168,6 +168,7 @@ executable file.
 | `Alt+↑` / `Alt+↓` | previous / next filter |
 | `Ctrl+S` | export the results to a CSV or text file |
 | `Ctrl+N` | new window over the same index (also with the menu bar hidden) |
+| `Ctrl+W` | close the window, as its close button does |
 | `Ctrl+,` | settings |
 | `Ctrl+Q` | quit (also when closing only hides the window) |
 
@@ -206,19 +207,21 @@ that is not connected); `.txt` gives one full path per line, where an
 offline entry is followed by a tab and `(offline)`. The file is written to
 a temporary file and renamed into place.
 
-The menu bar (File, Edit, View, Search, Help) holds the same actions, the
-appearance choices (optional columns, folder size, density, theme, selection
-details, the menu bar itself), the matching modes with their `Alt` keys, the
-filters and the search history. Help → Keyboard shortcuts lists every key;
-Help → About shows the version and the license. The Edit actions show no
-key in the menu, because menu keys would take `Ctrl+C`, `Delete` or `F2` away
-from the search field; their keys are in the table above. With the menu bar
-hidden, the `⋯` button next to the filter selector holds settings, keyboard
-shortcuts, about and quit.
+The menu bar (File, Edit, View, Search, Tools, Help) holds the same actions,
+File → Close window (`Ctrl+W`, as the close button: hide or quit as set),
+the appearance choices (optional columns, sort by a column and direction,
+folder size, density, theme, selection details, the menu bar itself), the
+matching modes with their `Alt` keys, the filters and the search history.
+Tools → Settings… and Tools → Keyboard shortcuts… open the settings. Help →
+Keyboard shortcuts lists every key; Help → About shows the version and the
+license. The Edit actions show no key in the menu, because menu keys would
+take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
+the table above. With the menu bar hidden, the `⋯` button next to the filter
+selector holds settings, keyboard shortcuts, about and quit.
 
 ### Settings
 
-Open the settings with `Ctrl+,`, File → Settings (or the `⋯` menu when the
+Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the
 menu bar is hidden), or with `--settings` (`--settings=search` opens that page; given to
 a later launch, it opens the settings in the running window). Changes apply at
 once; each page has a "Reset to defaults" button. Without a settings file

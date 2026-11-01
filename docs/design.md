@@ -28,7 +28,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Search  Help                               │  menu bar 40 px
+│ File  Edit  View  Search  Tools  Help                        │  menu bar 40 px
 │ [ search field ............ Aa ab a/b é .* ] [filter ▾]      │  top bar 48 px
 ├──────────────────────────────────────────────────────────────┤
 │ Name ▲               │ Folder                │ Size │ Modified│  header 30 px
@@ -41,23 +41,26 @@ screen; when a change conflicts with them, the rules win or are changed first.
 ```
 
 - **Menu bar.** On by default, switchable in the View menu and the
-  settings. File (new window, export results, settings, quit), Edit (cut, copy,
-  paste into folder, copy name, path and full path, select all, rename,
-  trash, delete), View (optional columns, folder size,
-  density, theme, selection details, menu bar), Search (matching modes,
-  including prefix, suffix, ignore punctuation and ignore whitespace,
-  filters, previous and next search), Help (keyboard shortcuts, about).
-  Edit also has "Invert selection" (`Ctrl+I`). Every entry runs the same
-  action as its key or the context menu. Slint
-  1.18 draws the bar inside the window on Linux (a native menu bar exists
-  only on macOS and Windows), and its item shortcuts are matched before the
-  focused widget sees the key. So only keys that mean the same everywhere
-  are given to menu items (`Ctrl+N`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`, `Ctrl+I`,
-  `Alt+C/W/P/D/R/B/E/U/S`, `Alt+←/→`); `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Delete` and `F2` stay with the search
-  field when it has focus, and the Edit entries show no key. Help →
-  Keyboard shortcuts lists them all. The bar cannot be opened from the
-  keyboard yet (no `F10`), which is fine because every entry has a key or
-  is in the settings.
+  settings. File (new window, close window, export results, quit), Edit
+  (cut, copy, paste into folder, copy name, path and full path, select all,
+  invert selection, rename, trash, delete, focus the search field), View
+  (optional columns, sort by column and direction, folder size, density,
+  theme, selection details, menu bar), Search (matching modes, including
+  prefix, suffix, ignore punctuation and ignore whitespace, filters,
+  previous and next filter, previous and next search), Tools (settings,
+  keyboard shortcuts settings), Help (keyboard shortcuts, about). Only
+  features that exist get an entry. Every entry runs the same command as its
+  key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
+  bar inside the window on Linux, and its item shortcuts are matched before
+  the focused widget sees the key. So a menu item shows a key only when it
+  is a global key that edits no text and that the search field or the list
+  does not bind otherwise (`Ctrl+N`, `Ctrl+W`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`,
+  `Ctrl+I`, `Alt+C/W/P/D/R/B/E/U/S`, `Alt+↑/↓`, `Alt+←/→` by default);
+  `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Delete` and `F2` are result list
+  keys, stay with the search field when it has focus, and the Edit entries
+  show no key. Help → Keyboard shortcuts lists them all. The bar cannot be
+  opened from the keyboard yet (no `F10`), which is fine because every entry
+  has a key or can get one in the settings.
 - **Top bar.** The search field takes all the remaining width. Five small
   toggles at its right end switch the matching modes: match case, whole words,
   full path, diacritics and regular expression; each shows its name and key
@@ -66,7 +69,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
   filter selector sits next to the field: all, audio, archives, code,
   documents, executables, folders, pictures, videos. When the menu bar is
   hidden, an overflow button (`⋯`) after the filter holds settings,
-  keyboard shortcuts, about, "show the menu bar" and quit; with the menu
+  keyboard shortcuts settings, the keyboard shortcuts dialog, about, "show
+  the menu bar" and quit; with the menu
   bar shown it is left out, so no entry has two homes on screen.
 - **Result table.** Default columns are Name, Folder, Size and Modified. Type,
   Extension, Created, Accessed and Attributes can be shown from the header's
@@ -289,7 +293,7 @@ window with `Esc` is planned.
 
 ### Settings
 
-Settings open in a separate window (`Ctrl+,`, File → Settings, the overflow
+Settings open in a separate window (`Ctrl+,`, Tools → Settings…, the overflow
 menu, or `--settings`): a list of pages on the left (Indexing, Search,
 Appearance, Window, Keyboard shortcut), the page on the right. Appearance
 holds the language, the theme, the density, the selection details and the

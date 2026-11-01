@@ -59,10 +59,6 @@ msgid "Quit"
 msgstr "Çık"
 
 #: ui/app.slint
-msgid "More (settings: Ctrl+comma, keyboard shortcuts, about, quit: Ctrl+Q)"
-msgstr "Daha fazla (ayarlar: Ctrl+virgül, klavye kısayolları, hakkında, çıkış: Ctrl+Q)"
-
-#: ui/app.slint
 msgid "Type"
 msgstr "Tür"
 
@@ -1613,3 +1609,27 @@ msgstr "Sonraki filtre"
 #: src/commands.rs
 msgid "Tools"
 msgstr "Araçlar"
+
+#: ui/app.slint
+msgid "Close window"
+msgstr "Pencereyi kapat"
+
+#: ui/app.slint
+msgid "Keyboard shortcuts…"
+msgstr "Klavye kısayolları…"
+
+#: ui/app.slint
+msgid "Sort by"
+msgstr "Sıralama ölçütü"
+
+#: ui/app.slint
+msgid "Ascending"
+msgstr "Artan"
+
+#: ui/app.slint
+msgid "Descending"
+msgstr "Azalan"
+
+#: ui/app.slint
+msgid "More: {}"
+msgstr "Diğer: {}"

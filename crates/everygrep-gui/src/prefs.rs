@@ -33,6 +33,9 @@ use crate::{AppWindow, DriveRow, SettingsWindow, ShortcutCommand, labels};
 /// Names of the settings pages for `--settings=<page>`, in page order.
 pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "shortcut"];
 
+/// The page with the keyboard settings.
+pub const KEYBOARD_PAGE: usize = 4;
+
 /// The command a desktop shortcut runs, and the flags of its variants.
 const COMMAND: &str = "everygrep-gui";
 
