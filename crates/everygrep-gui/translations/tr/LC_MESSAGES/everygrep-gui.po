@@ -1872,3 +1872,6 @@ msgstr "Tüm sütunları içeriğe sığdır"
 #: src/commands.rs
 msgid "Fit columns to window"
 msgstr "Tüm sütunları pencereye sığdır"
+
+msgid "Show active matching modes in the status line"
+msgstr "Etkin eşleştirme kiplerini durum satırında göster"

@@ -831,6 +831,7 @@ export component AppWindow inherits Window {
     in-out property <int> filter-index: 0;
     // Words for the modes that are on, shown in the status line.
     in property <[string]> badges;
+    in property <bool> show-mode-badges: true;
     callback options-changed();
 
     // Search history: step -1 goes back, 1 forward; the handler sets the
@@ -2076,7 +2077,7 @@ export component AppWindow inherits Window {
                         }
                     }
                     // Matching modes that are on.
-                    HorizontalLayout {
+                    if root.show-mode-badges: HorizontalLayout {
                         spacing: Theme.s1;
                         alignment: start;
                         for badge in root.badges: VerticalLayout {

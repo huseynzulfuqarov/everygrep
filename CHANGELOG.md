@@ -8,6 +8,8 @@ All notable changes to EveryGrep are listed here. The format follows
 
 First version, 0.1.0, not released yet.
 
+- Active matching-mode badges can be shown or hidden in Settings → Search.
+
 ### Index and engine
 
 - In-memory index of file and folder names in packed columns, with names

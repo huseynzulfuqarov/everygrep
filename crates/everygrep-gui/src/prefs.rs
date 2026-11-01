@@ -643,6 +643,7 @@ impl Prefs {
         w.set_default_whitespace(o.ignore_whitespace);
         w.set_default_regex(o.regex);
         w.set_as_you_type(s.as_you_type);
+        w.set_show_mode_badges(s.show_mode_badges);
         w.set_select_search_on_click(s.select_search_on_click);
         w.set_clear_selection_on_search(s.clear_selection_on_search);
         w.set_history_max(MAX_HISTORY as i32);
@@ -1195,11 +1196,13 @@ impl Prefs {
             .min(MAX_HISTORY);
         let on_disk = w.get_history_on_disk();
         let as_you_type = w.get_as_you_type();
+        let show_mode_badges = w.get_show_mode_badges();
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
         self.change(|s| {
             s.options = options;
             s.as_you_type = as_you_type;
+            s.show_mode_badges = show_mode_badges;
             s.select_search_on_click = select_on_click;
             s.clear_selection_on_search = clear_selection;
             s.history_size = size;
@@ -1215,6 +1218,7 @@ impl Prefs {
     pub fn apply_behaviour(&self) {
         let Some(m) = self.main.upgrade() else { return };
         let s = self.settings.borrow();
+        m.set_show_mode_badges(s.show_mode_badges);
         m.set_select_search_on_click(s.select_search_on_click);
         crate::with_model(&m, |model| {
             model.set_clear_on_search(s.clear_selection_on_search);

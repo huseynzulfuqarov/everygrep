@@ -111,7 +111,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   nothing instead); sorting by Size mixes folders and files by that total,
   as every other column does, since folders are never forced first.
 - **Status line.** Result count, index size, index state, small badges for the
-  matching modes that are on, and query time. With one item selected the
+  matching modes that are on (switchable on the Search settings page), and query time. With one item selected the
   details of that item follow the count: size (for a folder as the folder
   size setting says), modification time and path (the home folder as `~`;
   a path longer than 60 characters keeps its start and its last components,

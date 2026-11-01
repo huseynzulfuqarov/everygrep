@@ -1872,3 +1872,6 @@ msgstr "Bütün sütunları məzmuna uyğunlaşdır"
 #: src/commands.rs
 msgid "Fit columns to window"
 msgstr "Bütün sütunları pəncərəyə uyğunlaşdır"
+
+msgid "Show active matching modes in the status line"
+msgstr "Aktiv uyğunlaşdırma rejimlərini status sətrində göstər"

@@ -208,6 +208,8 @@ pub struct Settings {
     /// Whether the results follow every change of the search; off searches
     /// when Enter is pressed.
     pub as_you_type: bool,
+    /// Show the active matching modes in the status line.
+    pub show_mode_badges: bool,
     /// Whether a click into the search field, while it does not have the
     /// focus, selects all of its text; off places the caret.
     pub select_search_on_click: bool,
@@ -286,6 +288,7 @@ impl Default for Settings {
             watch_changes: true,
             options: QueryOptions::default(),
             as_you_type: true,
+            show_mode_badges: true,
             select_search_on_click: true,
             clear_selection_on_search: true,
             history_size: DEFAULT_HISTORY,
@@ -458,6 +461,7 @@ impl Settings {
             "ignore-punctuation" => put_flag(&mut self.options.ignore_punctuation),
             "ignore-whitespace" => put_flag(&mut self.options.ignore_whitespace),
             "regex" => put_flag(&mut self.options.regex),
+            "show-mode-badges" => put_flag(&mut self.show_mode_badges),
             "search-as-you-type" => put_flag(&mut self.as_you_type),
             "select-search-on-click" => put_flag(&mut self.select_search_on_click),
             "deselect-on-new-search" => put_flag(&mut self.clear_selection_on_search),
@@ -659,6 +663,12 @@ impl Settings {
         flag(&mut out, "regex", o.regex, od.regex);
         flag(
             &mut out,
+            "show-mode-badges",
+            self.show_mode_badges,
+            d.show_mode_badges,
+        );
+        flag(
+            &mut out,
             "search-as-you-type",
             self.as_you_type,
             d.as_you_type,
@@ -840,6 +850,7 @@ impl Settings {
             Page::Search => {
                 self.options = d.options;
                 self.as_you_type = d.as_you_type;
+                self.show_mode_badges = d.show_mode_badges;
                 self.select_search_on_click = d.select_search_on_click;
                 self.clear_selection_on_search = d.clear_selection_on_search;
                 self.history_size = d.history_size;
@@ -1109,6 +1120,7 @@ pub(crate) mod tests {
                 filter: Filter::Picture,
             },
             as_you_type: false,
+            show_mode_badges: false,
             select_search_on_click: false,
             clear_selection_on_search: false,
             history_size: 0,
