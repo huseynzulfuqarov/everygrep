@@ -1578,6 +1578,8 @@ fn cost(node: &Node) -> u8 {
         Node::Leaf(Pred::DiskTime { .. }) => 6,
         // Classifying looks at the name; let text terms narrow first.
         Node::Leaf(Pred::Kind(_)) => 2,
+        // Hidden status walks parent names; let cheap name terms narrow first.
+        Node::Leaf(Pred::Hidden(_)) => 2,
         Node::Leaf(_) => 0,
         Node::Not(inner) => cost(inner),
         Node::And(items) | Node::Or(items) => items.iter().map(cost).max().unwrap_or(0),
@@ -2377,6 +2379,35 @@ mod tests {
         assert_eq!(t.find("photo jpg|png"), ["photo (1).png", "photo.jpg"]);
         assert_eq!(t.find("report !draft !folder:"), ["Report-2026.PDF"]);
         assert_eq!(t.find("<draft|main> !rs"), ["draft report.pdf"]);
+    }
+
+    #[test]
+    fn hidden_file_filter_runs_after_cheap_name_predicates() {
+        for hidden_files in [HiddenFiles::Hide, HiddenFiles::Only] {
+            for and_before_or in [false, true] {
+                for text in ["report", "report pdf", "!draft <report|photo> ext:txt"] {
+                    let query = Query::parse(
+                        text,
+                        QueryOptions {
+                            hidden_files,
+                            and_before_or,
+                            ..QueryOptions::default()
+                        },
+                    )
+                    .unwrap();
+                    let Node::And(terms) = query.root else {
+                        panic!("name and hidden predicates must be combined");
+                    };
+                    let (last, names) = terms.split_last().unwrap();
+                    assert!(matches!(
+                        last,
+                        Node::Leaf(Pred::Hidden(hidden)) if *hidden == (hidden_files == HiddenFiles::Only)
+                    ));
+                    assert!(!names.is_empty());
+                    assert!(names.iter().all(|name| cost(name) < cost(last)));
+                }
+            }
+        }
     }
 
     #[test]
