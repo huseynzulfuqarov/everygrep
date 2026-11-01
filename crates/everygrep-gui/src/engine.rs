@@ -1016,7 +1016,7 @@ impl Engine {
                 pending_refresh = true;
             }
             match watcher.wait(Some(Duration::from_millis(250))) {
-                Ok(events) if !events.is_empty() => {
+                Ok(events) if !events.is_empty() || watcher.has_pending() => {
                     let mut index = self.index.write().expect("index lock");
                     let stats = watcher.apply(&mut index, &events);
                     if index.should_compact() {

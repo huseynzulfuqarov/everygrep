@@ -8,6 +8,13 @@
 //!
 //! A new folder is watched before its contents are read, so entries created
 //! while it is being read are either seen by the read or reported as events.
+//!
+//! A folder's saved modification time tells a later catch-up (see
+//! [`crate::sync`]) that the index matches the folder as of that time. A time
+//! read while applying a batch may already cover changes whose events are
+//! still queued, so it is kept only once the next batch, read after it, has
+//! been applied. Until then the folder keeps its older time, and a catch-up
+//! after an exit or a dropped watcher reads it again.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -99,6 +106,8 @@ pub struct Watcher {
     watches: Watches,
     skip: Skip,
     buf: Vec<u8>,
+    /// Folder times read at the end of the last batch, kept by the next one.
+    unsettled: HashMap<NodeId, Meta>,
 }
 
 impl Watcher {
@@ -116,6 +125,7 @@ impl Watcher {
             },
             skip: Skip::new(options),
             buf: Vec::new(),
+            unsettled: HashMap::new(),
         };
         for root in online_roots(index) {
             w.watch_root(index, root);
@@ -202,6 +212,13 @@ impl Watcher {
         self.watches.failed
     }
 
+    /// Whether [`apply`](Self::apply) has work to do even without events:
+    /// folder times from the last batch to keep. A caller that applies only
+    /// non-empty batches should also apply an empty one when this holds.
+    pub fn has_pending(&self) -> bool {
+        !self.unsettled.is_empty()
+    }
+
     /// Waits up to `timeout` for events and applies them to `index`. When enough
     /// removed slots have piled up, the index is also compacted (see
     /// [`ApplyStats::compacted`]).
@@ -235,6 +252,10 @@ impl Watcher {
         self.watches.forget(&index.take_removed());
         let remap = index.compact_in_place();
         self.watches.remap(&remap);
+        self.unsettled = std::mem::take(&mut self.unsettled)
+            .into_iter()
+            .filter_map(|(dir, meta)| Some((remap.get(dir.index()).copied().flatten()?, meta)))
+            .collect();
         remap
     }
 
@@ -244,7 +265,12 @@ impl Watcher {
         // Nodes between MOVED_FROM and MOVED_TO, parked under a name that no real
         // file can have, so a new entry with the old name is not mistaken for them.
         let mut moved_out: HashMap<u32, NodeId> = HashMap::new();
+        // Folders whose time is read again at the end.
         let mut touched: HashSet<NodeId> = HashSet::new();
+        // Entries that were not found where the index put them when their event
+        // was applied, and folders where an entry could not be looked at.
+        let mut missed: Vec<(NodeId, Vec<u8>)> = Vec::new();
+        let mut incomplete: HashSet<NodeId> = HashSet::new();
         for ev in events {
             if ev.mask.contains(Mask::Q_OVERFLOW) {
                 stats.overflow = true;
@@ -306,17 +332,17 @@ impl Watcher {
                     {
                         stats.moved += 1;
                         if self.skip.with_metadata || index.store().is_dir(node) {
-                            refresh_meta(index, node, &mut stats);
+                            self.refresh_meta(index, node, &mut stats, &mut touched);
                         }
                     }
                     Some(node) => {
                         stats.removed += index.remove(node).len();
-                        stats.added += self.add_from_disk(index, dir, name);
+                        self.add_or_miss(index, dir, name, &mut stats, &mut missed);
                     }
-                    None => stats.added += self.add_from_disk(index, dir, name),
+                    None => self.add_or_miss(index, dir, name, &mut stats, &mut missed),
                 }
             } else if ev.mask.contains(Mask::CREATE) {
-                stats.added += self.add_from_disk(index, dir, name);
+                self.add_or_miss(index, dir, name, &mut stats, &mut missed);
             } else if ev.mask.contains(Mask::DELETE) {
                 if let Some(node) = index.find_child(Some(dir), name) {
                     stats.removed += index.remove(node).len();
@@ -327,7 +353,7 @@ impl Watcher {
             {
                 if let Some(node) = index.find_child(Some(dir), name) {
                     if self.skip.with_metadata || index.store().is_dir(node) {
-                        refresh_meta(index, node, &mut stats);
+                        self.refresh_meta(index, node, &mut stats, &mut touched);
                     }
                     if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
                         // A folder's permissions decide what can be read
@@ -341,16 +367,73 @@ impl Watcher {
         for node in moved_out.into_values() {
             stats.removed += index.remove(node).len();
         }
-        // Keep folder times current, so the next catch-up skips these folders.
+        // An entry created in a folder that was then renamed was looked for at
+        // the folder's old path. Look again where the folder is now.
+        for (dir, name) in missed {
+            if !index.store().is_live(dir) || index.find_child(Some(dir), &name).is_some() {
+                continue;
+            }
+            match self.add_from_disk(index, dir, &name) {
+                Ok(added) => stats.added += added,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                // Not allowed to look: the folder keeps its older time, so a
+                // catch-up reads it again.
+                Err(_) => {
+                    incomplete.insert(dir);
+                }
+            }
+        }
+        // The times read at the end of the previous batch: every event queued
+        // before them has now been read and applied.
+        for (dir, meta) in std::mem::take(&mut self.unsettled) {
+            if index.store().is_live(dir) && !incomplete.contains(&dir) {
+                index.set_meta(dir, meta);
+            }
+        }
         for dir in touched {
-            if index.store().is_live(dir) {
+            if index.store().is_live(dir) && !incomplete.contains(&dir) {
                 if let Ok(m) = fs::symlink_metadata(index.store().path(dir)) {
-                    index.set_meta(dir, Meta::from_metadata(&m));
+                    self.unsettled.insert(dir, Meta::from_metadata(&m));
                 }
             }
         }
         self.watches.forget(&index.take_removed());
         stats
+    }
+
+    /// Adds `parent/name` from disk, or notes it in `missed` when it cannot
+    /// be looked at now.
+    fn add_or_miss(
+        &mut self,
+        index: &mut Index,
+        parent: NodeId,
+        name: &[u8],
+        stats: &mut ApplyStats,
+        missed: &mut Vec<(NodeId, Vec<u8>)>,
+    ) {
+        match self.add_from_disk(index, parent, name) {
+            Ok(added) => stats.added += added,
+            Err(_) => missed.push((parent, name.to_vec())),
+        }
+    }
+
+    /// Reads the metadata of `node` again. A folder's time is only noted in
+    /// `touched`, to be kept as described in the module documentation.
+    fn refresh_meta(
+        &self,
+        index: &mut Index,
+        node: NodeId,
+        stats: &mut ApplyStats,
+        touched: &mut HashSet<NodeId>,
+    ) {
+        if index.store().is_dir(node) {
+            index.note_changed(node);
+            touched.insert(node);
+            stats.updated += 1;
+        } else if let Ok(m) = fs::symlink_metadata(index.store().path(node)) {
+            index.set_meta(node, Meta::from_metadata(&m));
+            stats.updated += 1;
+        }
     }
 
     /// Whether `node`, moved to `name` in `dir`, can keep its subtree as it
@@ -371,17 +454,28 @@ impl Watcher {
 
     /// Adds `parent/name` as it is on disk now, including a folder's contents,
     /// watching each new folder before reading it. Returns the number of nodes
-    /// added.
-    fn add_from_disk(&mut self, index: &mut Index, parent: NodeId, name: &[u8]) -> usize {
+    /// added, or the error when the entry itself cannot be looked at.
+    fn add_from_disk(
+        &mut self,
+        index: &mut Index,
+        parent: NodeId,
+        name: &[u8],
+    ) -> io::Result<usize> {
         let path = index
             .store()
             .path(parent)
             .join(std::ffi::OsStr::from_bytes(name));
+        fs::symlink_metadata(&path)?;
         let watches = &mut self.watches;
         let skip = &self.skip;
-        add_tree(index, parent, name, &path, skip, &mut |idx: &Index, dir| {
-            watches.watch(idx, dir, skip)
-        })
+        Ok(add_tree(
+            index,
+            parent,
+            name,
+            &path,
+            skip,
+            &mut |idx: &Index, dir| watches.watch(idx, dir, skip),
+        ))
     }
 }
 
@@ -391,13 +485,6 @@ fn parked_name(cookie: u32) -> Vec<u8> {
     let mut name = b"\0moving\0".to_vec();
     name.extend_from_slice(&cookie.to_le_bytes());
     name
-}
-
-fn refresh_meta(index: &mut Index, node: NodeId, stats: &mut ApplyStats) {
-    if let Ok(m) = fs::symlink_metadata(index.store().path(node)) {
-        index.set_meta(node, Meta::from_metadata(&m));
-        stats.updated += 1;
-    }
 }
 
 #[cfg(test)]
@@ -658,6 +745,62 @@ mod tests {
         // Still watched under its new name.
         fs::write(new_dir.join("b.txt"), b"b").unwrap();
         assert!(f.settle(|i| has(i, &new_dir.join("b.txt"))));
+    }
+
+    #[test]
+    fn a_file_created_before_its_folder_is_renamed_is_kept() {
+        let mut f = Fixture::new("create-then-rename");
+        fs::write(f.root().join("docs/new.txt"), b"n").unwrap();
+        let papers = f.root().join("papers");
+        // Both changes are queued before any event is read.
+        fs::rename(f.root().join("docs"), &papers).unwrap();
+        assert!(f.settle(|i| has(i, &papers.join("a.txt")) && has(i, &papers.join("new.txt"))));
+        assert!(!has(&f.index, &f.root().join("docs/new.txt")));
+        // The renamed folder is still watched.
+        fs::write(papers.join("later.txt"), b"l").unwrap();
+        assert!(f.settle(|i| has(i, &papers.join("later.txt"))));
+    }
+
+    #[test]
+    fn a_folder_time_covers_only_changes_that_were_applied() {
+        let mut f = Fixture::new("unapplied");
+        let docs = f.root().join("docs");
+        fs::write(docs.join("first.txt"), b"1").unwrap();
+        let events = f.watcher.wait(Some(Duration::from_secs(2))).unwrap();
+        assert!(!events.is_empty());
+        // Made after the events were read, before they are applied.
+        fs::write(docs.join("second.txt"), b"2").unwrap();
+        f.watcher.apply(&mut f.index, &events);
+        assert!(has(&f.index, &docs.join("first.txt")));
+        assert!(!has(&f.index, &docs.join("second.txt")));
+        // The watcher goes away with the second event unread (an exit, or
+        // watching turned off); the next start catches up.
+        let mut index = std::mem::replace(&mut f.index, Index::new(NodeStore::new()));
+        f.watcher = Watcher::new(&index, &ScanOptions::default()).unwrap();
+        let stats = f.watcher.catch_up(&mut index);
+        assert!(has(&index, &docs.join("second.txt")), "{stats:?}");
+    }
+
+    #[test]
+    fn folder_times_are_kept_once_the_next_batch_is_applied() {
+        let mut f = Fixture::new("settled-times");
+        let docs = f.root().join("docs");
+        fs::write(docs.join("new.txt"), b"n").unwrap();
+        assert!(f.settle(|i| has(i, &docs.join("new.txt"))));
+        f.watcher
+            .poll(&mut f.index, Some(Duration::from_millis(50)))
+            .unwrap();
+        assert!(!f.watcher.has_pending());
+        // Nothing changed since: a catch-up reads no folder again.
+        assert_eq!(f.watcher.catch_up(&mut f.index).dirs_rescanned, 0);
+        let id = f
+            .index
+            .order()
+            .iter()
+            .find(|&id| f.index.store().path(id) == docs)
+            .unwrap();
+        let on_disk = Meta::from_metadata(&fs::symlink_metadata(&docs).unwrap());
+        assert_eq!(f.index.store().meta(id).mtime_ns, on_disk.mtime_ns);
     }
 
     #[test]
