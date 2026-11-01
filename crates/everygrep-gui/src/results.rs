@@ -346,6 +346,26 @@ impl ResultsModel {
         (0..rows).for_each(|r| self.notify.row_changed(r));
     }
 
+    /// The texts of `column` (numbered as the window's sort column) in the
+    /// rows `rows`, as the cells show them; rows past the end are left out.
+    pub fn column_texts(&self, column: i32, rows: Range<usize>) -> Vec<String> {
+        let end = rows.end.min(self.row_count());
+        (rows.start.min(end)..end)
+            .filter_map(|r| self.row_data(r))
+            .map(|d| match column {
+                0 => plain(&d.name),
+                1 => plain(&d.folder),
+                2 => d.size.into(),
+                3 => d.modified.into(),
+                4 => d.type_name.into(),
+                5 => d.extension.into(),
+                6 => d.created.into(),
+                7 => d.accessed.into(),
+                _ => d.attributes.into(),
+            })
+            .collect()
+    }
+
     /// Whether the status line describes the selected items.
     pub fn set_details(&self, on: bool) {
         self.details.set(on);
@@ -557,6 +577,50 @@ impl Model for ResultsModel {
     }
 }
 
+/// The text of a marked cell without its marks.
+fn plain(m: &Marked) -> String {
+    [
+        &m.p0, &m.b0, &m.p1, &m.b1, &m.p2, &m.b2, &m.p3, &m.b3, &m.p4,
+    ]
+    .iter()
+    .map(|s| s.as_str())
+    .collect()
+}
+
+/// A rough width of `text` in tenths of an average character: narrow
+/// letters and punctuation count less, wide letters and East Asian
+/// characters more. It only picks which texts the window measures.
+fn rough_width(text: &str) -> u32 {
+    text.chars()
+        .map(|c| match c {
+            'i' | 'l' | 'j' | 'I' | '.' | ',' | ':' | ';' | '\'' | '!' | '|' | ' ' => 4,
+            'f' | 't' | 'r' | '(' | ')' | '[' | ']' | '-' | '/' => 5,
+            'm' | 'w' | 'M' | 'W' | '@' | '%' => 13,
+            'A'..='Z' => 11,
+            '\u{1100}'..='\u{115f}' | '\u{2e80}'..='\u{a4cf}' | '\u{ac00}'..='\u{d7a3}' => 18,
+            '\u{f900}'..='\u{faff}' | '\u{fe30}'..='\u{fe4f}' | '\u{ff00}'..='\u{ff60}' => 18,
+            _ => 9,
+        })
+        .sum()
+}
+
+/// The `n` texts that look widest, widest first, without repeats; the
+/// window measures them to size a column to fit.
+pub fn widest(texts: Vec<String>, n: usize) -> Vec<String> {
+    let mut texts = texts;
+    texts.sort_by_key(|t| std::cmp::Reverse(rough_width(t)));
+    let mut out: Vec<String> = Vec::with_capacity(n);
+    for t in texts {
+        if out.len() == n {
+            break;
+        }
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
+
 /// Text of the Size column. A folder's size is the total of the files below
 /// it.
 fn size_text(is_dir: bool, size: u64, items: u32, folders: FolderSize) -> String {
@@ -650,6 +714,36 @@ fn now_ns() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+
+    #[test]
+    fn the_widest_looking_texts_are_measured() {
+        let texts = ["iiii", "MMMM", "abcd", "MMMM", "日本語", ""]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(widest(texts.clone(), 3), ["日本語", "MMMM", "abcd"]);
+        assert_eq!(widest(texts, 10).len(), 5, "repeats are dropped");
+        assert!(widest(Vec::new(), 3).is_empty());
+        assert!(rough_width("lll") < rough_width("www"));
+        assert_eq!(rough_width(""), 0);
+    }
+
+    #[test]
+    fn marks_are_left_out_of_the_measured_text() {
+        let m = Marked {
+            p0: "re".into(),
+            b0: "port".into(),
+            p1: "-20".into(),
+            b1: "26".into(),
+            p2: ".pdf".into(),
+            ..Marked::default()
+        };
+        assert_eq!(plain(&m), "report-2026.pdf");
+    }
 }
 
 #[cfg(test)]

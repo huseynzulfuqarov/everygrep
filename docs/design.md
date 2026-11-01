@@ -44,7 +44,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   settings. File (new window, close window, export results, quit), Edit
   (cut, copy, paste into folder, copy name, path and full path, select all,
   invert selection, rename, trash, delete, focus the search field), View
-  (refresh, optional columns, sort by column and direction, folder size, density,
+  (refresh, optional columns, size columns to fit, sort by column and direction, folder size, density,
   theme, selection details, menu bar), Search (matching modes, including
   prefix, suffix, ignore punctuation and ignore whitespace, filters,
   previous and next filter, previous and next search), Tools (settings,
@@ -85,7 +85,14 @@ screen; when a change conflicts with them, the rules win or are changed first.
   `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link
   (never followed), `X` regular file with any execute bit.
   Columns can be resized, hidden and sorted by clicking the header; reordering
-  is planned. The first click on a header sorts ascending; two settings
+  is planned. A double-click on a header border sizes the column left of it
+  to fit; "Size all columns to fit" and "Fit columns to window"
+  (View menu, header context menu, keys can be set) size every shown
+  column. Fitting measures the cells of the rows on screen and the header
+  label. Since Folder always takes the room the other columns leave, it is
+  fitted by giving Name the rest, and "to fit" leaves the spare room to
+  Folder, while "to fit window" widens or narrows every column by the same
+  factor so that together they fill the window. The first click on a header sorts ascending; two settings
   (Window page, off by default) make it sort the date columns newest first
   and Size largest first. A second click reverses the order. Sorting by Type groups by kind, then extension. Matched search
   terms are bold: every occurrence of every term that is not negated (`!`),

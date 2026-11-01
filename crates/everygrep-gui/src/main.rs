@@ -368,6 +368,21 @@ fn main() -> Result<(), slint::PlatformError> {
             engine.set_sort(sort_for_column(column, descending, model.folder_size()));
         }
     });
+    window.on_fit_texts({
+        let model = model.clone();
+        move |column, first, count| {
+            let first = usize::try_from(first).unwrap_or(0);
+            let count = usize::try_from(count).unwrap_or(0);
+            let texts = model.column_texts(column, first..first.saturating_add(count));
+            let mut widest = results::widest(texts, 3).into_iter();
+            let mut next = || SharedString::from(widest.next().unwrap_or_default());
+            FitTexts {
+                a: next(),
+                b: next(),
+                c: next(),
+            }
+        }
+    });
     window.on_first_descending(|column| {
         let mut descending = false;
         prefs::with(|p| descending = p.first_descending(column));

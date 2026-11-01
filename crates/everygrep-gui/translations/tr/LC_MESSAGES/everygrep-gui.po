@@ -1860,3 +1860,15 @@ msgstr "Arama değiştiğinde seçimi temizle"
 #: ui/settings.slint
 msgid "Off: the selected items stay selected while the new results list them. Sorting and file changes never clear it."
 msgstr "Kapalıyken seçili öğeler yeni sonuçlarda listelendikçe seçili kalır. Sıralama ve dosya değişiklikleri seçimi asla temizlemez."
+
+#: ui/app.slint
+msgid "Size column to fit"
+msgstr "Sütunu içeriğe sığdır"
+
+#: src/commands.rs
+msgid "Size all columns to fit"
+msgstr "Tüm sütunları içeriğe sığdır"
+
+#: src/commands.rs
+msgid "Fit columns to window"
+msgstr "Tüm sütunları pencereye sığdır"

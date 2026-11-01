@@ -250,6 +250,9 @@ First version, 0.1.0, not released yet.
   and 0 never asks.
 - "Clear the selection when the search changes" (Search page, on as
   before): off, a new search keeps the selected items it lists.
+- Size columns to fit the rows on screen: double-click a header border,
+  or View → Size all columns to fit / Fit columns to window (also
+  in the header's context menu, with keys that can be set).
 
 ### Project
 
