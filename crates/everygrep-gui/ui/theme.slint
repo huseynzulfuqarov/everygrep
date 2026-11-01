@@ -26,10 +26,14 @@ export global Theme {
     out property <color> selection: dark ? #2b4a80 : #d3e2fd;
     out property <color> selection-text: dark ? #ffffff : #0b1b3d;
     out property <color> hover: dark ? #26282d : #eef1f5;
+    // Every second row, when alternate row colors are on: text keeps
+    // 17.0:1 (13.6:1 dark), muted text 6.8:1 (6.5:1) and offline text
+    // 3.9:1 (4.1:1) on it.
+    out property <color> row-alt: dark ? #212226 : #f8f9fb;
     out property <color> danger: dark ? #ff8080 : #b42323;
     // Entries of a drive that is not connected: dimmer than muted text,
-    // still readable (3.9:1 on the light surface, 4.3:1 on the dark one).
-    out property <color> text-offline: dark ? #7d8189 : #7c818b;
+    // still readable (4.1:1 on the light surface, 4.3:1 on the dark one).
+    out property <color> text-offline: dark ? #7d8189 : #787d87;
 
     // Spacing
     out property <length> s1: 4px;

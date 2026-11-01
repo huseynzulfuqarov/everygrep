@@ -246,6 +246,7 @@ the program behaves as before, except that folders show their total size.
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
+| | alternate row color: every second row slightly darker (lighter in the dark theme) | on |
 | | details of the selected items in the status line | on |
 | | show the menu bar | on |
 | Window | closing the window: quit, or hide it and keep running | quit |
@@ -384,7 +385,7 @@ ignored. Other keys: `whole-words`,
 repeated per drive), `folder-size` (`total`, `items`, `none`),
 `theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
 `language` (`system`, `en`, `az`, `tr`),
-`status-details`, `menu-bar`, `remember-columns`, `sort-dates-newest-first`,
+`status-details`, `menu-bar`, `alternate-row-color`, `remember-columns`, `sort-dates-newest-first`,
 `sort-sizes-largest-first`,
 `show-extension-column`, `show-created-column`, `show-accessed-column`,
 `show-attributes-column`, `name-width`, `modified-width`, `type-width`,

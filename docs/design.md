@@ -97,7 +97,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   `~` that stands for it. A cell shows up to four bold runs; later ones
   stay plain. The runs are worked out for the rows on screen only. Entries of a removable drive that is not
   connected are drawn in the `text-offline` color (dimmer than muted text,
-  still at least 3.9:1), their names slanted and their icons faded, so the
+  still at least 3.9:1, also on alternate rows), their names slanted and their icons faded, so the
   state is not shown by color alone; file actions on them are refused with a
   note in the status line. A folder's Size is the total size of all
   files below it, at any depth (a setting can show the number of items or
@@ -138,7 +138,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 
 Colors are defined once as named tokens (`surface`, `surface-alt`, `field`,
 `field-line`, `text`, `text-muted`, `text-offline`, `line`, `accent`,
-`accent-text`, `selection`, `selection-text`, `hover`, `danger`) for each
+`accent-text`, `selection`, `selection-text`, `hover`, `row-alt`, `danger`) for each
 theme. Components
 use only the tokens, never raw colors.
 
@@ -155,11 +155,15 @@ toolkit keeps the desktop's scheme.
 Light palette: white surface, `#f5f6f8` for the header and status line, text
 `#16171a` (17.9:1), muted text `#545862` (7.1:1 on white, 6.3:1 on hover),
 accent `#1f5fd6` (5.7:1), selection `#d3e2fd` with `#0b1b3d` text (13:1),
-hover `#eef1f5`, danger `#b42323`. The search field is white like the
+hover `#eef1f5`, danger `#b42323`. With "Alternate row color" (Appearance
+page, on by default) every second row of the list is `#f8f9fb` (`row-alt`;
+dark `#212226`): text keeps 17:1 on it, muted text 6.8:1 and offline text
+3.9:1. The search field is white like the
 surface, so it gets a visible `#c5cad2` border (`field-line`).
 
 Contrast: body text at least 7:1 against its background, muted text at least
-4.5:1.
+4.5:1, in both themes and on every row background (a test checks the
+tokens).
 
 ## Icons
 
@@ -298,8 +302,8 @@ window with `Esc` is planned.
 Settings open in a separate window (`Ctrl+,`, Tools → Settings…, the overflow
 menu, or `--settings`): a list of pages on the left (Indexing, Search,
 Appearance, Window, Keyboard), the page on the right. Appearance
-holds the language, the theme, the density, the selection details and the
-menu bar. `Ctrl+PgUp`/`Ctrl+PgDn` switch
+holds the language, the theme, the density, the alternate row color, the
+selection details and the menu bar. `Ctrl+PgUp`/`Ctrl+PgDn` switch
 pages and `Esc` closes the window.
 
 - Changes apply at once; there is no OK or Apply. Each page has "Reset to
@@ -307,9 +311,10 @@ pages and `Esc` closes the window.
 - Defaults reproduce the behaviour from before settings existed, so a missing
   settings file changes nothing. One exception was chosen on purpose: folder
   sizes (Window page) default to the total size, where folders used to show
-  an empty Size; "nothing" restores the old look. The menu bar and the
-  selection details (Appearance page) are also on by default; turning them
-  off restores the earlier look.
+  an empty Size; "nothing" restores the old look. The menu bar, the
+  selection details and the alternate row color (Appearance page) and the
+  selection of the search text on a click (Search page) are also on by
+  default; turning them off restores the earlier look.
 - Choices that also appear in a menu (View and Search) and in the settings
   are the same setting: changing one place changes the other at once.
 - Every behaviour choice is a setting; nothing is fixed in code that a user

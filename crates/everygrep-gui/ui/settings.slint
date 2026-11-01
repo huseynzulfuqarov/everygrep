@@ -163,6 +163,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> density;
     in-out property <bool> status-details;
     in-out property <bool> menu-bar;
+    in-out property <bool> alternate-rows;
     callback appearance-changed();
 
     // Window
@@ -634,6 +635,12 @@ export component SettingsWindow inherits Window {
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Note { text: @tr("Compact shows more rows at once, with smaller icons and text."); }
+                            CheckBox {
+                                text: @tr("Alternate row color");
+                                checked <=> root.alternate-rows;
+                                toggled => { root.appearance-changed(); }
+                            }
+                            Note { text: @tr("Every second row has a slightly different background, which makes long rows easier to follow."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Status line"); }
                             CheckBox {

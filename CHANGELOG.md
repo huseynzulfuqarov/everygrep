@@ -229,6 +229,10 @@ First version, 0.1.0, not released yet.
 - "Sort dates newest first" and "Sort sizes largest first" (Window page,
   off): the first click on the header of Modified, Created or Accessed, or
   of Size, sorts descending.
+- Alternate row color (Appearance page, on): every second row of the result
+  list has a slightly different background, keeping the text contrast in
+  both themes; the offline text color is a little darker so it stays
+  readable on it.
 
 ### Project
 

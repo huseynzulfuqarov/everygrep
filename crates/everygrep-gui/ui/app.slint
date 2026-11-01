@@ -488,6 +488,8 @@ component Row inherits Rectangle {
     in property <ResultRow> data;
     // The keyboard cursor is on this row and the list has focus.
     in property <bool> current;
+    // Every second row, drawn in the row-alt color when that is on.
+    in property <bool> alternate;
     in property <length> name-width;
     in property <length> folder-width;
     in property <length> size-width;
@@ -518,7 +520,8 @@ component Row inherits Rectangle {
     property <color> other-color: selected ? Theme.selection-text : offline ? Theme.text-offline : Theme.text-muted;
 
     height: Theme.row-height;
-    background: selected ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
+    background: selected ? Theme.selection : touch.has-hover ? Theme.hover
+        : root.alternate ? Theme.row-alt : transparent;
 
     touch := TouchArea {
         pointer-event(event) => {
@@ -802,6 +805,8 @@ export component AppWindow inherits Window {
     in-out property <bool> use-regex <=> search.use-regex;
     // A click into the search field selects its text (a setting).
     in property <bool> select-search-on-click: true;
+    // Every second row of the list has the row-alt background (a setting).
+    in property <bool> alternate-rows: true;
     // Modes without a toggle in the field: Search menu and Alt keys.
     in-out property <bool> match-prefix;
     in-out property <bool> match-suffix;
@@ -1753,6 +1758,7 @@ export component AppWindow inherits Window {
                     for row[i] in root.results: Row {
                         data: row;
                         current: i == root.current && keys.has-focus;
+                        alternate: root.alternate-rows && Math.mod(i, 2) == 1;
                         name-width: root.name-width;
                         folder-width: root.folder-width;
                         size-width: root.size-width;

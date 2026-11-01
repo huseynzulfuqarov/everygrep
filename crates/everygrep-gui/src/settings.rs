@@ -233,6 +233,9 @@ pub struct Settings {
     pub sizes_largest_first: bool,
     pub theme: ThemeChoice,
     pub density: Density,
+    /// Whether every second row of the result list has a slightly
+    /// different background.
+    pub alternate_rows: bool,
     /// Whether the status line shows the size, date and path of the selected
     /// item (and the number and size of several).
     pub status_details: bool,
@@ -276,6 +279,7 @@ impl Default for Settings {
             sizes_largest_first: false,
             theme: ThemeChoice::System,
             density: Density::Comfortable,
+            alternate_rows: true,
             status_details: true,
             menu_bar: true,
             language: LanguageChoice::System,
@@ -456,6 +460,7 @@ impl Settings {
                 .map(|t| self.theme = t)
                 .is_some(),
             "status-details" => put_flag(&mut self.status_details),
+            "alternate-row-color" => put_flag(&mut self.alternate_rows),
             "menu-bar" => put_flag(&mut self.menu_bar),
             "language" => LanguageChoice::ALL
                 .into_iter()
@@ -681,6 +686,12 @@ impl Settings {
             d.status_details,
         );
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
+        flag(
+            &mut out,
+            "alternate-row-color",
+            self.alternate_rows,
+            d.alternate_rows,
+        );
         if self.language != d.language {
             line(&mut out, "language", self.language.id());
         }
@@ -764,6 +775,7 @@ impl Settings {
             Page::Appearance => {
                 self.theme = d.theme;
                 self.density = d.density;
+                self.alternate_rows = d.alternate_rows;
                 self.status_details = d.status_details;
                 self.menu_bar = d.menu_bar;
                 self.language = d.language;
@@ -1045,6 +1057,7 @@ pub(crate) mod tests {
             },
             theme: ThemeChoice::Dark,
             density: Density::Compact,
+            alternate_rows: false,
             status_details: false,
             menu_bar: false,
             drives: DriveSettings {
@@ -1070,6 +1083,7 @@ pub(crate) mod tests {
         assert!(text.contains("density = compact\n"));
         assert!(text.contains("status-details = false\n"));
         assert!(text.contains("menu-bar = false\n"));
+        assert!(text.contains("alternate-row-color = false\n"));
         assert!(text.contains("root = /srv/media files\n"));
         assert!(text.contains("on-close = hide\n"));
         assert!(text.contains("folder-size = items\n"));

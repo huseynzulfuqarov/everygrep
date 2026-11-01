@@ -696,6 +696,7 @@ impl Prefs {
             .collect();
         w.set_status_details(s.status_details);
         w.set_menu_bar(s.menu_bar);
+        w.set_alternate_rows(s.alternate_rows);
         w.set_density_names(ModelRc::new(VecModel::from(densities)));
         w.set_density(
             Density::ALL
@@ -1183,6 +1184,7 @@ impl Prefs {
         let Some(m) = self.main.upgrade() else { return };
         let s = self.settings.borrow();
         m.set_select_search_on_click(s.select_search_on_click);
+        m.set_alternate_rows(s.alternate_rows);
     }
 
     /// Gives the main window the "search as you type" setting.
@@ -1208,6 +1210,7 @@ impl Prefs {
             .unwrap_or_default();
         let details = w.get_status_details();
         let menu_bar = w.get_menu_bar();
+        let alternate_rows = w.get_alternate_rows();
         let language = usize::try_from(w.get_language())
             .ok()
             .and_then(|i| LanguageChoice::ALL.get(i).copied())
@@ -1217,6 +1220,7 @@ impl Prefs {
             s.density = density;
             s.status_details = details;
             s.menu_bar = menu_bar;
+            s.alternate_rows = alternate_rows;
             s.language = language;
         });
         self.apply_look();
@@ -1230,6 +1234,7 @@ impl Prefs {
         self.apply_density();
         self.apply_status_details();
         self.apply_menu_bar();
+        self.apply_behaviour();
         self.fill_menus();
     }
 
