@@ -1942,3 +1942,15 @@ msgstr "Yalnız gizliler"
 
 msgid "Dotfiles and the contents of dot-prefixed folders. This filters results without changing the index."
 msgstr "Noktayla başlayan dosyalar ve klasörlerin içeriği. Dizini değiştirmeden sonuçları süzer."
+
+msgid "Rename in a dialog"
+msgstr "Bir iletişim kutusunda yeniden adlandır"
+
+msgid "Location"
+msgstr "Konum"
+
+msgid "New name"
+msgstr "Yeni ad"
+
+msgid "A name cannot contain a null character."
+msgstr "Ad boş karakter içeremez."

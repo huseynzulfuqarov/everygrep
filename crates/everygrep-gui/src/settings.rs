@@ -234,6 +234,7 @@ pub struct Settings {
     /// Whether renaming preselects the name without its extension; off
     /// selects the whole name.
     pub rename_name_only: bool,
+    pub fileops: crate::fileops_settings::Settings,
     /// Whether a double-click on the Folder cell of a row opens the
     /// containing folder instead of the item.
     pub path_click_opens_folder: bool,
@@ -301,6 +302,7 @@ impl Default for Settings {
             remember_columns: true,
             columns: Columns::default(),
             rename_name_only: true,
+            fileops: crate::fileops_settings::Settings::default(),
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
             open_confirm_over: DEFAULT_OPEN_CONFIRM,
@@ -569,7 +571,7 @@ impl Settings {
                 } = Some(w);
                 true
             }
-            _ => false,
+            _ => self.fileops.set(key, value),
         }
     }
 
@@ -721,6 +723,7 @@ impl Settings {
             self.history_on_disk,
             d.history_on_disk,
         );
+        self.fileops.write(&mut out);
         if self.on_close != d.on_close {
             line(&mut out, "on-close", self.on_close.id());
         }
@@ -900,6 +903,7 @@ impl Settings {
                 self.remember_columns = d.remember_columns;
                 self.columns = d.columns;
                 self.rename_name_only = d.rename_name_only;
+                self.fileops = d.fileops;
                 self.path_click_opens_folder = d.path_click_opens_folder;
                 self.copy_full_path_quotes = d.copy_full_path_quotes;
                 self.open_confirm_over = d.open_confirm_over;

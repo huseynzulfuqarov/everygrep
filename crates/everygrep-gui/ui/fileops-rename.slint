@@ -1,0 +1,76 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// Modal within the main window: location, editable name and local errors.
+export component FileopsRename inherits Rectangle {
+    in property <string> location;
+    in-out property <string> name;
+    in property <int> selection-end;
+    in property <string> error;
+    callback edited(string);
+    callback submit();
+    callback cancel();
+
+    background: Theme.surface;
+    TouchArea { }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.cancel(); return accept; }
+            if (event.text == Key.Return) { root.submit(); return accept; }
+            reject
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: max(0px, (parent.height - self.height) / 2);
+            width: min(480px, parent.width - 2 * Theme.s3);
+            height: layout.preferred-height;
+            background: Theme.surface;
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: Theme.line;
+            layout := VerticalLayout {
+                padding: Theme.s4;
+                spacing: Theme.s3;
+                Text { text: @tr("Rename"); color: Theme.text; font-weight: 600; }
+                Text { text: @tr("Location"); color: Theme.text-muted; }
+                Text { text: root.location; color: Theme.text; wrap: word-wrap; }
+                Text { text: @tr("New name"); color: Theme.text-muted; }
+                Rectangle {
+                    height: Theme.field-height;
+                    background: Theme.field;
+                    border-width: 1px;
+                    border-color: input.has-focus ? Theme.accent : Theme.field-line;
+                    border-radius: Theme.radius;
+                    clip: true;
+                    input := TextInput {
+                        x: Theme.s2;
+                        width: parent.width - 2 * Theme.s2;
+                        height: parent.height;
+                        text <=> root.name;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        single-line: true;
+                        accessible-label: @tr("New name");
+                        selection-background-color: Theme.selection;
+                        selection-foreground-color: Theme.selection-text;
+                        init => { self.focus(); self.set-selection-offsets(0, root.selection-end); }
+                        edited => { root.edited(self.text); }
+                        accepted => { root.submit(); }
+                    }
+                }
+                Text { text: root.error; color: Theme.danger; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: Theme.s2;
+                    Button { text: @tr("Cancel"); clicked => { root.cancel(); } }
+                    Button {
+                        text: @tr("Rename");
+                        primary: true;
+                        enabled: root.error == "";
+                        clicked => { root.submit(); }
+                    }
+                }
+            }
+        }
+    }
+}

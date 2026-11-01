@@ -159,7 +159,7 @@ executable file.
 | `Ctrl+Alt+C` | copy the name |
 | `Ctrl+Alt+Shift+C` | copy the path of the containing folder (each folder once) |
 | — | copy path / full path with quotes: each in double quotes (context menu, Edit menu; a key can be set) |
-| `F2` | rename in place (`Enter` renames, `Esc` cancels) |
+| `F2` | rename in place or in a dialog (`Enter` renames, `Esc` cancels; Settings → Window) |
 | `Delete` | move to the trash (`gio trash`) |
 | `Shift+Delete` | delete permanently, after a confirmation |
 | `Esc` | clear the selection, then back to the search |
@@ -259,6 +259,12 @@ to the current search, including regex and empty queries, alongside the kind
 filter. Dotfiles and all descendants of dot-prefixed folders count as hidden,
 including hidden components in an indexed root path. No entries are removed
 from the index and no rescan is needed.
+
+The Window settings can make Rename open a dialog showing the containing
+folder and the new name. Invalid names, names over 255 UTF-8 bytes and
+existing targets are reported inside the dialog; a failed rename keeps it
+open. The existing in-place editor remains the default. Both editors refuse
+to replace a target that appears during the rename.
 
 ### Settings
 
@@ -424,7 +430,8 @@ size-width = 120
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
-search at every key press, `rename-select-name-only` the selection of
+search at every key press, `rename-in-dialog` the rename editor,
+`rename-select-name-only` the selection of
 the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
 opens, `copy-full-path-quotes` the quotes around copied full paths,

@@ -410,6 +410,20 @@ const RENAME_NOREPLACE: c_uint = 1;
 /// replacing. File systems without this kind of rename get a check and a
 /// plain rename, which could replace a file created in between.
 fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    match rename_noreplace_strict(from, to) {
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
+        result => return result,
+    }
+    // Legacy transfer fallback for file systems without RENAME_NOREPLACE.
+    if fs::symlink_metadata(to).is_ok() {
+        return Err(io::ErrorKind::AlreadyExists.into());
+    }
+    fs::rename(from, to)
+}
+
+/// An atomic rename that never replaces the target, including on file
+/// systems that cannot implement RENAME_NOREPLACE (which return an error).
+pub(crate) fn rename_noreplace_strict(from: &Path, to: &Path) -> io::Result<()> {
     let a = CString::new(from.as_os_str().as_bytes())?;
     let b = CString::new(to.as_os_str().as_bytes())?;
     // SAFETY: both are valid C strings that outlive the call.
@@ -417,16 +431,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     if rc == 0 {
         return Ok(());
     }
-    let e = io::Error::last_os_error();
-    if e.kind() != io::ErrorKind::InvalidInput {
-        return Err(e);
-    }
-    // EINVAL: the file system does not support RENAME_NOREPLACE (or the
-    // rename itself is invalid, which the plain rename reports again).
-    if fs::symlink_metadata(to).is_ok() {
-        return Err(io::ErrorKind::AlreadyExists.into());
-    }
-    fs::rename(from, to)
+    Err(io::Error::last_os_error())
 }
 
 #[cfg(test)]

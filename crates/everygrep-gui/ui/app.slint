@@ -1,5 +1,6 @@
 import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
@@ -934,6 +935,15 @@ export component AppWindow inherits Window {
     in-out property <string> rename-text;
     in property <int> rename-stem;
 
+    in property <bool> fileops-rename-open;
+    in property <string> fileops-rename-location;
+    in-out property <string> fileops-rename-name;
+    in property <int> fileops-rename-stem;
+    in property <string> fileops-rename-error;
+    callback fileops-rename-edited(string);
+    callback fileops-rename-submit();
+    callback fileops-rename-cancel();
+
     // Confirmation dialog.
     in property <bool> confirm-open;
     in property <string> confirm-title;
@@ -1209,7 +1219,7 @@ export component AppWindow inherits Window {
 
     // Whether a command can run now; menu items are enabled by it.
     function can-run(c: Command) -> bool {
-        if (root.confirm-open) {
+        if (root.confirm-open || root.fileops-rename-open) {
             return false;
         }
         if (root.needs-online(c)) {
@@ -2233,6 +2243,16 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    if root.fileops-rename-open: FileopsRename {
+        location: root.fileops-rename-location;
+        name <=> root.fileops-rename-name;
+        selection-end: root.fileops-rename-stem;
+        error: root.fileops-rename-error;
+        edited(name) => { root.fileops-rename-edited(name); }
+        submit => { root.fileops-rename-submit(); }
+        cancel => { root.fileops-rename-cancel(); }
     }
 
     if root.shortcuts-open: InfoDialog {

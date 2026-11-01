@@ -98,6 +98,7 @@ pub fn stem_len(name: &str, is_dir: bool) -> usize {
 pub enum RenameError {
     Empty,
     Slash,
+    Nul,
     Reserved,
     TooLong,
     Exists(String),
@@ -109,6 +110,7 @@ impl fmt::Display for RenameError {
         match self {
             RenameError::Empty => f.write_str(tr("A name cannot be empty.")),
             RenameError::Slash => f.write_str(tr("A name cannot contain “/”.")),
+            RenameError::Nul => f.write_str(tr("A name cannot contain a null character.")),
             RenameError::Reserved => f.write_str(tr("“.” and “..” cannot be used as names.")),
             RenameError::TooLong => f.write_str(tr("The name is too long.")),
             RenameError::Exists(n) => {
@@ -125,8 +127,11 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
     if new_name.is_empty() {
         return Err(RenameError::Empty);
     }
-    if new_name.contains('/') || new_name.contains('\0') {
+    if new_name.contains('/') {
         return Err(RenameError::Slash);
+    }
+    if new_name.contains('\0') {
+        return Err(RenameError::Nul);
     }
     if new_name == "." || new_name == ".." {
         return Err(RenameError::Reserved);
@@ -153,13 +158,21 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
 /// Renames `old` to `new_name` in the same folder. Returns the new path, or
 /// `None` if the name did not change.
 ///
-/// The check for an existing target and the rename are two steps, so a file
-/// created in between would be replaced.
+/// The final rename refuses replacement atomically, including when a new
+/// target appears after validation.
 pub fn rename(old: &Path, new_name: &str) -> Result<Option<PathBuf>, RenameError> {
     let Some(target) = rename_target(old, new_name)? else {
         return Ok(None);
     };
-    std::fs::rename(old, &target).map_err(RenameError::Io)?;
+    crate::transfer::rename_noreplace_strict(old, &target).map_err(|e| {
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            RenameError::Exists(new_name.to_owned())
+        } else if e.raw_os_error() == Some(36) {
+            RenameError::TooLong
+        } else {
+            RenameError::Io(e)
+        }
+    })?;
     Ok(Some(target))
 }
 
@@ -322,10 +335,7 @@ mod tests {
         let old = Path::new("/nonexistent-dir/x.txt");
         assert!(matches!(rename_target(old, ""), Err(RenameError::Empty)));
         assert!(matches!(rename_target(old, "a/b"), Err(RenameError::Slash)));
-        assert!(matches!(
-            rename_target(old, "a\0b"),
-            Err(RenameError::Slash)
-        ));
+        assert!(matches!(rename_target(old, "a\0b"), Err(RenameError::Nul)));
         assert!(matches!(
             rename_target(old, ".."),
             Err(RenameError::Reserved)
@@ -359,6 +369,24 @@ mod tests {
         assert!(!a.exists());
         assert_eq!(fs::read_to_string(&c).unwrap(), "a");
         assert!(matches!(rename(&a, "d.txt"), Err(RenameError::Io(_))));
+    }
+
+    #[test]
+    fn rename_counts_utf8_bytes_and_preserves_a_dangling_target() {
+        let dir = TempDir::new("rename-unicode");
+        let old = dir.0.join("old");
+        fs::write(&old, "keep").unwrap();
+        assert!(matches!(
+            rename(&old, &"ə".repeat(128)),
+            Err(RenameError::TooLong)
+        ));
+        assert_eq!(fs::read_to_string(&old).unwrap(), "keep");
+        let link = dir.0.join("taken");
+        std::os::unix::fs::symlink(dir.0.join("missing"), &link).unwrap();
+        assert!(matches!(rename(&old, "taken"), Err(RenameError::Exists(_))));
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        let renamed = rename(&old, &"ə".repeat(127)).unwrap().unwrap();
+        assert_eq!(fs::read_to_string(renamed).unwrap(), "keep");
     }
 
     #[test]
