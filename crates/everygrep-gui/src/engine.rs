@@ -425,6 +425,13 @@ impl Engine {
             incomplete: AtomicBool::new(false),
             applied: Mutex::new(QueryState::default()),
         });
+        // Watched from before the index thread first looks at the drives, so
+        // a drive mounted after that look is never missed, however late the
+        // mount thread starts.
+        let mount_watch = engine
+            .drive_env
+            .as_ref()
+            .and_then(|env| MountWatch::new(&env.mountinfo).ok());
         let (tx, rx) = mpsc::channel();
         *engine.searches.lock().expect("lock") = Some(tx);
         let e = Arc::clone(&engine);
@@ -442,22 +449,26 @@ impl Engine {
             .lock()
             .expect("lock")
             .extend([searcher, indexer]);
-        if let Some(env) = &engine.drive_env {
-            let path = env.mountinfo.clone();
+        if let Some(watch) = mount_watch {
+            #[cfg(test)]
+            let path = engine.drive_env.as_ref().map(|env| env.mountinfo.clone());
             let e = Arc::clone(&engine);
             // Sleeps in poll until the mount table changes; ends with the
             // process like the index thread.
             let _ = std::thread::Builder::new()
                 .name("mounts".into())
-                .spawn(move || e.mount_loop(&path));
+                .spawn(move || {
+                    #[cfg(test)]
+                    if let Some(path) = path {
+                        tests::slow_thread_start(&path);
+                    }
+                    e.mount_loop(watch);
+                });
         }
         engine
     }
 
-    fn mount_loop(&self, path: &Path) {
-        let Ok(mut watch) = MountWatch::new(path) else {
-            return;
-        };
+    fn mount_loop(&self, mut watch: MountWatch) {
         while !self.stop.load(Ordering::SeqCst) {
             match watch.wait(Duration::from_secs(1)) {
                 Ok(true) => self.mounts_changed.store(true, Ordering::SeqCst),
@@ -1981,6 +1992,23 @@ mod tests {
         }
     }
 
+    /// Mount tables whose watching thread starts late, as it can on a busy
+    /// system.
+    static SLOW_MOUNT_THREADS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    /// Delays the start of the thread that watches `mountinfo`, if a test
+    /// asked for it.
+    pub(super) fn slow_thread_start(mountinfo: &Path) {
+        if SLOW_MOUNT_THREADS
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p == mountinfo)
+        {
+            std::thread::sleep(Duration::from_secs(3));
+        }
+    }
+
     /// Waits until `check` holds for the engine's index.
     fn until(engine: &Engine, what: &str, check: impl Fn(&Index) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -2095,6 +2123,34 @@ mod tests {
         assert!(probe.engine.drives().is_empty());
         assert!(!fake.env.index_path("A1B2-C3D4").exists());
         assert!(!fake.env.info_path("A1B2-C3D4").exists());
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_drive_mounted_before_the_mount_thread_runs_is_seen() {
+        let dir = Scratch::new("drives-early");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let usb = dir.0.join("media/USB");
+        fs::create_dir_all(&usb).unwrap();
+        fs::write(usb.join("early.txt"), "").unwrap();
+        SLOW_MOUNT_THREADS
+            .lock()
+            .unwrap()
+            .push(fake.env.mountinfo.clone());
+        let probe = Probe::start_with(
+            vec![home],
+            Vec::new(),
+            dir.0.join("index.bin"),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        // The drives were looked at once; the mount thread has not started.
+        probe.wait_for(IndexState::Watching);
+        fake.mount("EARLY-1", "sdx1", "USB");
+        until(&probe.engine, "the drive", |i| {
+            find(i, &usb.join("early.txt")).is_some()
+        });
         probe.engine.shutdown();
     }
 
