@@ -190,6 +190,25 @@ export component SettingsWindow inherits Window {
     callback key-command-chosen(int);
     callback remove-binding(int);
     callback restore-keys();
+    // The dialog that adds or changes one key of the chosen command: where
+    // the key works (0 global, 1 search field, 2 result list), the key
+    // pressed, the commands that have it, and why it cannot be used.
+    callback add-binding();
+    callback edit-binding(int);
+    in-out property <bool> key-dialog-open;
+    in property <string> key-dialog-title;
+    in property <string> key-dialog-command;
+    in property <[string]> scope-names;
+    in-out property <int> key-scope;
+    in property <string> key-captured;
+    in property <string> key-used-by;
+    in property <string> key-also-used;
+    in property <string> key-refused;
+    in property <bool> key-can-apply;
+    callback key-scope-changed();
+    callback key-pressed-in-dialog(string, bool, bool, bool, bool);
+    callback key-dialog-accepted();
+    callback key-dialog-cancelled();
     // Opening EveryGrep with a desktop shortcut.
     in property <[ShortcutCommand]> commands;
     in property <string> shortcut-steps;
@@ -746,6 +765,17 @@ export component SettingsWindow inherits Window {
                             HorizontalLayout {
                                 spacing: Theme.s2;
                                 Button {
+                                    text: @tr("Add…");
+                                    enabled: root.key-current >= 0 && root.key-current < root.key-commands.length;
+                                    clicked => { root.add-binding(); }
+                                }
+                                Button {
+                                    text: @tr("Edit…");
+                                    enabled: root.key-binding-current >= 0
+                                        && root.key-binding-current < root.key-bindings.length;
+                                    clicked => { root.edit-binding(root.key-binding-current); }
+                                }
+                                Button {
                                     text: @tr("Remove");
                                     enabled: root.key-binding-current >= 0
                                         && root.key-binding-current < root.key-bindings.length;
@@ -806,6 +836,142 @@ export component SettingsWindow inherits Window {
                     Button {
                         text: @tr("Reset to defaults");
                         clicked => { root.reset-page(root.page); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Adding or changing a key: above the page, which cannot be used
+    // meanwhile. Esc and Cancel close it, Enter applies.
+    if root.key-dialog-open: Rectangle {
+        background: #00000060;
+        TouchArea { }
+        FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.key-dialog-cancelled();
+                    return accept;
+                }
+                if (event.text == Key.Return && root.key-can-apply) {
+                    root.key-dialog-accepted();
+                    return accept;
+                }
+                reject
+            }
+            Rectangle {
+                width: min(460px, root.width - 2 * Theme.s5);
+                height: min(dialog-layout.preferred-height, root.height - 2 * Theme.s5);
+                background: Theme.surface;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.line;
+                drop-shadow-blur: 16px;
+                drop-shadow-color: #00000040;
+                clip: true;
+                dialog-layout := VerticalLayout {
+                    padding: Theme.s5;
+                    spacing: Theme.s3;
+                    Text {
+                        text: root.key-dialog-title;
+                        font-size: Theme.body + 2px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        wrap: word-wrap;
+                    }
+                    Note { text: root.key-dialog-command; color: Theme.text; }
+                    HorizontalLayout {
+                        spacing: Theme.s3;
+                        Text {
+                            text: @tr("Use shortcut in:");
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        ComboBox {
+                            horizontal-stretch: 1;
+                            accessible-label: @tr("Use shortcut in:");
+                            model: root.scope-names;
+                            current-index <=> root.key-scope;
+                            selected => { root.key-scope-changed(); }
+                        }
+                    }
+                    Text {
+                        text: @tr("Shortcut key:");
+                        color: Theme.text;
+                    }
+                    // Takes the next key pressed. Esc cancels and Tab moves
+                    // the focus, so the dialog stays usable from the keyboard.
+                    capture := FocusScope {
+                        height: 36px;
+                        accessible-role: text-input;
+                        accessible-label: @tr("Shortcut key:");
+                        accessible-value: root.key-captured;
+                        init => { self.focus(); }
+                        key-pressed(event) => {
+                            if (event.text == Key.Escape) {
+                                root.key-dialog-cancelled();
+                                return accept;
+                            }
+                            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                                return reject;
+                            }
+                            if (!event.repeat) {
+                                root.key-pressed-in-dialog(event.text, event.modifiers.control,
+                                    event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+                            }
+                            accept
+                        }
+                        Rectangle {
+                            border-radius: Theme.radius;
+                            background: Theme.field;
+                            border-width: capture.has-focus ? 2px : 1px;
+                            border-color: capture.has-focus ? Theme.accent : Theme.field-line;
+                            Text {
+                                x: Theme.s3;
+                                width: parent.width - 2 * Theme.s3;
+                                text: root.key-captured != "" ? root.key-captured : @tr("Press a new keyboard shortcut.");
+                                color: root.key-captured != "" ? Theme.text : Theme.text-muted;
+                                font-weight: root.key-captured != "" ? 600 : 400;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            TouchArea {
+                                clicked => { capture.focus(); }
+                            }
+                        }
+                    }
+                    if root.key-refused != "": Text {
+                        text: root.key-refused;
+                        color: Theme.danger;
+                        font-size: Theme.small;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: @tr("Shortcut key currently used by:");
+                        color: Theme.text;
+                    }
+                    Note {
+                        text: root.key-used-by != "" ? root.key-used-by : @tr("None");
+                        color: Theme.text;
+                    }
+                    if root.key-used-by != "": Note {
+                        text: @tr("Adding it removes it from these commands.");
+                    }
+                    if root.key-also-used != "": Note { text: root.key-also-used; }
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: Theme.s2;
+                        padding-top: Theme.s2;
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => { root.key-dialog-cancelled(); }
+                        }
+                        Button {
+                            text: @tr("OK");
+                            primary: true;
+                            enabled: root.key-can-apply;
+                            clicked => { root.key-dialog-accepted(); }
+                        }
                     }
                 }
             }

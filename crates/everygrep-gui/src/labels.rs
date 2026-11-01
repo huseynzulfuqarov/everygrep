@@ -552,6 +552,25 @@ pub fn shortcut_commands() -> [(&'static str, &'static str); 3] {
     ]
 }
 
+/// Titles of the Keyboard page's dialog.
+pub fn add_shortcut() -> &'static str {
+    tr("Add shortcut")
+}
+
+pub fn edit_shortcut() -> &'static str {
+    tr("Edit shortcut")
+}
+
+/// The global scope in the dialog's "Use shortcut in" choice.
+pub fn scope_global_choice() -> &'static str {
+    tr("Global (any focus)")
+}
+
+/// A key of another command in an overlapping scope; both keep it.
+pub fn also_used(scope: &str, command: &str) -> String {
+    fill(tr("Also used in {0} by {1}."), &[&scope, &command])
+}
+
 pub fn command_copied() -> &'static str {
     tr("Copied the command.")
 }

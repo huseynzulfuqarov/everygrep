@@ -1669,3 +1669,67 @@ msgstr "Qlobal"
 #: ui/settings.slint
 msgid "Search field"
 msgstr "Axtarış sahəsi"
+
+#: ui/settings.slint
+msgid "Add shortcut"
+msgstr "Qısayol əlavə et"
+
+#: ui/settings.slint
+msgid "Edit shortcut"
+msgstr "Qısayolu dəyiş"
+
+#: ui/settings.slint
+msgid "Edit…"
+msgstr "Dəyiş…"
+
+#: ui/settings.slint
+msgid "OK"
+msgstr "Tamam"
+
+#: ui/settings.slint
+msgid "Use shortcut in:"
+msgstr "Qısayolun işlədiyi yer:"
+
+#: ui/settings.slint
+msgid "Global (any focus)"
+msgstr "Qlobal (fokus harada olursa olsun)"
+
+#: ui/settings.slint
+msgid "Shortcut key:"
+msgstr "Qısayol düyməsi:"
+
+#: ui/settings.slint
+msgid "Press a new keyboard shortcut."
+msgstr "Yeni klaviatura qısayolunu basın."
+
+#: ui/settings.slint
+msgid "Shortcut key currently used by:"
+msgstr "Bu düymədən hazırda istifadə edən:"
+
+#: ui/settings.slint
+msgid "Adding it removes it from these commands."
+msgstr "Əlavə etsəniz, bu əmrlərdən silinəcək."
+
+#: ui/settings.slint
+msgid "Also used in {0} by {1}."
+msgstr "{0} yerində {1} də istifadə edir."
+
+#: ui/settings.slint
+msgid "Tab and Esc cannot be used: they move the focus and close dialogs."
+msgstr "Tab və Esc istifadə edilə bilməz: onlar fokusu keçirir və dialoqları bağlayır."
+
+#: ui/settings.slint
+msgid "Add Ctrl, Alt or Super: without them the key types into the search field."
+msgstr "Ctrl, Alt və ya Super əlavə edin: onlarsız düymə axtarış sahəsinə yazır."
+
+#: ui/settings.slint
+msgid "Movement keys move in the result list and cannot be used here."
+msgstr "Hərəkət düymələri nəticə siyahısında gəzir və burada istifadə edilə bilməz."
+
+#: ui/settings.slint
+msgid "The search field uses this key to edit text."
+msgstr "Axtarış sahəsi bu düymə ilə mətni redaktə edir."
+
+#: ui/settings.slint
+msgid "The search field uses this key."
+msgstr "Bu düymədən axtarış sahəsi istifadə edir."

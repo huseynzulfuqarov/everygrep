@@ -258,9 +258,16 @@ the program behaves as before, except that folders show their total size.
 On the Keyboard page, "Show commands containing:" filters the commands by
 name, menu or key (case and diacritics ignored). Choose a command to see its
 keys, each with where it works: Global (anywhere in the window), Search field
-or Result list. Remove takes one away; "Reset to defaults" gives every
-command its original keys. Movement keys, `Tab` and `Esc` cannot be
-changed. `--settings=shortcut` still opens this page.
+or Result list. Add… and Edit… open a dialog: choose where the key works
+("Use shortcut in"), press the new key, and see which commands have it
+already. OK takes it from the commands with the same key in the same place;
+a global key and a key of the search field or the list may share a key (the
+focused control's key wins), which the dialog notes. Keys that would type
+into the search field (no `Ctrl`, `Alt` or `Super`), `Tab`, `Esc`, movement
+keys of the list and the search field's editing keys (`Ctrl+A`, `Ctrl+C`,
+`Ctrl+V`, `Home`, `Delete`, …) are refused with a note. Remove takes one
+key away; "Reset to defaults" gives every command its original keys.
+Movement keys, `Tab` and `Esc` cannot be changed. `--settings=shortcut` still opens this page.
 
 "Same as the desktop" follows the desktop's light or dark style (the
 `color-scheme` of the XDG settings portal) and recolors the window when it

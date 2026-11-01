@@ -190,6 +190,11 @@ First version, 0.1.0, not released yet.
   commands with their keys and where each key works, filtered by "Show
   commands containing:", and removes keys or resets all of them to the
   defaults.
+- Add… and Edit… on the Keyboard page: a dialog that records the next key
+  pressed, offers where it works (global, search field, result list),
+  lists the commands that use it already and takes it from them on OK.
+  Keys that would type text, `Tab`, `Esc`, list movement keys and the
+  search field's editing keys are refused with a note.
 - Removable drives mounted by the desktop are indexed automatically, each
   into its own file and recognised by file system UUID. A removed drive's
   entries stay searchable, dimmed and with file actions refused, or are

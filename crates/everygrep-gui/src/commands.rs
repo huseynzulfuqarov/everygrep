@@ -62,6 +62,39 @@ impl Scope {
     }
 }
 
+/// Why a key cannot be bound in a scope, for the keyboard settings; `None`
+/// when it can.
+pub fn refusal(scope: Scope, chord: Chord) -> Option<&'static str> {
+    let plain = !chord.ctrl && !chord.alt && !chord.meta;
+    if matches!(chord.key, Key::Named("Esc")) || (plain && chord.key == Key::Named("Tab")) {
+        return Some(tr(
+            "Tab and Esc cannot be used: they move the focus and close dialogs.",
+        ));
+    }
+    if plain && chord.key.printable() {
+        return Some(tr(
+            "Add Ctrl, Alt or Super: without them the key types into the search field.",
+        ));
+    }
+    let movement = matches!(
+        chord.key,
+        Key::Named("Up" | "Down" | "PageUp" | "PageDown" | "Home" | "End")
+    );
+    if scope != Scope::Search && movement && !chord.alt && !chord.meta {
+        return Some(tr(
+            "Movement keys move in the result list and cannot be used here.",
+        ));
+    }
+    if scope != Scope::List && chord.is_editing() {
+        return Some(tr("The search field uses this key to edit text."));
+    }
+    let field_key = plain && !chord.shift && matches!(chord.key, Key::Named("Down" | "Enter"));
+    if scope != Scope::List && field_key {
+        return Some(tr("The search field uses this key."));
+    }
+    None
+}
+
 /// A key of a command with its scope, as listed in the keyboard settings.
 pub fn binding_text(scope: Scope, chord: Chord) -> String {
     format!("{} ({})", chord.display(), scope.name())
@@ -792,6 +825,58 @@ impl Keymap {
             .collect()
     }
 
+    /// The other commands that have `chord` in `scope`; giving it to `cmd`
+    /// takes it from them.
+    pub fn conflicts(&self, cmd: Command, scope: Scope, chord: Chord) -> Vec<Command> {
+        self.bindings
+            .iter()
+            .filter(|b| b.cmd != cmd && b.scope == scope && b.chord == chord)
+            .map(|b| b.cmd)
+            .collect()
+    }
+
+    /// Other commands with `chord` in an overlapping scope: a global key and
+    /// the same key of the search field or the list. Both stay; the
+    /// control's own key wins while it has the focus.
+    pub fn also_used(&self, cmd: Command, scope: Scope, chord: Chord) -> Vec<(Scope, Command)> {
+        self.bindings
+            .iter()
+            .filter(|b| {
+                b.cmd != cmd
+                    && b.chord == chord
+                    && b.scope != scope
+                    && (b.scope == Scope::Global || scope == Scope::Global)
+            })
+            .map(|b| (b.scope, b.cmd))
+            .collect()
+    }
+
+    /// Gives `cmd` the key `chord` in `scope`, in place of its `replacing`th
+    /// key or as a new one. Other commands with the same key in the same
+    /// scope lose it; a key the command has already is not added twice.
+    pub fn put(&mut self, cmd: Command, scope: Scope, chord: Chord, replacing: Option<usize>) {
+        let edited = replacing.and_then(|n| {
+            self.bindings
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.cmd == cmd)
+                .nth(n)
+                .map(|(i, _)| i)
+        });
+        let new = Binding { cmd, scope, chord };
+        let twin = self.bindings.iter().position(|b| *b == new);
+        match (edited, twin) {
+            (Some(at), Some(t)) if at != t => {
+                self.bindings.remove(at);
+            }
+            (Some(at), _) => self.bindings[at] = new,
+            (None, Some(_)) => {}
+            (None, None) => self.bindings.push(new),
+        }
+        self.bindings
+            .retain(|b| b.cmd == cmd || b.scope != scope || b.chord != chord);
+    }
+
     /// Removes the `n`th key of `cmd`; false when it has none such.
     pub fn remove(&mut self, cmd: Command, n: usize) -> bool {
         let Some(at) = self
@@ -1356,6 +1441,97 @@ mod tests {
             binding_text(Scope::List, chord("Ctrl+C")),
             "Ctrl+C (Result list)"
         );
+    }
+
+    #[test]
+    fn adding_a_key_takes_it_from_others_in_the_same_scope_only() {
+        let mut map = Keymap::default();
+        let f9 = chord("Ctrl+N");
+        assert_eq!(
+            map.conflicts(Command::Copy, Scope::Global, f9),
+            [Command::NewWindow]
+        );
+        assert!(map.conflicts(Command::Copy, Scope::List, f9).is_empty());
+        assert_eq!(
+            map.also_used(Command::Copy, Scope::List, f9),
+            [(Scope::Global, Command::NewWindow)]
+        );
+        assert_eq!(
+            map.also_used(Command::Quit, Scope::Global, chord("Ctrl+C")),
+            [(Scope::List, Command::Copy)]
+        );
+        assert!(
+            map.also_used(Command::Quit, Scope::Search, chord("Ctrl+C"))
+                .is_empty()
+        );
+        // A list key next to a global one: both stay.
+        map.put(Command::Copy, Scope::List, f9, None);
+        assert_eq!(map.display(Command::NewWindow), "Ctrl+N");
+        assert_eq!(map.resolve(Scope::List, &f9), Some(Command::Copy));
+        assert_eq!(map.resolve(Scope::Search, &f9), Some(Command::NewWindow));
+        // The same scope: it moves.
+        map.put(Command::Quit, Scope::Global, f9, None);
+        assert_eq!(map.display(Command::NewWindow), "");
+        assert_eq!(map.display(Command::Quit), "Ctrl+Q, Ctrl+N");
+        // Twice the same key is one key.
+        map.put(Command::Quit, Scope::Global, f9, None);
+        assert_eq!(map.display(Command::Quit), "Ctrl+Q, Ctrl+N");
+        // Editing a key replaces it; editing it into a key it has removes it.
+        map.put(Command::Quit, Scope::Global, chord("Ctrl+Shift+Q"), Some(0));
+        assert_eq!(map.display(Command::Quit), "Ctrl+Shift+Q, Ctrl+N");
+        map.put(Command::Quit, Scope::Global, f9, Some(0));
+        assert_eq!(map.display(Command::Quit), "Ctrl+N");
+    }
+
+    #[test]
+    fn keys_that_would_break_typing_or_moving_are_refused() {
+        use Scope::{Global as G, List as L, Search as S};
+        let refused = |scope, text: &str| refusal(scope, chord(text)).is_some();
+        for scope in [G, S, L] {
+            for text in [
+                "Tab",
+                "Shift+Tab",
+                "Esc",
+                "Ctrl+Esc",
+                "A",
+                "Shift+A",
+                "Space",
+                "Comma",
+                "Ə",
+            ] {
+                assert!(refused(scope, text), "{text} in {scope:?}");
+            }
+            for text in [
+                "Ctrl+Tab",
+                "Ctrl+Shift+F5",
+                "Alt+A",
+                "Super+E",
+                "F5",
+                "Ctrl+N",
+            ] {
+                assert!(!refused(scope, text), "{text} in {scope:?}");
+            }
+        }
+        for text in ["Down", "Shift+PageUp", "Ctrl+Home", "End"] {
+            assert!(refused(L, text) && refused(G, text), "{text}");
+        }
+        assert!(!refused(L, "Alt+Down"));
+        for text in [
+            "Ctrl+A",
+            "Ctrl+V",
+            "Ctrl+Left",
+            "Backspace",
+            "Delete",
+            "Down",
+            "Enter",
+        ] {
+            assert!(refused(S, text) && refused(G, text), "{text}");
+        }
+        assert!(!refused(L, "Ctrl+A") && !refused(L, "Delete") && !refused(L, "Enter"));
+        // Every default key is allowed where it is bound.
+        for b in Keymap::default().bindings() {
+            assert_eq!(refusal(b.scope, b.chord), None, "{} {:?}", b.chord, b.scope);
+        }
     }
 
     #[test]

@@ -20,7 +20,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem,
 use crate::MenuChoice;
 
 use crate::autostart;
-use crate::commands::{self, COMMANDS, Keymap};
+use crate::commands::{self, COMMANDS, Chord, Keymap, Scope};
 use crate::engine::{Engine, IndexState};
 use crate::history::{self, History};
 use crate::i18n;
@@ -152,6 +152,18 @@ pub struct Prefs {
     key_filter: RefCell<String>,
     listed_commands: RefCell<Vec<Command>>,
     key_chosen: Cell<Option<Command>>,
+    /// The open Add or Edit dialog of the Keyboard page.
+    key_dialog: Cell<Option<KeyDialog>>,
+}
+
+/// The Keyboard page's dialog: the command, which of its keys is changed
+/// (`None` adds one), where the key works and the key pressed.
+#[derive(Clone, Copy, Debug)]
+struct KeyDialog {
+    cmd: Command,
+    replacing: Option<usize>,
+    scope: Scope,
+    chord: Option<Chord>,
 }
 
 thread_local! {
@@ -227,6 +239,7 @@ impl Prefs {
             key_filter: RefCell::default(),
             listed_commands: RefCell::default(),
             key_chosen: Cell::new(None),
+            key_dialog: Cell::new(None),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
         prefs
@@ -773,6 +786,134 @@ impl Prefs {
             w.set_key_bindings(ModelRc::new(VecModel::from(bindings)));
         }
         *self.listed_commands.borrow_mut() = listed;
+        self.fill_key_dialog(w);
+    }
+
+    /// Opens the dialog for the chosen command: a new key (`replacing` is
+    /// `None`) or its `replacing`th key.
+    fn open_key_dialog(&self, replacing: Option<usize>) {
+        let Some(cmd) = self.key_chosen.get() else {
+            return;
+        };
+        let current = replacing.and_then(|n| commands::with_current(|k| k.of(cmd).nth(n).copied()));
+        if replacing.is_some() && current.is_none() {
+            return;
+        }
+        // A new key works where the command's first default key does.
+        let scope = current.map(|b| b.scope).unwrap_or_else(|| {
+            commands::spec(cmd)
+                .and_then(|s| s.defaults.first())
+                .map_or(Scope::Global, |d| d.0)
+        });
+        self.key_dialog.set(Some(KeyDialog {
+            cmd,
+            replacing,
+            scope,
+            chord: current.map(|b| b.chord),
+        }));
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_key_dialog_open(true);
+        }
+        self.refresh();
+    }
+
+    fn close_key_dialog(&self) {
+        self.key_dialog.set(None);
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_key_dialog_open(false);
+        }
+        self.refresh();
+    }
+
+    /// The dialog's texts: the key pressed, the commands that have it and
+    /// whether it can be used.
+    fn fill_key_dialog(&self, w: &SettingsWindow) {
+        let Some(d) = self.key_dialog.get() else {
+            return;
+        };
+        let label = |c: Command| commands::spec(c).map_or("", |s| (s.label)());
+        let scopes: Vec<SharedString> = [
+            labels::scope_global_choice(),
+            Scope::Search.name(),
+            Scope::List.name(),
+        ]
+        .into_iter()
+        .map(SharedString::from)
+        .collect();
+        w.set_scope_names(ModelRc::new(VecModel::from(scopes)));
+        w.set_key_scope(Scope::ALL.iter().position(|&s| s == d.scope).unwrap_or(0) as i32);
+        w.set_key_dialog_title(
+            if d.replacing.is_some() {
+                labels::edit_shortcut()
+            } else {
+                labels::add_shortcut()
+            }
+            .into(),
+        );
+        w.set_key_dialog_command(
+            commands::spec(d.cmd)
+                .map(|s| format!("{} | {}", s.category.name(), (s.label)()))
+                .unwrap_or_default()
+                .into(),
+        );
+        let (captured, used, also, refused) = match d.chord {
+            None => (String::new(), String::new(), String::new(), None),
+            Some(chord) => commands::with_current(|k| {
+                let used: Vec<String> = k
+                    .conflicts(d.cmd, d.scope, chord)
+                    .into_iter()
+                    .map(|c| format!("{} ({})", label(c), d.scope.name()))
+                    .collect();
+                let also: Vec<String> = k
+                    .also_used(d.cmd, d.scope, chord)
+                    .into_iter()
+                    .map(|(scope, c)| labels::also_used(scope.name(), label(c)))
+                    .collect();
+                (
+                    chord.display(),
+                    used.join("\n"),
+                    also.join("\n"),
+                    commands::refusal(d.scope, chord),
+                )
+            }),
+        };
+        w.set_key_can_apply(d.chord.is_some() && refused.is_none());
+        w.set_key_captured(captured.into());
+        w.set_key_used_by(
+            if refused.is_some() {
+                String::new()
+            } else {
+                used
+            }
+            .into(),
+        );
+        w.set_key_also_used(
+            if refused.is_some() {
+                String::new()
+            } else {
+                also
+            }
+            .into(),
+        );
+        w.set_key_refused(refused.unwrap_or("").into());
+    }
+
+    /// OK in the dialog: gives the command the key.
+    fn apply_key_dialog(&self) {
+        let Some(d) = self.key_dialog.get() else {
+            return;
+        };
+        let Some(chord) = d.chord.filter(|&c| commands::refusal(d.scope, c).is_none()) else {
+            return;
+        };
+        let mut keymap = commands::with_current(Keymap::clone);
+        keymap.put(d.cmd, d.scope, chord, d.replacing);
+        self.key_dialog.set(None);
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_key_dialog_open(false);
+            w.set_key_binding_current(-1);
+        }
+        self.set_keymap(keymap);
     }
 
     /// Uses `keymap` from now on: saves the commands whose keys differ from
@@ -920,6 +1061,37 @@ impl Prefs {
             }
         }));
         w.on_restore_keys(on(|p| p.restore_keys()));
+        w.on_add_binding(on(|p| p.open_key_dialog(None)));
+        w.on_edit_binding(on_index(|p, i| p.open_key_dialog(Some(i))));
+        w.on_key_dialog_cancelled(on(|p| p.close_key_dialog()));
+        w.on_key_dialog_accepted(on(|p| p.apply_key_dialog()));
+        w.on_key_scope_changed(on(|p| {
+            let scope = p
+                .window
+                .borrow()
+                .as_ref()
+                .and_then(|w| Scope::from_index(w.get_key_scope()));
+            if let (Some(mut d), Some(scope)) = (p.key_dialog.get(), scope) {
+                d.scope = scope;
+                p.key_dialog.set(Some(d));
+                p.refresh();
+            }
+        }));
+        w.on_key_pressed_in_dialog({
+            let me = me.clone();
+            move |text, ctrl, alt, shift, meta| {
+                let Some(p) = me.upgrade() else { return };
+                let (Some(mut d), Some(chord)) = (
+                    p.key_dialog.get(),
+                    Chord::from_event(&text, ctrl, alt, shift, meta),
+                ) else {
+                    return;
+                };
+                d.chord = Some(chord);
+                p.key_dialog.set(Some(d));
+                p.refresh();
+            }
+        });
         w.on_reset_page(on_index(|p, i| p.reset(i)));
         w.on_close_window(on(|p| {
             if let Some(w) = p.window.borrow().as_ref() {

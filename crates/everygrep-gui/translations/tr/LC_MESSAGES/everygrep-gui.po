@@ -1669,3 +1669,67 @@ msgstr "Genel"
 #: ui/settings.slint
 msgid "Search field"
 msgstr "Arama alanı"
+
+#: ui/settings.slint
+msgid "Add shortcut"
+msgstr "Kısayol ekle"
+
+#: ui/settings.slint
+msgid "Edit shortcut"
+msgstr "Kısayolu düzenle"
+
+#: ui/settings.slint
+msgid "Edit…"
+msgstr "Düzenle…"
+
+#: ui/settings.slint
+msgid "OK"
+msgstr "Tamam"
+
+#: ui/settings.slint
+msgid "Use shortcut in:"
+msgstr "Kısayolun kullanılacağı yer:"
+
+#: ui/settings.slint
+msgid "Global (any focus)"
+msgstr "Genel (odak nerede olursa olsun)"
+
+#: ui/settings.slint
+msgid "Shortcut key:"
+msgstr "Kısayol tuşu:"
+
+#: ui/settings.slint
+msgid "Press a new keyboard shortcut."
+msgstr "Yeni bir klavye kısayoluna basın."
+
+#: ui/settings.slint
+msgid "Shortcut key currently used by:"
+msgstr "Bu tuşu şu anda kullanan:"
+
+#: ui/settings.slint
+msgid "Adding it removes it from these commands."
+msgstr "Eklerseniz bu komutlardan kaldırılır."
+
+#: ui/settings.slint
+msgid "Also used in {0} by {1}."
+msgstr "{0} içinde {1} tarafından da kullanılıyor."
+
+#: ui/settings.slint
+msgid "Tab and Esc cannot be used: they move the focus and close dialogs."
+msgstr "Tab ve Esc kullanılamaz: odağı taşır ve iletişim kutularını kapatırlar."
+
+#: ui/settings.slint
+msgid "Add Ctrl, Alt or Super: without them the key types into the search field."
+msgstr "Ctrl, Alt veya Super ekleyin: bunlar olmadan tuş arama alanına yazar."
+
+#: ui/settings.slint
+msgid "Movement keys move in the result list and cannot be used here."
+msgstr "Hareket tuşları sonuç listesinde gezinir ve burada kullanılamaz."
+
+#: ui/settings.slint
+msgid "The search field uses this key to edit text."
+msgstr "Arama alanı bu tuşu metin düzenlemek için kullanır."
+
+#: ui/settings.slint
+msgid "The search field uses this key."
+msgstr "Bu tuşu arama alanı kullanır."
