@@ -114,6 +114,26 @@ pub fn save(index: &Index, roots: &[PathBuf], path: &Path) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
+/// Rewrites the index file at `path` as `version`, with the name order
+/// `order` (one id per node) and a fresh checksum. Tests use it to make files
+/// of an older version, or with an order that is not sorted.
+#[doc(hidden)]
+pub fn rewrite_order(path: &Path, version: u32, order: &[NodeId]) -> io::Result<()> {
+    let mut data = fs::read(path)?;
+    if data.len() < 12 + 8 + 4 * order.len() {
+        return Err(invalid("file too short"));
+    }
+    data[8..12].copy_from_slice(&version.to_le_bytes());
+    let body = data.len() - 8;
+    let start = body - 4 * order.len();
+    for (slot, id) in data[start..body].chunks_exact_mut(4).zip(order) {
+        slot.copy_from_slice(&id.0.to_le_bytes());
+    }
+    let sum = checksum(&data[..body]);
+    data[body..].copy_from_slice(&sum.to_le_bytes());
+    fs::write(path, &data)
+}
+
 /// Reads an index file written by [`save`].
 ///
 /// The file is decoded while it is read, so memory use stays close to the size
@@ -443,16 +463,7 @@ mod tests {
     /// `order` and a fresh checksum.
     fn save_with_order(index: &Index, path: &Path, version: u32, order: &[NodeId]) {
         save(index, &[PathBuf::from("/data")], path).unwrap();
-        let mut data = fs::read(path).unwrap();
-        data[8..12].copy_from_slice(&version.to_le_bytes());
-        let body = data.len() - 8;
-        let start = body - 4 * order.len();
-        for (slot, id) in data[start..body].chunks_exact_mut(4).zip(order) {
-            slot.copy_from_slice(&id.0.to_le_bytes());
-        }
-        let sum = checksum(&data[..body]);
-        data[body..].copy_from_slice(&sum.to_le_bytes());
-        fs::write(path, &data).unwrap();
+        rewrite_order(path, version, order).unwrap();
     }
 
     fn natural_sample() -> Index {

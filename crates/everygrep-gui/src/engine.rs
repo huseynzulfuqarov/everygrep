@@ -1788,6 +1788,68 @@ mod tests {
     }
 
     #[test]
+    fn version_4_index_is_sorted_again_and_saved_as_version_5() {
+        let dir = Scratch::new("v4-index");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        for name in ["file10", "file2", "cay", "Çay", "Zoo"] {
+            fs::write(a.join(name), "").unwrap();
+        }
+        // A version 4 file: the index saved, then its name order set to the
+        // order of version 4 (folded bytes, then raw bytes).
+        let index_file = dir.0.join("index.bin");
+        let roots = normalize_roots(std::slice::from_ref(&a));
+        let mut store = NodeStore::new();
+        everygrep_core::scan::scan(&mut store, &roots, &ScanOptions::default());
+        let index = Index::new(store);
+        persist::save(&index, &roots, &index_file).unwrap();
+        let s = index.store();
+        let mut old: Vec<NodeId> = index.order().iter().collect();
+        old.sort_by(|&x, &y| (s.folded_name(x), s.name(x)).cmp(&(s.folded_name(y), s.name(y))));
+        assert!(!old.iter().copied().eq(index.order().iter()));
+        persist::rewrite_order(&index_file, 4, &old).unwrap();
+        assert!(persist::load(&index_file).unwrap().reordered);
+
+        // Unwatched, nothing but the new order changes the loaded index.
+        let probe = Probe::start_unwatched(vec![a.clone()], index_file.clone());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match probe.states.recv_timeout(left).expect("unwatched") {
+                IndexState::Unwatched => break,
+                IndexState::Scanning => panic!("the saved index was not loaded"),
+                _ => {}
+            }
+        }
+        assert!(probe.engine.dirty.load(Ordering::SeqCst));
+        probe.engine.set_query("", QueryOptions::default());
+        let names: Vec<String> = loop {
+            let r = probe
+                .results
+                .recv_timeout(Duration::from_secs(20))
+                .expect("results");
+            if r.query.is_empty() && r.ids.len() == 6 {
+                let index = probe.engine.index.read().unwrap();
+                break r
+                    .ids
+                    .iter()
+                    .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                    .collect();
+            }
+        };
+        let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+        assert!(at("file2") < at("file10"), "{names:?}");
+        assert_eq!(at("cay").abs_diff(at("Çay")), 1, "{names:?}");
+
+        // Closing saves the new order as version 5, which loads unsorted.
+        probe.engine.shutdown();
+        assert_eq!(fs::read(&index_file).unwrap()[8..12], 5u32.to_le_bytes());
+        let again = persist::load(&index_file).unwrap();
+        assert!(!again.reordered);
+        assert!(again.index.order().iter().eq(index.order().iter()));
+    }
+
+    #[test]
     fn sorting_by_attributes_follows_changes_watched_or_not() {
         use std::os::unix::fs::PermissionsExt;
         let dir = Scratch::new("attributes");
