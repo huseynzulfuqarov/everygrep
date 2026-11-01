@@ -271,8 +271,9 @@ impl Watcher {
                     if ev.mask.intersects(Mask::DELETE_SELF | Mask::MOVE_SELF) {
                         stats.removed += index.remove(dir).len();
                     } else if ev.mask.contains(Mask::ATTRIB) {
-                        // Its attributes may be kept outside the index.
-                        index.note_changed(dir);
+                        // Its attributes may be kept outside the index, and
+                        // its permissions decide what can be read below it.
+                        index.note_subtree_changed(dir);
                     }
                 }
                 continue;
@@ -327,6 +328,11 @@ impl Watcher {
                 if let Some(node) = index.find_child(Some(dir), name) {
                     if self.skip.with_metadata || index.store().is_dir(node) {
                         refresh_meta(index, node, &mut stats);
+                    }
+                    if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
+                        // A folder's permissions decide what can be read
+                        // below it, without events for the nodes there.
+                        index.note_subtree_changed(node);
                     }
                 }
             }

@@ -61,6 +61,7 @@ First version, 0.1.0, not released yet.
   that follow, and only entries that changed are read again (about 5 ms
   instead of 20 ms, and a tenth of the CPU time, for 100 000 results);
   access times are always read again, since reading a file changes them.
+  A permission change of a folder makes all entries below it read again.
 - Progress counters and cooperative cancelling for scans, searches, sorts
   and catch-ups, and an estimate of a scan's size from the used inodes of
   the file systems it reads.

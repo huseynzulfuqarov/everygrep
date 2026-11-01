@@ -133,7 +133,9 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
 ///
 /// A value stays until the index logs its node as changed (see
 /// [`Index::changed_since`]): new metadata (an `IN_ATTRIB` event, a write),
-/// a rename or move, a removal, or a node replaced by another. The cache
+/// a rename or move, a removal, or a node replaced by another. An
+/// `IN_ATTRIB` event of a folder (such as a permission change, which can
+/// make all entries below it unreadable) logs the whole subtree. The cache
 /// follows the log at the start of every sort and forgets all values when
 /// the log was reset (a drive went offline or came back, too many changes)
 /// or when the index is another one (another [`Index::stamp`], such as after
@@ -1766,6 +1768,35 @@ mod tests {
         assert!(!caches[1].is_empty());
         caches[1].set_generation(7);
         assert!(caches[1].is_empty());
+        live.check(&mut caches);
+    }
+
+    #[test]
+    fn parent_permission_change_drops_cached_details_below_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut live = Live::new("parent", 12);
+        let mut caches: [DetailCache; 3] = Default::default();
+        live.check(&mut caches);
+        assert!(!caches[1].is_empty());
+        // Only the folder changes and only it has an event; the files below
+        // it can no longer be read, so cached values must not be used.
+        let files = live.files();
+        let seq = live.index.change_seq();
+        std::fs::set_permissions(
+            live.base.join("files"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        live.settle(|i| i.changed_since(seq).is_none_or(|c| c.contains(&files)));
+        live.check(&mut caches);
+        // And back: readable again.
+        let seq = live.index.change_seq();
+        std::fs::set_permissions(
+            live.base.join("files"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        live.settle(|i| i.changed_since(seq).is_none_or(|c| c.contains(&files)));
         live.check(&mut caches);
     }
 

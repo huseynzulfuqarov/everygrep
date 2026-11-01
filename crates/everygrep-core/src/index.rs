@@ -212,8 +212,9 @@ impl Index {
     ///
     /// Logged are nodes given new metadata ([`set_meta`](Self::set_meta),
     /// [`insert`](Self::insert) of an existing name), renamed or moved, or
-    /// removed, and those passed to [`note_changed`](Self::note_changed).
-    /// New nodes are not logged: their ids were never handed out before.
+    /// removed, and those passed to [`note_changed`](Self::note_changed) or,
+    /// with all nodes below them, to
+    /// [`note_subtree_changed`](Self::note_subtree_changed). New nodes are not logged: their ids were never handed out before.
     /// The log resets when a root goes offline or online, and when it would
     /// hold more than 65 536 entries.
     pub fn changed_since(&self, seq: u64) -> Option<&[NodeId]> {
@@ -224,6 +225,27 @@ impl Index {
     /// without changing anything else, for changes only the caller knows of.
     pub fn note_changed(&mut self, id: NodeId) {
         self.changes.push(id);
+    }
+
+    /// Logs a live folder and every node below it as changed, for a change
+    /// of the folder that can change what can be read below it (its
+    /// permissions). A subtree larger than the log resets it, which says
+    /// that any node may have changed.
+    pub fn note_subtree_changed(&mut self, dir: NodeId) {
+        if !self.store.is_live(dir) {
+            return;
+        }
+        let mut ids = Vec::new();
+        let mut stack = vec![dir];
+        while let Some(node) = stack.pop() {
+            if ids.len() >= CHANGE_LOG_MAX {
+                self.changes.reset();
+                return;
+            }
+            ids.push(node);
+            stack.extend(self.store.children(node));
+        }
+        self.changes.extend(&ids);
     }
 
     /// Roots marked offline.
@@ -1311,6 +1333,36 @@ mod tests {
         main.note_changed(usb);
         assert_eq!(main.changed_since(seq), None);
         assert_eq!(changed(&main, main.change_seq()), Some(vec![]));
+    }
+
+    #[test]
+    fn a_subtree_change_logs_every_node_below_the_folder() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        let a = store.add(Some(root), b"a", true, Meta::default());
+        let sub = store.add(Some(a), b"sub", true, Meta::default());
+        let x = store.add(Some(sub), b"x", false, Meta::default());
+        let y = store.add(Some(a), b"y", false, Meta::default());
+        let big = store.add(Some(root), b"big", true, Meta::default());
+        for i in 0..=CHANGE_LOG_MAX {
+            store.add(
+                Some(big),
+                format!("f{i}").as_bytes(),
+                false,
+                Meta::default(),
+            );
+        }
+        let mut index = Index::new(store);
+        let seq = index.change_seq();
+        index.note_subtree_changed(a);
+        assert_eq!(changed(&index, seq), Some(vec![a, sub, x, y]));
+        // Too many for the log: it resets, which covers them all.
+        let seq = index.change_seq();
+        index.note_subtree_changed(big);
+        assert_eq!(index.changed_since(seq), None);
+        let seq = index.change_seq();
+        index.note_subtree_changed(y);
+        assert_eq!(changed(&index, seq), Some(vec![y]));
     }
 
     #[test]
