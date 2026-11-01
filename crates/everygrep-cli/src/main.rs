@@ -29,7 +29,7 @@ query syntax: space = and, a|b = or, !a = not, <a b> = group, \"a b\" = literal,
 audio: archive: document: executable: image: video: code: size:>10mb size:1mb size:large
 modified:<7d modified:2026-10-25 modified:>=2026-10 modified:lastweek
 modified:2026-10-01..2026-10-25 modified:today created:today accessed:>30d prefix:
-suffix: nopunct: nospace: regex:^img_\\d+
+suffix: nopunct: nospace: regex:^img_\\d+ modified:last3days modified:monday limit:100
 
 search and shell load the saved index; they scan and save it first when there
 is none, when --root differs from the saved roots, or with --rescan.
@@ -267,7 +267,9 @@ fn run_query(index: &Index, args: &Args, query: &str, out: &mut impl Write) -> i
             return Ok(());
         }
     };
-    let hits = search(index, &parsed, args.threads);
+    let mut hits = search(index, &parsed, args.threads);
+    // `limit:` keeps the first results in name order.
+    parsed.apply_limit(&mut hits);
     let took = started.elapsed();
     let shown = if args.limit == 0 {
         hits.len()

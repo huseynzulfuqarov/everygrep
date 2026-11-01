@@ -71,6 +71,7 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `size:` | size, see below |
 | `modified:` | modification time, see below |
 | `created:` / `accessed:` | creation / access time, see below |
+| `limit:` | the number of results, see below |
 
 The `no…:` forms (and `punct:`, `space:`) turn off a mode that the window's
 toggles or the command line options turned on, for one term.
@@ -269,6 +270,19 @@ other terms on large indexes (`created:today ext:pdf` is cheaper than `created:t
   plugged in) never match `created:`.
 - The access time is coarse on most systems (`relatime` updates it at most
   once a day); entries that cannot be read never match `accessed:`.
+
+## Number of results
+
+`limit:100` keeps only the first 100 results, in the order they are shown:
+the window sorts all results by the chosen column first, so `limit:10` with
+the Size column sorted largest first gives the ten largest. The command line
+keeps them in name order (its `--limit` then shortens what is printed).
+`limit:` is not a condition but a setting for the whole query: the other
+terms decide what matches, and it counts the same wherever it is written,
+also inside a group or after `!`. With several, the smallest wins;
+`limit:0` gives no results. A value that is not a whole number
+(`limit:x`, `limit:-1`, `limit:1.5`) is an error. In regex mode it is part
+of the expression, like any other text.
 
 ## Filters and options outside the query
 

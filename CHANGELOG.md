@@ -82,6 +82,8 @@ First version, 0.1.0, not released yet.
   `modified:dec`: the latest such day or month).
 - An age without a comparison, `modified:7d`, means within the last 7 days, like
   `modified:<7d`; it used to be an error.
+- `limit:100` keeps only the first 100 results, after sorting in the window
+  and in name order on the command line.
 - Filter words in the query, the filter names with a colon: `audio:`,
   `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`,
   `video:` and `code:`, sharing the extension lists of the filter selector

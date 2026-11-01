@@ -36,6 +36,7 @@
 //! nopunct:foo-bar     punctuation is ignored: "foo_bar", "foobar"
 //! nospace:"my file"   whitespace is ignored: "myfile", "my  file"
 //! regex:^img_\d+$     a regular expression (to the next space)
+//! limit:100           only the first 100 results (after sorting)
 //! ```
 //!
 //! Dates use the local time zone (see [`crate::localtime`]); a day starts at
@@ -111,6 +112,8 @@ impl std::error::Error for ParseError {}
 pub struct Query {
     root: Node,
     uses_path: bool,
+    /// Largest number of results (`limit:`), applied after sorting.
+    limit: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -281,6 +284,7 @@ impl Query {
             options,
             uses_path: false,
             reads_disk: false,
+            limit: None,
             now_ns,
             zone,
         };
@@ -295,6 +299,7 @@ impl Query {
             root,
             // The executable filter may read the path of a node.
             uses_path: p.uses_path || p.reads_disk || options.filter == Filter::Executable,
+            limit: p.limit,
         })
     }
 
@@ -315,7 +320,25 @@ impl Query {
         if options.filter != Filter::All {
             root = and_also(root, Node::Leaf(Pred::Kind(options.filter)));
         }
-        Ok(Self { root, uses_path })
+        Ok(Self {
+            root,
+            uses_path,
+            limit: None,
+        })
+    }
+
+    /// The largest number of results the query asks for (`limit:100`), to
+    /// be kept from the start of the sorted results; `None` for all.
+    pub fn limit(&self) -> Option<usize> {
+        self.limit
+    }
+
+    /// The results of the query from `results`, which are sorted: all of
+    /// them, or the first ones when the query has a `limit:`.
+    pub fn apply_limit<T>(&self, results: &mut Vec<T>) {
+        if let Some(limit) = self.limit {
+            results.truncate(limit);
+        }
     }
 
     /// Whether the query accepts every node.
@@ -1189,6 +1212,8 @@ struct Parser {
     uses_path: bool,
     /// A predicate reads the entry from disk (by its path).
     reads_disk: bool,
+    /// The smallest `limit:` so far.
+    limit: Option<usize>,
     now_ns: i64,
     zone: Option<Zone>,
 }
@@ -1307,6 +1332,12 @@ impl Parser {
                 "regex" => regex = true,
                 "noregex" => regex = false,
                 "file" | "files" => return Ok(Some(self.with_rest(Pred::IsFile, tail)?)),
+                "limit" => {
+                    // A setting for the whole result list, not a condition.
+                    let n = parse_limit(&value)?;
+                    self.limit = Some(self.limit.map_or(n, |l| l.min(n)));
+                    return Ok(None);
+                }
                 word if Filter::from_query_word(word).is_some() => {
                     let filter = Filter::from_query_word(word).unwrap_or_default();
                     self.reads_disk |= filter == Filter::Executable;
@@ -1500,7 +1531,20 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "space",
     "regex",
     "noregex",
+    "limit",
 ];
+
+/// `limit:100`: a number of results.
+fn parse_limit(value: &str) -> Result<usize, ParseError> {
+    let value = value.trim();
+    if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        // More than fits is as good as no limit.
+        return Ok(value.parse().unwrap_or(usize::MAX));
+    }
+    Err(ParseError(format!(
+        "bad limit: {value} (use a number, for example limit:100)"
+    )))
+}
 
 /// `ext:pdf;jpg` or `ext:pdf|jpg`; `ext:jp*` with wildcards. Empty entries (as
 /// in a trailing `;`) are ignored; `ext:` on its own matches files without an
@@ -3057,6 +3101,52 @@ mod tests {
             assert!(dated_error(q), "{q}");
         }
         assert!(!dated_error("modified:2024-02-29"));
+    }
+
+    #[test]
+    fn count_limits_the_results() {
+        let limit = |q: &str| Query::parse(q, QueryOptions::default()).unwrap().limit();
+        assert_eq!(limit("report"), None);
+        assert_eq!(limit("limit:5"), Some(5));
+        assert_eq!(limit("limit:0 pdf"), Some(0));
+        assert_eq!(limit("pdf limit:12"), Some(12));
+        // The smallest count wins, wherever it is written.
+        assert_eq!(limit("limit:10 a limit:3"), Some(3));
+        assert_eq!(limit("<a|limit:4> !limit:7"), Some(4));
+        assert_eq!(limit("case:limit:2"), Some(2));
+        assert_eq!(limit("limit:99999999999999999999999"), Some(usize::MAX));
+        for bad in [
+            "limit:",
+            "limit:x",
+            "limit:-1",
+            "limit:1.5",
+            "limit:>5",
+            "limit:5k",
+        ] {
+            assert!(Query::parse(bad, QueryOptions::default()).is_err(), "{bad}");
+        }
+        // Not read in regex mode, where the query is one expression.
+        let regex = QueryOptions {
+            regex: true,
+            ..QueryOptions::default()
+        };
+        assert_eq!(Query::parse("limit:5", regex).unwrap().limit(), None);
+
+        // It is not a condition: the other terms decide what matches.
+        let t = Tree::new();
+        assert_eq!(t.find("limit:1 pdf"), t.find("pdf"));
+        assert!(
+            Query::parse("limit:3", QueryOptions::default())
+                .unwrap()
+                .matches_all()
+        );
+        let q = Query::parse("limit:2 pdf", QueryOptions::default()).unwrap();
+        let mut results = vec![3, 1, 2];
+        q.apply_limit(&mut results);
+        assert_eq!(results, [3, 1]);
+        let mut few = vec![1];
+        q.apply_limit(&mut few);
+        assert_eq!(few, [1]);
     }
 
     #[test]

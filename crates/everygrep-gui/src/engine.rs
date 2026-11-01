@@ -690,6 +690,8 @@ impl Engine {
                                 task.set_kind(TaskKind::Sorting);
                                 task.progress().restart(None);
                                 self.sort(&index, &mut ids, state.sort, threads, task.progress())?;
+                                // `limit:` keeps the first results in this order.
+                                query.apply_limit(&mut ids);
                             }
                             Ok(ids)
                         });
@@ -2019,6 +2021,50 @@ mod tests {
         until(&probe.engine, "the new file", |i| {
             find(i, &fs::canonicalize(root("a")).unwrap().join("three.txt")).is_some()
         });
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn count_keeps_the_first_results_of_the_sort() {
+        let dir = Scratch::new("count");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        for (name, size) in [("s1.txt", 1), ("s3.txt", 3), ("s2.txt", 2), ("s4.log", 4)] {
+            fs::write(a.join(name), "x".repeat(size)).unwrap();
+        }
+        let probe = Probe::start(vec![a], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("limit:2 txt").len(), 2);
+        probe.engine.set_sort(Sort {
+            key: everygrep_core::sort::SortKey::Size,
+            descending: true,
+            ..Sort::default()
+        });
+        // In result order: the two largest text files.
+        let ordered = |query: &str| -> Vec<String> {
+            while probe.results.try_recv().is_ok() {}
+            probe.engine.set_query(query, QueryOptions::default());
+            loop {
+                let r = probe
+                    .results
+                    .recv_timeout(Duration::from_secs(20))
+                    .expect("results");
+                if r.query != query {
+                    continue;
+                }
+                assert!(r.error.is_none(), "{query}: {:?}", r.error);
+                let index = probe.engine.index.read().unwrap();
+                return r
+                    .ids
+                    .iter()
+                    .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                    .collect();
+            }
+        };
+        assert_eq!(ordered("limit:2 txt"), ["s3.txt", "s2.txt"]);
+        assert_eq!(ordered("file: limit:1"), ["s4.log"]);
+        assert!(ordered("limit:0 txt").is_empty());
+        assert_eq!(ordered("limit:10 txt").len(), 3);
         probe.engine.shutdown();
     }
 
