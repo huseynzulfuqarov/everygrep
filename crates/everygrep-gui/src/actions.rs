@@ -143,28 +143,44 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
         return Ok(None);
     }
     let target = old.with_file_name(new_name);
-    if let Ok(existing) = std::fs::symlink_metadata(&target) {
-        // On case-insensitive file systems "a.txt" -> "A.txt" finds the file
-        // itself; that is a rename, not a clash.
-        let same = std::fs::symlink_metadata(old)
-            .is_ok_and(|m| m.dev() == existing.dev() && m.ino() == existing.ino());
-        if !same {
-            return Err(RenameError::Exists(new_name.to_owned()));
-        }
+    if std::fs::symlink_metadata(&target).is_ok() && !case_only(old, &target) {
+        return Err(RenameError::Exists(new_name.to_owned()));
     }
     Ok(Some(target))
+}
+
+/// Whether renaming `old` to `target` only changes the case of its name on a
+/// case-insensitive file system: `target` finds the item itself. A hard link
+/// under another name is the same item too, but a clash.
+fn case_only(old: &Path, target: &Path) -> bool {
+    let (Some(a), Some(b)) = (old.file_name(), target.file_name()) else {
+        return false;
+    };
+    a != b
+        && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+        && std::fs::symlink_metadata(old)
+            .and_then(|m| Ok((m, std::fs::symlink_metadata(target)?)))
+            .is_ok_and(|(m, t)| m.dev() == t.dev() && m.ino() == t.ino())
 }
 
 /// Renames `old` to `new_name` in the same folder. Returns the new path, or
 /// `None` if the name did not change.
 ///
-/// The final rename refuses replacement atomically, including when a new
-/// target appears after validation.
+/// The rename never replaces a target that appears after the check, where
+/// the file system can refuse that atomically; elsewhere (NFS, SMB, some
+/// FUSE file systems) the check and the rename are two steps. A change of
+/// case on a case-insensitive file system is a plain rename, since the
+/// target found there is the item itself.
 pub fn rename(old: &Path, new_name: &str) -> Result<Option<PathBuf>, RenameError> {
     let Some(target) = rename_target(old, new_name)? else {
         return Ok(None);
     };
-    crate::transfer::rename_noreplace_strict(old, &target).map_err(|e| {
+    let result = if case_only(old, &target) {
+        std::fs::rename(old, &target)
+    } else {
+        crate::transfer::rename_noreplace(old, &target)
+    };
+    result.map_err(|e| {
         if e.kind() == io::ErrorKind::AlreadyExists {
             RenameError::Exists(new_name.to_owned())
         } else if e.raw_os_error() == Some(36) {
@@ -369,6 +385,31 @@ mod tests {
         assert!(!a.exists());
         assert_eq!(fs::read_to_string(&c).unwrap(), "a");
         assert!(matches!(rename(&a, "d.txt"), Err(RenameError::Io(_))));
+    }
+
+    #[test]
+    fn a_change_of_case_renames_but_another_link_to_the_file_clashes() {
+        let dir = TempDir::new("rename-case");
+        let (x, upper) = (dir.0.join("x.txt"), dir.0.join("X.txt"));
+        fs::write(&x, "x").unwrap();
+        // A hard link under the other case stands in for a case-insensitive
+        // file system, where "X.txt" finds "x.txt" itself.
+        fs::hard_link(&x, &upper).unwrap();
+        assert_eq!(rename_target(&x, "X.txt").unwrap(), Some(upper.clone()));
+        assert_eq!(rename(&x, "X.txt").unwrap(), Some(upper.clone()));
+        assert_eq!(fs::read_to_string(&upper).unwrap(), "x");
+        // The same file under an unrelated name is a different entry.
+        let other = dir.0.join("other.txt");
+        fs::hard_link(&upper, &other).unwrap();
+        assert!(matches!(
+            rename_target(&upper, "other.txt"),
+            Err(RenameError::Exists(_))
+        ));
+        assert!(matches!(
+            rename(&upper, "other.txt"),
+            Err(RenameError::Exists(_))
+        ));
+        assert!(upper.exists() && other.exists());
     }
 
     #[test]

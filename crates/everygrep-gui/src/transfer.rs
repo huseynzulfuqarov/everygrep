@@ -407,23 +407,34 @@ const AT_FDCWD: c_int = -100;
 const RENAME_NOREPLACE: c_uint = 1;
 
 /// Renames `from` to `to`, failing with `AlreadyExists` instead of
-/// replacing. File systems without this kind of rename get a check and a
-/// plain rename, which could replace a file created in between.
-fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
-    match rename_noreplace_strict(from, to) {
+/// replacing. File systems without this kind of rename (NFS, SMB, many FUSE
+/// file systems) get a check and a plain rename, which could replace a file
+/// created in between.
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+    rename_noreplace_with(from, to, renameat2_noreplace)
+}
+
+/// [`rename_noreplace`] with the atomic rename passed in, so the fallback
+/// can be tested on file systems that do support it.
+fn rename_noreplace_with(
+    from: &Path,
+    to: &Path,
+    atomic: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    match atomic(from, to) {
+        // EINVAL: the file system does not support RENAME_NOREPLACE (or the
+        // rename itself is invalid, which the plain rename reports again).
         Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
         result => return result,
     }
-    // Legacy transfer fallback for file systems without RENAME_NOREPLACE.
     if fs::symlink_metadata(to).is_ok() {
         return Err(io::ErrorKind::AlreadyExists.into());
     }
     fs::rename(from, to)
 }
 
-/// An atomic rename that never replaces the target, including on file
-/// systems that cannot implement RENAME_NOREPLACE (which return an error).
-pub(crate) fn rename_noreplace_strict(from: &Path, to: &Path) -> io::Result<()> {
+/// `renameat2` with `RENAME_NOREPLACE`: atomic, never replaces the target.
+fn renameat2_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     let a = CString::new(from.as_os_str().as_bytes())?;
     let b = CString::new(to.as_os_str().as_bytes())?;
     // SAFETY: both are valid C strings that outlive the call.
@@ -786,6 +797,27 @@ mod tests {
         assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(read(&b), "b");
         rename_noreplace(&a, &t.path("c")).unwrap();
+        assert_eq!(read(&t.path("c")), "a");
+    }
+
+    #[test]
+    fn rename_falls_back_where_the_atomic_rename_is_unsupported() {
+        let t = TempDir::new("noreplace-fallback");
+        let (a, b) = (t.path("a"), t.path("b"));
+        write(&a, "a");
+        write(&b, "b");
+        // What NFS or an SMB share answers to RENAME_NOREPLACE.
+        let unsupported = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(22));
+        let e = rename_noreplace_with(&a, &b, unsupported).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&b), "b");
+        rename_noreplace_with(&a, &t.path("c"), unsupported).unwrap();
+        assert_eq!(read(&t.path("c")), "a");
+        assert!(!a.exists());
+        // Other errors are reported as they are, without a second attempt.
+        let denied = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(13));
+        let e = rename_noreplace_with(&t.path("c"), &t.path("d"), denied).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(read(&t.path("c")), "a");
     }
 

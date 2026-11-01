@@ -315,7 +315,7 @@ start a drag to other programs yet, so dragging results out is planned. "Open wi
 chooser (the OpenURI portal with `ask`), never a list of ours.
 
 Rename refuses a name that already exists in the folder and shows the reason in
-the status line. Moving to the trash asks first only for more than 50 items;
+the status line, or inside the rename dialog when Settings → Window opens one. Moving to the trash asks first only for more than 50 items;
 deleting permanently always asks, because it cannot be undone. Hiding the
 window with `Esc` is planned.
 
