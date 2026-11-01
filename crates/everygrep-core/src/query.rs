@@ -1431,56 +1431,46 @@ impl Parser {
             }
             Some(Token::Word(w)) => {
                 self.pos += 1;
-                self.parse_word(&w)
+                self.parse_word(&w, TermMods::new(&self.options))
             }
             Some(Token::Close) => Err(ParseError("unexpected '>'".into())),
             Some(Token::And | Token::Or) | None => Ok(None),
         }
     }
 
-    fn parse_word(&mut self, raw: &str) -> Result<Option<Node>, ParseError> {
-        let mut case = self.options.case_sensitive;
-        let mut on_path = self.options.match_path;
-        let mut whole_word = self.options.whole_words;
-        let mut diacritics = self.options.match_diacritics;
-        let mut whole_filename = !self.options.wildcards_anywhere;
-        // Written `wholename:`: text without wildcards must then be the
-        // whole name too, not only a part of it.
-        let mut exact_name = false;
-        let mut prefix = self.options.prefix;
-        let mut suffix = self.options.suffix;
-        let mut squeeze = Squeeze {
-            punctuation: self.options.ignore_punctuation,
-            whitespace: self.options.ignore_whitespace,
-        };
-        let mut regex = false;
+    /// One word with the term settings `m` it starts with: the query's
+    /// options, or those of the modifiers before a `file:` / `folder:` or
+    /// filter word.
+    fn parse_word(&mut self, raw: &str, mut m: TermMods) -> Result<Option<Node>, ParseError> {
         let mut rest = raw;
         // Modifiers can be stacked: case:path:Src/Main
         while let Some((head, tail)) = split_modifier(rest) {
             // Quotes inside a value (`ext:"pdf"`) only group; drop their markers.
             let value: String = tail.chars().filter(|&c| c != '\u{0}').collect();
             match head.as_str() {
-                "case" => case = true,
-                "nocase" => case = false,
-                "path" => on_path = true,
-                "nopath" => on_path = false,
-                "wholeword" => whole_word = true,
-                "nowholeword" => whole_word = false,
-                "diacritics" => diacritics = true,
-                "nodiacritics" => diacritics = false,
-                "wholename" => (whole_filename, exact_name) = (true, true),
-                "nowholename" => (whole_filename, exact_name) = (false, false),
-                "prefix" => prefix = true,
-                "noprefix" => prefix = false,
-                "suffix" => suffix = true,
-                "nosuffix" => suffix = false,
-                "nopunct" => squeeze.punctuation = true,
-                "punct" => squeeze.punctuation = false,
-                "nospace" => squeeze.whitespace = true,
-                "space" => squeeze.whitespace = false,
-                "regex" => regex = true,
-                "noregex" => regex = false,
-                "file" | "files" => return Ok(Some(self.with_rest(Pred::IsFile, tail)?)),
+                "case" => m.case = true,
+                "nocase" => m.case = false,
+                "path" => m.on_path = true,
+                "nopath" => m.on_path = false,
+                "wholeword" => m.whole_word = true,
+                "nowholeword" => m.whole_word = false,
+                "diacritics" => m.diacritics = true,
+                "nodiacritics" => m.diacritics = false,
+                "wholename" => (m.whole_filename, m.exact_name) = (true, true),
+                "nowholename" => (m.whole_filename, m.exact_name) = (false, false),
+                "prefix" => m.prefix = true,
+                "noprefix" => m.prefix = false,
+                "suffix" => m.suffix = true,
+                "nosuffix" => m.suffix = false,
+                "nopunct" => m.squeeze.punctuation = true,
+                "punct" => m.squeeze.punctuation = false,
+                "nospace" => m.squeeze.whitespace = true,
+                "space" => m.squeeze.whitespace = false,
+                "regex" => m.regex = true,
+                "noregex" => m.regex = false,
+                "file" | "files" => {
+                    return Ok(Some(self.with_rest(Pred::IsFile, tail, m)?));
+                }
                 "limit" => {
                     // A setting for the whole result list, not a condition.
                     let n = parse_limit(&value)?;
@@ -1490,12 +1480,12 @@ impl Parser {
                 word if Filter::from_query_word(word).is_some() => {
                     let filter = Filter::from_query_word(word).unwrap_or_default();
                     self.reads_disk |= filter == Filter::Executable;
-                    return Ok(Some(self.with_rest(Pred::Kind(filter), tail)?));
+                    return Ok(Some(self.with_rest(Pred::Kind(filter), tail, m)?));
                 }
                 "folder" | "folders" | "dir" => {
-                    return Ok(Some(self.with_rest(Pred::IsDir, tail)?));
+                    return Ok(Some(self.with_rest(Pred::IsDir, tail, m)?));
                 }
-                "ext" => return Ok(Some(Node::Leaf(parse_ext(&value, case)))),
+                "ext" => return Ok(Some(Node::Leaf(parse_ext(&value, m.case)))),
                 "size" => return parse_size(&value).map(Some),
                 "modified" => {
                     return self.parse_modified(&value).map(|p| Some(Node::Leaf(p)));
@@ -1523,58 +1513,58 @@ impl Parser {
         if text.is_empty() {
             return Ok(None);
         }
-        if regex {
+        if m.regex {
             // A `/` does not switch a regular expression to the full path.
-            self.uses_path |= on_path;
+            self.uses_path |= m.on_path;
             return Ok(Some(Node::Leaf(Pred::Regex(RegexPred {
-                re: build_regex(&text, case)?,
-                on_path,
+                re: build_regex(&text, m.case)?,
+                on_path: m.on_path,
             }))));
         }
         let glob = !quoted && (text.contains('*') || text.contains('?'));
-        if exact_name && !glob {
+        if m.exact_name && !glob {
             // Both ends anchored: the name (or path) equals the term.
-            (prefix, suffix) = (true, true);
+            (m.prefix, m.suffix) = (true, true);
         }
-        let on_path = on_path || text.contains('/');
-        self.uses_path |= on_path;
-        let mut pattern = if case {
+        m.on_path |= text.contains('/');
+        self.uses_path |= m.on_path;
+        let mut pattern = if m.case {
             text.into_bytes()
         } else {
             fold(text.as_bytes())
         };
-        if !diacritics {
+        if !m.diacritics {
             pattern = crate::fold::strip_diacritics(&pattern);
         }
-        if squeeze.any() {
+        if m.squeeze.any() {
             let mut kept = Vec::with_capacity(pattern.len());
-            squeeze_into(&pattern, squeeze, glob, &mut kept);
+            squeeze_into(&pattern, m.squeeze, glob, &mut kept);
             // Nothing left (`nopunct:-`): no condition, like an empty term.
             if kept.is_empty() {
                 return Ok(None);
             }
             pattern = kept;
         }
-        if glob && (!whole_filename || prefix != suffix) {
+        if glob && (!m.whole_filename || m.prefix != m.suffix) {
             // Open the unanchored sides, across folders of a path too.
             // Explicit prefix/suffix anchors still apply in anywhere mode.
-            if !prefix {
+            if !m.prefix {
                 pattern.splice(0..0, *b"**");
             }
-            if !suffix {
+            if !m.suffix {
                 pattern.extend_from_slice(b"**");
             }
         }
         Ok(Some(Node::Leaf(Pred::Text(TextPred {
             pattern,
-            case,
-            on_path,
+            case: m.case,
+            on_path: m.on_path,
             glob,
-            whole_word,
-            diacritics,
-            prefix,
-            suffix,
-            squeeze,
+            whole_word: m.whole_word,
+            diacritics: m.diacritics,
+            prefix: m.prefix,
+            suffix: m.suffix,
+            squeeze: m.squeeze,
         }))))
     }
 
@@ -1588,12 +1578,50 @@ impl Parser {
         parse_dates(spec, now_ns, zone)
     }
 
-    /// `file:foo` means "a file whose name contains foo".
-    fn with_rest(&mut self, kind: Pred, rest: &str) -> Result<Node, ParseError> {
-        Ok(match self.nested(|p| p.parse_word(rest))? {
+    /// `file:foo` means "a file whose name contains foo"; the modifiers
+    /// before `file:` (`mods`) apply to `foo`, as after it.
+    fn with_rest(&mut self, kind: Pred, rest: &str, mods: TermMods) -> Result<Node, ParseError> {
+        Ok(match self.nested(|p| p.parse_word(rest, mods))? {
             Some(term) => and_also(term, Node::Leaf(kind)),
             None => Node::Leaf(kind),
         })
+    }
+}
+
+/// The settings of one term, from the query's options and its modifiers.
+#[derive(Clone, Copy)]
+struct TermMods {
+    case: bool,
+    on_path: bool,
+    whole_word: bool,
+    diacritics: bool,
+    whole_filename: bool,
+    /// Written `wholename:`: text without wildcards must then be the
+    /// whole name too, not only a part of it.
+    exact_name: bool,
+    prefix: bool,
+    suffix: bool,
+    squeeze: Squeeze,
+    regex: bool,
+}
+
+impl TermMods {
+    fn new(options: &QueryOptions) -> Self {
+        Self {
+            case: options.case_sensitive,
+            on_path: options.match_path,
+            whole_word: options.whole_words,
+            diacritics: options.match_diacritics,
+            whole_filename: !options.wildcards_anywhere,
+            exact_name: false,
+            prefix: options.prefix,
+            suffix: options.suffix,
+            squeeze: Squeeze {
+                punctuation: options.ignore_punctuation,
+                whitespace: options.ignore_whitespace,
+            },
+            regex: false,
+        }
     }
 }
 
@@ -3926,6 +3954,79 @@ mod tests {
         assert_eq!(t.find("sud"), ["Süd", "sud.txt"]);
         assert_eq!(t.find_with("sud", path), ["Süd", "a.txt", "sud.txt"]);
         assert_eq!(t.find_with("nopath:sud", path), ["Süd", "sud.txt"]);
+    }
+
+    #[test]
+    fn modifiers_before_a_kind_word_apply_to_its_term() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        for name in ["src", "Src", "mysrc"] {
+            store.add(Some(root), name.as_bytes(), true, Meta::default());
+        }
+        for name in [
+            "README",
+            "readme",
+            "art.png",
+            "ART.png",
+            "party.png",
+            "café.txt",
+            "cafe.txt",
+            "foo-bar.txt",
+            "main.rs",
+            "main.rs.bak",
+            "xmain.rs",
+        ] {
+            store.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        let t = Tree { store };
+        for (before, after, want) in [
+            ("case:file:README", "file:case:README", &["README"][..]),
+            ("prefix:folder:src", "folder:prefix:src", &["Src", "src"]),
+            (
+                "wholeword:file:art",
+                "file:wholeword:art",
+                &["ART.png", "art.png"],
+            ),
+            ("case:image:ART", "image:case:ART", &["ART.png"]),
+            (
+                "diacritics:file:café",
+                "file:diacritics:café",
+                &["café.txt"],
+            ),
+            (
+                "nopunct:file:foobar",
+                "file:nopunct:foobar",
+                &["foo-bar.txt"],
+            ),
+            (
+                "wholename:file:main.rs",
+                "file:wholename:main.rs",
+                &["main.rs"],
+            ),
+            (
+                "regex:file:^main",
+                "file:regex:^main",
+                &["main.rs", "main.rs.bak"],
+            ),
+            (
+                "suffix:file:.rs",
+                "file:suffix:.rs",
+                &["main.rs", "xmain.rs"],
+            ),
+            ("case:prefix:folder:S", "folder:case:prefix:S", &["Src"]),
+        ] {
+            assert_eq!(t.find(before), want, "{before}");
+            assert_eq!(t.find(after), want, "{after}");
+        }
+        // Turning a mode off before the kind word carries over too.
+        let case = with(|o| o.case_sensitive = true);
+        assert_eq!(t.find_with("file:readme", case), ["readme"]);
+        assert_eq!(
+            t.find_with("nocase:file:readme", case),
+            ["README", "readme"]
+        );
+        // A modifier after the kind word still wins over one before it.
+        assert_eq!(t.find("case:file:nocase:readme"), ["README", "readme"]);
     }
 
     #[test]

@@ -85,7 +85,9 @@ is the same as `*`. The open side of `prefix:` or `suffix:` crosses folders:
 ## Modifiers
 
 A modifier is written before a term, `name:term`, and can be stacked
-(`case:path:Src/Main`). Modifier names ignore case. A word whose prefix is not
+(`case:path:Src/Main`). Modifiers stacked before `file:`, `folder:` or a
+filter word apply to its term too: `case:file:README` is the same as
+`file:case:README`. Modifier names ignore case. A word whose prefix is not
 a known modifier is plain text (`http://x` searches for `http://x`).
 
 | Modifier | Effect |

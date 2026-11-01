@@ -89,6 +89,8 @@ First version, 0.1.0, not released yet.
   `path:`, `diacritics:` and their `no…:` forms) or for the whole query.
 - `file:`, `folder:`, `ext:`, `size:` (folders by total size) and
   `modified:` with ages, local days, months, years and inclusive ranges.
+  Modifiers before `file:`, `folder:` or a filter word apply to its term
+  (`case:file:README`, `prefix:folder:src`); they used to be dropped.
 - Filters for audio, archives, code, documents, executables, folders,
   images and videos, from the name. The kinds know more extensions (for
   example `.au`, `.chm`, `.mht`, `.vsd`, `.jxr`, `.wmf`, `.m2t`, `.vob`).
