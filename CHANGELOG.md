@@ -36,6 +36,9 @@ First version, 0.1.0, not released yet.
 - Progress counters and cooperative cancelling for scans, searches, sorts
   and catch-ups, and an estimate of a scan's size from the used inodes of
   the file systems it reads.
+- A new query or result order stops the search or sort still running for
+  the previous one at once, instead of waiting for it to finish; this is not
+  reported as a stop.
 
 ### Query language
 

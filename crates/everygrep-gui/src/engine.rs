@@ -202,6 +202,17 @@ impl Tasks {
             task.progress.cancel();
         }
     }
+
+    /// Cancels the running search or sort, if any.
+    fn cancel_search(&self) {
+        let list = self.list.lock().expect("lock");
+        for task in list.iter() {
+            let kind = task.kind.lock().expect("lock");
+            if matches!(*kind, TaskKind::Searching | TaskKind::Sorting) {
+                task.progress.cancel();
+            }
+        }
+    }
 }
 
 /// A running task; dropping it ends the task.
@@ -611,6 +622,11 @@ impl Engine {
 
     fn request_search(&self) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        // The running search or sort is for an older request: its results
+        // would be dropped, so stop it rather than wait for it. A search
+        // that begins after this sees the new generation (see
+        // `search_loop`).
+        self.tasks.cancel_search();
         if let Some(tx) = self.searches.lock().expect("lock").as_ref() {
             let _ = tx.send(generation);
         }
@@ -637,6 +653,11 @@ impl Engine {
                     epoch = self.epoch();
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
                     let task = self.tasks.begin(TaskKind::Searching, true);
+                    // A request that came before the task was listed could
+                    // not cancel it; it is stale already.
+                    if !self.is_current(generation) {
+                        task.progress().cancel();
+                    }
                     let found = search_with_progress(&index, &query, threads, task.progress())
                         .and_then(|mut ids| {
                             if self.is_current(generation) {
@@ -680,6 +701,8 @@ impl Engine {
 
     /// A search or sort for `state` was cancelled: the results shown stay,
     /// and so does the query that gave them, unless a newer request came.
+    /// A newer request also cancels it (see `request_search`); that is not
+    /// a stop the user asked for, so nothing is reported then.
     fn search_cancelled(&self, generation: u64, state: &QueryState) {
         let mut q = self.query.lock().expect("lock");
         if !self.is_current(generation) {
@@ -1486,6 +1509,10 @@ mod tests {
         /// While set, the next task to begin when none runs is cancelled at
         /// once.
         armed: Arc<AtomicBool>,
+        /// While it holds a receiver, the next task to begin when none runs
+        /// sends on `held` and waits until the receiver gets a message.
+        hold: Arc<Mutex<Option<mpsc::Receiver<()>>>>,
+        held: mpsc::Receiver<()>,
     }
 
     impl Probe {
@@ -1527,6 +1554,9 @@ mod tests {
             let result_tx = Mutex::new(result_tx);
             let stopped_tx = Mutex::new(stopped_tx);
             let armed = Arc::new(AtomicBool::new(armed));
+            let hold: Arc<Mutex<Option<mpsc::Receiver<()>>>> = Arc::default();
+            let (held_tx, held) = mpsc::channel();
+            let held_tx = Mutex::new(held_tx);
             let slot: Arc<std::sync::OnceLock<std::sync::Weak<Engine>>> = Arc::default();
             let hooks = Hooks {
                 on_results: Box::new(move |r| {
@@ -1537,7 +1567,13 @@ mod tests {
                 }),
                 on_busy: Box::new({
                     let (armed, slot) = (Arc::clone(&armed), Arc::clone(&slot));
+                    let hold = Arc::clone(&hold);
                     move || {
+                        let release = hold.lock().unwrap().take();
+                        if let Some(release) = release {
+                            let _ = held_tx.lock().unwrap().send(());
+                            let _ = release.recv_timeout(Duration::from_secs(20));
+                        }
                         if !armed.swap(false, Ordering::SeqCst) {
                             return;
                         }
@@ -1565,6 +1601,8 @@ mod tests {
                 results,
                 stopped,
                 armed,
+                hold,
+                held,
             }
         }
 
@@ -1822,6 +1860,54 @@ mod tests {
             .set_query("nothing-like-this", QueryOptions::default());
         assert_eq!(probe.wait_stopped(), Stopped::Search);
         assert_eq!(probe.engine.query.lock().unwrap().text, "txt");
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn newer_query_cancels_the_running_search_without_a_stop() {
+        let dir = Scratch::new("newer-query");
+        fs::create_dir_all(dir.0.join("a")).unwrap();
+        fs::write(dir.0.join("a/one.txt"), "").unwrap();
+        fs::write(dir.0.join("a/two.md"), "").unwrap();
+        let probe = Probe::start(vec![dir.0.join("a")], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+
+        // The next search stops right after it is listed, as if it were slow.
+        let (release, wait) = mpsc::channel();
+        *probe.hold.lock().unwrap() = Some(wait);
+        probe.engine.set_query("o", QueryOptions::default());
+        probe
+            .held
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the search begins");
+        let running = probe.engine.tasks.list.lock().unwrap().clone();
+        let search = running
+            .iter()
+            .find(|t| *t.kind.lock().unwrap() == TaskKind::Searching)
+            .expect("a running search");
+        assert!(!search.progress.is_cancelled());
+
+        probe.engine.set_query("md", QueryOptions::default());
+        assert!(
+            search.progress.is_cancelled(),
+            "a newer query cancels the running search"
+        );
+        release.send(()).unwrap();
+        let r = probe
+            .results
+            .recv_timeout(Duration::from_secs(20))
+            .expect("results");
+        assert_eq!(r.query, "md", "the older search sends no results");
+        assert_eq!(r.ids.len(), 1);
+        assert!(
+            probe
+                .stopped
+                .recv_timeout(Duration::from_millis(200))
+                .is_err(),
+            "a search cancelled by a newer query is not reported as stopped"
+        );
+        assert_eq!(probe.engine.query.lock().unwrap().text, "md");
         probe.engine.shutdown();
     }
 
