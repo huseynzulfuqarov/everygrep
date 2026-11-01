@@ -163,7 +163,27 @@ fn save_impl(
     let mut tmp = TempFile::create(path)?;
     tmp.file.write_all(&buf)?;
     tmp.file.sync_all()?;
-    publish(&mut tmp, path, |dir| fs::File::open(dir)?.sync_all())
+    publish(&mut tmp, path, |dir| {
+        unsupported_is_fine(fs::File::open(dir)?.sync_all())
+    })
+}
+
+/// `EINVAL` and `EOPNOTSUPP` (`ENOTSUP`) on Linux.
+const NO_DIRECTORY_SYNC: [i32; 2] = [22, 95];
+
+/// Some file systems (several FUSE and network ones) cannot sync a
+/// directory and say so with `EINVAL` or `ENOTSUP`. The rename has already
+/// replaced the file then, so that is not a failed save.
+fn unsupported_is_fine(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(e)
+            if e.raw_os_error()
+                .is_some_and(|n| NO_DIRECTORY_SYNC.contains(&n)) =>
+        {
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 /// Sync only after the destination has been replaced. A relative filename
@@ -602,6 +622,23 @@ mod tests {
             }
             drop(tmp);
             assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_directory_sync_the_file_system_does_not_support_is_not_a_failure() {
+        let dir = temp_file("unsupported-sync");
+        fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("index.bin");
+        for (errno, ok) in [(22, true), (95, true), (5, false), (13, false)] {
+            let mut tmp = TempFile::create(&destination).unwrap();
+            tmp.file.write_all(b"contents").unwrap();
+            let result = publish(&mut tmp, &destination, |_| {
+                unsupported_is_fine(Err(io::Error::from_raw_os_error(errno)))
+            });
+            assert_eq!(result.is_ok(), ok, "errno {errno}: {result:?}");
+            assert_eq!(fs::read(&destination).unwrap(), b"contents");
         }
         fs::remove_dir_all(&dir).unwrap();
     }

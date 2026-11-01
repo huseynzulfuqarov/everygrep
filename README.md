@@ -538,7 +538,8 @@ is English only. Path arguments preserve non-UTF-8 filenames; queries and
 textual option values must be valid UTF-8. `--no-meta` omits file sizes and
 timestamps during scans, catch-up and watching; folder timestamps are retained
 for catch-up. Failed index saves return a nonzero exit status. A completed save
-syncs the file and, after rename, its parent directory.
+syncs the file and, after rename, its parent directory (where the file
+system supports syncing a directory).
 
 Failed or partial directory listings remain eligible for catch-up even when
 permissions change without changing the directory mtime. In a folder that

@@ -96,7 +96,9 @@ into a copy, so files never contain removed nodes. The bytes are written to
 an exclusively created `<file>.tmp-<random>` with owner-only permissions in the
 same folder, synced, and renamed over the file. Failed saves remove their
 temporary file. After the rename, the parent directory is opened and synced;
-a directory-sync failure is returned to the caller. A bare relative filename
+a directory-sync failure is returned to the caller, except `EINVAL` and
+`ENOTSUP`, with which file systems that cannot sync a directory (several
+FUSE and network ones) answer; the save counts as done then. A bare relative filename
 uses `.` as its parent. Readers see either the old or the complete new file.
 The window saves a changed index at most every five minutes while it watches, after a rebuild, and when it
 ends (also when closing only hides the window).
