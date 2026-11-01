@@ -311,7 +311,9 @@ other terms on large indexes (`created:today ext:pdf` is cheaper than `created:t
 
 - The creation time is the birth time; entries on file systems that do not
   record it (and entries that cannot be read: removed, on a drive that is not
-  plugged in) never match `created:`.
+  plugged in) never match `created:`. Entries of an offline drive are not
+  looked up, so they match neither `created:` nor `accessed:`, even when
+  another drive is mounted at its folder.
 - The access time is coarse on most systems (`relatime` updates it at most
   once a day); entries that cannot be read never match `accessed:`.
 
@@ -353,8 +355,10 @@ regular file with an execute bit. Files with a known type do not pass by
 their bits (`notes.txt` with an execute bit is a text file), so drives that
 mark every file executable (FAT, NTFS) do not fill the results with
 documents. Files that cannot be read then (removed, or on a drive that is
-not plugged in) do not pass. This check costs a file system lookup per such
-file, so it runs after the other terms of the query.
+not plugged in) do not pass, and files of a drive the window shows as
+offline are not looked up at all, even when another drive is mounted at its
+folder. This check costs a file system lookup per such file, so it runs
+after the other terms of the query.
 
 ### Filter words
 

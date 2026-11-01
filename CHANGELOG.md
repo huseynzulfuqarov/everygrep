@@ -123,7 +123,9 @@ First version, 0.1.0, not released yet.
   and combining with other terms (`image: beach`, `!video:`,
   `<audio:|video:>`).
 - The executable filter (and `executable:`) also finds files of no known type that
-  have an execute bit, looked up on disk while searching.
+  have an execute bit, looked up on disk while searching. Entries of offline
+  drives are not looked up for it or for `created:` / `accessed:`, so a
+  different drive mounted at the same folder cannot answer for them.
 - `ext:` lists separated by `;` or `|` (`ext:jpg|png` is one list, no
   longer `ext:jpg` OR the text `png`), with wildcard entries (`ext:jp*`).
   `ext:` follows `case:` and the match case mode (`case:ext:JPG` finds

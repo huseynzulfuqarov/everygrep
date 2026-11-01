@@ -93,7 +93,7 @@ pub fn search_with_progress(
 
 fn scan(index: &Index, query: &Query, blocks: &[Vec<NodeId>]) -> Vec<NodeId> {
     let store = index.store();
-    let mut scratch = EvalScratch::default();
+    let mut scratch = EvalScratch::with_offline_roots(index.offline_roots());
     blocks
         .iter()
         .flatten()
@@ -159,6 +159,55 @@ mod tests {
             );
             assert_eq!(cancelled.done(), 0);
         }
+    }
+
+    #[test]
+    fn offline_roots_are_not_looked_up_on_disk() {
+        use std::os::unix::fs::PermissionsExt;
+        // The saved paths of an offline root now hold other files (another
+        // drive mounted at the same place): they must not decide matches.
+        let dir = std::env::temp_dir().join(format!("everygrep-offline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["runme", "notes.txt", "tool.sh"] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        std::fs::set_permissions(dir.join("runme"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let mut s = NodeStore::new();
+        let root = s.add(
+            None,
+            dir.as_os_str().as_encoded_bytes(),
+            true,
+            Meta::default(),
+        );
+        for name in ["runme", "notes.txt", "tool.sh"] {
+            s.add(Some(root), name.as_bytes(), false, Meta::default());
+        }
+        let mut index = Index::new(s);
+        let names = |index: &Index, q: &str| -> Vec<String> {
+            let query = Query::parse(q, QueryOptions::default()).unwrap();
+            let mut out: Vec<String> = search(index, &query, 1)
+                .into_iter()
+                .map(|id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                .collect();
+            out.sort();
+            out
+        };
+        assert_eq!(names(&index, "executable:"), ["runme", "tool.sh"]);
+        assert_eq!(
+            names(&index, "accessed:today file:"),
+            ["notes.txt", "runme", "tool.sh"]
+        );
+        index.set_offline(root, true);
+        // Executables by extension and the names stay searchable.
+        assert_eq!(names(&index, "executable:"), ["tool.sh"]);
+        assert_eq!(names(&index, "runme"), ["runme"]);
+        assert!(names(&index, "accessed:today").is_empty());
+        assert!(names(&index, "created:<2100").is_empty());
+        index.set_offline(root, false);
+        assert_eq!(names(&index, "executable:"), ["runme", "tool.sh"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

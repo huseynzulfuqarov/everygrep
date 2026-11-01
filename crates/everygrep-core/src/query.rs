@@ -295,6 +295,24 @@ pub struct EvalScratch {
     folded_for_node: Option<NodeId>,
     stripped: Vec<u8>,
     squeezed: Vec<u8>,
+    /// Roots whose drive is not there: their saved paths may now belong to
+    /// other files, so entries below them are not looked up on disk.
+    offline: Vec<NodeId>,
+}
+
+impl EvalScratch {
+    /// Scratch space for an index with these offline roots.
+    pub fn with_offline_roots(roots: &[NodeId]) -> Self {
+        Self {
+            offline: roots.to_vec(),
+            ..Self::default()
+        }
+    }
+
+    /// Whether `id` may be looked up on disk: it is not below an offline root.
+    fn on_disk(&self, store: &NodeStore, id: NodeId) -> bool {
+        self.offline.is_empty() || !self.offline.contains(&store.root_of(id))
+    }
 }
 
 impl Query {
@@ -494,6 +512,9 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             *min <= t && t <= *max
         }
         Pred::DiskTime { field, min, max } => {
+            if !scratch.on_disk(store, id) {
+                return false;
+            }
             let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
             let Ok(meta) = std::fs::symlink_metadata(path) else {
                 return false;
@@ -609,9 +630,12 @@ pub fn find_term(
 
 /// Whether the entry is a regular file with an execute bit, looked up on
 /// disk (`lstat`: a link is not followed). Entries that cannot be read (gone,
-/// offline drive) are not.
+/// below an offline root) are not.
 fn executable_on_disk(store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
     use std::os::unix::fs::PermissionsExt;
+    if !scratch.on_disk(store, id) {
+        return false;
+    }
     let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
     std::fs::symlink_metadata(path)
         .is_ok_and(|m| m.file_type().is_file() && m.permissions().mode() & 0o111 != 0)
