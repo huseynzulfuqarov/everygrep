@@ -1852,3 +1852,11 @@ msgstr "Şundan fazla öğe açmadan önce sor"
 #: ui/settings.slint
 msgid "Opening the selection asks first when it holds more items than this. 0 opens any number without asking."
 msgstr "Seçim bundan fazla öğe içerdiğinde açmadan önce sorulur. 0, istenen sayıda öğeyi sormadan açar."
+
+#: ui/settings.slint
+msgid "Clear the selection when the search changes"
+msgstr "Arama değiştiğinde seçimi temizle"
+
+#: ui/settings.slint
+msgid "Off: the selected items stay selected while the new results list them. Sorting and file changes never clear it."
+msgstr "Kapalıyken seçili öğeler yeni sonuçlarda listelendikçe seçili kalır. Sıralama ve dosya değişiklikleri seçimi asla temizlemez."

@@ -149,6 +149,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> default-whitespace;
     in-out property <bool> as-you-type;
     in-out property <bool> select-search-on-click;
+    in-out property <bool> clear-selection-on-search;
     in-out property <int> history-size;
     in property <int> history-max;
     in-out property <bool> history-on-disk;
@@ -488,6 +489,12 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.search-changed(); }
                             }
                             Note { text: @tr("A second click places the cursor. Off: the first click places it."); }
+                            CheckBox {
+                                text: @tr("Clear the selection when the search changes");
+                                checked <=> root.clear-selection-on-search;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("Off: the selected items stay selected while the new results list them. Sorting and file changes never clear it."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("When EveryGrep starts"); }
                             HorizontalLayout {

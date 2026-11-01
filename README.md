@@ -242,6 +242,7 @@ the program behaves as before, except that folders show their total size.
 | | "Rebuild index now" | — |
 | Search | search as you type (off: the search runs when Enter is pressed in the search field) | on |
 | | a click into the search field selects its text (a second click places the cursor) | on |
+| | clear the selection when the search changes (off: selected items stay selected while listed) | on |
 | | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | keep the history after EveryGrep closes | off |
@@ -390,6 +391,7 @@ and the file pattern lists; a pattern that does not compile is reported and
 ignored. Other keys: `whole-words`,
 `match-path`, `match-diacritics`, `match-prefix`, `match-suffix`,
 `ignore-punctuation`, `ignore-whitespace`, `regex`, `select-search-on-click`,
+`deselect-on-new-search`,
 `index-removable-drives`,
 `removed-drives` (`keep`, `forget`), `ignore-drive` (a file system UUID,
 repeated per drive), `folder-size` (`total`, `items`, `none`),

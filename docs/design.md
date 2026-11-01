@@ -217,7 +217,11 @@ items?", Open or Cancel); the number is a setting (Window page, 0 never
 asks). Open containing folder shows at most 20 items in the file
 manager. The selection
 follows the files, not the row numbers: it stays when the list is sorted again
-or refreshed after file changes, and a new query clears it.
+or refreshed after file changes, and a new query text clears it ("Clear the
+selection when the search changes", Search page, on by default). Off, a new
+query keeps the selected items it lists, and the cursor moves to the first
+of them. Changing only a matching mode or the filter keeps the selection on
+the items still listed either way.
 
 A search is kept in the history when typing pauses for a second, on `Enter`
 in the search field, or when a result is opened; a repeat of the current entry

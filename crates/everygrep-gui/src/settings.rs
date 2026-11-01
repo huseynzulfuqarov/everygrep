@@ -211,6 +211,9 @@ pub struct Settings {
     /// Whether a click into the search field, while it does not have the
     /// focus, selects all of its text; off places the caret.
     pub select_search_on_click: bool,
+    /// Whether a new search clears the selection; off keeps the selected
+    /// items that the new result lists.
+    pub clear_selection_on_search: bool,
     /// Searches kept for Back and Forward; 0 turns the history off.
     pub history_size: usize,
     /// Whether the search history is saved between sessions.
@@ -284,6 +287,7 @@ impl Default for Settings {
             options: QueryOptions::default(),
             as_you_type: true,
             select_search_on_click: true,
+            clear_selection_on_search: true,
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             on_close: OnClose::Quit,
@@ -456,6 +460,7 @@ impl Settings {
             "regex" => put_flag(&mut self.options.regex),
             "search-as-you-type" => put_flag(&mut self.as_you_type),
             "select-search-on-click" => put_flag(&mut self.select_search_on_click),
+            "deselect-on-new-search" => put_flag(&mut self.clear_selection_on_search),
             "history-size" => value
                 .parse::<usize>()
                 .ok()
@@ -664,6 +669,12 @@ impl Settings {
             self.select_search_on_click,
             d.select_search_on_click,
         );
+        flag(
+            &mut out,
+            "deselect-on-new-search",
+            self.clear_selection_on_search,
+            d.clear_selection_on_search,
+        );
         if self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
@@ -830,6 +841,7 @@ impl Settings {
                 self.options = d.options;
                 self.as_you_type = d.as_you_type;
                 self.select_search_on_click = d.select_search_on_click;
+                self.clear_selection_on_search = d.clear_selection_on_search;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
             }
@@ -1098,6 +1110,7 @@ pub(crate) mod tests {
             },
             as_you_type: false,
             select_search_on_click: false,
+            clear_selection_on_search: false,
             history_size: 0,
             history_on_disk: true,
             on_close: OnClose::Hide,
@@ -1165,6 +1178,7 @@ pub(crate) mod tests {
         assert!(text.contains("watch-changes = false\n"));
         assert!(text.contains("search-as-you-type = false\n"));
         assert!(text.contains("select-search-on-click = false\n"));
+        assert!(text.contains("deselect-on-new-search = false\n"));
         assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("open-folder-on-path-double-click = false\n"));
         assert!(text.contains("copy-full-path-quotes = true\n"));

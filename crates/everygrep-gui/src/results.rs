@@ -31,8 +31,12 @@ pub struct ResultsModel {
     ids: RefCell<Arc<Vec<NodeId>>>,
     /// Engine epoch of `ids`; when the engine moves on, the ids are stale.
     epoch: Cell<u64>,
-    /// Query text of `ids`; a new query starts with an empty selection.
+    /// Query text of `ids`; a new query starts with an empty selection,
+    /// unless `clear_on_search` is off.
     query: RefCell<String>,
+    /// Whether a new query clears the selection; off keeps the selected
+    /// items that the new result lists.
+    clear_on_search: Cell<bool>,
     selection: RefCell<Selection>,
     /// The node whose name is being edited.
     renaming: Cell<Option<NodeId>>,
@@ -92,6 +96,7 @@ impl ResultsModel {
             ids: RefCell::new(Arc::new(Vec::new())),
             epoch: Cell::new(u64::MAX),
             query: RefCell::new(String::new()),
+            clear_on_search: Cell::new(true),
             selection: RefCell::new(Selection::default()),
             renaming: Cell::new(None),
             terms: RefCell::new(Arc::new(Vec::new())),
@@ -109,10 +114,19 @@ impl ResultsModel {
         }
     }
 
+    /// Whether a new query clears the selection (the default) or keeps the
+    /// selected items it lists.
+    pub fn set_clear_on_search(&self, on: bool) {
+        self.clear_on_search.set(on);
+    }
+
     /// Replaces the rows with a search result. The selection stays on the
     /// nodes still in the list when the query is the same (a new sort order or
-    /// a refresh after file changes); a new query clears it.
-    pub fn set_result(&self, result: &SearchResult) {
+    /// a refresh after file changes); a new query clears it, or keeps the
+    /// selected items it lists when clearing is off. Returns the first
+    /// selected row when a selection was kept for a new query.
+    pub fn set_result(&self, result: &SearchResult) -> Option<usize> {
+        let mut carried = false;
         *self.terms.borrow_mut() = Arc::clone(&result.terms);
         self.now_ns.set(now_ns());
         self.took.set(result.took);
@@ -124,7 +138,12 @@ impl ResultsModel {
                 selection.reset();
                 self.renaming.set(None);
             } else if *query != result.query {
-                selection.reset();
+                if self.clear_on_search.get() {
+                    selection.reset();
+                } else {
+                    selection.carry_over(&self.ids.borrow(), &result.ids);
+                    carried = true;
+                }
             } else {
                 selection.retain(&result.ids);
             }
@@ -135,6 +154,11 @@ impl ResultsModel {
         // A new result also follows file changes, so read the details again.
         self.detail_cache.borrow_mut().clear();
         self.notify.reset();
+        if !carried {
+            return None;
+        }
+        let selection = self.selection.borrow();
+        result.ids.iter().position(|&id| selection.contains(id))
     }
 
     /// Says which columns read from the file system are shown, and shows

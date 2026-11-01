@@ -248,6 +248,8 @@ First version, 0.1.0, not released yet.
 - Opening more than 32 items at once asks first ("Open 40 items?") instead
   of refusing more than 20; the number is a setting on the Window page,
   and 0 never asks.
+- "Clear the selection when the search changes" (Search page, on as
+  before): off, a new search keeps the selected items it lists.
 
 ### Project
 

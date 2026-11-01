@@ -159,6 +159,24 @@ impl Selection {
         }
     }
 
+    /// Keeps the items selected in the list `old` that are in the new list
+    /// `new` (the result of another query), and only those: "all" of the
+    /// old list does not grow to the new one.
+    pub fn carry_over(&mut self, old: &[NodeId], new: &[NodeId]) {
+        let kept: HashSet<NodeId> = self.selected(old).into_iter().collect();
+        let present: HashSet<NodeId> = if kept.is_empty() {
+            HashSet::new()
+        } else {
+            new.iter().copied().filter(|id| kept.contains(id)).collect()
+        };
+        self.set = Set::Only(present);
+        if let Some(a) = self.anchor {
+            if !new.contains(&a) {
+                self.anchor = None;
+            }
+        }
+    }
+
     /// Forgets the selection and the anchor, e.g. when ids no longer mean the same nodes.
     pub fn reset(&mut self) {
         *self = Self::default();
@@ -322,6 +340,34 @@ mod tests {
         s.select_all(&ids);
         s.retain(&shorter);
         assert_eq!(s.count(shorter.len()), shorter.len());
+    }
+
+    #[test]
+    fn carried_over_selection_keeps_only_the_items_still_listed() {
+        let ids = list(10);
+        let mut s = Selection::default();
+        s.select_only(&ids, 1);
+        s.toggle(&ids, 4);
+        s.toggle(&ids, 8);
+        // Another query lists rows 3..10 of the old list, and new ones.
+        let mut new: Vec<NodeId> = ids[3..].to_vec();
+        new.extend((100..105).map(NodeId));
+        s.carry_over(&ids, &new);
+        let mut kept = s.selected(&new);
+        kept.sort();
+        let mut want = vec![ids[4], ids[8]];
+        want.sort();
+        assert_eq!(kept, want);
+        assert_eq!(s.count(new.len()), 2);
+        // "All" keeps the old items only; the new ones are not selected.
+        s.select_all(&ids);
+        s.carry_over(&ids, &new);
+        assert_eq!(s.count(new.len()), 7);
+        assert!(!s.contains(new[new.len() - 1]));
+        // Nothing selected stays nothing.
+        s.clear(&new);
+        s.carry_over(&new, &ids);
+        assert_eq!(s.count(ids.len()), 0);
     }
 
     #[test]

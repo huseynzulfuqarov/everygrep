@@ -644,6 +644,7 @@ impl Prefs {
         w.set_default_regex(o.regex);
         w.set_as_you_type(s.as_you_type);
         w.set_select_search_on_click(s.select_search_on_click);
+        w.set_clear_selection_on_search(s.clear_selection_on_search);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
@@ -1195,10 +1196,12 @@ impl Prefs {
         let on_disk = w.get_history_on_disk();
         let as_you_type = w.get_as_you_type();
         let select_on_click = w.get_select_search_on_click();
+        let clear_selection = w.get_clear_selection_on_search();
         self.change(|s| {
             s.options = options;
             s.as_you_type = as_you_type;
             s.select_search_on_click = select_on_click;
+            s.clear_selection_on_search = clear_selection;
             s.history_size = size;
             s.history_on_disk = on_disk;
         });
@@ -1213,6 +1216,9 @@ impl Prefs {
         let Some(m) = self.main.upgrade() else { return };
         let s = self.settings.borrow();
         m.set_select_search_on_click(s.select_search_on_click);
+        crate::with_model(&m, |model| {
+            model.set_clear_on_search(s.clear_selection_on_search);
+        });
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);
     }

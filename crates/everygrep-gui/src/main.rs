@@ -1716,8 +1716,9 @@ fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
 
 fn show_results(w: &AppWindow, result: SearchResult) {
     let count = result.ids.len();
+    let mut kept = None;
     with_model(w, |m| {
-        m.set_result(&result);
+        kept = m.set_result(&result);
         // An item being renamed may have moved in the list, or be gone.
         let row = m.renaming_row();
         if row.is_none() {
@@ -1727,6 +1728,9 @@ fn show_results(w: &AppWindow, result: SearchResult) {
     });
     if count == 0 {
         w.set_current(-1);
+    } else if let Some(row) = kept {
+        // The selection was kept for a new query: actions start from it.
+        w.set_current(row as i32);
     } else if w.get_current() < 0 || w.get_current() as usize >= count {
         w.set_current(0);
     }
