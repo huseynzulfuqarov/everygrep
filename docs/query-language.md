@@ -60,7 +60,12 @@ of a word: `port` finds `report.pdf`. By default matching ignores
 
 `*` (any run of characters) and `?` (one character) make a term a wildcard
 pattern that must match the **whole** name: `*.pdf` finds names ending in
-`.pdf`, `img_??.png` finds `img_01.png` but not `img_001.png`. Inside quotes
+`.pdf`, `img_??.png` finds `img_01.png` but not `img_001.png`. A `?` is one
+character of the name as it is compared, after case and diacritics are
+folded: with diacritics ignored (the default) `ß` and `Æ` become `ss` and
+`ae`, so a name `ß` needs `??`; with `diacritics:` a capital `İ` lowercases
+to `i` and a combining dot, two characters. With `case:diacritics:` each
+`?` is one character of the name as written. Inside quotes
 `*` and `?` are literal, and only there: `*"draft report"*` finds names
 containing `draft report`, `"a*"*` names starting with `a*`. In the window, Settings → Search → Match wildcards
 anywhere in the filename opens both ends instead (off by default).

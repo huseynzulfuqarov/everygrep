@@ -4161,6 +4161,25 @@ mod tests {
     }
 
     #[test]
+    fn question_mark_counts_characters_as_they_are_compared() {
+        // `?` is one character of the name after folding: ignoring
+        // diacritics turns `ß` and `Æ` into two letters, and lowercasing
+        // turns `İ` into `i` and a combining dot, which ignoring diacritics
+        // drops again.
+        let t = named(&["\u{df}", "\u{c6}", "\u{130}", "x"]);
+        assert_eq!(t.find("?"), ["x", "\u{130}"]);
+        assert_eq!(t.find("??"), ["\u{c6}", "\u{df}"]);
+        assert_eq!(t.find("case:?"), ["x", "\u{130}"]);
+        assert_eq!(t.find("diacritics:?"), ["x", "\u{c6}", "\u{df}"]);
+        assert_eq!(t.find("diacritics:??"), ["\u{130}"]);
+        // Matching both, `?` is one character of the name as written.
+        assert_eq!(
+            t.find("case:diacritics:?"),
+            ["x", "\u{c6}", "\u{df}", "\u{130}"]
+        );
+    }
+
+    #[test]
     fn invalid_utf8_bytes_are_single_characters_in_wildcards() {
         // A lead byte without its continuation bytes is one character and
         // does not swallow the bytes after it.
