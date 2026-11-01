@@ -871,6 +871,8 @@ export component AppWindow inherits Window {
     in-out property <bool> about-open;
 
     callback query-edited(string);
+    // Runs the current search again and reads the shown details afresh.
+    callback refresh();
     callback sort-changed(int, bool);
     // Whether a first click on the header of a column sorts it descending.
     pure callback first-descending(int) -> bool;
@@ -1205,6 +1207,8 @@ export component AppWindow inherits Window {
             root.shortcuts-open = true;
         } else if (c == Command.about) {
             root.about-open = true;
+        } else if (c == Command.refresh) {
+            root.refresh();
         }
     }
 
@@ -2202,6 +2206,13 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: @tr("View");
+            MenuItem {
+                title: @tr("Refresh");
+                shortcut: root.menu-keys.refresh;
+                enabled: root.can-run(Command.refresh);
+                activated => { root.run(Command.refresh); }
+            }
+            MenuSeparator { }
             MenuItem {
                 title: @tr("Type column");
                 shortcut: root.menu-keys.type-column;

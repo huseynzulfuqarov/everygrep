@@ -167,6 +167,7 @@ executable file.
 | `Alt+U`, `Alt+S` | ignore punctuation, ignore whitespace |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
 | `Ctrl+S` | export the results to a CSV or text file |
+| `F5` | refresh: run the search again and read the Created, Accessed and Attributes values afresh |
 | `Ctrl+N` | new window over the same index (also with the menu bar hidden) |
 | `Ctrl+W` | close the window, as its close button does |
 | `Ctrl+,` | settings |

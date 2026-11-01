@@ -631,6 +631,15 @@ impl Engine {
         self.request_search()
     }
 
+    /// Runs the current query again, reading the details a sort needs
+    /// (creation times, attributes) afresh. Returns the generation of the
+    /// request.
+    pub fn refresh(&self) -> u64 {
+        let _query = self.query.lock().expect("lock");
+        self.forget_details();
+        self.request_search()
+    }
+
     /// Records the ids now shown in the table.
     pub fn set_shown(&self, ids: Arc<Vec<NodeId>>) {
         *self.shown.lock().expect("lock") = ids;
@@ -1912,6 +1921,27 @@ mod tests {
         probe.wait_for(IndexState::Unwatched);
         chmod("x3.txt", 0o444);
         wait_order(["x2.txt", "x1.txt", "x3.txt"]);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn refresh_runs_the_same_query_again() {
+        let dir = Scratch::new("refresh");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "").unwrap();
+        let probe = Probe::start_unwatched(vec![a.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        while probe.results.try_recv().is_ok() {}
+        let generation = probe.engine.refresh();
+        let r = probe
+            .results
+            .recv_timeout(Duration::from_secs(20))
+            .expect("results after a refresh");
+        assert_eq!(r.query, "txt", "the same query runs again");
+        assert_eq!(r.ids.len(), 1);
+        assert!(probe.engine.is_current(generation));
         probe.engine.shutdown();
     }
 

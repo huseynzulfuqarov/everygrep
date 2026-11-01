@@ -239,6 +239,9 @@ First version, 0.1.0, not released yet.
   1024 bytes, 1 KiB = 1024 bytes, 1 KB = 1000 bytes) on the Appearance
   page, for the Size column and the status line; the defaults keep the
   earlier output.
+- View → Refresh (`F5`, changeable on the Keyboard page): runs the
+  search again and reads the creation times, access times and attributes
+  of the shown rows, and those a sort needs, afresh.
 
 ### Project
 

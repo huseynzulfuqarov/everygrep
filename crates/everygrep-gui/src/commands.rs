@@ -627,6 +627,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::Refresh,
+        id: "view.refresh",
+        category: Category::View,
+        label: || tr("Refresh"),
+        defaults: &[(Global, "F5")],
+    },
+    Spec {
         cmd: Command::MatchCase,
         id: "search.match-case",
         category: Category::Search,
@@ -1019,6 +1026,7 @@ impl Keymap {
             attributes_column => AttributesColumn,
             selection_details => SelectionDetails,
             menu_bar => MenuBar,
+            refresh => Refresh,
             match_case => MatchCase,
             whole_words => WholeWords,
             match_path => MatchPath,

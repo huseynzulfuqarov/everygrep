@@ -263,6 +263,12 @@ fn main() -> Result<(), slint::PlatformError> {
             });
         }
     });
+    window.on_refresh({
+        let engine = engine.clone();
+        move || {
+            engine.refresh();
+        }
+    });
     window.on_options_changed({
         let (engine, weak) = (engine.clone(), weak.clone());
         move || {

@@ -44,7 +44,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   settings. File (new window, close window, export results, quit), Edit
   (cut, copy, paste into folder, copy name, path and full path, select all,
   invert selection, rename, trash, delete, focus the search field), View
-  (optional columns, sort by column and direction, folder size, density,
+  (refresh, optional columns, sort by column and direction, folder size, density,
   theme, selection details, menu bar), Search (matching modes, including
   prefix, suffix, ignore punctuation and ignore whitespace, filters,
   previous and next filter, previous and next search), Tools (settings,
@@ -55,7 +55,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   the focused widget sees the key. So a menu item shows a key only when it
   is a global key that edits no text and that the search field or the list
   does not bind otherwise (`Ctrl+N`, `Ctrl+W`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`,
-  `Ctrl+I`, `Alt+C/W/P/D/R/B/E/U/S`, `Alt+↑/↓`, `Alt+←/→` by default);
+  `Ctrl+I`, `F5`, `Alt+C/W/P/D/R/B/E/U/S`, `Alt+↑/↓`, `Alt+←/→` by default);
   `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Delete` and `F2` are result list
   keys, stay with the search field when it has focus, and the Edit entries
   show no key. Help → Keyboard shortcuts lists them all. The bar cannot be
@@ -205,6 +205,7 @@ words.
 | Show or hide the Type and Extension columns | — | header context menu, View menu |
 | New window over the same index | `Ctrl+N` | File menu |
 | Export the results (CSV or text) | `Ctrl+S` | File menu |
+| Refresh: run the search again and read the details of the shown rows afresh | `F5` | View menu |
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per

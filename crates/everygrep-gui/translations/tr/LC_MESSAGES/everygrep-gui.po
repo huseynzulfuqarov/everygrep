@@ -1813,3 +1813,7 @@ msgstr "1 KiB = 1024 bayt"
 #: src/labels.rs
 msgid "1 KB = 1000 bytes"
 msgstr "1 KB = 1000 bayt"
+
+#: src/commands.rs
+msgid "Refresh"
+msgstr "Yenile"
