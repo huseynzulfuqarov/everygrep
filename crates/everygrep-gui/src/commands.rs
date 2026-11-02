@@ -246,7 +246,7 @@ impl Key {
     fn name(self) -> String {
         match self {
             Key::Named(name) => name.to_owned(),
-            Key::Char(c) => c.to_uppercase().collect(),
+            Key::Char(c) => capital(c).to_string(),
         }
     }
 
@@ -258,8 +258,18 @@ impl Key {
                 .find(|(n, ..)| *n == name)
                 .map_or(name, |(.., d)| *d)
                 .to_owned(),
-            Key::Char(c) => c.to_uppercase().collect(),
+            Key::Char(c) => capital(c).to_string(),
         }
+    }
+}
+
+/// The capital of `c` when it is one character, else `c` itself: `ß` would
+/// become `SS` and `ŉ` `ʼN`, which no longer read back as one key.
+fn capital(c: char) -> char {
+    let mut upper = c.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(u), None) => u,
+        _ => c,
     }
 }
 
@@ -1262,6 +1272,10 @@ mod tests {
             "Ctrl+Super+Plus",
             "Ctrl+Semicolon",
             "Alt+Ə",
+            "Alt+İ",
+            // No one-character capital: kept as it is.
+            "Alt+ß",
+            "Alt+ŉ",
             "Ctrl+!",
             "Enter",
         ] {
