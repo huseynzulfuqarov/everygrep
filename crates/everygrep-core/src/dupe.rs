@@ -1035,4 +1035,262 @@ mod tests {
             Err(Cancelled)
         );
     }
+
+    /// Hash speed per algorithm, a duplicate search over a tree cold, warm
+    /// and with the hash cache, how soon a cancel is seen, grouping and
+    /// frequency counts over a large index, and the size of the cache file.
+    /// Writes about 1.4 GB below `EVERYGREP_TIMING_DIR` (default: the temp
+    /// folder; use a disk, not tmpfs) and removes it at the end.
+    #[test]
+    #[ignore = "timing; run with --ignored --nocapture"]
+    fn dupe_timing() {
+        use crate::store::Meta;
+        use std::io::Write;
+        use std::time::Instant;
+
+        let base = std::env::var_os("EVERYGREP_TIMING_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join(format!("everygrep-dupe-timing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let ms = |t: Instant| t.elapsed().as_secs_f64() * 1e3;
+        let uncache = |dir: &Path| {
+            let mut stack = vec![dir.to_path_buf()];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if let Ok(f) = std::fs::File::open(&p) {
+                        let _ = rustix::fs::fadvise(&f, 0, None, rustix::fs::Advice::DontNeed);
+                    }
+                }
+            }
+        };
+        let noise = |seed: u64, len: usize| -> Vec<u8> {
+            let mut h = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            (0..len)
+                .map(|_| {
+                    h ^= h << 13;
+                    h ^= h >> 7;
+                    h ^= h << 17;
+                    h as u8
+                })
+                .collect()
+        };
+
+        // 1. Hash speed, one thread, warm.
+        let big = base.join("big.bin");
+        let chunk = noise(1, 1 << 20);
+        let mut f = std::fs::File::create(&big).unwrap();
+        for _ in 0..512 {
+            f.write_all(&chunk).unwrap();
+        }
+        drop(f);
+        let all = |md5, sha256, crc32, full| Wanted {
+            md5,
+            sha256,
+            crc32,
+            full,
+        };
+        let mb = 512.0;
+        for (name, wanted) in [
+            ("warm-up", all(false, false, true, false)),
+            ("xxh3-128", all(false, false, false, true)),
+            ("crc32", all(false, false, true, false)),
+            ("md5", all(true, false, false, false)),
+            ("sha256", all(false, true, false, false)),
+            ("md5+sha256+crc32", all(true, true, true, false)),
+        ] {
+            let t = Instant::now();
+            let mut file = hash::open(&big).unwrap();
+            hash::hash_file(&mut file, wanted, &Progress::new()).unwrap();
+            let took = ms(t);
+            println!(
+                "hash {name}: 512 MiB in {took:.0} ms = {:.0} MiB/s",
+                mb / took * 1e3
+            );
+        }
+        std::fs::remove_file(&big).unwrap();
+
+        // 2. A tree: 20 000 small files, every tenth a copy of an earlier
+        // one; four copies of a 64 MiB file and four 64 MiB files that
+        // differ only in the middle (each read in full).
+        let tree = base.join("tree");
+        std::fs::create_dir_all(&tree).unwrap();
+        let mut small_bytes = 0u64;
+        for i in 0..20_000u64 {
+            let dir = tree.join(format!("d{}", i / 1000));
+            std::fs::create_dir_all(&dir).unwrap();
+            let source = if i % 10 == 9 { i - 5 } else { i };
+            let len = 1024 + (source * 7919 % (63 * 1024)) as usize;
+            let bytes = noise(source + 100, len);
+            small_bytes += bytes.len() as u64;
+            std::fs::write(dir.join(format!("f{i}.dat")), bytes).unwrap();
+        }
+        let large = noise(7, 64 << 20);
+        for i in 0..4 {
+            std::fs::write(tree.join(format!("copy{i}.iso")), &large).unwrap();
+        }
+        let mut other = large.clone();
+        for i in 0..4u8 {
+            other[32 << 20] = i;
+            std::fs::write(tree.join(format!("near{i}.iso")), &other).unwrap();
+        }
+        drop((large, other));
+        let mut store = NodeStore::new();
+        scan(
+            &mut store,
+            std::slice::from_ref(&tree),
+            &ScanOptions::default(),
+        );
+        let index = Index::new(store);
+        let ids = search(
+            &index,
+            &Query::parse("", QueryOptions::default()).unwrap(),
+            8,
+        );
+        let contents = spec("duplicates:");
+        let t = Instant::now();
+        let grouped = group(&index, &ids, &contents);
+        println!(
+            "tree: {} entries, {:.1} MB small files + 512 MiB large; grouped in {:.1} ms, {} candidates",
+            ids.len(),
+            small_bytes as f64 / 1e6,
+            ms(t),
+            grouped.candidates.files()
+        );
+        let run = |label: &str, cache: Option<&Mutex<HashCache>>, threads: usize| {
+            let t = Instant::now();
+            let dupes =
+                compare_contents(grouped.clone(), cache, threads, &Progress::new()).unwrap();
+            println!(
+                "compare {label}, {threads} threads: {:.0} ms, {} groups, {} listed",
+                ms(t),
+                dupes.groups(),
+                dupes.to_sort().len()
+            );
+        };
+        for threads in [1, 4, 8] {
+            uncache(&tree);
+            run("cold", None, threads);
+        }
+        for threads in [1, 8] {
+            run("warm", None, threads);
+        }
+        let cache = Mutex::new(HashCache::default());
+        uncache(&tree);
+        run("cold, filling the cache", Some(&cache), 8);
+        uncache(&tree);
+        run("cold, from the cache", Some(&cache), 8);
+        run("warm, from the cache", Some(&cache), 8);
+        {
+            let c = cache.lock().unwrap();
+            println!(
+                "cache: {} entries, {} bytes in the file",
+                c.len(),
+                c.bytes() + 16
+            );
+        }
+        // Cancel 50 ms into a cold run.
+        uncache(&tree);
+        let progress = Progress::new();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| compare_contents(grouped.clone(), None, 8, &progress));
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let t = Instant::now();
+            progress.cancel();
+            let result = worker.join().unwrap();
+            println!(
+                "cancel 50 ms into a cold compare: returned {:.1} ms after it ({:?}), {} of {} steps done",
+                ms(t),
+                result.err(),
+                progress.done(),
+                progress.total().unwrap_or(0)
+            );
+        });
+
+        // 3. A large index without files: grouping by size and by name,
+        // and the frequency counts.
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/big", true, Meta::default());
+        let dirs: Vec<NodeId> = (0..6_000)
+            .map(|d| {
+                s.add(
+                    Some(root),
+                    format!("dir{d}").as_bytes(),
+                    true,
+                    Meta::default(),
+                )
+            })
+            .collect();
+        let exts = ["jpg", "png", "txt", "rs", "pdf", "mp3", "json", "md"];
+        for i in 0..600_000u64 {
+            let name = format!("file{}.{}", i % 150_000, exts[(i % 8) as usize]);
+            let meta = Meta {
+                size: i * 2_654_435_761 % 5_000_000,
+                ..Meta::default()
+            };
+            s.add(
+                Some(dirs[(i % 6_000) as usize]),
+                name.as_bytes(),
+                false,
+                meta,
+            );
+        }
+        let index = Index::new(s);
+        let ids: Vec<NodeId> = index.order().iter().collect();
+        for q in ["duplicates:size", "duplicates:name", "duplicates:name;size"] {
+            let t = Instant::now();
+            let g = group(&index, &ids, &spec(q));
+            println!(
+                "{q} over {} entries: {:.0} ms, {} groups",
+                ids.len(),
+                ms(t),
+                g.dupes.groups()
+            );
+        }
+        let t = Instant::now();
+        let f = crate::frequency::Frequencies::build(&index);
+        println!("frequencies of {} nodes: {:.0} ms", f.len(), ms(t));
+
+        // 4. The cache file for 100 000 files with every hash.
+        let mut c = HashCache::default();
+        for i in 0..100_000u64 {
+            let key = FileKey {
+                dev: 1,
+                ino: i,
+                size: i,
+                mtime_ns: i as i64,
+            };
+            let all = Cached {
+                ends: Some(i.into()),
+                full: Some(i.into()),
+                md5: Some([1; 16]),
+                sha256: Some([2; 32]),
+                crc32: Some(3),
+            };
+            c.put(key, &all);
+        }
+        let t = Instant::now();
+        let bytes = c.to_bytes();
+        let written = ms(t);
+        let t = Instant::now();
+        let back = HashCache::from_bytes(&bytes, u64::MAX).unwrap();
+        println!(
+            "cache file of {} entries: {} bytes ({} per entry), written in {written:.1} ms, read in {:.1} ms",
+            back.len(),
+            bytes.len(),
+            bytes.len() / back.len(),
+            ms(t)
+        );
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        let hwm = status
+            .lines()
+            .find(|l| l.starts_with("VmHWM"))
+            .unwrap_or("");
+        println!("peak RSS of the test process: {hwm}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
