@@ -338,6 +338,8 @@ the program behaves as before, except that folders show their total size.
 | | clear the selection when the search changes (off: selected items stay selected while listed) | on |
 | | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
+| | record search history | on |
+| | days to keep searches (0 = forever), with Clear now | 90 |
 | | keep the history after EveryGrep closes | off |
 | | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
 | | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
@@ -542,7 +544,12 @@ keys that cannot be read is reported and kept as it is. Values use backslash esc
 space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,
 lines that cannot be read are ignored (the settings window says how many),
 and the file is replaced atomically. The search history, when kept, is in
-`history` in the same folder, one query per line.
+`search-history` in the same folder, with distinct queries, counts and last search
+dates. It is updated atomically under `search-history.lock`; the earlier `history`
+file is imported once and left untouched until history is explicitly cleared
+or disk persistence is turned off. At most 10,000 distinct searches are
+kept, dropping the oldest first. Apply confirms a changed retention period. Recording can be disabled without deleting
+existing entries; Clear now clears the saved and session histories.
 
 ### Removable drives
 
@@ -691,7 +698,7 @@ collects nothing. It stores:
   that empties it);
 - the settings, in `~/.config/everygrep/settings` (and an empty
   `settings.lock` next to it, which windows lock while they save);
-- the search history, in `~/.config/everygrep/history`, only when "Keep the
+- the search history, in `~/.config/everygrep/search-history`, only when "Keep the
   history after EveryGrep closes" is on (it is off by default).
 
 It talks to other programs only on this computer: the session bus (single

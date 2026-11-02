@@ -372,6 +372,25 @@ saving it again) when it differs from the running settings and no save was
 asked for since it was read. Choosing other folders
 or rules to index is saved at once, as before.
 
+### Search history (`history.rs`, `search_history.rs`)
+
+`history.rs` owns the bounded session navigation trail. `search_history.rs`
+keeps distinct searches, saturating visit counts and UTC epoch timestamps.
+The configuration-folder `search-history` file imports the earlier `history`
+file once, without modifying it during normal updates. Explicit clear/disable
+also removes that older copy. Previously unknown dates use the migration date.
+Loading checks duplicates in linear time; at most 10,000 distinct searches survive.
+Its disk operations run on the settings saving thread (`settings::Writer`), in the
+order asked together with every settings save (not counted as settings saves, so
+they never hold back applying a settings file changed outside the window), and the
+last ones are waited for at quit; results return to the event loop with epoch and revision guards. Memory updates
+immediately; stale disk snapshots cannot replace later local changes. No-op
+updates skip writes.
+Retention drafts apply only after the explicit Apply action. Every mutation reloads
+the latest file under `search-history.lock`, prunes expired entries and replaces it via
+`settings::create_temp`. The data file is private (0600). An unreadable or
+malformed file is preserved and reported in Settings.
+
 ### Translations (`i18n.rs`, `translations/`)
 
 English is the source language. Texts in the `.slint` files are marked with

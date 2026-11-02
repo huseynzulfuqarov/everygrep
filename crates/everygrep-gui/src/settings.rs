@@ -263,6 +263,10 @@ pub struct Settings {
     /// Whether changes made to the settings file by another program (or
     /// another window) are applied while the window runs.
     pub reload_changed: bool,
+    /// Recording can be disabled without discarding existing entries.
+    pub history_enabled: bool,
+    /// Retention in days; 0 means forever.
+    pub history_days: u32,
     pub on_close: OnClose,
     /// What the Size column shows for folders, and sorts them by. The one
     /// default that differs from the behaviour before settings existed
@@ -346,6 +350,8 @@ impl Default for Settings {
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             reload_changed: true,
+            history_enabled: true,
+            history_days: 90,
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
             remember_columns: true,
@@ -603,6 +609,13 @@ impl Settings {
                 .is_some(),
             "history-on-disk" => put_flag(&mut self.history_on_disk),
             "reload-changed-settings" => put_flag(&mut self.reload_changed),
+            "history-enabled" => put_flag(&mut self.history_enabled),
+            "history-days" => value
+                .parse::<u32>()
+                .ok()
+                .filter(|n| *n <= 36500)
+                .map(|n| self.history_days = n)
+                .is_some(),
             "on-close" => OnClose::ALL
                 .into_iter()
                 .find(|o| o.id() == value)
@@ -893,6 +906,15 @@ impl Settings {
             self.clear_selection_on_search,
             d.clear_selection_on_search,
         );
+        flag(
+            &mut out,
+            "history-enabled",
+            self.history_enabled,
+            d.history_enabled,
+        );
+        if all || self.history_days != d.history_days {
+            line(&mut out, "history-days", &self.history_days.to_string());
+        }
         if all || self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
@@ -1154,6 +1176,8 @@ impl Settings {
                 self.clear_selection_on_search = d.clear_selection_on_search;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
+                self.history_enabled = d.history_enabled;
+                self.history_days = d.history_days;
                 self.content = d.content;
             }
             Page::Appearance => {
@@ -1259,6 +1283,14 @@ impl Writer {
     /// Runs `job` after the jobs asked before it, without waiting for it.
     pub fn run(&self, job: impl FnOnce() + Send + 'static) {
         self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.run_apart(job);
+    }
+
+    /// Like [`run`](Self::run), for a job that does not write the settings
+    /// file (the search history, the tabs' session): in the same order, but
+    /// not counted in [`asked`](Self::asked), so it never holds back applying
+    /// a settings file changed outside the window.
+    pub fn run_apart(&self, job: impl FnOnce() + Send + 'static) {
         let (count, _) = &*self.left;
         *count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
         if self.jobs.send(Box::new(job)).is_err() {
@@ -1295,7 +1327,7 @@ const LOCK_EX: std::ffi::c_int = 2;
 
 /// Takes the exclusive lock on `<path>.lock` (creating it and its folder),
 /// waiting for another holder. The lock goes with the returned file.
-fn lock(path: &Path) -> io::Result<fs::File> {
+pub(crate) fn lock(path: &Path) -> io::Result<fs::File> {
     use std::os::fd::AsRawFd;
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".lock");
@@ -1419,7 +1451,7 @@ pub fn path() -> Option<PathBuf> {
 
 /// Location of the saved search history (used when it is kept on disk).
 pub fn history_path() -> Option<PathBuf> {
-    config_dir().map(|d| d.join("history"))
+    config_dir().map(|d| d.join("search-history"))
 }
 
 /// What tells one version of a file from another: its inode, size and
@@ -1637,6 +1669,14 @@ pub(crate) mod tests {
             let _ = seen_tx.send(counter.load(std::sync::atomic::Ordering::SeqCst));
         });
         assert_eq!(seen.recv_timeout(Duration::from_secs(5)).unwrap(), 4);
+        // Jobs for other files keep the order but are not counted.
+        let o = Arc::clone(&order);
+        writer.run_apart(move || o.lock().unwrap().push(5));
+        let o = Arc::clone(&order);
+        writer.run(move || o.lock().unwrap().push(6));
+        assert!(writer.wait_done(Duration::from_secs(5)));
+        assert_eq!(*order.lock().unwrap(), [1, 2, 3, 5, 6]);
+        assert_eq!(writer.asked(), 5);
     }
 
     #[test]
@@ -1859,6 +1899,18 @@ pub(crate) mod tests {
         assert!(text.contains("sort-sizes-largest-first = true\n"));
         assert!(text.contains("exclude = regex:^te?mp$\n"));
         assert!(text.contains("exclude-files = *.tmp;~*\n"));
+    }
+
+    #[test]
+    fn history_recording_and_retention_settings_round_trip() {
+        let mut s = Settings::parse("history-enabled = false\nhistory-days = 0\n");
+        assert!(!s.history_enabled);
+        assert_eq!(s.history_days, 0);
+        assert_eq!(Settings::parse(&s.to_text()), s);
+        assert_eq!(Settings::parse("history-days = 36501\n").problems.len(), 1);
+        s.reset(Page::Search);
+        assert!(s.history_enabled);
+        assert_eq!(s.history_days, 90);
     }
 
     #[test]

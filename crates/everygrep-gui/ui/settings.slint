@@ -181,6 +181,12 @@ export component SettingsWindow inherits Window {
     in-out property <int> history-size;
     in property <int> history-max;
     in-out property <bool> history-on-disk;
+    in-out property <bool> history-enabled;
+    in-out property <int> history-days;
+    in property <int> committed-history-days;
+    callback edit-history-days(int);
+    callback commit-history-days();
+    callback clear-history();
     in-out property <int> hidden-files;
     in property <[string]> hidden-names;
     in-out property <int> content-max-size;
@@ -795,6 +801,24 @@ export component SettingsWindow inherits Window {
                             Note { text: @tr("Options given on the command line take their place."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Search history"); }
+                            CheckBox {
+                                text: @tr("Record search history");
+                                checked <=> root.history-enabled;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("At most 10,000 distinct searches are kept. Apply confirms the days to keep."); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text { text: @tr("Days to keep (0 = forever)"); color: Theme.text; vertical-alignment: center; }
+                                SpinBox {
+                                    accessible-label: @tr("Days to keep (0 = forever)");
+                                    minimum: 0; maximum: 36500;
+                                    value <=> root.history-days;
+                                    edited(value) => { root.edit-history-days(value); }
+                                }
+                                Button { text: @tr("Apply"); enabled: root.history-days != root.committed-history-days; clicked => { root.commit-history-days(); } }
+                                Button { text: @tr("Clear now"); clicked => { root.clear-history(); } }
+                            }
                             HorizontalLayout {
                                 spacing: Theme.s3;
                                 Text {

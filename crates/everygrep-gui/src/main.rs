@@ -26,6 +26,7 @@ mod portal;
 mod prefs;
 mod results;
 mod schedule;
+mod search_history;
 mod selection;
 mod settings;
 mod stalled;
@@ -307,17 +308,23 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let pause = Rc::new(Timer::default());
     window.on_query_edited({
-        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
+        let (engine, weak, pause, prefs) =
+            (engine.clone(), weak.clone(), pause.clone(), prefs.clone());
         move |text| {
             let Some(w) = weak.upgrade() else { return };
+            pause.stop();
             if !typing::with(|t| t.edited()) {
                 wait_for_enter(&w);
                 return;
             }
             engine.set_query(&text, options(&w));
             w.set_notice("".into());
+            let epoch = prefs.history_epoch.get();
+            let prefs = prefs.clone();
             pause.start(TimerMode::SingleShot, HISTORY_PAUSE, move || {
-                prefs::with(|p| p.record(&text));
+                if prefs.history_epoch.get() == epoch {
+                    prefs.record(&text);
+                }
             });
         }
     });
@@ -367,6 +374,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
             let shown = w.get_query();
+            prefs.record(&shown);
             let next = {
                 let mut history = prefs.history.borrow_mut();
                 if step < 0 {
@@ -376,8 +384,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
                 .map(str::to_owned)
             };
-            // Back and Forward record text that was typed but not kept yet.
-            prefs.save_history();
             if let Some(text) = next {
                 w.set_query(text.as_str().into());
                 // Setting the text keeps the old cursor offset; put the caret

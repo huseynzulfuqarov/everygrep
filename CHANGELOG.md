@@ -8,6 +8,12 @@ All notable changes to EveryGrep are listed here. The format follows
 
 First version, 0.1.0, not released yet.
 
+### Search history
+
+- Record distinct searches with visit counts and last dates; retain them for
+  90 days or a chosen duration (0 keeps them forever), disable recording, or
+  clear them in Settings. Persistent history uses locked atomic updates.
+
 ### File actions
 
 - Search selected folders or file names, or their containing folder, from

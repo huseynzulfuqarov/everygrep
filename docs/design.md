@@ -245,8 +245,13 @@ the items still listed either way.
 A search is kept in the history when typing pauses for a second, on `Enter`
 in the search field, or when a result is opened; a repeat of the current entry
 is skipped, and searching after going back drops the entries ahead, as in a web
-browser. The history lives in memory for the session (up to 200 entries by
-default); its size, and whether it is kept on disk, are settings.
+browser. The navigation trail lives in memory (up to 200 entries by default). Search
+statistics keep distinct queries, their visit counts and last search dates,
+independent of the navigation trail. Recording is enabled by default; disk
+persistence remains opt-in. Entries expire after 90 days by default; 0 days
+keeps them indefinitely, subject to the 10,000 distinct-search cap. Changing the
+days field takes effect only on Apply. Search settings can disable recording or
+clear both lists.
 
 ### One window
 

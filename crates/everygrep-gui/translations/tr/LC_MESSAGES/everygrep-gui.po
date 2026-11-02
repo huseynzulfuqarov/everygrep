@@ -2457,3 +2457,20 @@ msgstr "(bilinmiyor, korunuyor)"
 #: src/labels.rs
 msgid "“{1}” is not a value {0} takes. Nothing was changed."
 msgstr "“{1}”, {0} için geçerli bir değer değil. Hiçbir şey değiştirilmedi."
+msgid "Record search history"
+msgstr "Arama geçmişini kaydet"
+
+msgid "Days to keep (0 = forever)"
+msgstr "Saklama süresi, gün (0 = süresiz)"
+
+msgid "Clear now"
+msgstr "Şimdi temizle"
+
+msgid "At most 10,000 distinct searches are kept. Apply confirms the days to keep."
+msgstr "En fazla 10.000 farklı arama saklanır. Gün sayısını Uygula ile onaylayın."
+
+msgid "Invalid search history."
+msgstr "Arama geçmişi geçersiz."
+
+msgid "The configuration folder is unavailable."
+msgstr "Yapılandırma klasörüne erişilemiyor."

@@ -4,14 +4,9 @@
 //! result. Like a web browser, recording after going back drops the entries
 //! ahead. Empty queries and a repeat of the current entry are not recorded.
 //!
-//! The history lives in memory for the session. When the settings ask for
-//! it, it is also kept in a file with one escaped query per line (see
-//! [`crate::settings::escape`]), oldest first.
+//! The navigation trail lives in memory, separately from search statistics.
 
-use std::io;
-use std::path::Path;
-
-use crate::settings::{self, DEFAULT_HISTORY};
+use crate::settings::DEFAULT_HISTORY;
 
 #[derive(Debug)]
 pub struct History {
@@ -48,6 +43,13 @@ impl History {
         h
     }
 
+    /// Seed the trail after an asynchronous load, unless navigation already began.
+    pub fn seed(&mut self, entries: Vec<String>) {
+        if self.entries.is_empty() {
+            *self = Self::with_entries(self.max, entries);
+        }
+    }
+
     /// Changes the number of entries kept, dropping the oldest ones.
     pub fn set_max(&mut self, max: usize) {
         self.max = max;
@@ -59,11 +61,6 @@ impl History {
                 .and_then(|p| p.checked_sub(extra))
                 .or((!self.entries.is_empty()).then_some(0));
         }
-    }
-
-    /// The entries, oldest first.
-    pub fn entries(&self) -> &[String] {
-        &self.entries
     }
 
     /// Records `query` as the newest entry after the current one. Returns
@@ -109,31 +106,6 @@ impl History {
     fn current(&self) -> Option<&str> {
         self.pos.map(|p| self.entries[p].as_str())
     }
-}
-
-/// Reads saved entries; a missing file gives none. Lines that do not decode
-/// are skipped.
-pub fn load(path: &Path) -> io::Result<Vec<String>> {
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e),
-    };
-    Ok(String::from_utf8_lossy(&bytes)
-        .lines()
-        .filter_map(|l| settings::unescape(l).and_then(|b| String::from_utf8(b).ok()))
-        .filter(|q| !q.is_empty())
-        .collect())
-}
-
-/// Saves `entries` atomically.
-pub fn save(path: &Path, entries: &[String]) -> io::Result<()> {
-    let mut text = String::new();
-    for e in entries {
-        text.push_str(&settings::escape(e.as_bytes()));
-        text.push('\n');
-    }
-    settings::write_atomic(path, text.as_bytes())
 }
 
 #[cfg(test)]
@@ -228,17 +200,5 @@ mod tests {
         h.set_max(0);
         assert!(h.entries.is_empty() && h.current().is_none());
         assert!(!h.record("x"));
-    }
-
-    #[test]
-    fn entries_survive_a_save_and_load() {
-        let dir = crate::settings::tests::Scratch::new("history");
-        let path = dir.0.join("history");
-        assert!(load(&path).unwrap().is_empty());
-        let h = with(&["report pdf", "line\nbreak", " spaced ", "back\\slash"]);
-        save(&path, h.entries()).unwrap();
-        let back = History::with_entries(3, load(&path).unwrap());
-        assert_eq!(back.entries, h.entries[1..]);
-        assert_eq!(back.current(), Some("back\\slash"));
     }
 }

@@ -2457,3 +2457,20 @@ msgstr "(tanınmır, saxlanılır)"
 #: src/labels.rs
 msgid "“{1}” is not a value {0} takes. Nothing was changed."
 msgstr "“{1}” {0} üçün uyğun dəyər deyil. Heç nə dəyişdirilmədi."
+msgid "Record search history"
+msgstr "Axtarış tarixçəsini qeyd et"
+
+msgid "Days to keep (0 = forever)"
+msgstr "Saxlanma müddəti, gün (0 = həmişəlik)"
+
+msgid "Clear now"
+msgstr "İndi təmizlə"
+
+msgid "At most 10,000 distinct searches are kept. Apply confirms the days to keep."
+msgstr "Ən çox 10 000 fərqli axtarış saxlanır. Gün sayını Tətbiq et ilə təsdiqləyin."
+
+msgid "Invalid search history."
+msgstr "Axtarış tarixçəsi yanlışdır."
+
+msgid "The configuration folder is unavailable."
+msgstr "Konfiqurasiya qovluğu əlçatan deyil."

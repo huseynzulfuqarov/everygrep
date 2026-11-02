@@ -23,11 +23,12 @@ use crate::autostart;
 use crate::commands::{self, COMMANDS, Chord, Keymap, Scope};
 use crate::engine::{Engine, IndexState};
 use crate::format::{self, SizeStandard, SizeUnit};
-use crate::history::{self, History};
+use crate::history::History;
 use crate::i18n;
 use crate::look::{self, Scheme};
 use crate::portal::ColorScheme;
 use crate::schedule::{self, Schedule};
+use crate::search_history::{self, Searches};
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
@@ -197,6 +198,10 @@ pub struct Prefs {
     engine: Arc<Engine>,
     main: slint::Weak<AppWindow>,
     pub history: RefCell<History>,
+    pub searches: RefCell<Searches>,
+    pub history_epoch: Cell<u64>,
+    history_revision: Cell<u64>,
+    retention: Cell<search_history::Retention>,
     window: RefCell<Option<SettingsWindow>>,
     /// The desktop's light or dark setting, once the portal told it.
     desktop_scheme: Cell<Option<ColorScheme>>,
@@ -271,12 +276,12 @@ impl Prefs {
         engine: Arc<Engine>,
         main: &AppWindow,
     ) -> Rc<Prefs> {
-        let saved = if settings.history_on_disk && settings.history_size > 0 {
-            settings::history_path()
-                .and_then(|p| history::load(&p).ok())
-                .unwrap_or_default()
+        let on_disk = settings.history_on_disk;
+        let retention = search_history::Retention::new(settings.history_days);
+        let history_max = if settings.history_enabled {
+            settings.history_size
         } else {
-            Vec::new()
+            0
         };
         let error = match (&read_error, &path) {
             (Some(e), _) => e.clone(),
@@ -288,7 +293,11 @@ impl Prefs {
         };
         let prefs = Rc::new(Prefs {
             path,
-            history: RefCell::new(History::with_entries(settings.history_size, saved)),
+            history: RefCell::new(History::new(history_max)),
+            searches: RefCell::default(),
+            history_epoch: Cell::new(0),
+            history_revision: Cell::new(0),
+            retention: Cell::new(retention),
             settings: RefCell::new(settings),
             index: RefCell::new(index),
             read_error,
@@ -319,6 +328,20 @@ impl Prefs {
             key_dialog: Cell::new(None),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
+        if on_disk {
+            prefs.change_searches_with(
+                |_| {},
+                |p, ok| {
+                    if ok {
+                        let mut entries = p.searches.borrow().0.clone();
+                        entries.sort_by_key(|e| e.last);
+                        p.history
+                            .borrow_mut()
+                            .seed(entries.into_iter().map(|e| e.search).collect());
+                    }
+                },
+            );
+        }
         prefs
             .reload_timer
             .start(slint::TimerMode::Repeated, RELOAD_EVERY, || {
@@ -402,6 +425,14 @@ impl Prefs {
         self.writer.wait_done(wait)
     }
 
+    /// Search-page saves go to the same saving thread as the history, so
+    /// their order with the history writes is kept and changing these
+    /// controls never blocks the window on a lock, a write or an fsync.
+    fn change_search_settings(&self, change: impl Fn(&mut Settings) + Send + 'static) {
+        self.change(change);
+        self.refresh();
+    }
+
     fn set_error(&self, error: Option<String>) {
         let text = error
             .or_else(|| self.read_error.clone())
@@ -410,25 +441,108 @@ impl Prefs {
         self.refresh();
     }
 
-    /// Records a search in the history, and on disk when it is kept there.
+    /// Records once per navigation visit, so the pause, Enter and opening a
+    /// result cannot count the same visit three times.
     pub fn record(&self, query: &str) {
+        let s = self.settings.borrow();
+        if !s.history_enabled || s.history_size == 0 || query.trim().is_empty() {
+            return;
+        }
+        drop(s);
         if self.history.borrow_mut().record(query) {
-            self.save_history();
+            let query = query.to_owned();
+            let time = search_history::now();
+            self.change_searches(move |entries| entries.record(&query, time));
         }
     }
 
-    /// Saves the history when it is kept on disk.
-    pub fn save_history(&self) {
+    /// Every disk operation applies a delta to the latest locked file on
+    /// the helper thread. Jobs and completion notifications keep their order.
+    pub fn change_searches(&self, change: impl Fn(&mut Searches) + Send + 'static) {
+        self.change_searches_with(change, |_, _| {});
+    }
+
+    fn change_searches_with(
+        &self,
+        change: impl Fn(&mut Searches) + Send + 'static,
+        done: impl FnOnce(&Prefs, bool) + Send + 'static,
+    ) {
         let s = self.settings.borrow();
-        if !s.history_on_disk || s.history_size == 0 || self.read_error.is_some() {
+        let days = s.history_days;
+        let on_disk = s.history_on_disk && self.read_error.is_none();
+        drop(s);
+        let time = search_history::now();
+        let revision = self.history_revision.get().wrapping_add(1);
+        self.history_revision.set(revision);
+        self.searches.borrow_mut().apply(days, time, &change);
+        if on_disk {
+            let path = settings::history_path();
+            let epoch = self.history_epoch.get();
+            self.writer.run_apart(move || {
+                let result = path
+                    .ok_or_else(|| {
+                        std::io::Error::other(i18n::tr("The configuration folder is unavailable."))
+                    })
+                    .and_then(|path| search_history::update(&path, days, time, change));
+                let _ = slint::invoke_from_event_loop(move || {
+                    with(|p| {
+                        if p.history_epoch.get() == epoch {
+                            let ok = p.finish_history(revision, result);
+                            done(p, ok);
+                        }
+                    })
+                });
+            });
+        } else {
+            done(self, true);
+        }
+    }
+
+    fn finish_history(&self, revision: u64, result: std::io::Result<Searches>) -> bool {
+        match result {
+            Ok(entries) => {
+                if self.history_revision.get() == revision {
+                    *self.searches.borrow_mut() = entries;
+                }
+                true
+            }
+            Err(e) => {
+                self.set_error(Some(labels::cannot_save(&e)));
+                false
+            }
+        }
+    }
+
+    fn clear_saved_history(&self) {
+        if self.read_error.is_some() {
             return;
         }
-        if let Some(path) = settings::history_path() {
-            let entries = self.history.borrow().entries().to_vec();
-            self.writer.run(move || {
-                let _ = history::save(&path, &entries);
+        let path = settings::history_path();
+        let epoch = self.history_epoch.get();
+        self.writer.run_apart(move || {
+            let result = path.map_or(Ok(()), |p| search_history::clear(&p));
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    if p.history_epoch.get() == epoch {
+                        if let Err(e) = result {
+                            p.set_error(Some(labels::cannot_save(&e)));
+                        }
+                    }
+                })
             });
-        }
+        });
+    }
+
+    pub fn clear_history(&self) {
+        self.history_epoch
+            .set(self.history_epoch.get().wrapping_add(1));
+        self.history.borrow_mut().set_max(0);
+        let s = self.settings.borrow();
+        let max = if s.history_enabled { s.history_size } else { 0 };
+        drop(s);
+        self.history.borrow_mut().set_max(max);
+        self.searches.borrow_mut().0.clear();
+        self.clear_saved_history();
     }
 
     /// Notes the index state for the Indexing page.
@@ -1261,6 +1375,9 @@ impl Prefs {
         w.set_hash_cache_used(
             crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
         );
+        w.set_history_enabled(s.history_enabled);
+        w.set_history_days(self.retention.get().draft as i32);
+        w.set_committed_history_days(s.history_days as i32);
 
         let closes: Vec<SharedString> = OnClose::ALL
             .iter()
@@ -1780,6 +1897,19 @@ impl Prefs {
         }));
         w.on_search_changed(on(|p| p.search_changed()));
         w.on_clear_hash_cache(on(|p| p.clear_hash_cache()));
+        w.on_edit_history_days(on_index(|p, days| {
+            let mut retention = p.retention.get();
+            retention.edit(days as i32);
+            p.retention.set(retention);
+        }));
+        w.on_commit_history_days(on(|p| {
+            let mut retention = p.retention.get();
+            let days = retention.commit();
+            p.retention.set(retention);
+            p.change_search_settings(move |s| s.history_days = days);
+            p.apply_history();
+        }));
+        w.on_clear_history(on(|p| p.clear_history()));
         w.on_window_changed(on(|p| p.window_changed()));
         w.on_start_on_login_changed({
             let me = me.clone();
@@ -1978,7 +2108,7 @@ impl Prefs {
         let Some(&mode) = HiddenFiles::ALL.get(index as usize) else {
             return;
         };
-        self.change(move |s| s.options.hidden_files = mode);
+        self.change_search_settings(move |s| s.options.hidden_files = mode);
         self.apply_behaviour();
         self.refresh();
     }
@@ -2013,14 +2143,16 @@ impl Prefs {
         let size = usize::try_from(w.get_history_size())
             .unwrap_or(0)
             .min(MAX_HISTORY);
+        let was_on_disk = self.settings.borrow().history_on_disk;
         let on_disk = w.get_history_on_disk();
+        let enabled = w.get_history_enabled();
         let as_you_type = w.get_as_you_type();
         let filter_wrap = w.get_filter_wrap();
         let show_mode_badges = w.get_show_mode_badges();
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
         let content = crate::content_settings::Settings::from_window(&w);
-        self.change(move |s| {
+        self.change_search_settings(move |s| {
             s.content = content.clone();
             s.options = options;
             s.as_you_type = as_you_type;
@@ -2030,7 +2162,23 @@ impl Prefs {
             s.clear_selection_on_search = clear_selection;
             s.history_size = size;
             s.history_on_disk = on_disk;
+            s.history_enabled = enabled;
         });
+        if on_disk && !was_on_disk {
+            let memory = self.searches.borrow().clone();
+            self.change_searches(move |entries| {
+                let mut seen: std::collections::HashSet<_> =
+                    entries.0.iter().map(|e| e.search.clone()).collect();
+                for e in &memory.0 {
+                    if seen.insert(e.search.clone()) {
+                        entries.0.push(e.clone());
+                    }
+                }
+            });
+        }
+        if was_on_disk && !on_disk {
+            self.clear_saved_history();
+        }
         self.apply_history();
         self.apply_as_you_type();
         self.apply_behaviour();
@@ -2217,21 +2365,17 @@ impl Prefs {
         self.refresh();
     }
 
-    /// Applies the history settings: its size, and keeping it on disk or
-    /// removing the saved copy.
+    /// Apply recording and retention without writing a stale snapshot.
     fn apply_history(&self) {
-        let (size, on_disk) = {
-            let s = self.settings.borrow();
-            (s.history_size, s.history_on_disk)
-        };
+        let s = self.settings.borrow();
+        let size = if s.history_enabled { s.history_size } else { 0 };
+        drop(s);
         self.history.borrow_mut().set_max(size);
-        if on_disk && size > 0 {
-            self.save_history();
-        } else if self.read_error.is_none() {
-            if let Some(path) = settings::history_path() {
-                let _ = std::fs::remove_file(path);
-            }
-        }
+        let days = self.settings.borrow().history_days;
+        self.searches
+            .borrow_mut()
+            .retain_days(days, search_history::now());
+        self.change_searches(|_| {});
     }
 
     fn window_changed(&self) {
@@ -2349,8 +2493,19 @@ impl Prefs {
             }
             return;
         }
-        self.change(move |s| s.reset(page));
+        let was_on_disk = self.settings.borrow().history_on_disk;
         if page == Page::Search {
+            self.change_search_settings(move |s| s.reset(page));
+        } else {
+            self.change(move |s| s.reset(page));
+        }
+        if page == Page::Search {
+            self.retention.set(search_history::Retention::new(
+                self.settings.borrow().history_days,
+            ));
+            if was_on_disk && !self.settings.borrow().history_on_disk {
+                self.clear_saved_history();
+            }
             self.apply_history();
             self.apply_as_you_type();
             self.apply_content();
