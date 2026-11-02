@@ -241,6 +241,10 @@ First version, 0.1.0, not released yet.
 - MD5, SHA-256 and CRC-32 columns (View menu, header menu): hashes of the
   files on screen, read on a helper thread, smallest files first, kept in
   the hash cache; a new result list gives up the file being read.
+- Same name, Same extension and Same size columns, sortable: how many entries
+  of the whole index share the name (by kind, ignoring case), the
+  extension (files) or the size; counted after a search while one is shown,
+  again only when the index changed.
 - Settings → Search → Hash cache: its largest size (512 MB by default, 0
   keeps none), how much is in use and "Clear hash cache".
 - Settings → Search → File contents: the largest file to search (100 MB;

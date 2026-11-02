@@ -58,6 +58,9 @@ const TYPE_WIDTH: f32 = 130.0;
 const EXT_WIDTH: f32 = 80.0;
 const CREATED_WIDTH: f32 = 120.0;
 const ACCESSED_WIDTH: f32 = 120.0;
+const SIZE_FREQ_WIDTH: f32 = 110.0;
+const EXT_FREQ_WIDTH: f32 = 110.0;
+const NAME_FREQ_WIDTH: f32 = 110.0;
 const CRC32_WIDTH: f32 = 90.0;
 const SHA256_WIDTH: f32 = 300.0;
 const MD5_WIDTH: f32 = 270.0;
@@ -429,6 +432,9 @@ impl Prefs {
         w.set_show_md5(w.get_show_md5() || c.show_md5);
         w.set_show_sha256(w.get_show_sha256() || c.show_sha256);
         w.set_show_crc32(w.get_show_crc32() || c.show_crc32);
+        w.set_show_name_freq(w.get_show_name_freq() || c.show_name_freq);
+        w.set_show_ext_freq(w.get_show_ext_freq() || c.show_ext_freq);
+        w.set_show_size_freq(w.get_show_size_freq() || c.show_size_freq);
         if let Some(n) = c.name {
             w.set_name_want(n);
             w.set_name_set(true);
@@ -444,6 +450,13 @@ impl Prefs {
         c.md5.into_iter().for_each(|v| w.set_md5_want(v));
         c.sha256.into_iter().for_each(|v| w.set_sha256_want(v));
         c.crc32.into_iter().for_each(|v| w.set_crc32_want(v));
+        c.name_freq
+            .into_iter()
+            .for_each(|v| w.set_name_freq_want(v));
+        c.ext_freq.into_iter().for_each(|v| w.set_ext_freq_want(v));
+        c.size_freq
+            .into_iter()
+            .for_each(|v| w.set_size_freq_want(v));
     }
 
     /// Keeps the main window's columns, when they are remembered.
@@ -461,6 +474,9 @@ impl Prefs {
             show_md5: w.get_show_md5(),
             show_sha256: w.get_show_sha256(),
             show_crc32: w.get_show_crc32(),
+            show_name_freq: w.get_show_name_freq(),
+            show_ext_freq: w.get_show_ext_freq(),
+            show_size_freq: w.get_show_size_freq(),
             name: w.get_name_set().then(|| w.get_name_want().round()),
             folder: (w.get_folder_want() >= 0.5).then(|| w.get_folder_want().round()),
             size: differs(w.get_size_want(), SIZE_WIDTH),
@@ -473,6 +489,9 @@ impl Prefs {
             md5: differs(w.get_md5_want(), MD5_WIDTH),
             sha256: differs(w.get_sha256_want(), SHA256_WIDTH),
             crc32: differs(w.get_crc32_want(), CRC32_WIDTH),
+            name_freq: differs(w.get_name_freq_want(), NAME_FREQ_WIDTH),
+            ext_freq: differs(w.get_ext_freq_want(), EXT_FREQ_WIDTH),
+            size_freq: differs(w.get_size_freq_want(), SIZE_FREQ_WIDTH),
         };
         if self.settings.borrow().columns != columns {
             self.change(move |s| s.columns = columns.clone());

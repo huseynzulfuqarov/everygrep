@@ -69,7 +69,25 @@ pub struct ResultsModel {
     hash_cache: RefCell<HashMap<NodeId, Cached>>,
     hash_reader: RefCell<Option<HashReader>>,
     hash_pending: RefCell<HashSet<NodeId>>,
+    /// Which frequency columns are shown.
+    frequency_columns: Cell<FrequencyColumns>,
     notify: ModelNotify,
+}
+
+/// Which of the Same name, Same extension and Same size columns are shown. The
+/// counts are over the whole index (see [`everygrep_core::frequency`]);
+/// the engine counts them after each search while one is shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrequencyColumns {
+    pub name: bool,
+    pub extension: bool,
+    pub size: bool,
+}
+
+impl FrequencyColumns {
+    fn any(self) -> bool {
+        self.name || self.extension || self.size
+    }
 }
 
 /// Reads the details of rows on screen (Created, Accessed, Attributes) on a
@@ -211,6 +229,7 @@ impl ResultsModel {
             hash_cache: RefCell::new(HashMap::new()),
             hash_reader: RefCell::new(None),
             hash_pending: RefCell::new(HashSet::new()),
+            frequency_columns: Cell::new(FrequencyColumns::default()),
             notify: ModelNotify::default(),
         }
     }
@@ -287,6 +306,20 @@ impl ResultsModel {
             self.forget_hashes();
             self.relabel();
         }
+    }
+
+    /// Says which frequency columns are shown. Showing the first one counts
+    /// the index now (the search runs again), so the cells fill in.
+    pub fn set_frequency_columns(&self, columns: FrequencyColumns) {
+        let before = self.frequency_columns.replace(columns);
+        if before == columns {
+            return;
+        }
+        self.engine.set_frequency_columns(columns.any());
+        if columns.any() && !before.any() {
+            self.engine.refresh();
+        }
+        self.relabel();
     }
 
     /// Finds the hashes of rows with `reader` from now on; without one the
@@ -672,7 +705,10 @@ impl ResultsModel {
                 8 => d.attributes.into(),
                 9 => d.md5.into(),
                 10 => d.sha256.into(),
-                _ => d.crc32.into(),
+                11 => d.crc32.into(),
+                12 => d.name_freq.into(),
+                13 => d.ext_freq.into(),
+                _ => d.size_freq.into(),
             })
             .collect()
     }
@@ -864,6 +900,16 @@ impl Model for ResultsModel {
         } else {
             Cached::default()
         };
+        let shown = self.frequency_columns.get();
+        let freq = if shown.any() {
+            index.last_frequencies()
+        } else {
+            None
+        };
+        let count = |on: bool, n: Option<u32>| match n {
+            Some(n) if on && n > 0 => SharedString::from(format::count(n as usize)),
+            _ => SharedString::new(),
+        };
         let hex = |shown: bool, bytes: Option<&[u8]>| match bytes {
             Some(b) if shown => SharedString::from(everygrep_core::hash::hex(b)),
             _ => SharedString::new(),
@@ -893,6 +939,9 @@ impl Model for ResultsModel {
                 hash_columns.crc32,
                 hashes.crc32.map(u32::to_be_bytes).as_ref().map(|h| &h[..]),
             ),
+            name_freq: count(shown.name, freq.as_ref().map(|f| f.name(id))),
+            ext_freq: count(shown.extension, freq.as_ref().map(|f| f.extension(id))),
+            size_freq: count(shown.size, freq.as_ref().map(|f| f.size(id))),
             is_dir,
             kind: kind.icon_index(),
             selected: self.selection.borrow().contains(id),

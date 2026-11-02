@@ -138,7 +138,10 @@ column headers to show the Type, Extension, Created, Accessed and Attributes
 columns, and MD5, SHA-256 and CRC-32: hashes of the files on screen,
 computed on a thread of their own (the smallest files first, each read once
 for all hash columns shown) and kept in the hash cache; these three cannot
-be sorted by. Drag a header border to change a column's width; past the minimum
+be sorted by. The Same name, Same extension and Same size columns count over the
+whole index how many entries of the same kind share the name (ignoring
+case), how many files the extension and how many files (or folders) the
+size, so sorting by one brings the most common to the top. Drag a header border to change a column's width; past the minimum
 of the column on its right, or at the border after the last column, the
 columns get wider than the window, and the list scrolls sideways (with the
 headers) to show the rest; Folder takes the room that is left when they fit.
@@ -510,9 +513,11 @@ for 1 KB = 1024 bytes, `iec` for KiB, `metric` for 1 KB = 1000 bytes),
 `sort-sizes-largest-first`,
 `show-extension-column`, `show-created-column`, `show-accessed-column`,
 `show-attributes-column`, `show-md5-column`, `show-sha256-column`,
-`show-crc32-column`, `name-width`, `folder-width`, `modified-width`, `type-width`,
+`show-crc32-column`, `show-same-name-column`,
+`show-same-extension-column`, `show-same-size-column`, `name-width`, `folder-width`, `modified-width`, `type-width`,
 `extension-width`, `created-width`, `accessed-width`, `attributes-width`,
-`md5-width`, `sha256-width`, `crc32-width`.
+`md5-width`, `sha256-width`, `crc32-width`, `same-name-width`,
+`same-extension-width`, `same-size-width`.
 `shortcut` gives one command its own keys in place of the defaults, written
 by the Keyboard settings page: `shortcut = edit.copy list Ctrl+C; global
 Ctrl+Insert` (the scope `global`, `search` or `list`, then the keys), or

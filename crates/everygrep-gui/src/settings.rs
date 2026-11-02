@@ -180,6 +180,9 @@ pub struct Columns {
     pub show_md5: bool,
     pub show_sha256: bool,
     pub show_crc32: bool,
+    pub show_name_freq: bool,
+    pub show_ext_freq: bool,
+    pub show_size_freq: bool,
     pub name: Option<f32>,
     /// Folder's own width, kept only while the columns are wider than the
     /// window (Folder otherwise takes the room the others leave).
@@ -194,6 +197,9 @@ pub struct Columns {
     pub md5: Option<f32>,
     pub sha256: Option<f32>,
     pub crc32: Option<f32>,
+    pub name_freq: Option<f32>,
+    pub ext_freq: Option<f32>,
+    pub size_freq: Option<f32>,
 }
 
 /// Every setting the window has. `Default` gives the program's behaviour
@@ -572,9 +578,24 @@ impl Settings {
             "show-md5-column" => put_flag(&mut self.columns.show_md5),
             "show-sha256-column" => put_flag(&mut self.columns.show_sha256),
             "show-crc32-column" => put_flag(&mut self.columns.show_crc32),
-            "name-width" | "folder-width" | "size-width" | "modified-width" | "type-width"
-            | "extension-width" | "created-width" | "accessed-width" | "attributes-width"
-            | "md5-width" | "sha256-width" | "crc32-width" => {
+            "show-same-name-column" => put_flag(&mut self.columns.show_name_freq),
+            "show-same-extension-column" => put_flag(&mut self.columns.show_ext_freq),
+            "show-same-size-column" => put_flag(&mut self.columns.show_size_freq),
+            "name-width"
+            | "folder-width"
+            | "size-width"
+            | "modified-width"
+            | "type-width"
+            | "extension-width"
+            | "created-width"
+            | "accessed-width"
+            | "attributes-width"
+            | "md5-width"
+            | "sha256-width"
+            | "crc32-width"
+            | "same-name-width"
+            | "same-extension-width"
+            | "same-size-width" => {
                 let Some(w) = width(value) else { return false };
                 let c = &mut self.columns;
                 *match key {
@@ -589,7 +610,10 @@ impl Settings {
                     "attributes-width" => &mut c.attrs,
                     "md5-width" => &mut c.md5,
                     "sha256-width" => &mut c.sha256,
-                    _ => &mut c.crc32,
+                    "crc32-width" => &mut c.crc32,
+                    "same-name-width" => &mut c.name_freq,
+                    "same-extension-width" => &mut c.ext_freq,
+                    _ => &mut c.size_freq,
                 } = Some(w);
                 true
             }
@@ -839,6 +863,14 @@ impl Settings {
         flag(&mut out, "show-md5-column", c.show_md5, false);
         flag(&mut out, "show-sha256-column", c.show_sha256, false);
         flag(&mut out, "show-crc32-column", c.show_crc32, false);
+        flag(&mut out, "show-same-name-column", c.show_name_freq, false);
+        flag(
+            &mut out,
+            "show-same-extension-column",
+            c.show_ext_freq,
+            false,
+        );
+        flag(&mut out, "show-same-size-column", c.show_size_freq, false);
         let widths = [
             ("name-width", c.name),
             ("folder-width", c.folder),
@@ -852,6 +884,9 @@ impl Settings {
             ("md5-width", c.md5),
             ("sha256-width", c.sha256),
             ("crc32-width", c.crc32),
+            ("same-name-width", c.name_freq),
+            ("same-extension-width", c.ext_freq),
+            ("same-size-width", c.size_freq),
         ];
         for (key, width) in widths {
             if let Some(w) = width {
@@ -1478,6 +1513,12 @@ pub(crate) mod tests {
                 md5: Some(280.0),
                 sha256: None,
                 crc32: Some(70.0),
+                show_name_freq: true,
+                show_ext_freq: false,
+                show_size_freq: true,
+                name_freq: None,
+                ext_freq: Some(100.0),
+                size_freq: Some(90.0),
             },
             theme: ThemeChoice::Dark,
             density: Density::Compact,

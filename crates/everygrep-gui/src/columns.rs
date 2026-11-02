@@ -2,7 +2,8 @@
 //!
 //! The columns are numbered as the window numbers them (0 Name, 1 Folder,
 //! 2 Size, 3 Modified, 4 Type, 5 Extension, 6 Created, 7 Accessed,
-//! 8 Attributes, 9 MD5, 10 SHA-256, 11 CRC-32) and sit side by side; a hidden column has width 0. Folder
+//! 8 Attributes, 9 MD5, 10 SHA-256, 11 CRC-32, 12 Same name,
+//! 13 Same extension, 14 Same size) and sit side by side; a hidden column has width 0. Folder
 //! takes the room the other columns leave in the window, but never less than
 //! its minimum, nor less than its own width once it has one. So the columns
 //! together are as wide as the window or, when they do not fit, wider: the
@@ -27,7 +28,7 @@
 //! window again.
 
 /// Number of columns of the result list.
-pub const COLUMNS: usize = 12;
+pub const COLUMNS: usize = 15;
 /// Folder, the column that takes the spare room.
 const FOLDER: usize = 1;
 

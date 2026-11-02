@@ -39,6 +39,9 @@ export struct ResultRow {
     md5: string,
     sha256: string,
     crc32: string,
+    name-freq: string,
+    ext-freq: string,
+    size-freq: string,
     is-dir: bool,
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
@@ -532,6 +535,9 @@ component Row inherits Rectangle {
     in property <length> md5-width;
     in property <length> sha256-width;
     in property <length> crc32-width;
+    in property <length> name-freq-width;
+    in property <length> ext-freq-width;
+    in property <length> size-freq-width;
     // The name is being edited in place.
     in property <bool> editing;
     in-out property <string> edit-text;
@@ -748,6 +754,42 @@ component Row inherits Rectangle {
         vertical-alignment: center;
         overflow: elide;
     }
+    property <length> name-freq-x: root.crc32-x + root.crc32-width;
+    if root.name-freq-width > 0: Text {
+        x: root.name-freq-x + Theme.s2;
+        width: root.name-freq-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.name-freq;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        overflow: elide;
+    }
+    property <length> ext-freq-x: root.name-freq-x + root.name-freq-width;
+    if root.ext-freq-width > 0: Text {
+        x: root.ext-freq-x + Theme.s2;
+        width: root.ext-freq-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.ext-freq;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        overflow: elide;
+    }
+    property <length> size-freq-x: root.ext-freq-x + root.ext-freq-width;
+    if root.size-freq-width > 0: Text {
+        x: root.size-freq-x + Theme.s2;
+        width: root.size-freq-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.size-freq;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        overflow: elide;
+    }
 }
 
 // A dialog above the window: a dimmed backdrop, a card with a title, the
@@ -862,8 +904,9 @@ export component AppWindow inherits Window {
     in-out property <string> query <=> search.text;
 
     // Sort column (0 name, 1 folder, 2 size, 3 modified, 4 type, 5 extension,
-    // 6 created, 7 accessed, 8 attributes; 9 MD5, 10 SHA-256 and 11 CRC-32
-    // are never sorted by) and direction.
+    // 6 created, 7 accessed, 8 attributes; 9 MD5, 10 SHA-256 and 11 CRC-32,
+    // which are never sorted by; 12 name, 13 extension and 14 size
+    // frequency) and direction.
     in-out property <int> sort-column: 0;
     in-out property <bool> sort-descending: false;
 
@@ -1044,6 +1087,9 @@ export component AppWindow inherits Window {
     in-out property <length> ext-want: 80px;
     in-out property <length> created-want: 120px;
     in-out property <length> accessed-want: 120px;
+    in-out property <length> size-freq-want: 110px;
+    in-out property <length> ext-freq-want: 110px;
+    in-out property <length> name-freq-want: 110px;
     in-out property <length> crc32-want: 90px;
     in-out property <length> sha256-want: 300px;
     in-out property <length> md5-want: 270px;
@@ -1057,8 +1103,11 @@ export component AppWindow inherits Window {
     in-out property <bool> show-md5: false;
     in-out property <bool> show-sha256: false;
     in-out property <bool> show-crc32: false;
-    // Created, Accessed, Attributes or a hash column was shown or hidden:
-    // their values are read only while shown.
+    in-out property <bool> show-name-freq: false;
+    in-out property <bool> show-ext-freq: false;
+    in-out property <bool> show-size-freq: false;
+    // Created, Accessed, Attributes, a hash or a frequency column was shown
+    // or hidden: their values are read (or counted) only while shown.
     callback detail-columns-changed();
     changed show-created => { root.detail-columns-changed(); }
     changed show-accessed => { root.detail-columns-changed(); }
@@ -1066,6 +1115,9 @@ export component AppWindow inherits Window {
     changed show-md5 => { root.detail-columns-changed(); }
     changed show-sha256 => { root.detail-columns-changed(); }
     changed show-crc32 => { root.detail-columns-changed(); }
+    changed show-name-freq => { root.detail-columns-changed(); }
+    changed show-ext-freq => { root.detail-columns-changed(); }
+    changed show-size-freq => { root.detail-columns-changed(); }
     // Whether Name has a width of its own (dragged, or restored from the
     // settings) rather than its share of the window.
     in-out property <bool> name-set: false;
@@ -1077,6 +1129,9 @@ export component AppWindow inherits Window {
     out property <length> ext-min: 48px;
     out property <length> created-min: 80px;
     out property <length> accessed-min: 80px;
+    out property <length> size-freq-min: 48px;
+    out property <length> ext-freq-min: 48px;
+    out property <length> name-freq-min: 48px;
     out property <length> crc32-min: 60px;
     out property <length> sha256-min: 60px;
     out property <length> md5-min: 60px;
@@ -1091,11 +1146,17 @@ export component AppWindow inherits Window {
     property <length> md5-width: self.show-md5 ? max(self.md5-min, self.md5-want) : 0px;
     property <length> sha256-width: self.show-sha256 ? max(self.sha256-min, self.sha256-want) : 0px;
     property <length> crc32-width: self.show-crc32 ? max(self.crc32-min, self.crc32-want) : 0px;
+    property <length> name-freq-width: self.show-name-freq ? max(self.name-freq-min, self.name-freq-want) : 0px;
+    property <length> ext-freq-width: self.show-ext-freq ? max(self.ext-freq-min, self.ext-freq-want) : 0px;
+    property <length> size-freq-width: self.show-size-freq ? max(self.size-freq-min, self.size-freq-want) : 0px;
     property <length> fixed-width: self.size-width + self.date-width + self.type-width + self.ext-width
         + self.created-width + self.accessed-width + self.attr-width
         + self.md5-width
         + self.sha256-width
-        + self.crc32-width;
+        + self.crc32-width
+        + self.name-freq-width
+        + self.ext-freq-width
+        + self.size-freq-width;
     property <length> name-width: max(self.name-min, self.name-want);
     property <length> folder-width: max(self.folder-min, max(self.folder-want,
         self.width - self.name-width - self.fixed-width));
@@ -1115,16 +1176,19 @@ export component AppWindow inherits Window {
     property <length> md5-x: self.attr-x + self.attr-width;
     property <length> sha256-x: self.md5-x + self.md5-width;
     property <length> crc32-x: self.sha256-x + self.sha256-width;
+    property <length> name-freq-x: self.crc32-x + self.crc32-width;
+    property <length> ext-freq-x: self.name-freq-x + self.name-freq-width;
+    property <length> size-freq-x: self.ext-freq-x + self.ext-freq-width;
 
-    // Width, minimum width and wanted width of column 3 (Modified) to 11
-    // (CRC-32), numbered as sort-column.
+    // Width, minimum width and wanted width of column 3 (Modified) to 14
+    // (Same size), numbered as sort-column.
     function col-width(c: int) -> length {
         return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
-            : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : root.crc32-width;
+            : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : c == 11 ? root.crc32-width : c == 12 ? root.name-freq-width : c == 13 ? root.ext-freq-width : root.size-freq-width;
     }
     function col-min(c: int) -> length {
         return c == 3 ? root.date-min : c == 4 ? root.type-min : c == 5 ? root.ext-min
-            : c == 6 ? root.created-min : c == 7 ? root.accessed-min : c == 8 ? root.attr-min : c == 9 ? root.md5-min : c == 10 ? root.sha256-min : root.crc32-min;
+            : c == 6 ? root.created-min : c == 7 ? root.accessed-min : c == 8 ? root.attr-min : c == 9 ? root.md5-min : c == 10 ? root.sha256-min : c == 11 ? root.crc32-min : c == 12 ? root.name-freq-min : c == 13 ? root.ext-freq-min : root.size-freq-min;
     }
     function set-col-want(c: int, w: length) {
         if (c == 3) {
@@ -1143,15 +1207,21 @@ export component AppWindow inherits Window {
             root.md5-want = w;
         } else if (c == 10) {
             root.sha256-want = w;
-        } else {
+        } else if (c == 11) {
             root.crc32-want = w;
+        } else if (c == 12) {
+            root.name-freq-want = w;
+        } else if (c == 13) {
+            root.ext-freq-want = w;
+        } else {
+            root.size-freq-want = w;
         }
     }
     // Header label and minimum width of any column, numbered as sort-column.
     function col-label(c: int) -> string {
         return c == 0 ? @tr("Name") : c == 1 ? @tr("Folder") : c == 2 ? @tr("Size")
             : c == 3 ? @tr("Modified") : c == 4 ? @tr("Type") : c == 5 ? @tr("Extension")
-            : c == 6 ? @tr("Created") : c == 7 ? @tr("Accessed") : c == 8 ? @tr("Attributes") : c == 9 ? @tr("MD5") : c == 10 ? @tr("SHA-256") : @tr("CRC-32");
+            : c == 6 ? @tr("Created") : c == 7 ? @tr("Accessed") : c == 8 ? @tr("Attributes") : c == 9 ? @tr("MD5") : c == 10 ? @tr("SHA-256") : c == 11 ? @tr("CRC-32") : c == 12 ? @tr("Same name") : c == 13 ? @tr("Same extension") : @tr("Same size");
     }
     function any-min(c: int) -> length {
         return c == 0 ? root.name-min : c == 1 ? root.folder-min : c == 2 ? root.size-min
@@ -1163,7 +1233,10 @@ export component AppWindow inherits Window {
             || (c == 8 && root.show-attrs)
             || (c == 9 && root.show-md5)
             || (c == 10 && root.show-sha256)
-            || (c == 11 && root.show-crc32);
+            || (c == 11 && root.show-crc32)
+            || (c == 12 && root.show-name-freq)
+            || (c == 13 && root.show-ext-freq)
+            || (c == 14 && root.show-size-freq);
     }
 
     // Texts measured to size a column to fit: the widest-looking cells of
@@ -1235,6 +1308,9 @@ export component AppWindow inherits Window {
         if (root.show-md5) { root.fit-column(9); }
         if (root.show-sha256) { root.fit-column(10); }
         if (root.show-crc32) { root.fit-column(11); }
+        if (root.show-name-freq) { root.fit-column(12); }
+        if (root.show-ext-freq) { root.fit-column(13); }
+        if (root.show-size-freq) { root.fit-column(14); }
         root.fit-column(0);
     }
 
@@ -1253,10 +1329,16 @@ export component AppWindow inherits Window {
         let w9 = root.fit-width(9);
         let w10 = root.fit-width(10);
         let w11 = root.fit-width(11);
+        let w12 = root.fit-width(12);
+        let w13 = root.fit-width(13);
+        let w14 = root.fit-width(14);
         let total = w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7 + w8
             + w9
             + w10
-            + w11;
+            + w11
+            + w12
+            + w13
+            + w14;
         if (total <= 0px) {
             return;
         }
@@ -1272,13 +1354,19 @@ export component AppWindow inherits Window {
         if (root.show-md5) { root.md5-want = max(root.md5-min, w9 * f); }
         if (root.show-sha256) { root.sha256-want = max(root.sha256-min, w10 * f); }
         if (root.show-crc32) { root.crc32-want = max(root.crc32-min, w11 * f); }
+        if (root.show-name-freq) { root.name-freq-want = max(root.name-freq-min, w12 * f); }
+        if (root.show-ext-freq) { root.ext-freq-want = max(root.ext-freq-min, w13 * f); }
+        if (root.show-size-freq) { root.size-freq-want = max(root.size-freq-min, w14 * f); }
         root.name-want = max(root.name-min, w0 * f);
         root.name-set = true;
     }
 
     // The shown column left of optional column c; Modified (3) is always shown.
     function left-of(c: int) -> int {
-        return c > 10 && root.show-sha256 ? 10
+        return c > 13 && root.show-ext-freq ? 13
+            : c > 12 && root.show-name-freq ? 12
+            : c > 11 && root.show-crc32 ? 11
+            : c > 10 && root.show-sha256 ? 10
             : c > 9 && root.show-md5 ? 9
             : c > 8 && root.show-attrs ? 8
             : c > 7 && root.show-accessed ? 7 : c > 6 && root.show-created ? 6
@@ -1287,7 +1375,10 @@ export component AppWindow inherits Window {
 
     // The last shown column.
     function last-shown() -> int {
-        return root.show-crc32 ? 11
+        return root.show-size-freq ? 14
+            : root.show-ext-freq ? 13
+            : root.show-name-freq ? 12
+            : root.show-crc32 ? 11
             : root.show-sha256 ? 10
             : root.show-md5 ? 9
             : root.show-attrs ? 8 : root.show-accessed ? 7 : root.show-created ? 6
@@ -1295,7 +1386,7 @@ export component AppWindow inherits Window {
     }
 
     // Dragging a boundary moves it with the pointer: 0 is Name|Folder, 1
-    // Folder|Size, 2 Size|Modified, 4 to 11 the left edge of that optional
+    // Folder|Size, 2 Size|Modified, 4 to 14 the left edge of that optional
     // column, 99 the right edge of the last column. The column on the left
     // grows or shrinks; the one on the right gives or takes the room while
     // the columns fit, and past that they get wider than the window (or
@@ -1309,12 +1400,18 @@ export component AppWindow inherits Window {
                 root.attr-width,
                 root.md5-width,
                 root.sha256-width,
-                root.crc32-width],
+                root.crc32-width,
+                root.name-freq-width,
+                root.ext-freq-width,
+                root.size-freq-width],
             mins: [root.name-min, root.folder-min, root.size-min, root.date-min, root.type-min,
                 root.ext-min, root.created-min, root.accessed-min, root.attr-min,
                 root.md5-min,
                 root.sha256-min,
-                root.crc32-min],
+                root.crc32-min,
+                root.name-freq-min,
+                root.ext-freq-min,
+                root.size-freq-min],
             window: root.width,
             folder-want: root.folder-want,
         }, left, right, delta);
@@ -1343,7 +1440,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    // After an optional column (4 to 11, see sort-column) was shown or hidden:
+    // After an optional column (4 to 14, see sort-column) was shown or hidden:
     // hiding the sorted column sorts by name again.
     function column-shown(column: int, shown: bool) {
         if (!shown && root.sort-column == column) {
@@ -1482,6 +1579,15 @@ export component AppWindow inherits Window {
         } else if (c == Command.crc32-column) {
             root.show-crc32 = !root.show-crc32;
             root.toggled(c);
+        } else if (c == Command.name-frequency-column) {
+            root.show-name-freq = !root.show-name-freq;
+            root.toggled(c);
+        } else if (c == Command.extension-frequency-column) {
+            root.show-ext-freq = !root.show-ext-freq;
+            root.toggled(c);
+        } else if (c == Command.size-frequency-column) {
+            root.show-size-freq = !root.show-size-freq;
+            root.toggled(c);
         } else if (c == Command.selection-details) {
             root.status-details = !root.status-details;
             root.toggled(c);
@@ -1586,6 +1692,12 @@ export component AppWindow inherits Window {
             root.column-shown(10, root.show-sha256);
         } else if (c == Command.crc32-column) {
             root.column-shown(11, root.show-crc32);
+        } else if (c == Command.name-frequency-column) {
+            root.column-shown(12, root.show-name-freq);
+        } else if (c == Command.extension-frequency-column) {
+            root.column-shown(13, root.show-ext-freq);
+        } else if (c == Command.size-frequency-column) {
+            root.column-shown(14, root.show-size-freq);
         } else if (c == Command.selection-details) {
             root.status-details-changed(root.status-details);
         } else if (c == Command.menu-bar) {
@@ -1607,6 +1719,9 @@ export component AppWindow inherits Window {
         { title: @tr("Created"), column: 6, checked: root.sort-column == 6, enabled: root.show-created },
         { title: @tr("Accessed"), column: 7, checked: root.sort-column == 7, enabled: root.show-accessed },
         { title: @tr("Attributes"), column: 8, checked: root.sort-column == 8, enabled: root.show-attrs },
+        { title: @tr("Same name"), column: 12, checked: root.sort-column == 12, enabled: root.show-name-freq },
+        { title: @tr("Same extension"), column: 13, checked: root.sort-column == 13, enabled: root.show-ext-freq },
+        { title: @tr("Same size"), column: 14, checked: root.sort-column == 14, enabled: root.show-size-freq },
     ];
     property <[MenuChoice]> sort-order-items: [
         { title: @tr("Ascending"), checked: !root.sort-descending },
@@ -1914,6 +2029,24 @@ export component AppWindow inherits Window {
                                 checked <=> root.show-crc32;
                                 activated => { root.column-shown(11, root.show-crc32); }
                             }
+                            MenuItem {
+                                title: @tr("Same name");
+                                checkable: true;
+                                checked <=> root.show-name-freq;
+                                activated => { root.column-shown(12, root.show-name-freq); }
+                            }
+                            MenuItem {
+                                title: @tr("Same extension");
+                                checkable: true;
+                                checked <=> root.show-ext-freq;
+                                activated => { root.column-shown(13, root.show-ext-freq); }
+                            }
+                            MenuItem {
+                                title: @tr("Same size");
+                                checkable: true;
+                                checked <=> root.show-size-freq;
+                                activated => { root.column-shown(14, root.show-size-freq); }
+                            }
                             MenuSeparator { }
                             MenuItem {
                                 title: @tr("Size column to fit");
@@ -2076,6 +2209,45 @@ export component AppWindow inherits Window {
                                 header-menu.show({ x: self.x + x, y: y });
                             }
                         }
+                        if root.show-name-freq: HeaderCell {
+                            x: root.name-freq-x;
+                            width: root.name-freq-width;
+                            height: parent.height;
+                            label: @tr("Same name");
+                            sorted: root.sort-column == 12;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(12); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 12;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-ext-freq: HeaderCell {
+                            x: root.ext-freq-x;
+                            width: root.ext-freq-width;
+                            height: parent.height;
+                            label: @tr("Same extension");
+                            sorted: root.sort-column == 13;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(13); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 13;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-size-freq: HeaderCell {
+                            x: root.size-freq-x;
+                            width: root.size-freq-width;
+                            height: parent.height;
+                            label: @tr("Same size");
+                            sorted: root.sort-column == 14;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(14); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 14;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
                     }
                     // Boundary grips, on top of the cells.
                     // A double-click on a grip sizes the column on its left to fit.
@@ -2145,6 +2317,24 @@ export component AppWindow inherits Window {
                         height: parent.height;
                         dragged(delta) => { root.drag-boundary(11, delta); }
                         fit => { root.fit-column(root.left-of(11)); }
+                    }
+                    if root.show-name-freq: ColumnGrip {
+                        x: root.name-freq-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(12, delta); }
+                        fit => { root.fit-column(root.left-of(12)); }
+                    }
+                    if root.show-ext-freq: ColumnGrip {
+                        x: root.ext-freq-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(13, delta); }
+                        fit => { root.fit-column(root.left-of(13)); }
+                    }
+                    if root.show-size-freq: ColumnGrip {
+                        x: root.size-freq-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(14, delta); }
+                        fit => { root.fit-column(root.left-of(14)); }
                     }
                     // The right edge of the last column: dragged to the right, the
                     // columns get wider than the window.
@@ -2312,6 +2502,9 @@ export component AppWindow inherits Window {
                         md5-width: root.md5-width;
                         sha256-width: root.sha256-width;
                         crc32-width: root.crc32-width;
+                        name-freq-width: root.name-freq-width;
+                        ext-freq-width: root.ext-freq-width;
+                        size-freq-width: root.size-freq-width;
                         pressed(mods) => {
                             root.current = i;
                             keys.focus();
@@ -2830,6 +3023,27 @@ export component AppWindow inherits Window {
                 checkable: true;
                 checked <=> root.show-crc32;
                 activated => { root.toggled(Command.crc32-column); }
+            }
+            MenuItem {
+                title: @tr("Same name column");
+                shortcut: root.menu-keys.name-frequency-column;
+                checkable: true;
+                checked <=> root.show-name-freq;
+                activated => { root.toggled(Command.name-frequency-column); }
+            }
+            MenuItem {
+                title: @tr("Same extension column");
+                shortcut: root.menu-keys.extension-frequency-column;
+                checkable: true;
+                checked <=> root.show-ext-freq;
+                activated => { root.toggled(Command.extension-frequency-column); }
+            }
+            MenuItem {
+                title: @tr("Same size column");
+                shortcut: root.menu-keys.size-frequency-column;
+                checkable: true;
+                checked <=> root.show-size-freq;
+                activated => { root.toggled(Command.size-frequency-column); }
             }
             MenuItem {
                 title: @tr("Size all columns to fit");

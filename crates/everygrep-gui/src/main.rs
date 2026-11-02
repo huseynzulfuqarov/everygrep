@@ -1908,9 +1908,15 @@ fn apply_detail_columns(w: &AppWindow) {
         sha256: w.get_show_sha256(),
         crc32: w.get_show_crc32(),
     };
+    let frequencies = results::FrequencyColumns {
+        name: w.get_show_name_freq(),
+        extension: w.get_show_ext_freq(),
+        size: w.get_show_size_freq(),
+    };
     with_model(w, |m| {
         m.set_detail_columns(columns);
         m.set_hash_columns(hashes);
+        m.set_frequency_columns(frequencies);
     });
 }
 

@@ -310,7 +310,10 @@ on screen asks a `HashReader` thread for the hashes of its file and shows
 the cells empty until they come. The thread takes the smallest file asked
 for first, reads it once for every hash column shown (or takes the hashes
 from the engine's `HashStore`, which keeps them) and hands them over in
-batches; a new list cancels the file being read.
+batches; a new list cancels the file being read. The frequency columns
+read `Index::last_frequencies`; while one is shown, the engine has the
+index count them (`Index::frequencies`, only when it changed) before each
+sort, under the read lock it holds anyway.
 
 The table holds only the list of matching ids. Rows (name split around the
 match, folder, size, date, type) are built on demand when the list view asks

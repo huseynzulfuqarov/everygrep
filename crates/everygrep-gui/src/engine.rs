@@ -443,6 +443,9 @@ pub struct Engine {
     content_state: Mutex<ContentState>,
     /// Hashes of files, for duplicate searches and the hash columns.
     pub hashes: Arc<HashStore>,
+    /// A frequency column is shown: count after each sort (see
+    /// [`Index::frequencies`]).
+    frequency_columns: AtomicBool,
 }
 
 /// The reading of file contents for a search.
@@ -559,6 +562,7 @@ impl Engine {
             content_cache: Mutex::new(ContentCache::new()),
             content_state: Mutex::new(ContentState::default()),
             hashes: Arc::new(HashStore::new(hash_file, DEFAULT_MAX_BYTES)),
+            frequency_columns: AtomicBool::new(false),
         });
         // Watched from before the index thread first looks at the drives, so
         // a drive mounted after that look is never missed, however late the
@@ -1166,6 +1170,11 @@ impl Engine {
         threads: usize,
         progress: &Progress,
     ) -> Result<(), progress::Cancelled> {
+        if self.frequency_columns.load(Ordering::SeqCst) {
+            // The rows read the counts built last; build them while the
+            // index is held anyway.
+            index.frequencies();
+        }
         let mut details = self.details.lock().expect("lock");
         if self.applying_changes.load(Ordering::SeqCst) {
             details.set_generation(self.details_generation.load(Ordering::SeqCst));
@@ -1175,6 +1184,12 @@ impl Engine {
             drop(details);
             sort_with_progress(index, ids, sort, threads, progress)
         }
+    }
+
+    /// Whether a frequency column is shown, so each search counts the
+    /// index (when it changed) before its results are shown.
+    pub fn set_frequency_columns(&self, on: bool) {
+        self.frequency_columns.store(on, Ordering::SeqCst);
     }
 
     /// Ids change meaning; call under the index write lock.
@@ -3702,6 +3717,48 @@ mod tests {
         assert!(!probe.engine.content_state.lock().unwrap().running);
         probe.engine.shutdown();
         assert!(dir.0.join("hashes.bin").exists());
+    }
+
+    #[test]
+    fn searches_count_frequencies_only_while_a_frequency_column_is_shown() {
+        let dir = Scratch::new("frequencies");
+        let root = dir.0.join("files");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("a.txt"), "1").unwrap();
+        fs::write(root.join("sub/a.txt"), "2").unwrap();
+        fs::write(root.join("b.md"), "33").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("a.txt"), ["a.txt", "a.txt"]);
+        assert!(
+            probe
+                .engine
+                .index
+                .read()
+                .unwrap()
+                .last_frequencies()
+                .is_none()
+        );
+        probe.engine.set_frequency_columns(true);
+        assert_eq!(probe.names("b."), ["b.md"]);
+        {
+            let index = probe.engine.index.read().unwrap();
+            let f = index.last_frequencies().unwrap();
+            assert!(f.is_for(&index));
+            let a = index
+                .order()
+                .iter()
+                .find(|&id| index.store().name(id) == b"a.txt");
+            assert_eq!(f.name(a.unwrap()), 2);
+        }
+        // Sorting by one works the same way.
+        probe.engine.set_sort(Sort {
+            key: everygrep_core::sort::SortKey::NameFrequency,
+            descending: true,
+            ..Sort::default()
+        });
+        assert_eq!(probe.listed("file:"), ["a.txt", "a.txt", "b.md"]);
+        probe.engine.shutdown();
     }
 
     #[test]

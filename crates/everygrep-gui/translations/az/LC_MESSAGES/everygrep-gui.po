@@ -2167,3 +2167,27 @@ msgstr "SHA-256 sütunu"
 #: src/commands.rs
 msgid "CRC-32 column"
 msgstr "CRC-32 sütunu"
+
+#: ui/app.slint
+msgid "Same name"
+msgstr "Ad tezliyi"
+
+#: ui/app.slint
+msgid "Same extension"
+msgstr "Genişlənmə tezliyi"
+
+#: ui/app.slint
+msgid "Same size"
+msgstr "Ölçü tezliyi"
+
+#: src/commands.rs
+msgid "Same name column"
+msgstr "Ad tezliyi sütunu"
+
+#: src/commands.rs
+msgid "Same extension column"
+msgstr "Genişlənmə tezliyi sütunu"
+
+#: src/commands.rs
+msgid "Same size column"
+msgstr "Ölçü tezliyi sütunu"
