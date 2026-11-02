@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use zbus::blocking::Connection;
@@ -59,7 +60,48 @@ pub struct Request {
     pub activation_token: Option<String>,
     /// Whether the launch was a [`Launch::Toggle`].
     pub toggle: bool,
+    /// Answers the later launch when the request is dropped.
+    taken: Taken,
 }
+
+impl Request {
+    /// Tells the later launch that this window is closing and did not run
+    /// the request; it waits for the window to end and starts its own.
+    pub fn refuse(mut self) {
+        if let Some(tx) = self.taken.0.take() {
+            let _ = tx.send(false);
+        }
+    }
+}
+
+/// Held by a [`Request`] until the window has taken it (dropped it): only
+/// then does `Present` answer the later launch, so a window whose UI hangs
+/// is reported as not answering ([`Stall::NoAnswer`]) instead of having
+/// taken the request. A copy does not hold the answer.
+#[derive(Debug, Default)]
+struct Taken(Option<mpsc::Sender<bool>>);
+
+impl Drop for Taken {
+    fn drop(&mut self) {
+        if let Some(tx) = self.0.take() {
+            let _ = tx.send(true);
+        }
+    }
+}
+
+impl Clone for Taken {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
+
+impl PartialEq for Taken {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Taken {}
 
 /// Called on the bus thread for every request.
 pub type Handler = Box<dyn Fn(Request) + Send + Sync>;
@@ -207,7 +249,10 @@ struct Window {
 #[zbus::interface(name = "az.huseynz.EveryGrep.Window1")]
 impl Window {
     /// Raises the window and applies `args` (query words, filter and
-    /// matching modes) as if they had been given at its start.
+    /// matching modes) as if they had been given at its start. Answers once
+    /// the window took the request; a window that does not take it in time
+    /// is not answered within [`CALL_TIMEOUT`], and one that closed without
+    /// running it says so ([`Request::refuse`]).
     fn present(
         &self,
         args: Vec<String>,
@@ -216,12 +261,19 @@ impl Window {
         if CLOSING.load(Ordering::SeqCst) {
             return Err(WindowError::ShuttingDown("the window is closing".into()));
         }
+        let (tx, rx) = mpsc::channel();
         (self.handler)(Request {
             args,
             activation_token: token(&platform_data),
             toggle: toggle(&platform_data),
+            taken: Taken(Some(tx)),
         });
-        Ok(())
+        // Longer than the caller waits: a window that hangs gives it no
+        // answer at all.
+        match rx.recv_timeout(CALL_TIMEOUT + Duration::from_secs(1)) {
+            Ok(false) => Err(WindowError::ShuttingDown("the window is closing".into())),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -697,6 +749,33 @@ mod tests {
         CLOSING.store(false, Ordering::SeqCst);
     }
 
+    /// A window whose UI never takes the request (it hangs) is reported as
+    /// not answering, not as having taken it. Runs only on a private bus.
+    #[test]
+    #[ignore = "needs a private session bus, see the doc comment"]
+    fn a_window_that_never_takes_a_request_is_reported() {
+        if std::env::var_os("EVERYGREP_PRIVATE_BUS").is_none() {
+            panic!("refusing to run on the real session bus; see the doc comment");
+        }
+        let _one = BUS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let name = "az.huseynz.EveryGrep.TestFrozen";
+        // The bus thread queues requests for a UI thread that never runs.
+        let queued: std::sync::Arc<std::sync::Mutex<Vec<Request>>> = Default::default();
+        let handler: Handler = Box::new({
+            let queued = std::sync::Arc::clone(&queued);
+            move |r| queued.lock().unwrap().push(r)
+        });
+        let Role::Primary(_owner) = start(name, &[], Launch::Show, handler) else {
+            panic!("the first launch owns the name");
+        };
+        let role = start(name, &["frozen".into()], Launch::Show, Box::new(|_| {}));
+        let Role::Stalled(stalled) = role else {
+            panic!("a window that never takes the request is reported");
+        };
+        assert_eq!(stalled.stall, Stall::NoAnswer);
+        assert_eq!(queued.lock().unwrap()[0].args, ["frozen"]);
+    }
+
     /// Runs only on a private bus:
     /// `EVERYGREP_PRIVATE_BUS=1 dbus-run-session -- cargo test -p everygrep-gui -- --ignored`
     #[test]
@@ -714,7 +793,8 @@ mod tests {
             .map(|i| {
                 let tx = tx.clone();
                 std::thread::spawn(move || {
-                    let handler: Handler = Box::new(move |r| tx.send(r).unwrap());
+                    // Taken at once: the request is dropped here.
+                    let handler: Handler = Box::new(move |r| tx.send(r.args.clone()).unwrap());
                     start(name, &[format!("w{i}")], Launch::Show, handler)
                 })
             })
@@ -730,7 +810,7 @@ mod tests {
             .count();
         assert_eq!((owners, handed), (1, 7));
         let mut got: Vec<String> = (0..7)
-            .map(|_| rx.recv_timeout(CALL_TIMEOUT).unwrap().args.concat())
+            .map(|_| rx.recv_timeout(CALL_TIMEOUT).unwrap().concat())
             .collect();
         got.sort();
         assert_eq!(got.len(), 7);

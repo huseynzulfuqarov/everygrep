@@ -375,6 +375,8 @@ fn main() -> Result<(), slint::PlatformError> {
             if let Some(w) = weak.upgrade() {
                 prefs.save_columns(&w);
             }
+            // From now on no request is taken (the loop ends after this turn).
+            instance::set_closing();
             let _ = slint::quit_event_loop();
         }
     });
@@ -498,8 +500,11 @@ fn main() -> Result<(), slint::PlatformError> {
         Timer::single_shot(SETTINGS_DELAY, move || prefs.open(Some(page)));
     }
     slint::run_event_loop_until_quit()?;
-    // Later launches wait for this process to end instead of handing over.
+    // Later launches wait for this process to end instead of handing over;
+    // those whose request was not run are told so.
     instance::set_closing();
+    let left = std::mem::take(&mut *PRESENTS.lock().expect("lock"));
+    left.into_iter().for_each(instance::Request::refuse);
     // Gives the clipboard up and closes the XWayland connection.
     X11.with(|x| x.borrow_mut().take());
     window.hide()?;
@@ -744,6 +749,8 @@ fn close_window(w: &AppWindow, engine: &Arc<Engine>, prefs: &Prefs, hide: bool) 
         let engine = engine.clone();
         std::thread::spawn(move || engine.save());
     } else {
+        // From now on no request is taken (the loop ends after this turn).
+        instance::set_closing();
         let _ = slint::quit_event_loop();
     }
 }
