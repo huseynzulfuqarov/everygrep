@@ -5,6 +5,7 @@ mod autostart;
 mod clipboard;
 mod columns;
 mod commands;
+mod content_settings;
 mod engine;
 mod export;
 mod fileops_rename;
@@ -191,6 +192,7 @@ fn main() -> Result<(), slint::PlatformError> {
         drives,
         hooks,
     );
+    engine.set_content_options(settings.content.options());
     let model = Rc::new(ResultsModel::new(engine.clone()));
     // Created, Accessed and Attributes are read off the window's thread.
     model.read_details_with(results::DetailReader::start({

@@ -322,6 +322,9 @@ the program behaves as before, except that folders show their total size.
 | | filter and matching modes when EveryGrep starts | all, every mode off |
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | keep the history after EveryGrep closes | off |
+| | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
+| | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
+| | search inside PDF files (with `pdftotext` from poppler; the page says when it is missing) | off |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
@@ -468,6 +471,8 @@ size-width = 120
 ```
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
+`content-max-size-mb`, `content-code-page` (`windows-1250` … `windows-1257`)
+and `content-pdf` set how files are read for `content:`.
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
 search at every key press, and `rename-in-dialog` chooses the rename editor.
 `context-search-new-window`, `context-search-subfolders` and

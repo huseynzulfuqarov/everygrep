@@ -226,6 +226,11 @@ First version, 0.1.0, not released yet.
   42%" in the status line, and can be cancelled; a cancel keeps the
   matches found so far. File changes during the reading search again
   afterwards, reading only the files that changed.
+- Settings → Search → File contents: the largest file to search (100 MB;
+  0 for any size), the code page of files that are not UTF-8
+  (Windows-1250 to 1257, Windows-1254 by default) and "Search inside PDF
+  files" (off; reads them with `pdftotext` in a separate process, and says
+  how to install it when it is missing).
 - Settings and the search history are saved on a thread of their own, in
   the order they changed, instead of on the window's thread; quitting waits
   a few seconds at most for the last saves.

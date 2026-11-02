@@ -2027,3 +2027,59 @@ msgstr "Kontekst axtarışlarında tam fayl adını uyğunlaşdır"
 
 msgid "Cannot open a search window: {}"
 msgstr "Axtarış pəncərəsi açıla bilmədi: {}"
+
+#: ui/settings.slint
+msgid "File contents"
+msgstr "Fayl məzmunu"
+
+#: ui/content-settings.slint
+msgid "Largest file to search (MB)"
+msgstr "Axtarılacaq ən böyük fayl (MB)"
+
+#: ui/content-settings.slint
+msgid "0 searches files of any size."
+msgstr "0 olduqda istənilən ölçülü fayllarda axtarır."
+
+#: ui/content-settings.slint
+msgid "Code page of other files"
+msgstr "Digər faylların kod səhifəsi"
+
+#: ui/content-settings.slint
+msgid "content: reads UTF-8, and UTF-16 when a file starts with a byte order mark. A file that is not UTF-8 is read again in this code page; content-codepage: always uses it. Binary files are skipped."
+msgstr "content: UTF-8-i, fayl bayt sırası nişanı (BOM) ilə başlayırsa UTF-16-nı oxuyur. UTF-8 olmayan fayl bu kod səhifəsində yenidən oxunur; content-codepage: həmişə onu işlədir. İkili fayllar ötürülür."
+
+#: ui/content-settings.slint
+msgid "Search inside PDF files"
+msgstr "PDF fayllarının içində axtar"
+
+#: src/content_settings.rs
+msgid "Windows-1250 (Central European)"
+msgstr "Windows-1250 (Mərkəzi Avropa)"
+
+#: src/content_settings.rs
+msgid "Windows-1251 (Cyrillic)"
+msgstr "Windows-1251 (Kiril)"
+
+#: src/content_settings.rs
+msgid "Windows-1252 (Western European)"
+msgstr "Windows-1252 (Qərbi Avropa)"
+
+#: src/content_settings.rs
+msgid "Windows-1253 (Greek)"
+msgstr "Windows-1253 (Yunan)"
+
+#: src/content_settings.rs
+msgid "Windows-1254 (Turkish, Azerbaijani)"
+msgstr "Windows-1254 (Türk, Azərbaycan)"
+
+#: src/content_settings.rs
+msgid "Windows-1257 (Baltic)"
+msgstr "Windows-1257 (Baltik)"
+
+#: src/content_settings.rs
+msgid "PDF files are read with pdftotext in a separate process. Office documents are not searched yet."
+msgstr "PDF faylları ayrıca prosesdə pdftotext ilə oxunur. Office sənədlərində hələ axtarılmır."
+
+#: src/content_settings.rs
+msgid "pdftotext was not found. Install the poppler package (it provides pdftotext) to search inside PDF files."
+msgstr "pdftotext tapılmadı. PDF fayllarının içində axtarmaq üçün poppler paketini quraşdırın (pdftotext onunla gəlir)."

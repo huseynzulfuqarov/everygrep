@@ -350,14 +350,20 @@ a content term alone reads every file of the index.
 - Folders never match, and neither do links (the target is not read),
   FIFOs, sockets, devices, files that cannot be read, and entries of an
   offline drive.
-- Files over 100 MB are not read, and neither are binary files: a NUL byte
+- Files over 100 MB are not read (Settings → Search → File contents; 0
+  reads files of any size), and neither are binary files: a NUL byte
   before the first match ends the search of a file.
+- PDF files are binary for a content term unless Settings → Search →
+  Search inside PDF files is on: a file named `*.pdf` is then read as the
+  text that `pdftotext` (from the poppler package) prints for it, in a
+  separate process that is stopped after 30 seconds. A PDF that it cannot
+  read does not match. Office documents are not read yet.
 - Encoding: UTF-8; UTF-16 (little or big endian) when the file starts with a
-  byte order mark; a file that is not valid UTF-8 is read again as
-  Windows-1254 (Turkish and Azerbaijani Latin). `content-utf8:`,
-  `content-utf16le:` (little endian), `content-utf16be:` and `content-codepage:`
-  (Windows-1254) read every file in that one encoding, without looking for
-  a byte order mark.
+  byte order mark; a file that is not valid UTF-8 is read again in the code
+  page of Settings → Search → File contents (Windows-1254, Turkish and
+  Azerbaijani Latin, by default). `content-utf8:`, `content-utf16le:` (little
+  endian), `content-utf16be:` and `content-codepage:` (that code page) read every
+  file in that one encoding, without looking for a byte order mark.
 - A query can have at most 6 content terms.
 
 ## Number of results

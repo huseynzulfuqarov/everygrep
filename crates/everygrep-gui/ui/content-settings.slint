@@ -1,0 +1,72 @@
+import { CheckBox, ComboBox, SpinBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// Settings of content search (content:), on the Search page.
+export component ContentSettings inherits VerticalLayout {
+    in-out property <int> max-size;
+    in property <int> max-size-max;
+    in property <[string]> code-page-names;
+    in-out property <int> code-page;
+    in-out property <bool> pdf;
+    in property <string> pdf-note;
+    callback changed();
+    spacing: Theme.s3;
+    HorizontalLayout {
+        spacing: Theme.s3;
+        Text {
+            text: @tr("Largest file to search (MB)");
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        SpinBox {
+            width: 140px;
+            horizontal-stretch: 0;
+            accessible-label: @tr("Largest file to search (MB)");
+            minimum: 0;
+            maximum: root.max-size-max;
+            value <=> root.max-size;
+            edited => { root.changed(); }
+        }
+        Text {
+            text: @tr("0 searches files of any size.");
+            font-size: Theme.small;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            wrap: word-wrap;
+        }
+    }
+    HorizontalLayout {
+        spacing: Theme.s3;
+        Text {
+            text: @tr("Code page of other files");
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        ComboBox {
+            width: 280px;
+            accessible-label: @tr("Code page of other files");
+            model: root.code-page-names;
+            current-index <=> root.code-page;
+            selected => { root.changed(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Text {
+        text: @tr("content: reads UTF-8, and UTF-16 when a file starts with a byte order mark. A file that is not UTF-8 is read again in this code page; content-codepage: always uses it. Binary files are skipped.");
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+    CheckBox {
+        text: @tr("Search inside PDF files");
+        checked <=> root.pdf;
+        toggled => { root.changed(); }
+    }
+    Text {
+        text: root.pdf-note;
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}

@@ -738,6 +738,7 @@ impl Prefs {
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
+        s.content.fill_window(w);
 
         let closes: Vec<SharedString> = OnClose::ALL
             .iter()
@@ -1308,7 +1309,9 @@ impl Prefs {
         let show_mode_badges = w.get_show_mode_badges();
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
+        let content = crate::content_settings::Settings::from_window(&w);
         self.change(move |s| {
+            s.content = content.clone();
             s.options = options;
             s.as_you_type = as_you_type;
             s.show_mode_badges = show_mode_badges;
@@ -1321,6 +1324,14 @@ impl Prefs {
         self.apply_history();
         self.apply_as_you_type();
         self.apply_behaviour();
+        self.apply_content();
+    }
+
+    /// Gives the engine the content search settings; a change searches
+    /// again.
+    fn apply_content(&self) {
+        let options = self.settings.borrow().content.options();
+        self.engine.set_content_options(options);
     }
 
     /// Applies interaction settings and search policy to the main window.
@@ -1604,6 +1615,7 @@ impl Prefs {
         if page == Page::Search {
             self.apply_history();
             self.apply_as_you_type();
+            self.apply_content();
         }
         self.apply_behaviour();
         if page == Page::Appearance {

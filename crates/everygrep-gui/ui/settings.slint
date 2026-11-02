@@ -3,6 +3,7 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
+import { ContentSettings } from "content-settings.slint";
 
 // A command for a keyboard shortcut, on the Keyboard shortcut page.
 export struct ShortcutCommand {
@@ -161,6 +162,12 @@ export component SettingsWindow inherits Window {
     in-out property <bool> history-on-disk;
     in-out property <int> hidden-files;
     in property <[string]> hidden-names;
+    in-out property <int> content-max-size;
+    in property <int> content-max-size-max;
+    in property <[string]> content-code-page-names;
+    in-out property <int> content-code-page;
+    in-out property <bool> content-pdf;
+    in property <string> content-pdf-note;
     callback search-changed();
 
     // Appearance
@@ -552,6 +559,17 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.search-changed(); }
                             }
                             Note { text: @tr("Off: the selected items stay selected while the new results list them. Sorting and file changes never clear it."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("File contents"); }
+                            ContentSettings {
+                                max-size <=> root.content-max-size;
+                                max-size-max: root.content-max-size-max;
+                                code-page-names: root.content-code-page-names;
+                                code-page <=> root.content-code-page;
+                                pdf <=> root.content-pdf;
+                                pdf-note: root.content-pdf-note;
+                                changed => { root.search-changed(); }
+                            }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("When EveryGrep starts"); }
                             HorizontalLayout {
