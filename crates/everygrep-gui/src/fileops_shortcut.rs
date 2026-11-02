@@ -162,6 +162,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>) {
             prefs::with(|p| options = p.fileops_settings());
             let (weak, busy) = (w.as_weak(), busy.clone());
             std::thread::spawn(move || {
+                let _files = crate::fileops_undo::file_guard();
                 let result =
                     portal::choose_folder(tr("Create shortcuts"), tr("Create")).map(|folder| {
                         folder.map(|folder| {

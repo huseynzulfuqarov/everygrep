@@ -214,6 +214,24 @@ replaces the destination atomically after its identity is checked again. Links,
 folders and hard links to the source cannot be overwritten. Errors offer retry
 or skip. The worker waits for an answer while the window stays responsive.
 
+File undo is off by default. Settings → Window → File operations enables a
+session-only history (100 steps by default, adjustable from 1 to 1000).
+A typed limit takes effect only with "Apply history limit".
+`Ctrl+Z` and `Ctrl+Shift+Z` in the result list undo/redo; `Ctrl+Alt+Z` opens
+File undo history, with action filtering, undo through a selected step and CSV
+export. That selection includes every newer step, even when filtered out.
+Rename, copies and moves within one filesystem are recorded. Trash, permanent
+deletion, overwrites, shortcuts and moves across filesystems are excluded.
+Undo never replaces a destination. Changed or missing items are skipped with
+the reason shown. Undoing a copy sends it to the desktop trash; redo copies
+its original source again only if that source is unchanged. A new recorded
+action discards redo. Disabling undo clears the session history. History also
+has a memory bound of 100,000 recorded tree entries; the oldest whole steps
+are dropped to make room when either bound is reached. Unreadable or larger
+trees are not recorded; when a rename or paste that changed the disk cannot be
+recorded, the notice says so and the older steps are removed too, so undo never
+skips over it.
+
 Other programs get the items as files: Cut and Copy offer them on the
 clipboard of XWayland (`DISPLAY`) as `x-special/gnome-copied-files`,
 `text/uri-list` and the full paths as text, which GNOME passes on to

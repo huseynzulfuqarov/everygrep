@@ -518,9 +518,27 @@ pub fn busy(b: &Busy) -> String {
         }
         (TaskKind::ComparingFiles, p) => fill(tr("Comparing files: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
+        (TaskKind::ReversingFiles, _) => tr("Reversing file operations…").to_owned(),
         (TaskKind::Copying, Some(p)) => fill(tr("Copying: {}%"), &[&p]),
+        // Items read for undo history before the copy starts.
+        (TaskKind::Copying, None) if n > 0 => fill(
+            trn(
+                "Copying: {} item checked for undo",
+                "Copying: {} items checked for undo",
+                n,
+            ),
+            &[&done],
+        ),
         (TaskKind::Copying, None) => tr("Copying…").to_owned(),
         (TaskKind::Moving, Some(p)) => fill(tr("Moving: {}%"), &[&p]),
+        (TaskKind::Moving, None) if n > 0 => fill(
+            trn(
+                "Moving: {} item checked for undo",
+                "Moving: {} items checked for undo",
+                n,
+            ),
+            &[&done],
+        ),
         (TaskKind::Moving, None) => tr("Moving…").to_owned(),
     }
 }
@@ -894,6 +912,12 @@ pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
             Operation::Cut => trn("Moved {0} item into {1}.", "Moved {0} items into {1}.", n),
         };
         parts.push(fill(text, &[&format::count(n), &folder]));
+    }
+    if out.history_omitted {
+        parts.push(tr("Some or all of this paste could not be recorded for undo.").into());
+    }
+    if out.history_cleared {
+        parts.push(tr("Earlier undo steps were removed.").into());
     }
     if out.replaced > 0 {
         parts.push(fill(

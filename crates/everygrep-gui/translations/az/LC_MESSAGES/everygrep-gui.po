@@ -1204,7 +1204,7 @@ msgstr "Sort cancelled. The previous order is kept."
 # TODO: translate (English for now)
 #: ui/app.slint
 msgid "Copy"
-msgstr "Copy"
+msgstr "Kopyala"
 
 # TODO: translate (English for now)
 #: ui/app.slint
@@ -3250,6 +3250,90 @@ msgid_plural "Skipped {} items."
 msgstr[0] "{} element ötürüldü."
 msgstr[1] "{} element ötürüldü."
 
+msgid "The folder is too large for undo history."
+msgstr "Qovluq geri alma tarixçəsi üçün çox böyükdür."
+
+msgid "The item changed since the recorded operation."
+msgstr "Qeydə alınmış əməliyyatdan sonra element dəyişib."
+
+msgid "This step is no longer available."
+msgstr "Bu addım artıq mövcud deyil."
+
+msgid "The copy source was not stable enough to record."
+msgstr "Kopyalama mənbəyi sabit qalmadığı üçün qeydə alınmayıb."
+
+msgid "Operation cancelled."
+msgstr "Əməliyyat ləğv edildi."
+
+msgid "Applied"
+msgstr "İcra edilib"
+
+msgid "Undone"
+msgstr "Geri alınıb"
+
+msgid "No file operations to undo or redo."
+msgstr "Geri alınacaq və ya təkrarlanacaq fayl əməliyyatı yoxdur."
+
+msgid "Reversed {0} steps. Skipped {1}. {2}"
+msgstr "{0} addım geri çevrildi. {1} addım ötürüldü. {2}"
+
+msgid "Cannot export file history: {}"
+msgstr "Fayl tarixçəsini ixrac etmək olmur: {}"
+
+msgid "Export file undo history"
+msgstr "Fayl geri alma tarixçəsini ixrac et"
+
+msgid "Enable file undo for this session"
+msgstr "Bu sessiyada fayl əməliyyatlarını geri almağı aktiv et"
+
+msgid "Apply history limit"
+msgstr "Tarixçə limitini tətbiq et"
+
+msgid "Maximum undo steps"
+msgstr "Geri alma addımlarının ən çox sayı"
+
+msgid "File undo history"
+msgstr "Fayl geri alma tarixçəsi"
+
+msgid "Undo file operation"
+msgstr "Fayl əməliyyatını geri al"
+
+msgid "Redo file operation"
+msgstr "Fayl əməliyyatını təkrarla"
+
+msgid "Session history only. Trash, permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."
+msgstr "Yalnız sessiya tarixçəsi. Zibil qutusuna atma, həmişəlik silmə, əvəzləmə və fayl sistemləri arası köçürmə qeydə alınmır. Kopyanı geri almaq onu zibil qutusuna göndərir; təkrar icra dəyişməmiş mənbəni yenidən kopyalayır."
+
+msgid "Undo through a selected step also undoes every newer step, including actions hidden by the filter."
+msgstr "Seçilmiş addıma qədər geri almaq filtrin gizlətdiyi əməliyyatlar daxil bütün sonrakı addımları da geri alır."
+
+msgid "Undo through selection"
+msgstr "Seçilmiş addıma qədər geri al"
+
+msgid "Reversing file operations…"
+msgstr "Fayl əməliyyatları geri çevrilir…"
+
+msgid "All actions"
+msgstr "Bütün əməliyyatlar"
+
+msgid "Action"
+msgstr "Əməliyyat"
+
+msgid "Destination"
+msgstr "Hədəf"
+
+msgid "State"
+msgstr "Vəziyyət"
+
+msgid "Move"
+msgstr "Köçür"
+
+msgid "The copy source changed while copying."
+msgstr "Kopyalama zamanı mənbə dəyişdi."
+
+msgid "A file operation is still running."
+msgstr "Fayl əməliyyatı hələ davam edir."
+
 msgid "Size: {0} bytes; modified: {1}"
 msgstr "Ölçü: {0} bayt; dəyişdirilib: {1}"
 
@@ -3269,3 +3353,34 @@ msgid "Sent {} replaced item to the trash."
 msgid_plural "Sent {} replaced items to the trash."
 msgstr[0] "{} əvəz edilən element zibil qutusuna göndərildi."
 msgstr[1] "{} əvəz edilən element zibil qutusuna göndərildi."
+
+msgid "Reversed {0} items. Skipped {1}. {2}"
+msgstr "{0} element geri alındı. {1} element ötürüldü. {2}"
+
+msgid "{0} ({1} items)"
+msgstr "{0} ({1} element)"
+
+msgid "Partly reversed"
+msgstr "Qismən geri alınıb"
+
+msgid "Some or all of this paste could not be recorded for undo."
+msgstr "Bu yapışdırmanın hamısını və ya bir hissəsini geri alma tarixçəsinə yazmaq mümkün olmadı."
+
+msgid "The rename could not be recorded for undo."
+msgstr "Ad dəyişikliyini geri alma tarixçəsinə yazmaq mümkün olmadı."
+
+msgid "Earlier undo steps were removed."
+msgstr "Əvvəlki geri alma addımları silindi."
+
+msgid "Copying: {} item checked for undo"
+msgid_plural "Copying: {} items checked for undo"
+msgstr[0] "Kopyalanır: geri alma üçün {} element yoxlanıldı"
+msgstr[1] "Kopyalanır: geri alma üçün {} element yoxlanıldı"
+
+msgid "Moving: {} item checked for undo"
+msgid_plural "Moving: {} items checked for undo"
+msgstr[0] "Köçürülür: geri alma üçün {} element yoxlanıldı"
+msgstr[1] "Köçürülür: geri alma üçün {} element yoxlanıldı"
+
+msgid "Source path"
+msgstr "Mənbə yolu"

@@ -833,6 +833,7 @@ impl Prefs {
         self.scheme_set.set(true);
         crate::saved_ui::apply_scheme(scheme as i32);
         crate::advanced::apply_scheme(scheme as i32);
+        crate::fileops_undo_ui::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
         }
@@ -870,6 +871,8 @@ impl Prefs {
     /// Puts the check marks of the main window's View menu on the chosen
     /// theme, density and folder size.
     pub fn fill_menus(&self) {
+        crate::fileops_undo::configure(&self.settings.borrow().fileops);
+        crate::fileops_undo_ui::refresh_open();
         let Some(m) = self.main.upgrade() else { return };
         let s = self.settings.borrow();
         m.set_theme_items(choices(&ThemeChoice::ALL, s.theme, labels::theme));
@@ -879,6 +882,7 @@ impl Prefs {
             s.folder_size,
             labels::folder_size,
         ));
+        m.set_file_undo_enabled(s.fileops.undo_enabled);
         m.set_status_details(s.status_details);
         m.set_show_menu_bar(s.menu_bar);
     }

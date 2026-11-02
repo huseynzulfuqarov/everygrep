@@ -10,6 +10,12 @@ First version, 0.1.0, not released yet.
 
 ### File operations
 
+- Opt-in session file undo/redo for rename, copy and same-filesystem moves,
+  with bounded history, filtering, undo through selection and CSV export.
+  Changed items and occupied targets are protected; undoing a copy uses trash.
+- Rename validation stays local while typing; rename submission runs on a
+  helper thread and keeps dialog errors next to the editor.
+
 - Optional paste conflict questions with skip, skip all, keep both, retry and
   atomic replacement of regular files; existing behavior remains the default.
 

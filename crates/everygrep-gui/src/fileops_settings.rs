@@ -1,10 +1,12 @@
 //! Preferences for file actions, separate from search and appearance settings.
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Off keeps the existing in-place editor.
     pub rename_dialog: bool,
     pub conflict_ask: bool,
+    pub undo_enabled: bool,
+    pub undo_limit: usize,
     pub search_new_window: bool,
     pub search_recursive: bool,
     pub search_exact_name: bool,
@@ -12,10 +14,28 @@ pub struct Settings {
     pub shortcut_collision: crate::fileops_shortcut::Collision,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            rename_dialog: false,
+            conflict_ask: false,
+            undo_enabled: false,
+            undo_limit: 100,
+            search_new_window: false,
+            search_recursive: false,
+            search_exact_name: false,
+            shortcut_kind: Default::default(),
+            shortcut_collision: Default::default(),
+        }
+    }
+}
+
 impl Settings {
     pub fn fill_window(&self, w: &crate::SettingsWindow) {
         w.set_fileops_rename_dialog(self.rename_dialog);
         w.set_fileops_conflict_ask(self.conflict_ask);
+        w.set_fileops_undo_enabled(self.undo_enabled);
+        w.set_fileops_undo_limit(self.undo_limit as i32);
         w.set_fileops_search_new_window(self.search_new_window);
         w.set_fileops_search_recursive(self.search_recursive);
         w.set_fileops_search_exact_name(self.search_exact_name);
@@ -31,6 +51,8 @@ impl Settings {
         Self {
             rename_dialog: w.get_fileops_rename_dialog(),
             conflict_ask: w.get_fileops_conflict_ask(),
+            undo_enabled: w.get_fileops_undo_enabled(),
+            undo_limit: w.get_fileops_undo_limit().clamp(1, 1000) as usize,
             search_new_window: w.get_fileops_search_new_window(),
             search_recursive: w.get_fileops_search_recursive(),
             search_exact_name: w.get_fileops_search_exact_name(),
@@ -49,6 +71,14 @@ impl Settings {
 
     pub fn set(&mut self, key: &str, value: &str) -> bool {
         match (key, value) {
+            ("file-undo-enabled", "true" | "yes" | "on" | "1") => self.undo_enabled = true,
+            ("file-undo-enabled", "false" | "no" | "off" | "0") => self.undo_enabled = false,
+            ("file-undo-limit", value) => {
+                let Ok(n @ 1..=1000) = value.parse::<usize>() else {
+                    return false;
+                };
+                self.undo_limit = n;
+            }
             (
                 "context-search-new-window"
                 | "context-search-subfolders"
@@ -96,10 +126,14 @@ impl Settings {
             ("context-search-exact-name", self.search_exact_name),
             ("rename-in-dialog", self.rename_dialog),
             ("file-conflicts-ask", self.conflict_ask),
+            ("file-undo-enabled", self.undo_enabled),
         ] {
             if on || all {
                 out.push_str(&format!("{key} = {on}\n"));
             }
+        }
+        if self.undo_limit != 100 || all {
+            out.push_str(&format!("file-undo-limit = {}\n", self.undo_limit));
         }
         let desktop = self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop;
         if desktop || all {
@@ -117,6 +151,27 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use crate::settings::{Page, Settings};
+
+    #[test]
+    fn undo_is_opt_in_and_history_limit_roundtrips_and_resets() {
+        let default = Settings::default();
+        assert!(!default.fileops.undo_enabled);
+        assert_eq!(default.fileops.undo_limit, 100);
+        let mut s = Settings::parse("file-undo-enabled = true\nfile-undo-limit = 17");
+        assert!(s.fileops.undo_enabled);
+        assert_eq!(s.fileops.undo_limit, 17);
+        assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
+        s.reset(Page::Window);
+        assert_eq!(s.fileops, default.fileops);
+        assert_eq!(
+            Settings::parse(
+                "file-undo-limit = 0\nfile-undo-limit = 1001\nfile-undo-enabled = invalid"
+            )
+            .problems
+            .len(),
+            3
+        );
+    }
 
     #[test]
     fn conflict_choice_defaults_to_keep_both_and_roundtrips() {

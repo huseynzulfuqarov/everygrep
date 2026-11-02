@@ -226,6 +226,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> rename-name-only;
     in-out property <bool> fileops-rename-dialog;
     in-out property <bool> fileops-conflict-ask;
+    in-out property <bool> fileops-undo-enabled;
+    in-out property <int> fileops-undo-limit: 100;
     in-out property <bool> fileops-search-new-window;
     in-out property <bool> fileops-search-recursive;
     in-out property <bool> fileops-search-exact-name;
@@ -1060,6 +1062,8 @@ export component SettingsWindow inherits Window {
                             FileopsSettings {
                                 rename-dialog <=> root.fileops-rename-dialog;
                                 conflict-ask <=> root.fileops-conflict-ask;
+                                undo-enabled <=> root.fileops-undo-enabled;
+                                undo-limit <=> root.fileops-undo-limit;
                                 search-new-window <=> root.fileops-search-new-window;
                                 search-recursive <=> root.fileops-search-recursive;
                                 search-exact-name <=> root.fileops-search-exact-name;

@@ -148,6 +148,7 @@ pub enum TaskKind {
     Sorting,
     /// Pasting files that were copied.
     Copying,
+    ReversingFiles,
     /// Pasting files that were cut.
     Moving,
 }

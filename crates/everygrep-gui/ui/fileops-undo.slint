@@ -1,0 +1,65 @@
+import { Button, ComboBox, StandardTableView, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+export component FileUndoWindow inherits Window {
+    title: @tr("File undo history");
+    preferred-width: 850px;
+    preferred-height: 500px;
+    min-width: 650px;
+    min-height: 380px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    in property <[[StandardListViewItem]]> rows;
+    in property <[string]> operation-ids;
+    in property <bool> busy;
+    in-out property <int> revision;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    in property <string> notice;
+    in-out property <int> current <=> table.current-row;
+    in-out property <int> action-filter;
+    callback filter-changed();
+    callback reverse(int);
+    callback export();
+    callback close-window();
+    public function set-color-scheme(scheme: int) {
+        Palette.color-scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+    }
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.close-window(); return accept; }
+            if (event.modifiers.control && (event.text == "z" || event.text == "Z") && !root.busy) { root.reverse(event.modifiers.shift ? 1 : 0); return accept; }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.s4;
+            spacing: Theme.s3;
+            Text { text: @tr("Session history only. Trash, permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."); color: Theme.text-muted; wrap: word-wrap; }
+            ComboBox {
+                enabled: !root.busy;
+                model: [@tr("All actions"), @tr("Rename"), @tr("Move"), @tr("Copy")];
+                current-index <=> root.action-filter;
+                selected => { root.filter-changed(); }
+            }
+            table := StandardTableView {
+                enabled: !root.busy;
+                rows: root.rows;
+                columns: [
+                    { title: @tr("Action"), width: 95px },
+                    { title: @tr("Source path"), width: 240px, horizontal-stretch: 1 },
+                    { title: @tr("Destination"), width: 240px, horizontal-stretch: 1 },
+                    { title: @tr("State"), width: 180px },
+                ];
+            }
+            Text { text: root.notice; color: Theme.text-muted; wrap: word-wrap; }
+            Text { text: @tr("Undo through a selected step also undoes every newer step, including actions hidden by the filter."); color: Theme.text-muted; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Button { text: @tr("Undo file operation"); enabled: !root.busy && root.can-undo; clicked => { root.reverse(0); } }
+                Button { text: @tr("Redo file operation"); enabled: !root.busy && root.can-redo; clicked => { root.reverse(1); } }
+                Button { text: @tr("Undo through selection"); enabled: !root.busy && root.can-undo && root.current >= 0; clicked => { root.reverse(2); } }
+                Button { text: @tr("Export CSV…"); enabled: !root.busy; clicked => { root.export(); } }
+                Button { text: @tr("Close"); clicked => { root.close-window(); } }
+            }
+        }
+    }
+}

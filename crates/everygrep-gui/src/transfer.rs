@@ -92,7 +92,7 @@ pub fn test_replacement() -> Replacement {
         trash: |path| {
             let bin = path.parent().unwrap().parent().unwrap().join("test-trash");
             fs::create_dir_all(&bin)?;
-            renameat2_noreplace(path, &temp_name(&bin))
+            rename_strict(path, &temp_name(&bin))
         },
     }
 }
@@ -149,6 +149,10 @@ impl fmt::Display for Failure {
 /// What a paste did.
 #[derive(Debug, Default)]
 pub struct Outcome {
+    pub records: Vec<Record>,
+    pub history_omitted: bool,
+    /// Older undo steps were removed because this paste was not recorded.
+    pub history_cleared: bool,
     /// The new items, in the order of the sources.
     pub done: Vec<PathBuf>,
     /// How many of them got another name because theirs was taken.
@@ -163,6 +167,14 @@ pub struct Outcome {
     /// The paste was cancelled; the item in progress was not pasted and the
     /// rest were not tried.
     pub cancelled: bool,
+}
+
+/// Successful source/destination pairs, including whether data was replaced.
+#[derive(Debug)]
+pub struct Record {
+    pub source: PathBuf,
+    pub target: PathBuf,
+    pub overwritten: bool,
 }
 
 /// Why copying stopped.
@@ -200,6 +212,18 @@ pub fn paste_with(
     progress: &Progress,
     resolver: Option<Resolver>,
 ) -> Outcome {
+    paste_observed(op, sources, dest, progress, resolver, |_| {})
+}
+
+/// Capture each published item's identity before another source can replace it.
+pub fn paste_observed(
+    op: Operation,
+    sources: &[PathBuf],
+    dest: &Path,
+    progress: &Progress,
+    resolver: Option<Resolver>,
+    observe: impl FnMut(&Record),
+) -> Outcome {
     paste_observed_using(
         op,
         sources,
@@ -207,7 +231,7 @@ pub fn paste_with(
         progress,
         resolver,
         Replacement::default(),
-        |_| {},
+        observe,
     )
 }
 
@@ -218,7 +242,7 @@ pub fn paste_observed_using(
     progress: &Progress,
     resolver: Option<Resolver>,
     replacement: Replacement,
-    mut observe: impl FnMut(&Path),
+    mut observe: impl FnMut(&Record),
 ) -> Outcome {
     let mut out = Outcome::default();
     let dest = match fs::canonicalize(dest) {
@@ -261,7 +285,13 @@ pub fn paste_observed_using(
                 if target.file_name() != src.file_name() {
                     out.renamed += 1;
                 }
-                observe(&target);
+                let record = Record {
+                    source: src.clone(),
+                    target: target.clone(),
+                    overwritten: run.replaced,
+                };
+                observe(&record);
+                out.records.push(record);
                 out.done.push(target);
             }
             Ok(Pasted::Unchanged) => out.unchanged += 1,
@@ -300,8 +330,10 @@ struct Run {
     skip_all: bool,
     skip_errors: bool,
     replace: Option<Copied>,
+    replaced: bool,
     replacements: usize,
     replacement: Replacement,
+    exact: Option<PathBuf>,
     /// For each name (and whether it is a folder's), the first number
     /// `name (N)` not yet known to be taken in the target folder.
     next: HashMap<(OsString, bool), u64>,
@@ -370,6 +402,7 @@ fn paste_attempt(
     run: &mut Run,
 ) -> Result<Pasted, Stop> {
     run.replace = None;
+    run.replaced = false;
     let meta = fs::symlink_metadata(src)?;
     let name = src
         .file_name()
@@ -571,6 +604,30 @@ fn copy_in(
     if progress.is_cancelled() {
         return Err(cleaned_up(&temp, Stop::Cancelled));
     }
+    if let Some(target) = run.exact.take() {
+        // Exact-path redo must publish the source that was checked, even
+        // when another process writes to it while the copy is running.
+        for entry in &copied {
+            let stable = fs::symlink_metadata(&entry.path).is_ok_and(|m| {
+                let now = Copied::new(&entry.path, &m);
+                now.dev == entry.dev
+                    && now.ino == entry.ino
+                    && now.len == entry.len
+                    && now.times == entry.times
+                    && now.is_dir == entry.is_dir
+            });
+            if !stable {
+                return Err(cleaned_up(
+                    &temp,
+                    io::Error::other(tr("The copy source changed while copying.")).into(),
+                ));
+            }
+        }
+        return match rename_strict(&temp, &target) {
+            Ok(()) => Ok((target, copied)),
+            Err(e) => Err(cleaned_up(&temp, e.into())),
+        };
+    }
     if let Some(expected) = run.replace.take() {
         let mut publish = || -> io::Result<()> {
             let now = fs::symlink_metadata(&expected.path)?;
@@ -581,12 +638,16 @@ fn copy_in(
             }
             (run.replacement.trash)(&expected.path)?;
             run.replacements += 1;
-            renameat2_noreplace(&temp, &expected.path).map_err(|e| io::Error::other(fill(
+            run.replaced = true;
+            rename_strict(&temp, &expected.path).map_err(|e| io::Error::other(fill(
                 tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e],
             )))
         };
         return match publish() {
-            Ok(()) => Ok((expected.path, copied)),
+            Ok(()) => {
+                run.replaced = true;
+                Ok((expected.path, copied))
+            }
             Err(e) => Err(cleaned_up(&temp, e.into())),
         };
     }
@@ -601,6 +662,32 @@ fn copy_in(
             Err(e) => return Err(cleaned_up(&temp, e.into())),
         }
     }
+}
+
+/// Recreate a recorded copy at its exact path, with no replacement fallback.
+pub fn copy_exact(src: &Path, target: &Path, progress: &Progress) -> io::Result<()> {
+    let parent = target.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    let name = target.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+    let meta = fs::symlink_metadata(src)?;
+    if meta.is_dir() && fs::canonicalize(parent)?.starts_with(fs::canonicalize(src)?) {
+        return Err(io::Error::other(tr(
+            "A folder cannot be pasted into itself.",
+        )));
+    }
+    let mut run = Run {
+        exact: Some(target.into()),
+        ..Run::default()
+    };
+    copy_in(src, &meta, parent, name, progress, false, &mut run)
+        .map(|_| ())
+        .map_err(|e| match e {
+            Stop::Io(e) => e,
+            Stop::Cancelled => io::Error::other(tr("Operation cancelled.")),
+            Stop::PartLeft { part, error, .. } => io::Error::other(fill(
+                tr("the partial copy “{}” could not be removed: {}"),
+                &[&part.display(), &error],
+            )),
+        })
 }
 
 /// How many hidden temporary names one copy tries before it gives up.
@@ -857,7 +944,7 @@ const RENAME_NOREPLACE: c_uint = 1;
 /// are not supported) gets a check and a plain rename, which could replace
 /// an item created in between.
 pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
-    rename_noreplace_with(from, to, renameat2_noreplace)
+    rename_noreplace_with(from, to, rename_strict)
 }
 
 /// [`rename_noreplace`] with the atomic rename passed in, so the fallback
@@ -899,7 +986,7 @@ fn no_hard_links(e: &io::Error) -> bool {
 }
 
 /// `renameat2` with `RENAME_NOREPLACE`: atomic, never replaces the target.
-fn renameat2_noreplace(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_strict(from: &Path, to: &Path) -> io::Result<()> {
     let a = CString::new(from.as_os_str().as_bytes())?;
     let b = CString::new(to.as_os_str().as_bytes())?;
     // SAFETY: both are valid C strings that outlive the call.

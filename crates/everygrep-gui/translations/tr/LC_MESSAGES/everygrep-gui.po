@@ -1204,7 +1204,7 @@ msgstr "Sort cancelled. The previous order is kept."
 # TODO: translate (English for now)
 #: ui/app.slint
 msgid "Copy"
-msgstr "Copy"
+msgstr "Kopyala"
 
 # TODO: translate (English for now)
 #: ui/app.slint
@@ -3250,6 +3250,90 @@ msgid_plural "Skipped {} items."
 msgstr[0] "{} öğe atlandı."
 msgstr[1] "{} öğe atlandı."
 
+msgid "The folder is too large for undo history."
+msgstr "Klasör geri alma geçmişi için çok büyük."
+
+msgid "The item changed since the recorded operation."
+msgstr "Kaydedilen işlemden sonra öğe değişmiş."
+
+msgid "This step is no longer available."
+msgstr "Bu adım artık kullanılamıyor."
+
+msgid "The copy source was not stable enough to record."
+msgstr "Kopyalama kaynağı sabit kalmadığı için kaydedilemedi."
+
+msgid "Operation cancelled."
+msgstr "İşlem iptal edildi."
+
+msgid "Applied"
+msgstr "Uygulandı"
+
+msgid "Undone"
+msgstr "Geri alındı"
+
+msgid "No file operations to undo or redo."
+msgstr "Geri alınacak veya yinelenecek dosya işlemi yok."
+
+msgid "Reversed {0} steps. Skipped {1}. {2}"
+msgstr "{0} adım tersine çevrildi. {1} adım atlandı. {2}"
+
+msgid "Cannot export file history: {}"
+msgstr "Dosya geçmişi dışa aktarılamıyor: {}"
+
+msgid "Export file undo history"
+msgstr "Dosya geri alma geçmişini dışa aktar"
+
+msgid "Enable file undo for this session"
+msgstr "Bu oturumda dosya işlemlerini geri almayı etkinleştir"
+
+msgid "Apply history limit"
+msgstr "Geçmiş sınırını uygula"
+
+msgid "Maximum undo steps"
+msgstr "En fazla geri alma adımı"
+
+msgid "File undo history"
+msgstr "Dosya geri alma geçmişi"
+
+msgid "Undo file operation"
+msgstr "Dosya işlemini geri al"
+
+msgid "Redo file operation"
+msgstr "Dosya işlemini yinele"
+
+msgid "Session history only. Trash, permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."
+msgstr "Yalnızca oturum geçmişi. Çöpe taşıma, kalıcı silme, üzerine yazma ve dosya sistemleri arası taşıma kaydedilmez. Kopyayı geri almak onu çöpe gönderir; yineleme değişmemiş kaynağı yeniden kopyalar."
+
+msgid "Undo through a selected step also undoes every newer step, including actions hidden by the filter."
+msgstr "Seçili adıma kadar geri alma, filtrenin gizlediği işlemler dahil daha yeni tüm adımları da geri alır."
+
+msgid "Undo through selection"
+msgstr "Seçili adıma kadar geri al"
+
+msgid "Reversing file operations…"
+msgstr "Dosya işlemleri tersine çevriliyor…"
+
+msgid "All actions"
+msgstr "Tüm işlemler"
+
+msgid "Action"
+msgstr "İşlem"
+
+msgid "Destination"
+msgstr "Hedef"
+
+msgid "State"
+msgstr "Durum"
+
+msgid "Move"
+msgstr "Taşı"
+
+msgid "The copy source changed while copying."
+msgstr "Kopyalama sırasında kaynak değişti."
+
+msgid "A file operation is still running."
+msgstr "Bir dosya işlemi hâlâ sürüyor."
+
 msgid "Size: {0} bytes; modified: {1}"
 msgstr "Boyut: {0} bayt; değiştirilme: {1}"
 
@@ -3269,3 +3353,34 @@ msgid "Sent {} replaced item to the trash."
 msgid_plural "Sent {} replaced items to the trash."
 msgstr[0] "{} değiştirilen öğe çöpe taşındı."
 msgstr[1] "{} değiştirilen öğe çöpe taşındı."
+
+msgid "Reversed {0} items. Skipped {1}. {2}"
+msgstr "{0} öğe geri alındı. {1} öğe atlandı. {2}"
+
+msgid "{0} ({1} items)"
+msgstr "{0} ({1} öğe)"
+
+msgid "Partly reversed"
+msgstr "Kısmen geri alındı"
+
+msgid "Some or all of this paste could not be recorded for undo."
+msgstr "Bu yapıştırmanın tamamı veya bir bölümü geri alma geçmişine kaydedilemedi."
+
+msgid "The rename could not be recorded for undo."
+msgstr "Yeniden adlandırma geri alma geçmişine kaydedilemedi."
+
+msgid "Earlier undo steps were removed."
+msgstr "Önceki geri alma adımları kaldırıldı."
+
+msgid "Copying: {} item checked for undo"
+msgid_plural "Copying: {} items checked for undo"
+msgstr[0] "Kopyalanıyor: geri alma için {} öğe denetlendi"
+msgstr[1] "Kopyalanıyor: geri alma için {} öğe denetlendi"
+
+msgid "Moving: {} item checked for undo"
+msgid_plural "Moving: {} items checked for undo"
+msgstr[0] "Taşınıyor: geri alma için {} öğe denetlendi"
+msgstr[1] "Taşınıyor: geri alma için {} öğe denetlendi"
+
+msgid "Source path"
+msgstr "Kaynak yolu"

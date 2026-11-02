@@ -168,6 +168,16 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
             return Ok(None);
         }
     }
+    validate_name(new_name)?;
+    let target = old.with_file_name(new_name);
+    if std::fs::symlink_metadata(&target).is_ok() && !case_only(old, &target) {
+        return Err(RenameError::Exists(new_name.to_owned()));
+    }
+    Ok(Some(target))
+}
+
+/// Linux name syntax, without touching the filesystem.
+pub fn validate_name(new_name: &str) -> Result<(), RenameError> {
     if new_name.is_empty() {
         return Err(RenameError::Empty);
     }
@@ -183,11 +193,7 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
     if new_name.len() > NAME_MAX {
         return Err(RenameError::TooLong);
     }
-    let target = old.with_file_name(new_name);
-    if std::fs::symlink_metadata(&target).is_ok() && !case_only(old, &target) {
-        return Err(RenameError::Exists(new_name.to_owned()));
-    }
-    Ok(Some(target))
+    Ok(())
 }
 
 /// Whether renaming `old` to `target` only changes the case of its name on a

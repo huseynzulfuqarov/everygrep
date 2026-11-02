@@ -8,6 +8,7 @@ export component FileopsRename inherits Rectangle {
     in-out property <string> name;
     in property <int> selection-end;
     in property <string> error;
+    in property <bool> busy;
     callback edited(string);
     callback submit();
     callback cancel();
@@ -16,8 +17,8 @@ export component FileopsRename inherits Rectangle {
     TouchArea { }
     keys := FocusScope {
         key-pressed(event) => {
-            if (event.text == Key.Escape) { root.cancel(); return accept; }
-            if (event.text == Key.Return) { root.submit(); return accept; }
+            if (event.text == Key.Escape) { if (!root.busy) { root.cancel(); } return accept; }
+            if (event.text == Key.Return) { if (!root.busy) { root.submit(); } return accept; }
             reject
         }
         Rectangle {
@@ -63,6 +64,7 @@ export component FileopsRename inherits Rectangle {
                         color: Theme.text;
                         vertical-alignment: center;
                         single-line: true;
+                        enabled: !root.busy;
                         accessible-label: @tr("New name");
                         selection-background-color: Theme.selection;
                         selection-foreground-color: Theme.selection-text;
@@ -75,11 +77,11 @@ export component FileopsRename inherits Rectangle {
                 HorizontalLayout {
                     alignment: end;
                     spacing: Theme.s2;
-                    Button { text: @tr("Cancel"); clicked => { root.cancel(); } }
+                    Button { text: @tr("Cancel"); enabled: !root.busy; clicked => { root.cancel(); } }
                     Button {
                         text: @tr("Rename");
                         primary: true;
-                        enabled: root.error == "";
+                        enabled: root.error == "" && !root.busy;
                         clicked => { root.submit(); }
                     }
                 }

@@ -1,15 +1,18 @@
-import { CheckBox, ComboBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, SpinBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export component FileopsSettings inherits VerticalLayout {
     in-out property <bool> rename-dialog;
     in-out property <bool> conflict-ask;
+    in-out property <bool> undo-enabled;
+    in-out property <int> undo-limit;
     in-out property <int> shortcut-kind;
     in-out property <int> shortcut-collision;
     in-out property <bool> search-new-window;
     in-out property <bool> search-recursive;
     in-out property <bool> search-exact-name;
     callback changed();
+    changed undo-limit => { history-limit.value = root.undo-limit; }
     spacing: Theme.s2;
     CheckBox {
         text: @tr("Rename in a dialog");
@@ -20,6 +23,19 @@ export component FileopsSettings inherits VerticalLayout {
         text: @tr("Ask when a pasted name exists");
         checked <=> root.conflict-ask;
         toggled => { root.changed(); }
+    }
+    CheckBox {
+        text: @tr("Enable file undo for this session");
+        checked <=> root.undo-enabled;
+        toggled => { root.changed(); }
+    }
+    Text { text: @tr("Maximum undo steps"); color: Theme.text; }
+    HorizontalLayout {
+        history-limit := SpinBox { value: root.undo-limit; minimum: 1; maximum: 1000; }
+        Button {
+            text: @tr("Apply history limit");
+            clicked => { root.undo-limit = history-limit.value; root.changed(); }
+        }
     }
     Text { text: @tr("Shortcut type"); color: Theme.text; }
     ComboBox {

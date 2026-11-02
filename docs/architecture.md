@@ -614,3 +614,29 @@ mtime and ctime before moving the old file to the desktop trash and publishing
 with a strict non-replacing rename. Trash capability is queried on the worker;
 without it Overwrite is disabled. A trash failure preserves the destination.
 Questions show both sizes and modification times; results count replacements.
+
+### File undo (`fileops_undo.rs`, `fileops_undo_ui.rs`)
+
+An opt-in, bounded session journal records successful transfer pairs and
+renames. One paste is one step, containing its supported successful items;
+undo visits the members in reverse order and redo in source order. The history
+limit counts whole operations. If a new group would exceed the tree snapshot
+budget, none of that group is recorded and older applied history is kept;
+redo is invalidated and the result warns about omitted history. Each item carries a sorted, non-following tree snapshot (relative
+paths, device, inode, byte size, mode and nanosecond modification time). Undo
+checks the snapshot and destination vacancy on a worker, then uses strict
+`RENAME_NOREPLACE`; unsupported filesystems fail safely. Copy undo uses the
+desktop trash, while redo creates an exact-path copy from a verified source.
+It never relies on discovering a trash identifier. Cross-filesystem moves,
+overwrites and destructive deletion are excluded. No history goes to disk.
+The settings writer persists only the enable choice and history limit.
+
+The journal and this program's destructive operations are serialized on
+workers. History snapshots, CSV export, rename submission and all tree
+traversal run off the UI thread. Existing result helpers also take brief index
+read locks on the UI thread when preparing result context menus.
+History rows carry stable operation IDs; filter refreshes have a revision guard
+so stale responses cannot retarget a selected step. Recreating a copy updates
+the recorded identity of a later pending rename of that same copy. An identity
+check cannot eliminate changes made by other processes between the check and
+the filesystem syscall; strict destination creation still never overwrites.

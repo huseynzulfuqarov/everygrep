@@ -7,6 +7,7 @@ import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
+export { FileUndoWindow } from "fileops-undo.slint";
 export { HistoryWindow } from "history.slint";
 export { SavedWindow } from "saved.slint";
 export { AdvancedWindow } from "advanced.slint";
@@ -1162,6 +1163,7 @@ export component AppWindow inherits Window {
     // part selected at the start.
     in property <int> rename-row: -1;
     in-out property <string> rename-text;
+    in-out property <bool> rename-busy;
     in property <int> rename-stem;
     // The name being edited is in the first column: show it.
     changed rename-row => {
@@ -1176,6 +1178,10 @@ export component AppWindow inherits Window {
     in property <bool> fileops-conflict-error;
     callback fileops-conflict-answer(int);
     in property <bool> fileops-rename-open;
+    in property <bool> fileops-rename-busy;
+    in property <bool> file-undo-enabled;
+    callback file-undo(bool);
+    callback file-undo-history();
     in property <string> fileops-rename-location;
     in-out property <string> fileops-rename-name;
     in property <int> fileops-rename-stem;
@@ -1620,6 +1626,7 @@ export component AppWindow inherits Window {
         if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
             return false;
         }
+        if (c == Command.undo-file || c == Command.redo-file || c == Command.file-undo-history) { return root.file-undo-enabled; }
         if (root.needs-online(c)) {
             return root.current >= 0 && !root.current-offline
                 && (c != Command.rename || root.rename-row < 0);
@@ -1682,6 +1689,10 @@ export component AppWindow inherits Window {
             root.fileops-search(root.current, c == Command.search-containing-folder);
         } else if (c == Command.create-shortcut) {
             root.fileops-shortcuts(root.current);
+        } else if (c == Command.undo-file || c == Command.redo-file) {
+            root.file-undo(c == Command.redo-file);
+        } else if (c == Command.file-undo-history) {
+            root.file-undo-history();
         } else if (c == Command.rename) {
             root.rename-start(root.current);
         } else if (c == Command.trash) {
@@ -3005,21 +3016,17 @@ export component AppWindow inherits Window {
         }
     }
 
-    if root.fileops-conflict-open: FileopsConflict {
-        message: root.fileops-conflict-text;
-        can-overwrite: root.fileops-conflict-overwrite;
-        is-error: root.fileops-conflict-error;
-        answer(choice) => { root.fileops-conflict-answer(choice); }
-    }
     if root.fileops-rename-open: FileopsRename {
         location: root.fileops-rename-location;
         name <=> root.fileops-rename-name;
         selection-end: root.fileops-rename-stem;
         error: root.fileops-rename-error;
+        busy: root.fileops-rename-busy;
         edited(name) => { root.fileops-rename-edited(name); }
         submit => { root.fileops-rename-submit(); }
         cancel => { root.fileops-rename-cancel(); }
     }
+
 
     if root.shortcuts-open: InfoDialog {
         title: @tr("Keyboard shortcuts");
@@ -3193,6 +3200,19 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: @tr("Edit");
+            MenuItem {
+                title: @tr("Undo file operation"); shortcut: root.menu-keys.undo-file;
+                enabled: root.can-run(Command.undo-file); activated => { root.run(Command.undo-file); }
+            }
+            MenuItem {
+                title: @tr("Redo file operation"); shortcut: root.menu-keys.redo-file;
+                enabled: root.can-run(Command.redo-file); activated => { root.run(Command.redo-file); }
+            }
+            MenuItem {
+                title: @tr("File undo history"); shortcut: root.menu-keys.file-undo-history;
+                enabled: root.can-run(Command.file-undo-history); activated => { root.run(Command.file-undo-history); }
+            }
+            MenuSeparator { }
             MenuItem {
                 title: @tr("Cut");
                 shortcut: root.menu-keys.cut;
@@ -3732,6 +3752,13 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.about); }
             }
         }
+    }
+
+    if root.fileops-conflict-open: FileopsConflict {
+        message: root.fileops-conflict-text;
+        can-overwrite: root.fileops-conflict-overwrite;
+        is-error: root.fileops-conflict-error;
+        answer(choice) => { root.fileops-conflict-answer(choice); }
     }
 
     init => { search.focus-and-select(); }
