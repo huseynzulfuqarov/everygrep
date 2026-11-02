@@ -930,13 +930,51 @@ impl Settings {
 }
 
 /// Reads the file at `path`, changes it with `change` and writes it back.
-/// Reading first keeps changes another window made meanwhile. A file that
-/// exists but cannot be read is left alone and the error returned.
+/// Reading first keeps changes another window made meanwhile; the lock file
+/// `<name>.lock` next to it is held from the read to the write, so two
+/// windows saving at once do not lose either change. A file that exists but
+/// cannot be read is left alone and the error returned.
 pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Settings> {
+    let _lock = lock(path)?;
     let mut s = Settings::load(path)?;
     change(&mut s);
     s.save(path)?;
     Ok(s)
+}
+
+unsafe extern "C" {
+    fn flock(fd: std::ffi::c_int, operation: std::ffi::c_int) -> std::ffi::c_int;
+}
+
+/// `LOCK_EX` from `<sys/file.h>`.
+const LOCK_EX: std::ffi::c_int = 2;
+
+/// Takes the exclusive lock on `<path>.lock` (creating it and its folder),
+/// waiting for another holder. The lock goes with the returned file.
+fn lock(path: &Path) -> io::Result<fs::File> {
+    use std::os::fd::AsRawFd;
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".lock");
+    let lock_path = path.with_file_name(name);
+    if let Some(dir) = lock_path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    loop {
+        // SAFETY: the descriptor is open for the whole call.
+        if unsafe { flock(file.as_raw_fd(), LOCK_EX) } == 0 {
+            return Ok(file);
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
 }
 
 /// The value of a `shortcut` line: `<id>[ <scope> <keys>[; <scope> <keys>]…]`.
@@ -1184,6 +1222,34 @@ pub(crate) mod tests {
         assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
         assert!(fs::symlink_metadata(&path).unwrap().is_file());
         assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[test]
+    fn two_writers_at_once_keep_both_changes() {
+        use std::sync::mpsc;
+        let dir = Scratch::new("settings-two-writers");
+        let path = dir.0.join("settings");
+        Settings::default().save(&path).unwrap();
+        let (loaded, wait) = mpsc::channel();
+        let first = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                update(&path, |s| {
+                    s.history_size = 7;
+                    loaded.send(()).unwrap();
+                    // The other writer starts while this one has read the
+                    // file but not written it yet.
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                })
+                .unwrap();
+            })
+        };
+        wait.recv().unwrap();
+        update(&path, |s| s.as_you_type = false).unwrap();
+        first.join().unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert_eq!(s.history_size, 7);
+        assert!(!s.as_you_type, "the second change was lost");
     }
 
     #[test]
@@ -1629,12 +1695,13 @@ shortcut = edit.cut list F9
         assert_eq!(s.options.filter, Filter::Video);
         assert_eq!(Settings::load(&path).unwrap(), s);
         assert!(fs::read_to_string(&path).unwrap().contains("future = 1"));
-        // No temporary file is left behind.
-        let names: Vec<_> = fs::read_dir(path.parent().unwrap())
+        // No temporary file is left behind; the lock file stays.
+        let mut names: Vec<_> = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
-        assert_eq!(names, ["settings"]);
+        names.sort();
+        assert_eq!(names, ["settings", "settings.lock"]);
     }
 
     #[test]

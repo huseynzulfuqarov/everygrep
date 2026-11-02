@@ -632,7 +632,8 @@ collects nothing. It stores:
   reading read,
   and `<uuid>.info` with its label, last mount point, when it was last
   connected and its number of entries;
-- the settings, in `~/.config/everygrep/settings`;
+- the settings, in `~/.config/everygrep/settings` (and an empty
+  `settings.lock` next to it, which windows lock while they save);
 - the search history, in `~/.config/everygrep/history`, only when "Keep the
   history after EveryGrep closes" is on (it is off by default).
 

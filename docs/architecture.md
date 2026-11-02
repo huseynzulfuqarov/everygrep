@@ -260,6 +260,9 @@ are fixed.
 
 Settings are a `key = value` text file in `$XDG_CONFIG_HOME/everygrep/settings`
 that lists only values that differ from the defaults and keeps unknown keys.
+A save reads the file, applies the change and writes it back while holding
+an `flock` on `settings.lock` next to it, so two windows saving at once keep
+both changes.
 `prefs.rs` owns the running settings, applies each change at once and fills
 the settings window.
 
