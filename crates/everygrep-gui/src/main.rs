@@ -62,8 +62,14 @@ const HISTORY_PAUSE: Duration = Duration::from_secs(1);
 const SETTINGS_DELAY: Duration = Duration::from_millis(300);
 
 fn main() -> Result<(), slint::PlatformError> {
-    let raw: Vec<String> = std::env::args().skip(1).collect();
-    let args = match parse_args(raw.iter().cloned()) {
+    let raw_os: Vec<OsString> = std::env::args_os().skip(1).collect();
+    // A running window takes over the query words and options only (its
+    // folders are those of its bus name), so the text form is enough.
+    let raw: Vec<String> = raw_os
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let args = match parse_args(raw_os) {
         Ok(Cli::Run(args)) => args,
         Ok(Cli::Help) => {
             println!("{USAGE}");
@@ -712,7 +718,7 @@ struct Presentation {
 /// The changes a later launch's arguments ask for. Arguments that do not
 /// parse (they were checked by the launch already) change nothing.
 fn presentation(args: &[String]) -> Presentation {
-    match parse_args(args.iter().cloned()) {
+    match parse_args(args.iter().map(OsString::from)) {
         Ok(Cli::Run(a)) => Presentation {
             query: (!a.query.is_empty()).then_some(a.query),
             options: a.options_given.then_some(a.options),
@@ -1551,17 +1557,33 @@ enum Cli {
 /// Without roots the saved roots, or the home folder, are used. An unknown
 /// option or value is an error, so a mistyped flag never opens a window on
 /// the default roots; after `--` every argument is a query word.
-fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
+fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Cli, String> {
     let mut out = Args::default();
     let mut words: Vec<String> = Vec::new();
     let mut args = args.into_iter();
+    // Paths are taken as they are; every other argument must be text.
+    let text = |a: OsString| {
+        a.into_string()
+            .map_err(|a| format!("{} is not valid UTF-8", a.to_string_lossy()))
+    };
     while let Some(a) = args.next() {
-        let mut value = || args.next().ok_or_else(|| format!("{a} needs a value"));
+        if a == "--root" || a == "--index-file" {
+            let path = PathBuf::from(
+                args.next()
+                    .ok_or_else(|| format!("{} needs a value", a.to_string_lossy()))?,
+            );
+            if a == "--root" {
+                out.roots.push(path);
+            } else {
+                out.index_file = Some(path);
+            }
+            continue;
+        }
+        let a = text(a)?;
+        let mut value = || text(args.next().ok_or_else(|| format!("{a} needs a value"))?);
         match a.as_str() {
             "-h" | "--help" => return Ok(Cli::Help),
             "-V" | "--version" => return Ok(Cli::Version),
-            "--root" => out.roots.push(PathBuf::from(value()?)),
-            "--index-file" => out.index_file = Some(PathBuf::from(value()?)),
             "--filter" => {
                 let name = value()?;
                 out.options.filter =
@@ -1616,7 +1638,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
                     }
                 }
             }
-            "--" => words.extend(args.by_ref()),
+            "--" => {
+                for word in args.by_ref() {
+                    words.push(text(word)?);
+                }
+            }
             _ if a.starts_with("--") => return Err(format!("unknown option {a}")),
             _ => words.push(a),
         }
@@ -1855,7 +1881,26 @@ mod tests {
     use super::*;
 
     fn parse(list: &[&str]) -> Result<Cli, String> {
-        parse_args(list.iter().map(|s| (*s).to_owned()))
+        parse_args(list.iter().map(OsString::from))
+    }
+
+    #[test]
+    fn paths_keep_bytes_that_are_not_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let bad = std::ffi::OsStr::from_bytes(b"/data/\xff");
+        let list = [
+            OsString::from("--root"),
+            bad.into(),
+            "--index-file".into(),
+            bad.into(),
+        ];
+        let Ok(Cli::Run(a)) = parse_args(list) else {
+            panic!("refused")
+        };
+        assert_eq!(a.roots, [PathBuf::from(bad)]);
+        assert_eq!(a.index_file.as_deref(), Some(std::path::Path::new(bad)));
+        let words = [OsString::from("--"), bad.into()];
+        assert!(parse_args(words).unwrap_err().contains("not valid UTF-8"));
     }
 
     fn args(list: &[&str]) -> Args {
@@ -2027,7 +2072,7 @@ mod tests {
             ]
         );
         // The arguments parse back to the same index.
-        let back = parse_args(args.iter().map(|a| a.to_string_lossy().into_owned()));
+        let back = parse_args(args.iter().cloned());
         let Ok(Cli::Run(a)) = back else {
             panic!("{back:?}")
         };
