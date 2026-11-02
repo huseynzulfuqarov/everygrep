@@ -216,7 +216,8 @@ pub fn open_with(path: &Path) -> Result<bool, String> {
 
 /// Makes a portal request: `call` sends it with `options`, to which a
 /// handle token is added, and this waits for its `Response` signal. Returns
-/// the results, or `None` when the user cancelled. The connection stays
+/// the results, `None` when the user cancelled, or an error when the portal
+/// ended the request otherwise. The connection stays
 /// open until the answer, since the portal closes the dialog of a caller
 /// that leaves the bus.
 fn request(
@@ -257,7 +258,18 @@ fn request(
     let message = responses.next().ok_or("the portal did not answer")?;
     let (code, results): (u32, HashMap<String, OwnedValue>) =
         message.body().deserialize().map_err(|e| e.to_string())?;
-    Ok((code == 0).then_some(results))
+    response(code, results)
+}
+
+/// What a `Response` with `code` means for the caller: 0 the results, 1
+/// (cancelled by the user) `None`, anything else (2: the dialog ended in
+/// another way, such as a failure in the portal) an error.
+fn response<T>(code: u32, results: T) -> Result<Option<T>, String> {
+    match code {
+        0 => Ok(Some(results)),
+        1 => Ok(None),
+        code => Err(format!("the portal ended the request (code {code})")),
+    }
 }
 
 /// The local path of a `file://` URI, percent escapes decoded; `None` for
@@ -302,6 +314,14 @@ mod tests {
         assert_eq!(color_scheme(&wrapped), Some(ColorScheme::Dark));
         assert_eq!(color_scheme(&Value::from("dark")), None);
         assert_eq!(color_scheme(&Value::I32(1)), None);
+    }
+
+    #[test]
+    fn only_a_cancel_is_quiet_and_a_failure_is_an_error() {
+        assert_eq!(response(0, 5), Ok(Some(5)));
+        assert_eq!(response(1, 5), Ok(None), "cancelled by the user");
+        assert!(response(2, 5).is_err(), "ended in another way");
+        assert!(response(7, 5).is_err());
     }
 
     #[test]
