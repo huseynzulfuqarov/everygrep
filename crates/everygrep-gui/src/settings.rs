@@ -176,6 +176,9 @@ pub struct Columns {
     pub show_accessed: bool,
     pub show_attrs: bool,
     pub name: Option<f32>,
+    /// Folder's own width, kept only while the columns are wider than the
+    /// window (Folder otherwise takes the room the others leave).
+    pub folder: Option<f32>,
     pub size: Option<f32>,
     pub date: Option<f32>,
     pub type_: Option<f32>,
@@ -555,12 +558,13 @@ impl Settings {
             "show-created-column" => put_flag(&mut self.columns.show_created),
             "show-accessed-column" => put_flag(&mut self.columns.show_accessed),
             "show-attributes-column" => put_flag(&mut self.columns.show_attrs),
-            "name-width" | "size-width" | "modified-width" | "type-width" | "extension-width"
-            | "created-width" | "accessed-width" | "attributes-width" => {
+            "name-width" | "folder-width" | "size-width" | "modified-width" | "type-width"
+            | "extension-width" | "created-width" | "accessed-width" | "attributes-width" => {
                 let Some(w) = width(value) else { return false };
                 let c = &mut self.columns;
                 *match key {
                     "name-width" => &mut c.name,
+                    "folder-width" => &mut c.folder,
                     "size-width" => &mut c.size,
                     "modified-width" => &mut c.date,
                     "type-width" => &mut c.type_,
@@ -815,6 +819,7 @@ impl Settings {
         flag(&mut out, "show-attributes-column", c.show_attrs, false);
         let widths = [
             ("name-width", c.name),
+            ("folder-width", c.folder),
             ("size-width", c.size),
             ("modified-width", c.date),
             ("type-width", c.type_),
@@ -1333,6 +1338,7 @@ pub(crate) mod tests {
                 show_accessed: false,
                 show_attrs: true,
                 name: Some(300.0),
+                folder: Some(410.0),
                 size: Some(90.0),
                 date: Some(140.0),
                 type_: Some(120.0),
@@ -1367,6 +1373,7 @@ pub(crate) mod tests {
                 .ignored
                 .is_empty()
         );
+        assert!(text.contains("folder-width = 410\n"));
         assert!(text.contains("theme = dark\n"));
         assert!(text.contains("density = compact\n"));
         assert!(text.contains("status-details = false\n"));

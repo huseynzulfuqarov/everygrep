@@ -359,6 +359,14 @@ First version, 0.1.0, not released yet.
 - Size columns to fit the rows on screen: double-click a header border,
   or View → Size all columns to fit / Fit columns to window (also
   in the header's context menu, with keys that can be set).
+- Columns can be wider than the window: the list and its headers then scroll
+  sideways together, so every shown column can be reached in a narrow
+  window. A dragged header border stays under the pointer; past the
+  minimum of the column on its right, or at the new border after the last
+  column, the columns get wider than the window, and dragging back narrows
+  them again before the right column gets room. Folder still takes the
+  spare room; the width it keeps while the columns are too wide is saved as
+  `folder-width`.
 
 ### Project
 

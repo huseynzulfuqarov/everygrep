@@ -69,6 +69,23 @@ export struct FitTexts {
     c: string,
 }
 
+// The result list's columns (numbered as sort-column; 0 for a hidden one)
+// as the window shows them, for drag-columns.
+export struct ColumnLayout {
+    widths: [length],
+    mins: [length],
+    window: length,
+    folder-want: length,
+}
+
+// The widths of the two columns at a dragged header border, and Folder's
+// own width (0 for none).
+export struct ColumnDrag {
+    left: length,
+    right: length,
+    folder-want: length,
+}
+
 // A line of the keyboard shortcuts dialog.
 export struct ShortcutRow {
     keys: string,
@@ -898,6 +915,10 @@ export component AppWindow inherits Window {
     // The widest-looking texts of a column (numbered as sort-column) in
     // `count` rows from row `first`.
     pure callback fit-texts(int, int, int) -> FitTexts;
+    // The columns after the border right of column `left` (with column
+    // `right` on its other side, -1 for none) was dragged by a length; see
+    // src/columns.rs.
+    pure callback drag-columns(ColumnLayout, int, int, length) -> ColumnDrag;
     callback activate(int);
     // Asks the desktop which application to open the item with.
     callback open-with(int);
@@ -936,6 +957,12 @@ export component AppWindow inherits Window {
     in property <int> rename-row: -1;
     in-out property <string> rename-text;
     in property <int> rename-stem;
+    // The name being edited is in the first column: show it.
+    changed rename-row => {
+        if (self.rename-row >= 0) {
+            list.content-x = 0;
+        }
+    }
 
     in property <bool> fileops-rename-open;
     in property <string> fileops-rename-location;
@@ -958,12 +985,16 @@ export component AppWindow inherits Window {
     callback clear-selection() -> bool;
     pure callback is-selected(int) -> bool;
 
-    // Column widths. Size and Modified keep the width the user gave them; Name
-    // and Folder share the rest of the window, so the columns always end at the
-    // right edge. Name keeps its chosen width while Folder can stay at least at
-    // its minimum, then shrinks. Until the user drags Name, it takes 48 % of
-    // the shared space.
+    // Column widths. Every column but Folder keeps the width the user gave
+    // it; Folder takes the rest of the window, so the columns end at the
+    // right edge, or, when they do not fit (Folder at its minimum), they are
+    // wider than the window and the list scrolls sideways. Until the user
+    // drags Name, it takes 48 % of the room left by Size and Modified.
     in-out property <length> name-want: (self.width - self.size-want - self.date-want) * 0.48;
+    // Folder's own width, 0 for none: set only while the columns are wider
+    // than the window (see src/columns.rs), or by fitting Folder when it
+    // cannot get its width otherwise.
+    in-out property <length> folder-want: 0px;
     in-out property <length> size-want: 96px;
     in-out property <length> date-want: 120px;
     in-out property <length> type-want: 130px;
@@ -1004,9 +1035,16 @@ export component AppWindow inherits Window {
     property <length> attr-width: self.show-attrs ? max(self.attr-min, self.attr-want) : 0px;
     property <length> fixed-width: self.size-width + self.date-width + self.type-width + self.ext-width
         + self.created-width + self.accessed-width + self.attr-width;
-    property <length> flex-width: max(self.name-min + self.folder-min, self.width - self.fixed-width);
-    property <length> name-width: max(self.name-min, min(self.name-want, self.flex-width - self.folder-min));
-    property <length> folder-width: self.flex-width - self.name-width;
+    property <length> name-width: max(self.name-min, self.name-want);
+    property <length> folder-width: max(self.folder-min, max(self.folder-want,
+        self.width - self.name-width - self.fixed-width));
+    // Width of all columns: the window's, or more when they do not fit.
+    property <length> table-width: self.name-width + self.folder-width + self.fixed-width;
+    // How far the list can scroll sideways.
+    property <length> scroll-room: max(0px, self.table-width - list.visible-width);
+    changed scroll-room => {
+        list.content-x = max(list.content-x, -self.scroll-room);
+    }
     // Left edges of the optional columns.
     property <length> type-x: self.name-width + self.folder-width + self.size-width + self.date-width;
     property <length> ext-x: self.type-x + self.type-width;
@@ -1093,8 +1131,12 @@ export component AppWindow inherits Window {
             root.name-want = w;
             root.name-set = true;
         } else if (c == 1) {
-            root.name-want = max(root.name-min, root.flex-width - w);
+            // Name takes the rest; when that is less than its minimum, Folder
+            // keeps w as its own width and the columns get wider than the
+            // window.
+            root.name-want = max(root.name-min, root.width - root.fixed-width - w);
             root.name-set = true;
+            root.folder-want = root.name-min + w + root.fixed-width > root.width ? w : 0px;
         } else if (c == 2) {
             root.size-want = w;
         } else {
@@ -1109,6 +1151,7 @@ export component AppWindow inherits Window {
 
     // Sizes every shown column to fit; Folder takes the rest of the window.
     function fit-all-columns() {
+        root.folder-want = 0px;
         root.fit-column(2);
         root.fit-column(3);
         if (root.show-type) { root.fit-column(4); }
@@ -1136,6 +1179,7 @@ export component AppWindow inherits Window {
             return;
         }
         let f = root.width / total;
+        root.folder-want = 0px;
         root.size-want = max(root.size-min, w2 * f);
         root.date-want = max(root.date-min, w3 * f);
         if (root.show-type) { root.type-want = max(root.type-min, w4 * f); }
@@ -1153,29 +1197,52 @@ export component AppWindow inherits Window {
             : c > 5 && root.show-ext ? 5 : c > 4 && root.show-type ? 4 : 3;
     }
 
-    // Dragging a boundary moves it between its two neighbours; neither gets
-    // narrower than its minimum, so the total width stays the same.
+    // The last shown column.
+    function last-shown() -> int {
+        return root.show-attrs ? 8 : root.show-accessed ? 7 : root.show-created ? 6
+            : root.show-ext ? 5 : root.show-type ? 4 : 3;
+    }
+
+    // Dragging a boundary moves it with the pointer: 0 is Name|Folder, 1
+    // Folder|Size, 2 Size|Modified, 4 to 8 the left edge of that optional
+    // column, 9 the right edge of the last column. The column on the left
+    // grows or shrinks; the one on the right gives or takes the room while
+    // the columns fit, and past that they get wider than the window (or
+    // narrower again). See src/columns.rs.
     function drag-boundary(boundary: int, delta: length) {
-        if (boundary <= 1) {
+        let left = boundary <= 2 ? boundary : boundary == 9 ? root.last-shown() : root.left-of(boundary);
+        let right = boundary <= 2 ? boundary + 1 : boundary == 9 ? -1 : boundary;
+        let next = root.drag-columns({
+            widths: [root.name-width, root.folder-width, root.size-width, root.date-width,
+                root.type-width, root.ext-width, root.created-width, root.accessed-width,
+                root.attr-width],
+            mins: [root.name-min, root.folder-min, root.size-min, root.date-min, root.type-min,
+                root.ext-min, root.created-min, root.accessed-min, root.attr-min],
+            window: root.width,
+            folder-want: root.folder-want,
+        }, left, right, delta);
+        if (left <= 3) {
+            // Name keeps its width from now on (until then it follows the
+            // window and the widths of Size and Modified).
+            root.name-want = root.name-width;
             root.name-set = true;
         }
-        if (boundary == 0) {
-            root.name-want = max(root.name-min, min(root.name-width + delta, root.name-width + root.folder-width - root.folder-min));
-        } else if (boundary == 1) {
-            root.name-want = root.name-width;
-            root.size-want = max(root.size-min, min(root.size-width - delta, root.size-width + root.folder-width - root.folder-min));
-        } else if (boundary == 2) {
-            let pair = root.size-width + root.date-width;
-            let size = max(root.size-min, min(root.size-width + delta, pair - root.date-min));
-            root.size-want = size;
-            root.date-want = pair - size;
-        } else {
-            // The left edge of optional column `boundary`.
-            let left = root.left-of(boundary);
-            let pair = root.col-width(left) + root.col-width(boundary);
-            let w = max(root.col-min(left), min(root.col-width(left) + delta, pair - root.col-min(boundary)));
-            root.set-col-want(left, w);
-            root.set-col-want(boundary, pair - w);
+        root.folder-want = next.folder-want;
+        root.take-width(left, next.left);
+        if (right >= 0) {
+            root.take-width(right, next.right);
+        }
+    }
+
+    // Gives column c the width w after a drag; Folder's comes from
+    // folder-want.
+    function take-width(c: int, w: length) {
+        if (c == 0) {
+            root.name-want = w;
+        } else if (c == 2) {
+            root.size-want = w;
+        } else if (c >= 3) {
+            root.set-col-want(c, w);
         }
     }
 
@@ -1665,223 +1732,238 @@ export component AppWindow inherits Window {
             Rectangle {
                 height: Theme.header-height;
                 background: Theme.surface-alt;
-                header-menu := ContextMenuArea {
-                    Menu {
-                        // Activating a checkable item flips its check mark, which
-                        // is tied to the column flag both ways.
-                        MenuItem {
-                            title: @tr("Type");
-                            checkable: true;
-                            checked <=> root.show-type;
-                            activated => { root.column-shown(4, root.show-type); }
-                        }
-                        MenuItem {
-                            title: @tr("Extension");
-                            checkable: true;
-                            checked <=> root.show-ext;
-                            activated => { root.column-shown(5, root.show-ext); }
-                        }
-                        MenuItem {
-                            title: @tr("Created");
-                            checkable: true;
-                            checked <=> root.show-created;
-                            activated => { root.column-shown(6, root.show-created); }
-                        }
-                        MenuItem {
-                            title: @tr("Accessed");
-                            checkable: true;
-                            checked <=> root.show-accessed;
-                            activated => { root.column-shown(7, root.show-accessed); }
-                        }
-                        MenuItem {
-                            title: @tr("Attributes");
-                            checkable: true;
-                            checked <=> root.show-attrs;
-                            activated => { root.column-shown(8, root.show-attrs); }
-                        }
-                        MenuSeparator { }
-                        MenuItem {
-                            title: @tr("Size column to fit");
-                            activated => { root.fit-column(root.menu-column); }
-                        }
-                        MenuItem {
-                            title: @tr("Size all columns to fit");
-                            activated => { root.run(Command.fit-columns); }
-                        }
-                        MenuItem {
-                            title: @tr("Fit columns to window");
-                            activated => { root.run(Command.fit-columns-to-window); }
-                        }
-                    }
-                    HeaderCell {
-                        x: Theme.s1;
-                        width: root.name-width - Theme.s1;
-                        height: parent.height;
-                        label: @tr("Name");
-                        sorted: root.sort-column == 0;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(0); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 0;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    HeaderCell {
-                        x: root.name-width;
-                        width: root.folder-width;
-                        height: parent.height;
-                        label: @tr("Folder");
-                        sorted: root.sort-column == 1;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(1); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 1;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    HeaderCell {
-                        x: root.name-width + root.folder-width;
-                        width: root.size-width;
-                        height: parent.height;
-                        label: @tr("Size");
-                        align: right;
-                        sorted: root.sort-column == 2;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(2); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 2;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    HeaderCell {
-                        x: root.name-width + root.folder-width + root.size-width;
-                        width: root.date-width;
-                        height: parent.height;
-                        label: @tr("Modified");
-                        sorted: root.sort-column == 3;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(3); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 3;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    if root.show-type: HeaderCell {
-                        x: root.type-x;
-                        width: root.type-width;
-                        height: parent.height;
-                        label: @tr("Type");
-                        sorted: root.sort-column == 4;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(4); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 4;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    if root.show-ext: HeaderCell {
-                        x: root.ext-x;
-                        width: root.ext-width;
-                        height: parent.height;
-                        label: @tr("Extension");
-                        sorted: root.sort-column == 5;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(5); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 5;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    if root.show-created: HeaderCell {
-                        x: root.created-x;
-                        width: root.created-width;
-                        height: parent.height;
-                        label: @tr("Created");
-                        sorted: root.sort-column == 6;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(6); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 6;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    if root.show-accessed: HeaderCell {
-                        x: root.accessed-x;
-                        width: root.accessed-width;
-                        height: parent.height;
-                        label: @tr("Accessed");
-                        sorted: root.sort-column == 7;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(7); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 7;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                    if root.show-attrs: HeaderCell {
-                        x: root.attr-x;
-                        width: root.attr-width;
-                        height: parent.height;
-                        label: @tr("Attributes");
-                        sorted: root.sort-column == 8;
-                        descending: root.sort-descending;
-                        clicked => { root.sort-by(8); }
-                        right-pressed(x, y) => {
-                            root.menu-column = 8;
-                            header-menu.show({ x: self.x + x, y: y });
-                        }
-                    }
-                }
-                // Boundary grips, on top of the cells.
-                // A double-click on a grip sizes the column on its left to fit.
-                ColumnGrip {
-                    x: root.name-width - self.width / 2;
+                clip: true;
+                // The headers move with the rows when the list scrolls sideways.
+                Rectangle {
+                    x: list.content-x;
+                    width: root.table-width;
                     height: parent.height;
-                    dragged(delta) => { root.drag-boundary(0, delta); }
-                    fit => { root.fit-column(0); }
-                }
-                ColumnGrip {
-                    x: root.name-width + root.folder-width - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(1, delta); }
-                    fit => { root.fit-column(1); }
-                }
-                ColumnGrip {
-                    x: root.name-width + root.folder-width + root.size-width - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(2, delta); }
-                    fit => { root.fit-column(2); }
-                }
-                // One on the left edge of each optional column shown.
-                if root.show-type: ColumnGrip {
-                    x: root.type-x - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(4, delta); }
-                    fit => { root.fit-column(root.left-of(4)); }
-                }
-                if root.show-ext: ColumnGrip {
-                    x: root.ext-x - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(5, delta); }
-                    fit => { root.fit-column(root.left-of(5)); }
-                }
-                if root.show-created: ColumnGrip {
-                    x: root.created-x - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(6, delta); }
-                    fit => { root.fit-column(root.left-of(6)); }
-                }
-                if root.show-accessed: ColumnGrip {
-                    x: root.accessed-x - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(7, delta); }
-                    fit => { root.fit-column(root.left-of(7)); }
-                }
-                if root.show-attrs: ColumnGrip {
-                    x: root.attr-x - self.width / 2;
-                    height: parent.height;
-                    dragged(delta) => { root.drag-boundary(8, delta); }
-                    fit => { root.fit-column(root.left-of(8)); }
+                    header-menu := ContextMenuArea {
+                        Menu {
+                            // Activating a checkable item flips its check mark, which
+                            // is tied to the column flag both ways.
+                            MenuItem {
+                                title: @tr("Type");
+                                checkable: true;
+                                checked <=> root.show-type;
+                                activated => { root.column-shown(4, root.show-type); }
+                            }
+                            MenuItem {
+                                title: @tr("Extension");
+                                checkable: true;
+                                checked <=> root.show-ext;
+                                activated => { root.column-shown(5, root.show-ext); }
+                            }
+                            MenuItem {
+                                title: @tr("Created");
+                                checkable: true;
+                                checked <=> root.show-created;
+                                activated => { root.column-shown(6, root.show-created); }
+                            }
+                            MenuItem {
+                                title: @tr("Accessed");
+                                checkable: true;
+                                checked <=> root.show-accessed;
+                                activated => { root.column-shown(7, root.show-accessed); }
+                            }
+                            MenuItem {
+                                title: @tr("Attributes");
+                                checkable: true;
+                                checked <=> root.show-attrs;
+                                activated => { root.column-shown(8, root.show-attrs); }
+                            }
+                            MenuSeparator { }
+                            MenuItem {
+                                title: @tr("Size column to fit");
+                                activated => { root.fit-column(root.menu-column); }
+                            }
+                            MenuItem {
+                                title: @tr("Size all columns to fit");
+                                activated => { root.run(Command.fit-columns); }
+                            }
+                            MenuItem {
+                                title: @tr("Fit columns to window");
+                                activated => { root.run(Command.fit-columns-to-window); }
+                            }
+                        }
+                        HeaderCell {
+                            x: Theme.s1;
+                            width: root.name-width - Theme.s1;
+                            height: parent.height;
+                            label: @tr("Name");
+                            sorted: root.sort-column == 0;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(0); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 0;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        HeaderCell {
+                            x: root.name-width;
+                            width: root.folder-width;
+                            height: parent.height;
+                            label: @tr("Folder");
+                            sorted: root.sort-column == 1;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(1); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 1;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        HeaderCell {
+                            x: root.name-width + root.folder-width;
+                            width: root.size-width;
+                            height: parent.height;
+                            label: @tr("Size");
+                            align: right;
+                            sorted: root.sort-column == 2;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(2); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 2;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        HeaderCell {
+                            x: root.name-width + root.folder-width + root.size-width;
+                            width: root.date-width;
+                            height: parent.height;
+                            label: @tr("Modified");
+                            sorted: root.sort-column == 3;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(3); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 3;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-type: HeaderCell {
+                            x: root.type-x;
+                            width: root.type-width;
+                            height: parent.height;
+                            label: @tr("Type");
+                            sorted: root.sort-column == 4;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(4); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 4;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-ext: HeaderCell {
+                            x: root.ext-x;
+                            width: root.ext-width;
+                            height: parent.height;
+                            label: @tr("Extension");
+                            sorted: root.sort-column == 5;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(5); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 5;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-created: HeaderCell {
+                            x: root.created-x;
+                            width: root.created-width;
+                            height: parent.height;
+                            label: @tr("Created");
+                            sorted: root.sort-column == 6;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(6); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 6;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-accessed: HeaderCell {
+                            x: root.accessed-x;
+                            width: root.accessed-width;
+                            height: parent.height;
+                            label: @tr("Accessed");
+                            sorted: root.sort-column == 7;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(7); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 7;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                        if root.show-attrs: HeaderCell {
+                            x: root.attr-x;
+                            width: root.attr-width;
+                            height: parent.height;
+                            label: @tr("Attributes");
+                            sorted: root.sort-column == 8;
+                            descending: root.sort-descending;
+                            clicked => { root.sort-by(8); }
+                            right-pressed(x, y) => {
+                                root.menu-column = 8;
+                                header-menu.show({ x: self.x + x, y: y });
+                            }
+                        }
+                    }
+                    // Boundary grips, on top of the cells.
+                    // A double-click on a grip sizes the column on its left to fit.
+                    ColumnGrip {
+                        x: root.name-width - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(0, delta); }
+                        fit => { root.fit-column(0); }
+                    }
+                    ColumnGrip {
+                        x: root.name-width + root.folder-width - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(1, delta); }
+                        fit => { root.fit-column(1); }
+                    }
+                    ColumnGrip {
+                        x: root.name-width + root.folder-width + root.size-width - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(2, delta); }
+                        fit => { root.fit-column(2); }
+                    }
+                    // One on the left edge of each optional column shown.
+                    if root.show-type: ColumnGrip {
+                        x: root.type-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(4, delta); }
+                        fit => { root.fit-column(root.left-of(4)); }
+                    }
+                    if root.show-ext: ColumnGrip {
+                        x: root.ext-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(5, delta); }
+                        fit => { root.fit-column(root.left-of(5)); }
+                    }
+                    if root.show-created: ColumnGrip {
+                        x: root.created-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(6, delta); }
+                        fit => { root.fit-column(root.left-of(6)); }
+                    }
+                    if root.show-accessed: ColumnGrip {
+                        x: root.accessed-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(7, delta); }
+                        fit => { root.fit-column(root.left-of(7)); }
+                    }
+                    if root.show-attrs: ColumnGrip {
+                        x: root.attr-x - self.width / 2;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(8, delta); }
+                        fit => { root.fit-column(root.left-of(8)); }
+                    }
+                    // The right edge of the last column: dragged to the right, the
+                    // columns get wider than the window.
+                    ColumnGrip {
+                        x: root.table-width - self.width;
+                        height: parent.height;
+                        dragged(delta) => { root.drag-boundary(9, delta); }
+                        fit => { root.fit-column(root.last-shown()); }
+                    }
                 }
                 // Measures the texts of fit-width(); never drawn.
                 Rectangle {
@@ -2021,7 +2103,10 @@ export component AppWindow inherits Window {
                     }
 
                 list := ListView {
+                    // Wider than the window when the columns do not fit.
+                    content-width: root.table-width;
                     for row[i] in root.results: Row {
+                        width: root.table-width;
                         data: row;
                         current: i == root.current && keys.has-focus;
                         alternate: root.alternate-rows && Math.mod(i, 2) == 1;
@@ -2043,7 +2128,7 @@ export component AppWindow inherits Window {
                             root.current = i;
                             keys.focus();
                             if (!root.is-selected(i)) { root.select(i, 0); }
-                            menu-area.show({ x: x, y: i * Theme.row-height + list.content-y + y });
+                            menu-area.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });
                         }
                         // In the Folder column it opens the containing
                         // folder, when the setting says so.

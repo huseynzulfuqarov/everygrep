@@ -3,6 +3,7 @@
 mod actions;
 mod autostart;
 mod clipboard;
+mod columns;
 mod commands;
 mod engine;
 mod export;
@@ -386,6 +387,7 @@ fn main() -> Result<(), slint::PlatformError> {
             engine.set_sort(sort_for_column(column, descending, model.folder_size()));
         }
     });
+    window.on_drag_columns(columns::drag_in_window);
     window.on_fit_texts({
         let model = model.clone();
         move |column, first, count| {

@@ -408,6 +408,7 @@ impl Prefs {
             w.set_name_want(n);
             w.set_name_set(true);
         }
+        c.folder.into_iter().for_each(|v| w.set_folder_want(v));
         c.size.into_iter().for_each(|v| w.set_size_want(v));
         c.date.into_iter().for_each(|v| w.set_date_want(v));
         c.type_.into_iter().for_each(|v| w.set_type_want(v));
@@ -430,6 +431,7 @@ impl Prefs {
             show_accessed: w.get_show_accessed(),
             show_attrs: w.get_show_attrs(),
             name: w.get_name_set().then(|| w.get_name_want().round()),
+            folder: (w.get_folder_want() >= 0.5).then(|| w.get_folder_want().round()),
             size: differs(w.get_size_want(), SIZE_WIDTH),
             date: differs(w.get_date_want(), DATE_WIDTH),
             type_: differs(w.get_type_want(), TYPE_WIDTH),

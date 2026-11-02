@@ -85,7 +85,13 @@ screen; when a change conflicts with them, the rules win or are changed first.
   `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link
   (never followed), `X` regular file with any execute bit.
   Columns can be resized, hidden and sorted by clicking the header; reordering
-  is planned. A double-click on a header border sizes the column left of it
+  is planned. A dragged border stays under the pointer: the column on its
+  left changes, the one on its right gives or takes the room while the
+  columns fit the window, and past its minimum (or at the border after the
+  last column) the columns get wider than the window. Then the rows and the
+  headers scroll sideways together; dragging back narrows the columns again
+  first. Folder takes the spare room and keeps a width of its own only while
+  the columns are too wide (saved as `folder-width`). A double-click on a header border sizes the column left of it
   to fit; "Size all columns to fit" and "Fit columns to window"
   (View menu, header context menu, keys can be set) size every shown
   column. Fitting measures the cells of the rows on screen and the header

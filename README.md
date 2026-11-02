@@ -131,7 +131,11 @@ show in the status line. Results come in natural name order: numbers by value
 (`file2` before `file10`), case and diacritics ignored (`Çay` next to `cay`),
 `ə` after `e`, hyphens and apostrophes skipped. Right-click the
 column headers to show the Type, Extension, Created, Accessed and Attributes
-columns. Double-click a header border to size the column on its left to fit
+columns. Drag a header border to change a column's width; past the minimum
+of the column on its right, or at the border after the last column, the
+columns get wider than the window, and the list scrolls sideways (with the
+headers) to show the rest; Folder takes the room that is left when they fit.
+Double-click a header border to size the column on its left to fit
 the rows on screen; View → Size all columns to fit (the spare room goes to
 Folder) and Fit columns to window (every column scaled to fill the
 window) do it for all shown columns, also from the header's context menu. Created, Accessed and Attributes are not in the index: they are read
@@ -487,7 +491,7 @@ for 1 KB = 1024 bytes, `iec` for KiB, `metric` for 1 KB = 1000 bytes),
 `status-details`, `menu-bar`, `alternate-row-color`, `remember-columns`, `sort-dates-newest-first`,
 `sort-sizes-largest-first`,
 `show-extension-column`, `show-created-column`, `show-accessed-column`,
-`show-attributes-column`, `name-width`, `modified-width`, `type-width`,
+`show-attributes-column`, `name-width`, `folder-width`, `modified-width`, `type-width`,
 `extension-width`, `created-width`, `accessed-width`, `attributes-width`.
 `shortcut` gives one command its own keys in place of the defaults, written
 by the Keyboard settings page: `shortcut = edit.copy list Ctrl+C; global
