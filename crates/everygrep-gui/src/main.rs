@@ -205,7 +205,12 @@ fn main() -> Result<(), slint::PlatformError> {
             with_metadata: settings.index_file_details,
         },
         settings.watch_changes,
-        args.index_file,
+        // The window over the default index keeps it where the settings say.
+        if setup.saved {
+            settings.index_file()
+        } else {
+            args.index_file
+        },
         drives,
         hooks,
     );

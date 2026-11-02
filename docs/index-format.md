@@ -7,7 +7,8 @@ describes what that code does.
 ## Location
 
 The window uses `$XDG_CACHE_HOME/everygrep/index.bin` (only an absolute
-`XDG_CACHE_HOME` is used), otherwise `~/.cache/everygrep/index.bin`. The
+`XDG_CACHE_HOME` is used), otherwise `~/.cache/everygrep/index.bin`, or
+`index.bin` in the folder chosen in its settings (`index-folder`). The
 command line tool uses `cli-index.bin` in the same folder, so the two
 programs, which usually index with different folders or rules, never replace
 each other's index. Both take `--index-file <path>` to use another file;

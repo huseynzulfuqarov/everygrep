@@ -2287,3 +2287,27 @@ msgstr "Son tam skan: {}"
 #: src/labels.rs
 msgid "Last full scan: before this start; the saved index was loaded and caught up"
 msgstr "Son tam skan: bu açılışdan əvvəl; saxlanmış indeks yükləndi və dəyişikliklərə uyğunlaşdırıldı"
+
+#: ui/settings.slint
+msgid "Index file"
+msgstr "İndeks faylı"
+
+#: ui/settings.slint
+msgid "Choose folder…"
+msgstr "Qovluq seç…"
+
+#: ui/settings.slint
+msgid "Use the default folder"
+msgstr "Standart qovluğu istifadə et"
+
+#: ui/settings.slint
+msgid "The index is saved in this folder as index.bin, with the hash cache next to it. A new folder takes it at once; the old file is removed once the new one is written. Removable drives keep their indexes in the cache folder."
+msgstr "İndeks bu qovluqda index.bin adı ilə, heş keşi isə onun yanında saxlanır. Yeni qovluq seçiləndə indeks dərhal ora köçürülür; yenisi yazılandan sonra köhnə fayl silinir. Çıxarıla bilən disklərin indeksləri keş qovluğunda qalır."
+
+#: src/labels.rs
+msgid "Choose the folder of the index file"
+msgstr "İndeks faylının qovluğunu seçin"
+
+#: src/labels.rs
+msgid "The index cannot be saved as {0}: {1}. It stays where it was."
+msgstr "İndeksi {0} kimi saxlamaq olmur: {1}. O, əvvəlki yerində qalır."

@@ -673,6 +673,75 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Asks for the folder of the index file on a helper thread.
+    fn choose_index_folder(&self) {
+        if self.choosing.replace(true) {
+            return;
+        }
+        let (title, accept) = (labels::choose_index_folder(), labels::choose_accept());
+        std::thread::spawn(move || {
+            let result = crate::portal::choose_folder(title, accept);
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    p.choosing.set(false);
+                    match result {
+                        Ok(Some(folder)) => p.set_index_folder(Some(folder)),
+                        Ok(None) => {}
+                        Err(e) => p.set_error(Some(labels::chooser_failed(&e))),
+                    }
+                });
+            });
+        });
+    }
+
+    /// Keeps the index file in `folder` (`None` for the cache folder): on a
+    /// helper thread it checks that a file can be made there, then moves
+    /// the index there and saves it at once. The setting changes only when
+    /// that worked.
+    pub fn set_index_folder(&self, folder: Option<PathBuf>) {
+        if !self.index.borrow().saved || self.index_path().is_none() {
+            return;
+        }
+        let folder = folder.map(|f| std::fs::canonicalize(&f).unwrap_or(f));
+        let file = match &folder {
+            Some(f) => f.join(settings::INDEX_FILE_NAME),
+            None => match everygrep_core::persist::default_path() {
+                Some(f) => f,
+                None => return,
+            },
+        };
+        // The cache folder chosen by hand is the default.
+        let folder =
+            folder.filter(|_| Some(&file) != everygrep_core::persist::default_path().as_ref());
+        let engine = Arc::clone(&self.engine);
+        let _ = std::thread::Builder::new()
+            .name("move index".into())
+            .spawn(move || {
+                let writable = file
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| settings::create_temp(&file))
+                    .map(|(_, temp)| {
+                        let _ = std::fs::remove_file(temp);
+                    });
+                if writable.is_ok() {
+                    engine.move_index_file(file.clone());
+                    engine.save();
+                }
+                let _ = slint::invoke_from_event_loop(move || {
+                    with(|p| match writable {
+                        Ok(()) => {
+                            let kept = folder.clone();
+                            p.change(move |s| s.index_folder = kept.clone());
+                            p.set_error(None);
+                            p.refresh_details();
+                        }
+                        Err(e) => p.set_error(Some(labels::cannot_use_index_folder(&file, &e))),
+                    });
+                });
+            });
+    }
+
     /// Counts the index on a helper thread and shows the numbers on the
     /// Indexing page when they come.
     fn refresh_details(&self) {
@@ -811,6 +880,15 @@ impl Prefs {
         w.set_use_excludes(index.rules.enabled);
         w.set_watch_changes(self.settings.borrow().watch_changes);
         w.set_file_details(self.settings.borrow().index_file_details);
+        w.set_index_file(
+            self.engine
+                .index_file()
+                .map(|f| f.display().to_string())
+                .unwrap_or_default()
+                .into(),
+        );
+        w.set_index_file_default(self.settings.borrow().index_folder.is_none());
+        w.set_index_file_changeable(index.saved && self.index_path().is_some());
         {
             let s = self.settings.borrow();
             w.set_rescan_names(ModelRc::new(VecModel::from(
@@ -1265,6 +1343,8 @@ impl Prefs {
         w.on_watch_changed(on(|p| p.watch_changed()));
         w.on_rescan_changed(on(|p| p.rescan_changed()));
         w.on_refresh_details(on(|p| p.refresh_details()));
+        w.on_choose_index_folder(on(|p| p.choose_index_folder()));
+        w.on_default_index_folder(on(|p| p.set_index_folder(None)));
         w.on_file_details_changed(on(|p| {
             let on = p.window.borrow().as_ref().map(|w| w.get_file_details());
             if let Some(on) = on {

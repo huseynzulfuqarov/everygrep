@@ -331,6 +331,7 @@ the program behaves as before, except that folders show their total size.
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
 | | "Rebuild index now" | — |
+| | index file: the folder of `index.bin` (and `hashes.bin` next to it), "Choose folder…" moves it there at once and removes the old file once the new one is written; drive indexes stay in the cache folder; not for a window started with `--root` or `--index-file` | the cache folder |
 | | index details: files, folders, size of the files, folders to index, drives in the index (connected), memory, the index file and its size, the last full scan, folders not watched; counted when the settings open and with "Count again" | — |
 | Search | search as you type (off: the search runs when Enter is pressed in the search field) | on |
 | | a click into the search field selects its text (a second click places the cursor) | on |
@@ -492,6 +493,7 @@ size-width = 120
 `content-max-size-mb`, `content-code-page` (`windows-1250` … `windows-1257`)
 and `content-pdf` set how files are read for `content:`; `hash-cache-max-mb`
 the size of the hash cache.
+`index-folder` holds the folder of the index file,
 `watch-changes` turns watching off (`false`), `index-file-details` (`false`)
 indexes names only, `rescan` (`never`, `hours`, `daily`) with `rescan-hours`
 and `rescan-time` (`HH:MM`) scans the folders again by themselves,
@@ -669,7 +671,8 @@ is described in [CONTRIBUTING.md](CONTRIBUTING.md#translations).
 All data stays on this computer. EveryGrep makes no network connections and
 collects nothing. It stores:
 
-- the index, in `~/.cache/everygrep/index.bin` for the window and
+- the index, in `~/.cache/everygrep/index.bin` (or the folder chosen in
+  Settings → Indexing → Index file) for the window and
   `~/.cache/everygrep/cli-index.bin` for the command line (names, sizes and
   modification times of the indexed files, never their contents), and for
   each removable drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same

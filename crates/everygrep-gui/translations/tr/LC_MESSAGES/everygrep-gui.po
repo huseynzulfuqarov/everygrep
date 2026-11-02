@@ -2287,3 +2287,27 @@ msgstr "Son tam tarama: {}"
 #: src/labels.rs
 msgid "Last full scan: before this start; the saved index was loaded and caught up"
 msgstr "Son tam tarama: bu açılıştan önce; kayıtlı dizin yüklendi ve değişikliklerle güncellendi"
+
+#: ui/settings.slint
+msgid "Index file"
+msgstr "Dizin dosyası"
+
+#: ui/settings.slint
+msgid "Choose folder…"
+msgstr "Klasör seç…"
+
+#: ui/settings.slint
+msgid "Use the default folder"
+msgstr "Varsayılan klasörü kullan"
+
+#: ui/settings.slint
+msgid "The index is saved in this folder as index.bin, with the hash cache next to it. A new folder takes it at once; the old file is removed once the new one is written. Removable drives keep their indexes in the cache folder."
+msgstr "Dizin bu klasörde index.bin adıyla, özet önbelleği de yanında kaydedilir. Yeni bir klasör seçildiğinde dizin hemen oraya taşınır; yenisi yazıldıktan sonra eski dosya silinir. Çıkarılabilir sürücülerin dizinleri önbellek klasöründe kalır."
+
+#: src/labels.rs
+msgid "Choose the folder of the index file"
+msgstr "Dizin dosyasının klasörünü seçin"
+
+#: src/labels.rs
+msgid "The index cannot be saved as {0}: {1}. It stays where it was."
+msgstr "Dizin {0} olarak kaydedilemiyor: {1}. Önceki yerinde kalıyor."

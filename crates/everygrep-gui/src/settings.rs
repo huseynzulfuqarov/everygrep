@@ -65,6 +65,9 @@ pub const DEFAULT_HISTORY: usize = 200;
 pub const DEFAULT_OPEN_CONFIRM: usize = 32;
 /// The largest number the open question can be set to.
 pub const MAX_OPEN_CONFIRM: usize = 10_000;
+/// The name of the window's index file in a chosen folder, as in the
+/// cache folder.
+pub const INDEX_FILE_NAME: &str = "index.bin";
 /// Hours between rescans, and the time of day of a daily one (03:00), when
 /// that kind is first chosen.
 pub const DEFAULT_RESCAN_HOURS: u32 = 24;
@@ -225,6 +228,9 @@ pub struct Settings {
     pub exclude_files: String,
     /// Whether file changes are applied to the index as they happen.
     pub watch_changes: bool,
+    /// The folder of the index file (`index.bin`) of the window over the
+    /// default index; `None` for the cache folder.
+    pub index_folder: Option<PathBuf>,
     /// Whether the index holds the size and modification time of every
     /// file; off reads only names (folders keep their times for catch-up).
     pub index_file_details: bool,
@@ -323,6 +329,7 @@ impl Default for Settings {
             include_files: String::new(),
             exclude_files: String::new(),
             watch_changes: true,
+            index_folder: None,
             index_file_details: true,
             rescan: 0,
             rescan_hours: DEFAULT_RESCAN_HOURS,
@@ -374,6 +381,15 @@ pub enum Page {
 }
 
 impl Settings {
+    /// The index file of the window over the default index: `index.bin`
+    /// in the chosen folder, or the default file in the cache folder.
+    pub fn index_file(&self) -> Option<PathBuf> {
+        match &self.index_folder {
+            Some(folder) => Some(folder.join(INDEX_FILE_NAME)),
+            None => everygrep_core::persist::default_path(),
+        }
+    }
+
     /// When the folders to index are scanned again by themselves.
     pub fn schedule(&self) -> Schedule {
         match self.rescan {
@@ -477,6 +493,13 @@ impl Settings {
             }
             "use-exclude-list" => put_flag(&mut self.use_excludes),
             "watch-changes" => put_flag(&mut self.watch_changes),
+            "index-folder" => {
+                let Some(path) = unescape(value).filter(|p| p.first() == Some(&b'/')) else {
+                    return false;
+                };
+                self.index_folder = Some(PathBuf::from(OsString::from_vec(path)));
+                true
+            }
             "index-file-details" => put_flag(&mut self.index_file_details),
             "rescan" => Schedule::KINDS
                 .iter()
@@ -694,6 +717,13 @@ impl Settings {
             self.watch_changes,
             d.watch_changes,
         );
+        if let Some(folder) = &self.index_folder {
+            line(
+                &mut out,
+                "index-folder",
+                &escape(folder.as_os_str().as_bytes()),
+            );
+        }
         flag(
             &mut out,
             "index-file-details",
@@ -1002,6 +1032,7 @@ impl Settings {
                 self.include_files = d.include_files;
                 self.exclude_files = d.exclude_files;
                 self.watch_changes = d.watch_changes;
+                self.index_folder = d.index_folder;
                 self.index_file_details = d.index_file_details;
                 self.rescan = d.rescan;
                 self.rescan_hours = d.rescan_hours;
@@ -1525,6 +1556,7 @@ pub(crate) mod tests {
             excludes: vec!["/home/u/.cache".into(), "regex:^te?mp$".into()],
             use_excludes: false,
             watch_changes: false,
+            index_folder: Some("/mnt/fast disk/eg".into()),
             index_file_details: false,
             rescan: 2,
             rescan_hours: 6,

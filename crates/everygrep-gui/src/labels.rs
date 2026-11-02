@@ -618,6 +618,18 @@ pub fn choose_excludes() -> &'static str {
     tr("Add folders to exclude")
 }
 
+pub fn choose_index_folder() -> &'static str {
+    tr("Choose the folder of the index file")
+}
+
+/// Why the index cannot be kept in the chosen folder.
+pub fn cannot_use_index_folder(file: &std::path::Path, e: &std::io::Error) -> String {
+    fill(
+        tr("The index cannot be saved as {0}: {1}. It stays where it was."),
+        &[&file.display(), &e.to_string()],
+    )
+}
+
 pub fn choose_accept() -> &'static str {
     tr("Add")
 }

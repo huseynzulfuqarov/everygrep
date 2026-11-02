@@ -13,7 +13,7 @@ use everygrep_core::persist;
 
 pub struct HashStore {
     /// `None`: kept in memory only.
-    path: Option<PathBuf>,
+    path: Mutex<Option<PathBuf>>,
     cache: Mutex<HashCache>,
     loaded: Once,
     /// Whether the file was read (or there is none).
@@ -25,7 +25,7 @@ impl HashStore {
     /// A cache kept in the file `path`, at most `max_bytes` large.
     pub fn new(path: Option<PathBuf>, max_bytes: u64) -> Self {
         Self {
-            path,
+            path: Mutex::new(path),
             cache: Mutex::new(HashCache::new(max_bytes)),
             loaded: Once::new(),
             ready: AtomicBool::new(false),
@@ -40,8 +40,8 @@ impl HashStore {
             // Held while the file is read, so a clear meanwhile waits.
             let mut cache = self.cache.lock().expect("hash cache");
             let max = self.max_bytes.load(Ordering::SeqCst);
-            if let Some(path) = &self.path {
-                match HashCache::load(path, max) {
+            if let Some(path) = self.path() {
+                match HashCache::load(&path, max) {
                     Ok(loaded) => *cache = loaded,
                     Err(e) => eprintln!("hash cache {}: {e}", path.display()),
                 }
@@ -65,7 +65,7 @@ impl HashStore {
         let mut cache = self.cache.lock().expect("hash cache");
         cache.clear();
         cache.set_changed(false);
-        match &self.path {
+        match self.path() {
             Some(path) => match std::fs::remove_file(path) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
                 _ => Ok(()),
@@ -85,18 +85,50 @@ impl HashStore {
                 cache.bytes() + 16
             };
         }
-        self.path
-            .as_ref()
+        self.path()
             .and_then(|p| std::fs::metadata(p).ok())
             .map_or(0, |m| m.len())
+    }
+
+    fn path(&self) -> Option<PathBuf> {
+        self.path.lock().expect("hash cache path").clone()
+    }
+
+    /// Keeps the cache in the file `to` from now on. A file not read yet is
+    /// moved there (left behind when that fails: it is only a cache);
+    /// one read already is written there at the next save and the old one
+    /// removed.
+    pub fn move_to(&self, to: PathBuf) {
+        // Held, so a first use waits and then reads the new place.
+        let mut cache = self.cache.lock().expect("hash cache");
+        let Some(old) = self
+            .path
+            .lock()
+            .expect("hash cache path")
+            .replace(to.clone())
+        else {
+            return;
+        };
+        if old == to {
+            return;
+        }
+        if self.ready.load(Ordering::SeqCst) {
+            if !cache.is_empty() {
+                cache.set_changed(true);
+            }
+            let _ = std::fs::remove_file(&old);
+        } else if std::fs::rename(&old, &to).is_err() {
+            let _ = std::fs::remove_file(&old);
+        }
     }
 
     /// Writes the file when the cache changed since it was read or saved.
     /// The bytes are taken under the lock and written without it.
     pub fn save(&self) -> io::Result<()> {
-        let Some(path) = &self.path else {
+        let Some(path) = self.path() else {
             return Ok(());
         };
+        let path = &path;
         if !self.ready.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -137,6 +169,40 @@ mod tests {
     use super::*;
     use everygrep_core::hash::FileKey;
     use everygrep_core::hashcache::Cached;
+
+    #[test]
+    fn moving_takes_the_file_or_the_cache_along() {
+        let dir =
+            std::env::temp_dir().join(format!("everygrep-hashes-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        let (a, b, c) = (dir.join("a.bin"), dir.join("b/h.bin"), dir.join("c.bin"));
+        let key = FileKey {
+            dev: 1,
+            ino: 2,
+            size: 3,
+            mtime_ns: 4,
+        };
+        let hashes = Cached {
+            crc32: Some(5),
+            ..Cached::default()
+        };
+        let first = HashStore::new(Some(a.clone()), DEFAULT_MAX_BYTES);
+        first.cache().lock().unwrap().put(key, &hashes);
+        first.save().unwrap();
+        // Not read yet: the file moves.
+        let store = HashStore::new(Some(a.clone()), DEFAULT_MAX_BYTES);
+        store.move_to(b.clone());
+        assert!(!a.exists() && b.exists());
+        assert_eq!(store.cache().lock().unwrap().get(&key), Some(hashes));
+        // Read already: written at the new place by the next save.
+        store.move_to(c.clone());
+        assert!(!b.exists());
+        store.save().unwrap();
+        let moved = HashStore::new(Some(c.clone()), DEFAULT_MAX_BYTES);
+        assert_eq!(moved.cache().lock().unwrap().get(&key), Some(hashes));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_file_is_read_on_first_use_saved_when_changed_and_cleared() {

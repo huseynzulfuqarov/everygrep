@@ -417,7 +417,10 @@ pub struct Engine {
     reindexed: AtomicU64,
     /// Whether file changes are watched (see [`Engine::set_watching`]).
     watching: AtomicBool,
-    index_file: Option<PathBuf>,
+    index_file: Mutex<Option<PathBuf>>,
+    /// The index file the index was in before [`Engine::move_index_file`],
+    /// removed once the index is saved at its new place.
+    moved_from: Mutex<Option<PathBuf>>,
     /// Bumped for every new query; older results are dropped.
     generation: AtomicU64,
     query: Mutex<QueryState>,
@@ -525,6 +528,9 @@ struct QueryState {
     sort: Sort,
 }
 
+/// The hash cache's file, next to the index file.
+pub const HASH_FILE: &str = "hashes.bin";
+
 const REFRESH_EVERY: Duration = Duration::from_millis(500);
 /// While files are read for a content search, the matches so far are shown
 /// first after this long, then at most this often.
@@ -566,7 +572,7 @@ impl Engine {
         };
         let index_file = index_file.or_else(persist::default_path);
         // Next to the index file, like the saved drives.
-        let hash_file = index_file.as_ref().map(|f| f.with_file_name("hashes.bin"));
+        let hash_file = index_file.as_ref().map(|f| f.with_file_name(HASH_FILE));
         let engine = Arc::new(Self {
             index: RwLock::new(Index::new(NodeStore::new())),
             roots: Mutex::new(normalize_roots(&roots)),
@@ -574,7 +580,8 @@ impl Engine {
             rescan: AtomicBool::new(false),
             reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
-            index_file,
+            index_file: Mutex::new(index_file),
+            moved_from: Mutex::new(None),
             generation: AtomicU64::new(0),
             query: Mutex::new(QueryState::default()),
             epoch: AtomicU64::new(0),
@@ -774,7 +781,7 @@ impl Engine {
     /// index file, so it is called off the window's thread.
     pub fn stats(&self) -> IndexStats {
         let mut stats = IndexStats {
-            index_file: self.index_file.clone(),
+            index_file: self.index_file(),
             unwatched: self.unwatched(),
             file_details: self.indexed_file_details(),
             last_full_scan: self
@@ -804,11 +811,36 @@ impl Engine {
         stats.drives_online = drives.iter().filter(|d| d.online).count();
         stats.roots = self.indexed_with.lock().expect("lock").0.len();
         stats.index_file_bytes = self
-            .index_file
-            .as_ref()
+            .index_file()
             .and_then(|f| std::fs::metadata(f).ok())
             .map(|m| m.len());
         stats
+    }
+
+    /// The file the index is saved in; `None` keeps it in memory only.
+    pub fn index_file(&self) -> Option<PathBuf> {
+        self.index_file.lock().expect("lock").clone()
+    }
+
+    /// Saves the index in `to` from now on, with the hash cache next to
+    /// it. The index is written there at the next save (call
+    /// [`save`](Self::save) for at once); only then is the old file
+    /// removed, so a save that fails leaves it in place. Drive indexes stay
+    /// in the volumes folder.
+    pub fn move_index_file(&self, to: PathBuf) {
+        let old = {
+            let mut file = self.index_file.lock().expect("lock");
+            if file.as_ref() == Some(&to) {
+                return;
+            }
+            file.replace(to.clone())
+        };
+        if let Some(old) = old {
+            // Moved twice before a save: the first place still has it.
+            self.moved_from.lock().expect("lock").get_or_insert(old);
+        }
+        self.hashes.move_to(to.with_file_name(HASH_FILE));
+        self.dirty.store(true, Ordering::SeqCst);
     }
 
     /// Scans the folders to index again by themselves on `schedule` (see
@@ -1404,8 +1436,8 @@ impl Engine {
     fn index_loop(&self) {
         self.report(IndexState::Loading);
         let mut loaded = false;
-        let saved = self.index_file.as_ref().and_then(|path| {
-            persist::load(path)
+        let saved = self.index_file().and_then(|path| {
+            persist::load(&path)
                 .map_err(|e| {
                     // A missing file is the first start; anything else is
                     // said, since the index is then built again.
@@ -1609,7 +1641,7 @@ impl Engine {
     /// more inotify instances are allowed.
     fn new_watcher(&self, index: &Index, options: &ScanOptions) -> std::io::Result<Watcher> {
         #[cfg(test)]
-        if tests::listed(&tests::FAILING_WATCHERS, self.index_file.as_deref()) {
+        if tests::listed(&tests::FAILING_WATCHERS, self.index_file().as_deref()) {
             return Err(std::io::Error::other("no watcher in this test"));
         }
         Watcher::new(index, options)
@@ -1707,7 +1739,7 @@ impl Engine {
                     #[allow(unused_mut)]
                     let mut stats = watcher.apply(&mut index, &events);
                     #[cfg(test)]
-                    if tests::take(&tests::OVERFLOWS, self.index_file.as_deref()) {
+                    if tests::take(&tests::OVERFLOWS, self.index_file().as_deref()) {
                         stats.overflow = true;
                     }
                     if index.should_compact() {
@@ -1899,10 +1931,9 @@ impl Engine {
         let mut ok = true;
         // An index cancelled before it was complete is never saved.
         let own_file = self
-            .index_file
-            .as_ref()
+            .index_file()
             .filter(|_| !self.incomplete.load(Ordering::SeqCst));
-        if let Some(path) = own_file {
+        if let Some(path) = &own_file {
             ok = if drive_roots.is_empty() {
                 persist::save_with_fingerprint(&index, &roots, fingerprint, path).is_ok()
             } else {
@@ -1914,6 +1945,13 @@ impl Engine {
                 persist::save_with_fingerprint(&index.extract(&own).0, &roots, fingerprint, path)
                     .is_ok()
             };
+            if ok {
+                // Moved: the old file goes once the new one is written.
+                let mut moved_from = self.moved_from.lock().expect("lock");
+                if let Some(old) = moved_from.take().filter(|old| old != path) {
+                    let _ = std::fs::remove_file(old);
+                }
+            }
         }
         if let Some(env) = &self.drive_env {
             for v in volumes.iter_mut().filter(|v| v.online) {
@@ -2984,6 +3022,32 @@ mod tests {
             stats.index_file_bytes,
             Some(fs::metadata(&index_file).unwrap().len())
         );
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_moved_index_file_is_written_at_its_new_place_and_the_old_one_removed() {
+        let dir = Scratch::new("move-index");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "").unwrap();
+        let (old, new) = (dir.0.join("index.bin"), dir.0.join("elsewhere/index.bin"));
+        fs::create_dir_all(new.parent().unwrap()).unwrap();
+        let roots = normalize_roots(std::slice::from_ref(&a));
+        let probe = Probe::start(roots.clone(), Vec::new(), old.clone());
+        probe.wait_for(IndexState::Watching);
+        probe.engine.save();
+        assert!(old.exists());
+        probe.engine.move_index_file(new.clone());
+        assert_eq!(probe.engine.index_file(), Some(new.clone()));
+        probe.engine.save();
+        assert!(new.exists(), "not written at the new place");
+        assert!(!old.exists(), "the old file stayed");
+        probe.engine.shutdown();
+
+        let probe = Probe::start(roots, Vec::new(), new);
+        assert!(!scanned_at_start(&probe), "the moved index was not used");
+        assert_eq!(probe.names("one"), ["one.txt"]);
         probe.engine.shutdown();
     }
 

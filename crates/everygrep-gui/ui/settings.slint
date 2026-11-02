@@ -140,6 +140,13 @@ export component SettingsWindow inherits Window {
     // Numbers about the index, one fact a line; counted again on request.
     in property <string> index-details;
     callback refresh-details();
+    // Where the index file is, whether that is the default folder, and
+    // whether this window may change it (not with --root or --index-file).
+    in property <string> index-file;
+    in property <bool> index-file-default;
+    in property <bool> index-file-changeable;
+    callback choose-index-folder();
+    callback default-index-folder();
     callback rebuild();
     // Removable drives (shown when the program can keep drive indexes).
     in property <bool> drives-enabled;
@@ -576,6 +583,30 @@ export component SettingsWindow inherits Window {
                                     Rectangle { horizontal-stretch: 1; }
                                 }
                                 Note { text: root.index-details; }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                Heading { text: @tr("Index file"); }
+                                Text {
+                                    text: root.index-file;
+                                    color: Theme.text;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    spacing: Theme.s2;
+                                    alignment: start;
+                                    Button {
+                                        text: @tr("Choose folder…");
+                                        enabled: root.index-file-changeable;
+                                        clicked => { root.choose-index-folder(); }
+                                    }
+                                    Button {
+                                        text: @tr("Use the default folder");
+                                        enabled: root.index-file-changeable && !root.index-file-default;
+                                        clicked => { root.default-index-folder(); }
+                                    }
+                                }
+                                Note { text: @tr("The index is saved in this folder as index.bin, with the hash cache next to it. A new folder takes it at once; the old file is removed once the new one is written. Removable drives keep their indexes in the cache folder."); }
                             }
                         }
 

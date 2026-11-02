@@ -431,6 +431,9 @@ First version, 0.1.0, not released yet.
 - Index details on the Indexing page: files, folders, total size, folders
   and drives, memory, the index file and its size, the last full scan and
   folders not watched, counted off the window's thread.
+- Index file location (Indexing page): choose the folder of the window's
+  index file; the index and its hash cache move there at once, and the old
+  file is removed once the new one is written.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get
