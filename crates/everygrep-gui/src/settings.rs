@@ -260,6 +260,9 @@ pub struct Settings {
     pub history_size: usize,
     /// Whether the search history is saved between sessions.
     pub history_on_disk: bool,
+    /// Whether changes made to the settings file by another program (or
+    /// another window) are applied while the window runs.
+    pub reload_changed: bool,
     pub on_close: OnClose,
     /// What the Size column shows for folders, and sorts them by. The one
     /// default that differs from the behaviour before settings existed
@@ -342,6 +345,7 @@ impl Default for Settings {
             clear_selection_on_search: true,
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
+            reload_changed: true,
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
             remember_columns: true,
@@ -570,6 +574,7 @@ impl Settings {
                 .map(|n| self.history_size = n)
                 .is_some(),
             "history-on-disk" => put_flag(&mut self.history_on_disk),
+            "reload-changed-settings" => put_flag(&mut self.reload_changed),
             "on-close" => OnClose::ALL
                 .into_iter()
                 .find(|o| o.id() == value)
@@ -861,6 +866,12 @@ impl Settings {
             self.history_on_disk,
             d.history_on_disk,
         );
+        flag(
+            &mut out,
+            "reload-changed-settings",
+            self.reload_changed,
+            d.reload_changed,
+        );
         self.fileops.write(&mut out);
         self.content.write(&mut out);
         if self.on_close != d.on_close {
@@ -1112,6 +1123,8 @@ pub struct Writer {
     jobs: mpsc::Sender<Box<dyn FnOnce() + Send>>,
     /// Jobs asked for and not done yet.
     left: Arc<(Mutex<usize>, Condvar)>,
+    /// Jobs asked for so far.
+    asked: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Writer {
@@ -1130,11 +1143,27 @@ impl Writer {
                     done.notify_all();
                 }
             });
-        Self { jobs, left }
+        Self {
+            jobs,
+            left,
+            asked: Arc::default(),
+        }
+    }
+
+    /// The number of jobs asked for so far. A job that reads `asked` (see
+    /// [`asked_counter`](Self::asked_counter)) while it runs and finds the
+    /// same number later knows no job was asked for after it.
+    pub fn asked(&self) -> u64 {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn asked_counter(&self) -> Arc<std::sync::atomic::AtomicU64> {
+        Arc::clone(&self.asked)
     }
 
     /// Runs `job` after the jobs asked before it, without waiting for it.
     pub fn run(&self, job: impl FnOnce() + Send + 'static) {
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (count, _) = &*self.left;
         *count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
         if self.jobs.send(Box::new(job)).is_err() {
@@ -1296,6 +1325,26 @@ pub fn path() -> Option<PathBuf> {
 /// Location of the saved search history (used when it is kept on disk).
 pub fn history_path() -> Option<PathBuf> {
     config_dir().map(|d| d.join("history"))
+}
+
+/// What tells one version of a file from another: its inode, size and
+/// modification time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stamp {
+    ino: u64,
+    len: u64,
+    mtime_ns: i128,
+}
+
+/// The [`Stamp`] of the file at `path`; `None` when there is none.
+pub fn stamp(path: &Path) -> Option<Stamp> {
+    use std::os::unix::fs::MetadataExt;
+    let m = fs::metadata(path).ok()?;
+    Some(Stamp {
+        ino: m.ino(),
+        len: m.len(),
+        mtime_ns: i128::from(m.mtime()) * 1_000_000_000 + i128::from(m.mtime_nsec()),
+    })
 }
 
 /// Writes `bytes` to `path` through a temporary file in the same folder, so
@@ -1485,6 +1534,27 @@ pub(crate) mod tests {
         assert_eq!(*order.lock().unwrap(), [1, 2, 3]);
         // Nothing left: no wait.
         assert!(writer.wait_done(Duration::ZERO));
+        assert_eq!(writer.asked(), 3);
+        // A job sees how many were asked for up to then.
+        let counter = writer.asked_counter();
+        let (seen_tx, seen) = mpsc::channel();
+        writer.run(move || {
+            let _ = seen_tx.send(counter.load(std::sync::atomic::Ordering::SeqCst));
+        });
+        assert_eq!(seen.recv_timeout(Duration::from_secs(5)).unwrap(), 4);
+    }
+
+    #[test]
+    fn a_stamp_tells_versions_of_a_file_apart() {
+        let dir = Scratch::new("stamp");
+        let path = dir.0.join("settings");
+        assert_eq!(stamp(&path), None);
+        write_atomic(&path, b"theme = dark\n").unwrap();
+        let first = stamp(&path).unwrap();
+        assert_eq!(stamp(&path), Some(first));
+        // Replaced atomically: a new inode even with the same size and time.
+        write_atomic(&path, b"theme = lite\n").unwrap();
+        assert_ne!(stamp(&path), Some(first));
     }
 
     #[test]
@@ -1599,6 +1669,7 @@ pub(crate) mod tests {
             clear_selection_on_search: false,
             history_size: 0,
             history_on_disk: true,
+            reload_changed: false,
             on_close: OnClose::Hide,
             folder_size: FolderSize::Items,
             remember_columns: false,

@@ -363,6 +363,7 @@ the program behaves as before, except that folders show their total size.
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
 | Keyboard | the keys of the window's commands (see below), and how to open EveryGrep with a key | the keys listed above |
 | Advanced | the settings file: "Export settings…" writes it where you choose; "Import settings…" replaces every setting with those of a chosen file (after a question; a file that sets nothing known is refused); "Reset all settings…" puts every setting back to its default (after a question); folders, rules and file details are taken only by the window over the default index, and changing them indexes again; column widths of an import apply at the next start | — |
+| | apply changes made to the settings file outside this window (looked at every 2 seconds, after the window's own saves; applied as an import, with a note in the status line) | on |
 
 On the Keyboard page, "Show commands containing:" filters the commands by
 name, menu or key (case and diacritics ignored). Choose a command to see its
@@ -494,7 +495,8 @@ size-width = 120
 `content-max-size-mb`, `content-code-page` (`windows-1250` … `windows-1257`)
 and `content-pdf` set how files are read for `content:`; `hash-cache-max-mb`
 the size of the hash cache.
-`index-folder` holds the folder of the index file,
+`index-folder` holds the folder of the index file, `reload-changed-settings`
+(`false`) ignores changes made to the file outside the window until the next start,
 `watch-changes` turns watching off (`false`), `index-file-details` (`false`)
 indexes names only, `rescan` (`never`, `hours`, `daily`) with `rescan-hours`
 and `rescan-time` (`HH:MM`) scans the folders again by themselves,

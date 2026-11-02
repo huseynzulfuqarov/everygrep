@@ -365,7 +365,11 @@ the settings window. The file (and the search history) is written by a
 `settings::Writer` thread, one save after another in the order asked, so a
 slow disk or another window holding the lock never holds up the window; a
 failed save is shown in the settings window when it comes, and quitting
-waits up to 5 seconds for the saves still running. Choosing other folders
+waits up to 5 seconds for the saves still running. Every 2 seconds the same
+thread looks at the file's inode, size and time; a version it has not seen
+is read and handed to the window, which applies it (as an import, without
+saving it again) when it differs from the running settings and no save was
+asked for since it was read. Choosing other folders
 or rules to index is saved at once, as before.
 
 ### Translations (`i18n.rs`, `translations/`)

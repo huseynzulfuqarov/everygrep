@@ -49,6 +49,10 @@ pub const KEYBOARD_PAGE: usize = 4;
 /// The command a desktop shortcut runs, and the flags of its variants.
 const COMMAND: &str = "everygrep-gui";
 
+/// How often the settings file is looked at for changes made outside the
+/// window.
+const RELOAD_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The commands on the Keyboard page for a desktop shortcut: plain, toggle,
 /// new window.
 fn shortcut_commands() -> [String; 3] {
@@ -177,6 +181,10 @@ pub struct Prefs {
     /// user's answer, and the outcome of the last export or import.
     pending: RefCell<Option<Pending>>,
     settings_note: RefCell<String>,
+    /// Looks every [`RELOAD_EVERY`] whether the settings file changed
+    /// outside the window; the stamp of the version last seen.
+    reload_timer: slint::Timer,
+    seen: Arc<std::sync::Mutex<Option<settings::Stamp>>>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
     choosing: Cell<bool>,
@@ -284,6 +292,8 @@ impl Prefs {
             rescan_error: RefCell::default(),
             pending: RefCell::default(),
             settings_note: RefCell::default(),
+            reload_timer: slint::Timer::default(),
+            seen: Arc::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
             engine,
@@ -300,6 +310,62 @@ impl Prefs {
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
         prefs
+            .reload_timer
+            .start(slint::TimerMode::Repeated, RELOAD_EVERY, || {
+                with(|p| p.look_for_outside_changes())
+            });
+        prefs
+    }
+
+    /// Asks the saving thread to look at the settings file: after the saves
+    /// asked for before, so the window's own changes are on disk. A
+    /// version not seen before is read and handed back.
+    fn look_for_outside_changes(&self) {
+        if !self.settings.borrow().reload_changed || self.read_error.is_some() {
+            return;
+        }
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        let (seen, asked) = (Arc::clone(&self.seen), self.writer.asked_counter());
+        self.writer.run(move || {
+            let now = settings::stamp(&path);
+            let mut seen = seen.lock().unwrap_or_else(|e| e.into_inner());
+            if *seen == now {
+                return;
+            }
+            *seen = now;
+            drop(seen);
+            let Ok(read) = Settings::load(&path) else {
+                return;
+            };
+            let at = asked.load(std::sync::atomic::Ordering::SeqCst);
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| p.changed_outside(read, at));
+            });
+        });
+    }
+
+    /// The settings file as read by [`look_for_outside_changes`]: when it
+    /// differs from the running settings, and the window saved nothing
+    /// since it was read, it is applied (not saved again).
+    ///
+    /// [`look_for_outside_changes`]: Self::look_for_outside_changes
+    fn changed_outside(&self, read: Settings, asked: u64) {
+        if self.writer.asked() != asked || !self.settings.borrow().reload_changed {
+            // Saves came meanwhile; the next look reads the file again.
+            *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
+        if read.to_text() == self.settings.borrow().to_text() {
+            return;
+        }
+        let bad = read.problems.len();
+        self.replace_all(read, false);
+        if let Some(m) = self.main.upgrade() {
+            m.set_notice_error(false);
+            m.set_notice(labels::settings_reloaded(bad).into());
+        }
     }
 
     /// Changes the settings and saves them on the saving thread; a failure
@@ -792,11 +858,11 @@ impl Prefs {
         match pending {
             Pending::Import(read, path) => {
                 let bad = read.problems.len();
-                self.replace_all(*read);
+                self.replace_all(*read, true);
                 self.note_settings(labels::settings_imported(&path, bad));
             }
             Pending::ResetAll => {
-                self.replace_all(Settings::default());
+                self.replace_all(Settings::default(), true);
                 self.note_settings(labels::settings_reset().to_owned());
             }
         }
@@ -807,16 +873,21 @@ impl Prefs {
         self.set_error(None);
     }
 
-    /// Takes `new` as every setting (an import, a reset of all) and applies
-    /// it to the running program, saving it in place of the file. The
+    /// Takes `new` as every setting (an import, a reset of all, the file
+    /// changed outside) and applies it to the running program, with `save`
+    /// saving it in place of the file. The
     /// folders to index, their rules, file details and the index folder are
     /// taken only by the window over the default index; when they change,
     /// the index is built again. Column widths apply at the next start.
-    fn replace_all(&self, mut new: Settings) {
+    fn replace_all(&self, mut new: Settings, save: bool) {
         new.problems.clear();
         let old = self.settings.borrow().clone();
-        let kept = new.clone();
-        self.change(move |s| *s = kept.clone());
+        if save {
+            let kept = new.clone();
+            self.change(move |s| *s = kept.clone());
+        } else {
+            *self.settings.borrow_mut() = new.clone();
+        }
         commands::set_current(Keymap::with_overrides(&new.shortcuts));
         if let Some(m) = self.main.upgrade() {
             crate::apply_keys(&m);
@@ -1313,6 +1384,7 @@ impl Prefs {
         w.set_pending_text(text.into());
         w.set_pending_action(action.into());
         w.set_settings_note(self.settings_note.borrow().as_str().into());
+        w.set_reload_changed(self.settings.borrow().reload_changed);
         w.set_error(self.error.borrow().as_str().into());
     }
 
@@ -1694,6 +1766,15 @@ impl Prefs {
         });
         w.on_reset_page(on_index(|p, i| p.reset(i)));
         w.on_export_settings(on(|p| p.export_settings()));
+        w.on_reload_changed_toggled(on(|p| {
+            let on = p.window.borrow().as_ref().map(|w| w.get_reload_changed());
+            if let Some(on) = on {
+                p.change(move |s| s.reload_changed = on);
+                // Looked at afresh when turned on again.
+                *p.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                p.refresh();
+            }
+        }));
         w.on_import_settings(on(|p| p.import_settings()));
         w.on_reset_all_settings(on(|p| {
             *p.pending.borrow_mut() = Some(Pending::ResetAll);

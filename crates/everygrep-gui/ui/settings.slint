@@ -285,6 +285,8 @@ export component SettingsWindow inherits Window {
     in property <string> pending-action;
     callback pending-answered(bool);
     in property <string> settings-note;
+    in-out property <bool> reload-changed;
+    callback reload-changed-toggled();
 
     // Puts the settings of the page back to their defaults.
     callback reset-page(int);
@@ -1227,6 +1229,12 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                             if root.settings-note != "": Note { text: root.settings-note; color: Theme.text; }
+                            CheckBox {
+                                text: @tr("Apply changes made to the settings file outside this window");
+                                checked <=> root.reload-changed;
+                                toggled => { root.reload-changed-toggled(); }
+                            }
+                            Note { text: @tr("The file is looked at every 2 seconds; a change by another program or another EveryGrep window is applied at once, as an import would be. Off: such changes apply at the next start, and a change made here keeps them in the file."); }
                         }
                     }
                 }

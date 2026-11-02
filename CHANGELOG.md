@@ -437,6 +437,11 @@ First version, 0.1.0, not released yet.
 - Advanced settings page: export the settings file, import one in place of
   every setting, or reset every setting, each after a question; the window
   applies the new settings at once.
+- Settings changed outside the window (by hand, by another program or by
+  another window) are applied while it runs: the saving thread looks at the
+  file every 2 seconds after the window's own saves, and a new version that
+  differs is applied like an import. A switch on the Advanced page turns it
+  off.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

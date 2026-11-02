@@ -684,6 +684,23 @@ pub fn settings_imported(file: &std::path::Path, bad: usize) -> String {
     format!("{done} {skipped}")
 }
 
+/// In the status line after the settings file changed outside the window.
+pub fn settings_reloaded(bad: usize) -> String {
+    let done = tr("The settings file was changed outside this window; its settings now apply.");
+    if bad == 0 {
+        return done.to_owned();
+    }
+    let skipped = fill(
+        trn(
+            "{} line could not be read and was left out.",
+            "{} lines could not be read and were left out.",
+            bad,
+        ),
+        &[&format::count(bad)],
+    );
+    format!("{done} {skipped}")
+}
+
 pub fn settings_reset() -> &'static str {
     tr("Every setting is back to its default.")
 }
