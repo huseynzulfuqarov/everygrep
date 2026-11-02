@@ -19,9 +19,10 @@ const TRASH_BATCH: usize = 256;
 /// Longest file name Linux file systems accept, in bytes.
 const NAME_MAX: usize = 255;
 
-/// Full paths, one per line, for the clipboard.
-pub fn paths_text(paths: &[PathBuf]) -> String {
-    join_lines(paths.iter().map(|p| p.as_os_str()))
+/// Full paths, one per line, for the clipboard; with `quote` each one
+/// quoted as [`quote`] does.
+pub fn paths_text(paths: &[PathBuf], quote: bool) -> String {
+    join_lines(paths.iter().map(|p| p.as_os_str()), quote)
 }
 
 /// Whether opening `n` items at once asks first: more than `over` of them,
@@ -30,43 +31,75 @@ pub fn open_needs_confirm(n: usize, over: usize) -> bool {
     over > 0 && n > over
 }
 
-/// Each line of `text` in double quotes, for pasting into a shell or a
-/// file dialog: `"/home/me/a b.txt"`.
-pub fn quoted(text: &str) -> String {
-    text.split('\n')
-        .map(|line| format!("\"{line}\""))
-        .collect::<Vec<_>>()
-        .join("\n")
+/// Characters that a shell still reads inside double quotes: `$` and
+/// backticks run commands, `\` and `"` escape, `!` is history expansion in
+/// bash and zsh. A line break would split one item over two lines.
+const DOUBLE_QUOTE_SPECIAL: &[char] = &['$', '`', '"', '\\', '!', '\n'];
+
+/// One item quoted for pasting into a shell (sh, bash, zsh, fish) or a
+/// file dialog. Usually in double quotes, `"/home/me/a b.txt"`; an item with
+/// a character a shell reads inside double quotes goes in single quotes
+/// instead, with `'` written as `'\''` and `\` as `'\\'`, so the shell takes
+/// it as one literal word and never runs a part of it.
+pub fn quote(item: &str) -> String {
+    if !item.contains(DOUBLE_QUOTE_SPECIAL) {
+        return format!("\"{item}\"");
+    }
+    let mut out = String::with_capacity(item.len() + 2);
+    out.push('\'');
+    for c in item.chars() {
+        match c {
+            '\'' => out.push_str("'\\''"),
+            // fish reads `\\` and `\'` inside single quotes, so a backslash
+            // goes outside them.
+            '\\' => out.push_str("'\\\\'"),
+            c => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
 }
 
 /// File names, one per line, for the clipboard.
 pub fn names_text(paths: &[PathBuf]) -> String {
-    join_lines(paths.iter().map(|p| p.file_name().unwrap_or(p.as_os_str())))
-}
-
-/// The containing folders, one per line, for the clipboard. A folder is
-/// given once even when several items are in it, in the order first met.
-pub fn folders_text(paths: &[PathBuf]) -> String {
-    let mut seen = std::collections::HashSet::new();
     join_lines(
-        paths
-            .iter()
-            .filter_map(|p| p.parent())
-            .filter(|f| !f.as_os_str().is_empty())
-            .filter(|f| seen.insert(*f))
-            .map(|f| f.as_os_str()),
+        paths.iter().map(|p| p.file_name().unwrap_or(p.as_os_str())),
+        false,
     )
 }
 
-/// Joins with `\n`. Bytes that are not UTF-8 become U+FFFD; the clipboard
-/// takes text only.
-fn join_lines<'a>(items: impl Iterator<Item = &'a OsStr>) -> String {
+/// The containing folders of `paths`, each once, in the order first met.
+pub fn folders(paths: &[PathBuf]) -> Vec<&Path> {
+    let mut seen = std::collections::HashSet::new();
+    paths
+        .iter()
+        .filter_map(|p| p.parent())
+        .filter(|f| !f.as_os_str().is_empty())
+        .filter(|f| seen.insert(*f))
+        .collect()
+}
+
+/// The containing folders, one per line, for the clipboard. A folder is
+/// given once even when several items are in it, in the order first met;
+/// with `quote` each one quoted as [`quote`] does.
+pub fn folders_text(paths: &[PathBuf], quote: bool) -> String {
+    join_lines(folders(paths).into_iter().map(|f| f.as_os_str()), quote)
+}
+
+/// Joins with `\n`, each item quoted with `quote`. Bytes that are not UTF-8
+/// become U+FFFD; the clipboard takes text only.
+fn join_lines<'a>(items: impl Iterator<Item = &'a OsStr>, quote: bool) -> String {
     let mut out = String::new();
     for (i, item) in items.enumerate() {
         if i > 0 {
             out.push('\n');
         }
-        out.push_str(&String::from_utf8_lossy(item.as_bytes()));
+        let text = String::from_utf8_lossy(item.as_bytes());
+        if quote {
+            out.push_str(&self::quote(&text));
+        } else {
+            out.push_str(&text);
+        }
     }
     out
 }
@@ -282,10 +315,10 @@ mod tests {
     #[test]
     fn clipboard_text_is_one_item_per_line() {
         let paths = [PathBuf::from("/a/b c.txt"), PathBuf::from("/d/e")];
-        assert_eq!(paths_text(&paths), "/a/b c.txt\n/d/e");
+        assert_eq!(paths_text(&paths, false), "/a/b c.txt\n/d/e");
         assert_eq!(names_text(&paths), "b c.txt\ne");
-        assert_eq!(paths_text(&paths[..1]), "/a/b c.txt");
-        assert_eq!(paths_text(&[]), "");
+        assert_eq!(paths_text(&paths[..1], false), "/a/b c.txt");
+        assert_eq!(paths_text(&[], false), "");
         let odd = [PathBuf::from(OsStr::from_bytes(b"/x/\xffy"))];
         assert_eq!(names_text(&odd), "\u{fffd}y");
     }
@@ -298,10 +331,11 @@ mod tests {
             PathBuf::from("/a/b c/y"),
             PathBuf::from("/"),
         ];
-        assert_eq!(folders_text(&paths), "/a/b c\n/d");
-        assert_eq!(folders_text(&paths[1..2]), "/d");
-        assert_eq!(folders_text(&[PathBuf::from("/top")]), "/");
-        assert_eq!(folders_text(&[]), "");
+        assert_eq!(folders_text(&paths, false), "/a/b c\n/d");
+        assert_eq!(folders_text(&paths[1..2], false), "/d");
+        assert_eq!(folders_text(&[PathBuf::from("/top")], false), "/");
+        assert_eq!(folders_text(&[], false), "");
+        assert_eq!(folders(&paths).len(), 2);
     }
 
     #[test]
@@ -324,18 +358,69 @@ mod tests {
     }
 
     #[test]
-    fn quoting_wraps_every_line() {
-        assert_eq!(quoted("/a b/c.txt"), "\"/a b/c.txt\"");
-        assert_eq!(quoted("/a\n/b c"), "\"/a\"\n\"/b c\"");
+    fn quoting_wraps_every_item() {
+        assert_eq!(quote("/a b/c.txt"), "\"/a b/c.txt\"");
+        assert_eq!(quote("/a/it's"), "\"/a/it's\"");
+        assert_eq!(quote("/a/$x"), "'/a/$x'");
+        assert_eq!(quote("/a/it's $x"), "'/a/it'\\''s $x'");
+        assert_eq!(quote("/a\\b"), "'/a'\\\\'b'");
+        assert_eq!(quote("/a\nb"), "'/a\nb'");
         let paths = [
             PathBuf::from("/x/one.txt"),
             PathBuf::from("/y/two words.pdf"),
         ];
         assert_eq!(
-            quoted(&paths_text(&paths)),
+            paths_text(&paths, true),
             "\"/x/one.txt\"\n\"/y/two words.pdf\""
         );
-        assert_eq!(quoted(&folders_text(&paths)), "\"/x\"\n\"/y\"");
+        assert_eq!(folders_text(&paths, true), "\"/x\"\n\"/y\"");
+    }
+
+    /// What `sh` (and bash, zsh, fish when installed) make of one quoted
+    /// path given to `printf`: the words it gets, NUL-separated.
+    fn shell_words(quoted: &str) -> Vec<(String, Vec<u8>)> {
+        let mut out = Vec::new();
+        for shell in ["sh", "bash", "zsh", "fish"] {
+            let script = format!("printf '%s\\0' {quoted}");
+            let run = Command::new(shell)
+                .arg("-c")
+                .arg(&script)
+                .env("HOME", "/nonexistent")
+                .stdin(Stdio::null())
+                .output();
+            if let Ok(o) = run {
+                out.push((shell.to_owned(), o.stdout));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn quoted_copies_are_taken_literally_by_shells() {
+        let names = [
+            "/x/$(echo PWNED)",
+            "/x/`echo PWNED`",
+            "/x/$HOME",
+            "/x/a\"b",
+            "/x/it's",
+            "/x/back\\slash\\",
+            "/x/a\\'b",
+            "/x/!!",
+            "/x/two\nlines",
+            "/x/plain name.txt",
+        ];
+        for name in names {
+            let text = paths_text(&[PathBuf::from(name)], true);
+            let got = shell_words(&text);
+            assert!(got.iter().any(|(s, _)| s == "sh"), "sh runs");
+            for (shell, words) in got {
+                assert_eq!(
+                    String::from_utf8_lossy(&words),
+                    format!("{name}\0"),
+                    "{shell} given {text}"
+                );
+            }
+        }
     }
 
     #[test]

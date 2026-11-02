@@ -158,7 +158,7 @@ executable file.
 | `Ctrl+Shift+C` | copy the full path (one per line) |
 | `Ctrl+Alt+C` | copy the name |
 | `Ctrl+Alt+Shift+C` | copy the path of the containing folder (each folder once) |
-| — | copy path / full path with quotes: each in double quotes (context menu, Edit menu; a key can be set) |
+| — | copy path / full path with quotes: each in double quotes, or in single quotes when it has `$`, a backtick, `"`, `\`, `!` or a line break, so a shell takes it literally (context menu, Edit menu; a key can be set) |
 | `F2` | rename in place or in a dialog (`Enter` renames, `Esc` cancels; Settings → Window) |
 | `Delete` | move to the trash (`gio trash`) |
 | `Shift+Delete` | delete permanently, after a confirmation |

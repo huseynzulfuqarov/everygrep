@@ -954,8 +954,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             if let (Some(w), false) = (weak.upgrade(), paths.is_empty()) {
                 let mut quote = quoted;
                 prefs::with(|p| quote |= p.copy_full_path_quotes());
-                let text = actions::paths_text(&paths);
-                let text = if quote { actions::quoted(&text) } else { text };
+                let text = actions::paths_text(&paths, quote);
                 w.invoke_copy_text(text.into());
                 info(&w, labels::copied_paths(paths.len()));
             }
@@ -965,10 +964,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
         let (weak, model) = (weak.clone(), model.clone());
         move |r, quoted| {
             let paths = model.targets(row(r));
-            let text = actions::folders_text(&paths);
-            if let (Some(w), false) = (weak.upgrade(), text.is_empty()) {
-                let count = text.lines().count();
-                let text = if quoted { actions::quoted(&text) } else { text };
+            let count = actions::folders(&paths).len();
+            if let (Some(w), true) = (weak.upgrade(), count > 0) {
+                let text = actions::folders_text(&paths, quoted);
                 w.invoke_copy_text(text.as_str().into());
                 info(&w, labels::copied_folders(count));
             }
@@ -1185,7 +1183,7 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             if paths.is_empty() {
                 return;
             }
-            let text = actions::paths_text(&paths);
+            let text = actions::paths_text(&paths, false);
             let held = clipboard::Held { op, paths, text };
             // Other programs get the files through XWayland; without it,
             // the full paths as text.

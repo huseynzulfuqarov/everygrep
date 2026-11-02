@@ -735,7 +735,7 @@ mod tests {
         let paths = vec![PathBuf::from("/a b/c.txt"), PathBuf::from("/d")];
         Held {
             op,
-            text: crate::actions::paths_text(&paths),
+            text: crate::actions::paths_text(&paths, false),
             paths,
         }
     }

@@ -221,7 +221,9 @@ words.
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per
-line on the clipboard; the quoted copies put each line in double quotes, and
+line on the clipboard; the quoted copies put each path in double quotes (in
+single quotes when it has `$`, a backtick, `"`, `\`, `!` or a line break, so
+that a shell takes it literally), and
 "Copy full path adds quotes" (Window page, off by default) makes Copy full
 path quote too. Opening more than 32 items at once asks first ("Open 40
 items?", Open or Cancel); the number is a setting (Window page, 0 never
