@@ -602,3 +602,15 @@ The title observer captures cheap search states for persistence. `Writer` uses
 a fixed 15-second save window: a leading write, then one trailing write if
 changed; edits never restart it. Normal exit captures and writes once more.
 Restore submits only the selected tab, leaving background searches dormant.
+
+### Transfer questions (`fileops_conflict.rs`)
+
+The transfer resolver posts a question to the UI event loop, then waits on a
+channel with cancellation checks every 100 ms. Only the worker waits. The UI
+answers through a modal, and disconnect or cancel stops the paste. The resolver
+is optional; default transfers still select a free numbered name. Overwrites
+copy to a private temporary name and recheck destination device, inode, size,
+mtime and ctime before moving the old file to the desktop trash and publishing
+with a strict non-replacing rename. Trash capability is queried on the worker;
+without it Overwrite is disabled. A trash failure preserves the destination.
+Questions show both sizes and modification times; results count replacements.

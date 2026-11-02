@@ -331,7 +331,7 @@ and contents.
 
 `Ctrl+C` copies the items as files, as in a file manager; their names and
 paths have keys of their own. Paste needs one folder selected in the
-results and pastes into it. It never replaces anything: a taken name gets
+results and pastes into it. By default a taken name gets
 the first free `name (N).ext`, from 2. Copies are written under a temporary
 name and renamed into place when complete; a move across file systems
 copies first and then removes only what was copied. A cut is pasted once.
@@ -490,3 +490,8 @@ searches for the same index, selected tab and closed searches; an explicit
 startup query takes precedence. Selection, raw row ids and navigation trails
 stay in memory. Saving is coalesced, and a malformed session is preserved with
 a status message.
+
+Paste conflicts can be enabled on the Window settings page. The modal offers
+skip, skip all (this paste), keep both and cancel; errors offer retry. Only a
+regular file can replace another regular file, using a complete temporary copy
+and atomic rename after rechecking the destination. Folders are never merged.

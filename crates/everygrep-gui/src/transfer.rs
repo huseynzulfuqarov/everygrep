@@ -1,6 +1,6 @@
 //! Pasting files into a folder: copying or moving them.
 //!
-//! Nothing is ever replaced. When a name is taken in the folder, the item
+//! By default nothing is replaced. When a name is taken in the folder, the item
 //! gets the first free name of the form `name (2).ext`, `name (3).ext`, …
 //! A copy is written under a temporary name in the target folder and gets
 //! its real name only when it is complete, so a failure or a cancel leaves
@@ -33,6 +33,77 @@ const CHUNK: usize = 1 << 20;
 
 /// Longest file name Linux file systems accept, in bytes.
 const NAME_MAX: usize = 255;
+
+/// A decision applies to one top-level item, except SkipAll (this paste only).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decision {
+    Overwrite,
+    Skip,
+    SkipAll,
+    KeepBoth,
+    Retry,
+    Cancel,
+}
+
+#[derive(Clone, Debug)]
+pub struct Question {
+    pub source: PathBuf,
+    pub target: PathBuf,
+    pub error: Option<String>,
+    pub can_overwrite: bool,
+    pub source_details: String,
+    pub target_details: String,
+    pub trash_available: bool,
+}
+
+pub type Resolver = Box<dyn Fn(Question, &Progress) -> Decision + Send>;
+
+/// Desktop trash operations are replaceable in tests; tests only move temp files.
+#[derive(Clone, Copy)]
+pub struct Replacement {
+    available: fn(&Path) -> bool,
+    trash: fn(&Path) -> io::Result<()>,
+}
+impl Default for Replacement {
+    fn default() -> Self {
+        Self {
+            available: |path| {
+                std::process::Command::new("gio")
+                    .args(["info", "-a", "access::can-trash", "--"])
+                    .arg(path)
+                    .env("LC_ALL", "C")
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .is_ok_and(|out| {
+                        out.status.success()
+                            && String::from_utf8_lossy(&out.stdout)
+                                .lines()
+                                .any(|line| line.trim() == "access::can-trash: TRUE")
+                    })
+            },
+            trash: |path| crate::actions::trash(&[path.to_owned()]).map_err(io::Error::other),
+        }
+    }
+}
+#[cfg(test)]
+pub fn test_replacement() -> Replacement {
+    Replacement {
+        available: |_| true,
+        trash: |path| {
+            let bin = path.parent().unwrap().parent().unwrap().join("test-trash");
+            fs::create_dir_all(&bin)?;
+            renameat2_noreplace(path, &temp_name(&bin))
+        },
+    }
+}
+fn details(meta: &Metadata) -> String {
+    let ns = meta
+        .mtime()
+        .saturating_mul(1_000_000_000)
+        .saturating_add(meta.mtime_nsec());
+    let date = crate::format::timestamp(ns, &everygrep_core::localtime::Zone::local());
+    fill(tr("Size: {0} bytes; modified: {1}"), &[&meta.len(), &date])
+}
 
 /// Why an item was not pasted.
 #[derive(Debug)]
@@ -82,8 +153,10 @@ pub struct Outcome {
     pub done: Vec<PathBuf>,
     /// How many of them got another name because theirs was taken.
     pub renamed: usize,
+    pub replaced: usize,
     /// Items moved into the folder they are already in: left as they are.
     pub unchanged: usize,
+    pub skipped: usize,
     pub failed: Vec<(PathBuf, Failure)>,
     /// Special files left out of copied folders.
     pub skipped_special: u64,
@@ -116,6 +189,37 @@ impl From<io::Error> for Stop {
 /// the folder `dest`. Progress is counted in bytes copied; cancel through
 /// `progress` stops at the next read.
 pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progress) -> Outcome {
+    paste_with(op, sources, dest, progress, None)
+}
+
+/// An optional resolver runs on the worker, never on the window thread.
+pub fn paste_with(
+    op: Operation,
+    sources: &[PathBuf],
+    dest: &Path,
+    progress: &Progress,
+    resolver: Option<Resolver>,
+) -> Outcome {
+    paste_observed_using(
+        op,
+        sources,
+        dest,
+        progress,
+        resolver,
+        Replacement::default(),
+        |_| {},
+    )
+}
+
+pub fn paste_observed_using(
+    op: Operation,
+    sources: &[PathBuf],
+    dest: &Path,
+    progress: &Progress,
+    resolver: Option<Resolver>,
+    replacement: Replacement,
+    mut observe: impl FnMut(&Path),
+) -> Outcome {
     let mut out = Outcome::default();
     let dest = match fs::canonicalize(dest) {
         Ok(d) => d,
@@ -142,7 +246,11 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
         .sum();
     progress.restart(Some(total));
 
-    let mut run = Run::default();
+    let mut run = Run {
+        resolver,
+        replacement,
+        ..Run::default()
+    };
     for src in sources {
         if progress.is_cancelled() {
             out.cancelled = true;
@@ -153,9 +261,11 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
                 if target.file_name() != src.file_name() {
                     out.renamed += 1;
                 }
+                observe(&target);
                 out.done.push(target);
             }
             Ok(Pasted::Unchanged) => out.unchanged += 1,
+            Ok(Pasted::Skipped) => out.skipped += 1,
             Ok(Pasted::Failed(f)) => out.failed.push((src.clone(), f)),
             Err(Stop::Cancelled) => {
                 out.cancelled = true;
@@ -176,6 +286,7 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
             }
         }
     }
+    out.replaced = run.replacements;
     out.skipped_special = run.special;
     out
 }
@@ -185,6 +296,12 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
 struct Run {
     /// Special files left out so far.
     special: u64,
+    resolver: Option<Resolver>,
+    skip_all: bool,
+    skip_errors: bool,
+    replace: Option<Copied>,
+    replacements: usize,
+    replacement: Replacement,
     /// For each name (and whether it is a folder's), the first number
     /// `name (N)` not yet known to be taken in the target folder.
     next: HashMap<(OsString, bool), u64>,
@@ -202,6 +319,7 @@ impl Run {
 /// What became of one item.
 enum Pasted {
     New(PathBuf),
+    Skipped,
     /// Moved into the folder it is already in.
     Unchanged,
     Failed(Failure),
@@ -214,6 +332,44 @@ fn paste_one(
     progress: &Progress,
     run: &mut Run,
 ) -> Result<Pasted, Stop> {
+    loop {
+        match paste_attempt(op, src, dest, progress, run) {
+            Err(Stop::Io(e)) if run.resolver.is_some() => {
+                if run.skip_errors {
+                    return Ok(Pasted::Failed(Failure::Io(e)));
+                }
+                let q = Question {
+                    source: src.into(),
+                    target: dest.join(src.file_name().unwrap_or_default()),
+                    error: Some(e.to_string()),
+                    can_overwrite: false,
+                    source_details: String::new(),
+                    target_details: String::new(),
+                    trash_available: false,
+                };
+                match run.resolver.as_ref().expect("resolver")(q, progress) {
+                    Decision::Retry => continue,
+                    Decision::SkipAll => {
+                        run.skip_errors = true;
+                        return Ok(Pasted::Failed(Failure::Io(e)));
+                    }
+                    Decision::Skip => return Ok(Pasted::Failed(Failure::Io(e))),
+                    _ => return Err(Stop::Cancelled),
+                }
+            }
+            result => return result,
+        }
+    }
+}
+
+fn paste_attempt(
+    op: Operation,
+    src: &Path,
+    dest: &Path,
+    progress: &Progress,
+    run: &mut Run,
+) -> Result<Pasted, Stop> {
+    run.replace = None;
     let meta = fs::symlink_metadata(src)?;
     let name = src
         .file_name()
@@ -224,6 +380,53 @@ fn paste_one(
     let parent = src.parent().map(fs::canonicalize).transpose()?;
     if op == Operation::Cut && parent.as_deref() == Some(dest) {
         return Ok(Pasted::Unchanged);
+    }
+    let target = dest.join(name);
+    if let Some(resolver) = &run.resolver {
+        if let Ok(existing) = fs::symlink_metadata(&target) {
+            if run.skip_all {
+                return Ok(Pasted::Skipped);
+            }
+            let trash_available = (run.replacement.available)(&target);
+            let can_overwrite = trash_available
+                && meta.is_file()
+                && existing.is_file()
+                && (meta.dev(), meta.ino()) != (existing.dev(), existing.ino());
+            let q = Question {
+                source: src.into(),
+                target: target.clone(),
+                error: None,
+                can_overwrite,
+                source_details: details(&meta),
+                target_details: details(&existing),
+                trash_available,
+            };
+            match resolver(q, progress) {
+                Decision::Overwrite if can_overwrite => {
+                    run.replace = Some(Copied::new(&target, &existing))
+                }
+                Decision::KeepBoth => {}
+                Decision::Retry => {
+                    return Err(io::Error::other(tr("The destination already exists.")).into());
+                }
+                Decision::SkipAll => {
+                    run.skip_all = true;
+                    return Ok(Pasted::Skipped);
+                }
+                Decision::Skip => return Ok(Pasted::Skipped),
+                _ => return Err(Stop::Cancelled),
+            }
+        }
+    }
+    if progress.is_cancelled() {
+        return Err(Stop::Cancelled);
+    }
+    if op == Operation::Cut && run.replace.is_some() {
+        let (target, copied) = copy_in(src, &meta, dest, name, progress, true, run)?;
+        return Ok(match remove_copied(&copied) {
+            None => Pasted::New(target),
+            Some(e) => Pasted::Failed(Failure::NotRemoved(e)),
+        });
     }
     match op {
         Operation::Copy => {
@@ -367,6 +570,25 @@ fn copy_in(
     // move does not remove its source).
     if progress.is_cancelled() {
         return Err(cleaned_up(&temp, Stop::Cancelled));
+    }
+    if let Some(expected) = run.replace.take() {
+        let mut publish = || -> io::Result<()> {
+            let now = fs::symlink_metadata(&expected.path)?;
+            if !now.is_file() || !expected.unchanged(&now) {
+                return Err(io::Error::other(tr(
+                    "The destination changed while copying. Retry to review it.",
+                )));
+            }
+            (run.replacement.trash)(&expected.path)?;
+            run.replacements += 1;
+            renameat2_noreplace(&temp, &expected.path).map_err(|e| io::Error::other(fill(
+                tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e],
+            )))
+        };
+        return match publish() {
+            Ok(()) => Ok((expected.path, copied)),
+            Err(e) => Err(cleaned_up(&temp, e.into())),
+        };
     }
     loop {
         let target = match run.free_name(dest, name, meta.is_dir()) {
@@ -693,7 +915,283 @@ mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
 
+    fn paste_with(
+        op: Operation,
+        sources: &[PathBuf],
+        dest: &Path,
+        progress: &Progress,
+        resolver: Option<Resolver>,
+    ) -> Outcome {
+        paste_observed_using(
+            op,
+            sources,
+            dest,
+            progress,
+            resolver,
+            test_replacement(),
+            |_| {},
+        )
+    }
+
+    #[test]
+    fn unavailable_or_failed_trash_never_permanently_replaces_the_target() {
+        let t = TempDir::new("trash-failure");
+        let src = t.path("src/x");
+        let dest = t.path("dst");
+        write(&src, "new");
+        write(&dest.join("x"), "old");
+        let unavailable = Replacement {
+            available: |_| false,
+            ..test_replacement()
+        };
+        let out = paste_observed_using(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|q, _| {
+                assert!(!q.trash_available);
+                assert!(!q.can_overwrite);
+                assert!(q.source_details.contains("3 bytes"));
+                assert!(q.target_details.contains("3 bytes"));
+                Decision::Overwrite
+            })),
+            unavailable,
+            |_| {},
+        );
+        assert!(out.cancelled);
+        assert_eq!(read(&dest.join("x")), "old");
+        let fails = Replacement {
+            trash: |_| Err(io::Error::other("trash unavailable")),
+            ..test_replacement()
+        };
+        let out = paste_observed_using(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|q, _| {
+                if q.error.is_some() {
+                    Decision::Skip
+                } else {
+                    Decision::Overwrite
+                }
+            })),
+            fails,
+            |_| {},
+        );
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(out.replaced, 0);
+        assert_eq!(read(&src), "new");
+        assert_eq!(read(&dest.join("x")), "old");
+        assert_eq!(names(&dest), ["x"]);
+    }
+
     /// A fresh empty folder under the system temp dir, removed on drop.
+    #[test]
+    fn conflict_choices_preserve_or_replace_complete_files() {
+        for decision in [
+            Decision::KeepBoth,
+            Decision::Skip,
+            Decision::Overwrite,
+            Decision::Cancel,
+        ] {
+            let t = TempDir::new("conflict");
+            let src = t.0.join("src");
+            let dst = t.0.join("dst");
+            fs::create_dir(&src).unwrap();
+            fs::create_dir(&dst).unwrap();
+            fs::write(src.join("x"), b"new").unwrap();
+            fs::write(dst.join("x"), b"old").unwrap();
+            let out = paste_with(
+                Operation::Copy,
+                &[src.join("x")],
+                &dst,
+                &Progress::new(),
+                Some(Box::new(move |q, _| {
+                    assert!(q.can_overwrite);
+                    decision
+                })),
+            );
+            assert_eq!(
+                fs::read(dst.join("x")).unwrap(),
+                if decision == Decision::Overwrite {
+                    b"new"
+                } else {
+                    b"old"
+                }
+            );
+            assert_eq!(
+                out.done.len(),
+                usize::from(matches!(decision, Decision::KeepBoth | Decision::Overwrite))
+            );
+            assert_eq!(out.skipped, usize::from(decision == Decision::Skip));
+            assert_eq!(out.cancelled, decision == Decision::Cancel);
+            assert_eq!(fs::read(src.join("x")).unwrap(), b"new");
+            if decision == Decision::Overwrite {
+                assert_eq!(out.replaced, 1);
+                let bin = t.path("test-trash");
+                let old = fs::read_dir(bin).unwrap().next().unwrap().unwrap().path();
+                assert_eq!(read(&old), "old");
+                let (message, error) = crate::labels::pasted(Operation::Copy, &out, "dst");
+                assert!(!error);
+                assert!(message.contains("trash"));
+            }
+            if decision == Decision::KeepBoth {
+                assert_eq!(fs::read(dst.join("x (2)")).unwrap(), b"new");
+            }
+            assert!(!fs::read_dir(&dst).unwrap().any(|e| {
+                e.unwrap()
+                    .file_name()
+                    .as_bytes()
+                    .starts_with(b".everygrep-")
+            }));
+        }
+    }
+
+    #[test]
+    fn skip_all_is_scoped_to_conflicts_and_retry_can_recover() {
+        let t = TempDir::new("skip-retry");
+        let src = t.0.join("src");
+        let dst = t.0.join("dst");
+        fs::create_dir(&src).unwrap();
+        fs::create_dir(&dst).unwrap();
+        for n in ["a", "b", "c"] {
+            fs::write(src.join(n), n).unwrap();
+        }
+        for n in ["a", "b"] {
+            fs::write(dst.join(n), "old").unwrap();
+        }
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = calls.clone();
+        let out = paste_with(
+            Operation::Cut,
+            &[src.join("a"), src.join("b"), src.join("c")],
+            &dst,
+            &Progress::new(),
+            Some(Box::new(move |_, _| {
+                seen.fetch_add(1, Ordering::Relaxed);
+                Decision::SkipAll
+            })),
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(out.skipped, 2);
+        assert_eq!(out.done, [dst.join("c")]);
+        let missing = src.join("missing");
+        let create = missing.clone();
+        let out = paste_with(
+            Operation::Copy,
+            &[missing],
+            &dst,
+            &Progress::new(),
+            Some(Box::new(move |q, _| {
+                assert!(q.error.is_some());
+                fs::write(&create, "recovered").unwrap();
+                Decision::Retry
+            })),
+        );
+        assert_eq!(out.done, [dst.join("missing")]);
+    }
+
+    #[test]
+    fn skip_all_conflicts_still_reports_io_errors_and_their_reason() {
+        let t = TempDir::new("skip-errors");
+        let src = t.path("src");
+        let dst = t.path("dst");
+        write(&src.join("a"), "new");
+        write(&dst.join("a"), "old");
+        let denied = src.join("b");
+        write(&denied, "private");
+        fs::set_permissions(&denied, fs::Permissions::from_mode(0o0)).unwrap();
+        let out = paste_with(
+            Operation::Copy,
+            &[src.join("a"), denied, src.join("missing")],
+            &dst,
+            &Progress::new(),
+            Some(Box::new(|_, _| Decision::SkipAll)),
+        );
+        assert_eq!(out.skipped, 1);
+        assert!(!out.failed.is_empty());
+        if let Some((_, Failure::Io(e))) = out.failed.iter().find(|(p, _)| p.ends_with("b")) {
+            assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        }
+        assert!(out.failed.iter().any(|(p, _)| p.ends_with("missing")));
+        let (text, error) = crate::labels::pasted(Operation::Copy, &out, "dst");
+        assert!(error);
+        assert!(text.contains(&out.failed[0].1.to_string()));
+    }
+
+    #[test]
+    fn folders_links_and_same_inode_cannot_be_overwritten() {
+        let t = TempDir::new("no-overwrite");
+        let src = t.0.join("src");
+        let dst = t.0.join("dst");
+        fs::create_dir(&src).unwrap();
+        fs::create_dir(&dst).unwrap();
+        fs::create_dir(src.join("folder")).unwrap();
+        fs::create_dir(dst.join("folder")).unwrap();
+        fs::write(src.join("file"), "safe").unwrap();
+        std::os::unix::fs::symlink(src.join("file"), dst.join("file")).unwrap();
+        fs::hard_link(src.join("file"), dst.join("hard")).unwrap();
+        fs::hard_link(src.join("file"), src.join("hard")).unwrap();
+        for name in ["folder", "file", "hard"] {
+            let out = paste_with(
+                Operation::Copy,
+                &[src.join(name)],
+                &dst,
+                &Progress::new(),
+                Some(Box::new(|q, _| {
+                    assert!(!q.can_overwrite);
+                    Decision::Overwrite
+                })),
+            );
+            assert!(out.cancelled);
+            assert!(out.done.is_empty());
+        }
+        assert_eq!(fs::read(src.join("file")).unwrap(), b"safe");
+    }
+
+    #[test]
+    fn overwrite_rechecks_the_destination_and_moves_only_after_publication() {
+        let t = TempDir::new("replace-changed");
+        let src = t.0.join("src");
+        let dst = t.0.join("dst");
+        fs::create_dir(&src).unwrap();
+        fs::create_dir(&dst).unwrap();
+        fs::write(src.join("x"), "source").unwrap();
+        fs::write(dst.join("x"), "old").unwrap();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let out = paste_with(
+            Operation::Cut,
+            &[src.join("x")],
+            &dst,
+            &Progress::new(),
+            Some(Box::new(move |q, _| {
+                if calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                    fs::write(q.target, "changed destination").unwrap();
+                    Decision::Overwrite
+                } else {
+                    assert!(q.error.is_some());
+                    Decision::Skip
+                }
+            })),
+        );
+        assert!(out.done.is_empty());
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(fs::read(dst.join("x")).unwrap(), b"changed destination");
+        assert!(src.join("x").exists());
+        let out = paste_with(
+            Operation::Cut,
+            &[src.join("x")],
+            &dst,
+            &Progress::new(),
+            Some(Box::new(|_, _| Decision::Overwrite)),
+        );
+        assert_eq!(out.done, [dst.join("x")]);
+        assert!(!src.join("x").exists());
+        assert_eq!(fs::read(dst.join("x")).unwrap(), b"source");
+    }
+
     struct TempDir(PathBuf);
 
     impl TempDir {

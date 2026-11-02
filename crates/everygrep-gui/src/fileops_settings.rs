@@ -4,6 +4,7 @@
 pub struct Settings {
     /// Off keeps the existing in-place editor.
     pub rename_dialog: bool,
+    pub conflict_ask: bool,
     pub search_new_window: bool,
     pub search_recursive: bool,
     pub search_exact_name: bool,
@@ -14,6 +15,7 @@ pub struct Settings {
 impl Settings {
     pub fn fill_window(&self, w: &crate::SettingsWindow) {
         w.set_fileops_rename_dialog(self.rename_dialog);
+        w.set_fileops_conflict_ask(self.conflict_ask);
         w.set_fileops_search_new_window(self.search_new_window);
         w.set_fileops_search_recursive(self.search_recursive);
         w.set_fileops_search_exact_name(self.search_exact_name);
@@ -28,6 +30,7 @@ impl Settings {
     pub fn from_window(w: &crate::SettingsWindow) -> Self {
         Self {
             rename_dialog: w.get_fileops_rename_dialog(),
+            conflict_ask: w.get_fileops_conflict_ask(),
             search_new_window: w.get_fileops_search_new_window(),
             search_recursive: w.get_fileops_search_recursive(),
             search_exact_name: w.get_fileops_search_exact_name(),
@@ -63,6 +66,8 @@ impl Settings {
                     _ => self.search_exact_name = on,
                 }
             }
+            ("file-conflicts-ask", "true" | "yes" | "on" | "1") => self.conflict_ask = true,
+            ("file-conflicts-ask", "false" | "no" | "off" | "0") => self.conflict_ask = false,
             ("rename-in-dialog", "true" | "yes" | "on" | "1") => self.rename_dialog = true,
             ("rename-in-dialog", "false" | "no" | "off" | "0") => self.rename_dialog = false,
             ("shortcut-kind", "symlink") => {
@@ -90,6 +95,7 @@ impl Settings {
             ("context-search-subfolders", self.search_recursive),
             ("context-search-exact-name", self.search_exact_name),
             ("rename-in-dialog", self.rename_dialog),
+            ("file-conflicts-ask", self.conflict_ask),
         ] {
             if on || all {
                 out.push_str(&format!("{key} = {on}\n"));
@@ -111,6 +117,22 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use crate::settings::{Page, Settings};
+
+    #[test]
+    fn conflict_choice_defaults_to_keep_both_and_roundtrips() {
+        assert!(!Settings::default().fileops.conflict_ask);
+        let mut s = Settings::parse("file-conflicts-ask = true");
+        assert!(s.fileops.conflict_ask);
+        assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
+        s.reset(Page::Window);
+        assert!(!s.fileops.conflict_ask);
+        assert_eq!(
+            Settings::parse("file-conflicts-ask = invalid")
+                .problems
+                .len(),
+            1
+        );
+    }
 
     #[test]
     fn rename_choice_roundtrips_and_resets_with_window_preferences() {

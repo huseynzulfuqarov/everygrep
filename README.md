@@ -197,8 +197,8 @@ Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
 
 Cut or copy items, select one folder in the results and paste (`Ctrl+V`,
-or Paste into folder in the menus) to copy or move them there. Nothing is
-ever replaced: when a name is taken, the item gets the first free name like
+or Paste into folder in the menus) to copy or move them there. By default,
+when a name is taken, the item gets the first free name like
 `report (2).pdf`. A copy is written under a temporary name and renamed into
 place only when it is complete, so a failure or a cancel leaves nothing
 half-copied. A move is a rename on the same file system; across file
@@ -207,7 +207,12 @@ afterwards, so a failed move never loses the original. Links are copied as
 links, and special files (pipes, sockets, devices) are left out and named
 in the status line. A paste that takes longer shows its progress in the
 status line with a Cancel button; items already pasted stay. A folder is
-never pasted into itself.
+never pasted into itself. Settings → Window → File operations can enable
+questions for existing names: keep both, skip, skip all conflicts in this paste,
+or cancel. Regular files can also be overwritten: a complete temporary copy
+replaces the destination atomically after its identity is checked again. Links,
+folders and hard links to the source cannot be overwritten. Errors offer retry
+or skip. The worker waits for an answer while the window stays responsive.
 
 Other programs get the items as files: Cut and Copy offer them on the
 clipboard of XWayland (`DISPLAY`) as `x-special/gnome-copied-files`,

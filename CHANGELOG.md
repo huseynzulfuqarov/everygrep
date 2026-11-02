@@ -8,6 +8,11 @@ All notable changes to EveryGrep are listed here. The format follows
 
 First version, 0.1.0, not released yet.
 
+### File operations
+
+- Optional paste conflict questions with skip, skip all, keep both, retry and
+  atomic replacement of regular files; existing behavior remains the default.
+
 ### Tabs
 
 - Opt-in last-window session restore, with private, locked atomic snapshots,

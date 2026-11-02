@@ -3217,3 +3217,55 @@ msgstr "Keçid: {}"
 
 msgid "No name starts with {}."
 msgstr "{} ilə başlayan ad yoxdur."
+
+msgid "Ask when a pasted name exists"
+msgstr "Yapışdırılan ad mövcuddursa soruş"
+
+msgid "Paste conflict"
+msgstr "Yapışdırma toqquşması"
+
+msgid "Overwrite"
+msgstr "Əvəz et"
+
+msgid "Skip all"
+msgstr "Hamısını ötür"
+
+msgid "Keep both"
+msgstr "Hər ikisini saxla"
+
+msgid "Retry"
+msgstr "Yenidən cəhd et"
+
+msgid "Cannot paste {0}: {1}"
+msgstr "{0} yapışdırıla bilmir: {1}"
+
+msgid "The destination changed while copying. Retry to review it."
+msgstr "Kopyalama zamanı hədəf dəyişdi. Yenidən yoxlamaq üçün təkrar cəhd edin."
+
+msgid "The destination already exists."
+msgstr "Hədəf artıq mövcuddur."
+
+msgid "Skipped {} item."
+msgid_plural "Skipped {} items."
+msgstr[0] "{} element ötürüldü."
+msgstr[1] "{} element ötürüldü."
+
+msgid "Size: {0} bytes; modified: {1}"
+msgstr "Ölçü: {0} bayt; dəyişdirilib: {1}"
+
+msgid "The replaced file will be sent to the trash. If that fails, nothing will be replaced."
+msgstr "Əvəz edilən fayl zibil qutusuna göndəriləcək. Bu mümkün olmasa, heç nə əvəz edilməyəcək."
+
+msgid "Trash is unavailable on this filesystem. Overwrite is disabled."
+msgstr "Bu fayl sistemində zibil qutusu əlçatan deyil. Əvəzləmə söndürülüb."
+
+msgid "A name already exists.\nFrom: {0}\n{1}\nTo: {2}\n{3}\n{4}"
+msgstr "Bu ad artıq mövcuddur.\nMənbə: {0}\n{1}\nHədəf: {2}\n{3}\n{4}"
+
+msgid "The previous file was sent to the trash, but the new file could not be published: {}"
+msgstr "Əvvəlki fayl zibil qutusuna göndərildi, amma yeni faylı hədəfə yerləşdirmək mümkün olmadı: {}"
+
+msgid "Sent {} replaced item to the trash."
+msgid_plural "Sent {} replaced items to the trash."
+msgstr[0] "{} əvəz edilən element zibil qutusuna göndərildi."
+msgstr[1] "{} əvəz edilən element zibil qutusuna göndərildi."

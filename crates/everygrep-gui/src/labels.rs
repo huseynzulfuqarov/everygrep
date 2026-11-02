@@ -877,7 +877,7 @@ pub fn on_clipboard(op: Operation, n: usize) -> String {
 /// The note after a paste into `folder` (its name).
 pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
     let n = out.done.len();
-    let tried = n + out.failed.len() + out.unchanged;
+    let tried = n + out.failed.len() + out.unchanged + out.skipped;
     let mut parts = Vec::new();
     if out.cancelled {
         parts.push(fill(
@@ -894,6 +894,22 @@ pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
             Operation::Cut => trn("Moved {0} item into {1}.", "Moved {0} items into {1}.", n),
         };
         parts.push(fill(text, &[&format::count(n), &folder]));
+    }
+    if out.replaced > 0 {
+        parts.push(fill(
+            trn(
+                "Sent {} replaced item to the trash.",
+                "Sent {} replaced items to the trash.",
+                out.replaced,
+            ),
+            &[&out.replaced],
+        ));
+    }
+    if out.skipped > 0 {
+        parts.push(fill(
+            trn("Skipped {} item.", "Skipped {} items.", out.skipped),
+            &[&out.skipped],
+        ));
     }
     if out.renamed > 0 {
         parts.push(fill(

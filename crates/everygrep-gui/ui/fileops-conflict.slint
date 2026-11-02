@@ -1,0 +1,49 @@
+import { Button, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component FileopsConflict inherits Rectangle {
+    in property <string> message;
+    in property <bool> can-overwrite;
+    in property <bool> is-error;
+    callback answer(int);
+    background: #00000060;
+    TouchArea { }
+    keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.answer(5); return accept; }
+            reject
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: max(0px, (parent.height - self.height) / 2);
+            width: min(620px, parent.width - 2 * Theme.s5);
+            height: min(layout.preferred-height, parent.height - 2 * Theme.s5);
+            clip: true;
+            background: Theme.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.line;
+            layout := VerticalLayout {
+                padding: Theme.s5;
+                spacing: Theme.s3;
+                Text { text: @tr("Paste conflict"); color: Theme.text; font-weight: 600; }
+                ScrollView {
+                    preferred-height: min(message.preferred-height, 300px);
+                    VerticalLayout {
+                        message := Text { text: root.message; color: Theme.text; wrap: word-wrap; }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: Theme.s2;
+                    if root.can-overwrite: Button { text: @tr("Overwrite"); clicked => { root.answer(0); } }
+                    Button { text: @tr("Skip"); clicked => { root.answer(1); } }
+                    Button { text: @tr("Skip all"); clicked => { root.answer(2); } }
+                    if !root.is-error: Button { text: @tr("Keep both"); clicked => { root.answer(3); } }
+                    if root.is-error: Button { text: @tr("Retry"); clicked => { root.answer(4); } }
+                    Button { text: @tr("Cancel"); clicked => { root.answer(5); } }
+                }
+            }
+        }
+    }
+}

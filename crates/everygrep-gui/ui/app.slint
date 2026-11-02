@@ -2,6 +2,7 @@ import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.sli
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
 import { Theme } from "theme.slint";
+import { FileopsConflict } from "fileops-conflict.slint";
 import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
@@ -1169,6 +1170,11 @@ export component AppWindow inherits Window {
         }
     }
 
+    in property <bool> fileops-conflict-open;
+    in property <string> fileops-conflict-text;
+    in property <bool> fileops-conflict-overwrite;
+    in property <bool> fileops-conflict-error;
+    callback fileops-conflict-answer(int);
     in property <bool> fileops-rename-open;
     in property <string> fileops-rename-location;
     in-out property <string> fileops-rename-name;
@@ -1611,7 +1617,7 @@ export component AppWindow inherits Window {
 
     // Whether a command can run now; menu items are enabled by it.
     function can-run(c: Command) -> bool {
-        if (root.confirm-open || root.fileops-rename-open) {
+        if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
             return false;
         }
         if (root.needs-online(c)) {
@@ -1913,10 +1919,10 @@ export component AppWindow inherits Window {
         let c = root.resolve-key(scope, event.text, event.modifiers.control, event.modifiers.alt,
             event.modifiers.shift, event.modifiers.meta);
         if (c == Command.none) {
-            if (root.confirm-open || root.fileops-rename-open) { return false; }
+            if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) { return false; }
             return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
         }
-        if (root.can-run(c) || (!root.confirm-open && root.current >= 0 && root.needs-online(c))) {
+        if (root.can-run(c) || (!root.confirm-open && !root.fileops-rename-open && !root.fileops-conflict-open && root.current >= 0 && root.needs-online(c))) {
             root.run(c);
         }
         true
@@ -2999,6 +3005,12 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.fileops-conflict-open: FileopsConflict {
+        message: root.fileops-conflict-text;
+        can-overwrite: root.fileops-conflict-overwrite;
+        is-error: root.fileops-conflict-error;
+        answer(choice) => { root.fileops-conflict-answer(choice); }
+    }
     if root.fileops-rename-open: FileopsRename {
         location: root.fileops-rename-location;
         name <=> root.fileops-rename-name;
@@ -3375,7 +3387,7 @@ export component AppWindow inherits Window {
                     title: item.title;
                     checkable: true;
                     checked: item.checked;
-                    enabled: item.enabled && !root.confirm-open;
+                    enabled: item.enabled && !root.confirm-open && !root.fileops-conflict-open;
                     activated => { root.sort-to(item.column, root.sort-descending); }
                 }
                 MenuSeparator { }
@@ -3383,7 +3395,7 @@ export component AppWindow inherits Window {
                     title: item.title;
                     checkable: true;
                     checked: item.checked;
-                    enabled: !root.confirm-open;
+                    enabled: !root.confirm-open && !root.fileops-conflict-open;
                     activated => { root.sort-to(root.sort-column, i == 1); }
                 }
             }

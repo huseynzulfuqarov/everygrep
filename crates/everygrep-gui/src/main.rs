@@ -11,6 +11,7 @@ mod content_settings;
 mod diagnostics;
 mod engine;
 mod export;
+mod fileops_conflict;
 mod fileops_rename;
 mod fileops_search;
 mod fileops_settings;
@@ -1058,6 +1059,7 @@ enum Pending {
 /// Open, copy, rename, trash and delete.
 fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     let rename_dialog = fileops_rename::Dialog::connect(window);
+    fileops_conflict::connect(window);
     fileops_shortcut::connect(window, model);
     let pending: Rc<RefCell<Option<Pending>>> = Rc::default();
     let weak = window.as_weak();
@@ -1463,16 +1465,26 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                     || dest.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
+                let mut ask = false;
+                prefs::with(|p| ask = p.fileops_settings().conflict_ask);
+                let resolver = ask.then(|| fileops_conflict::resolver(weak.clone()));
                 std::thread::spawn(move || {
                     let kind = match op {
                         clipboard::Operation::Copy => engine::TaskKind::Copying,
                         clipboard::Operation::Cut => engine::TaskKind::Moving,
                     };
                     let job = engine.begin_job(kind);
-                    let out = transfer::paste(op, &sources, &dest, job.progress());
+                    let out = if resolver.is_some() {
+                        transfer::paste_with(op, &sources, &dest, job.progress(), resolver)
+                    } else {
+                        transfer::paste(op, &sources, &dest, job.progress())
+                    };
                     drop(job);
-                    BUSY.store(false, SeqCst);
-                    let _ = weak.upgrade_in_event_loop(move |w| {
+                    let queued = weak.upgrade_in_event_loop(move |w| {
+                        w.invoke_fileops_conflict_answer(5);
+                        // Keep the next paste out until this paste's dialog
+                        // answer and clipboard completion have been handled.
+                        BUSY.store(false, SeqCst);
                         let (text, failed) = labels::pasted(op, &out, &folder);
                         if failed {
                             error(&w, text);
@@ -1483,6 +1495,7 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                         // stays, so pasting again moves what is left.
                         if op == clipboard::Operation::Cut
                             && out.failed.is_empty()
+                            && out.skipped == 0
                             && !out.cancelled
                         {
                             let ours = HELD.with(|h| {
@@ -1514,6 +1527,9 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                             CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
                         }
                     });
+                    if queued.is_err() {
+                        BUSY.store(false, SeqCst);
+                    }
                 });
             });
         }

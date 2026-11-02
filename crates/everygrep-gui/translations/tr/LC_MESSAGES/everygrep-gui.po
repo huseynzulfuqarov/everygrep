@@ -3217,3 +3217,55 @@ msgstr "Atla: {}"
 
 msgid "No name starts with {}."
 msgstr "{} ile başlayan ad yok."
+
+msgid "Ask when a pasted name exists"
+msgstr "Yapıştırılan ad varsa sor"
+
+msgid "Paste conflict"
+msgstr "Yapıştırma çakışması"
+
+msgid "Overwrite"
+msgstr "Üzerine yaz"
+
+msgid "Skip all"
+msgstr "Tümünü atla"
+
+msgid "Keep both"
+msgstr "İkisini de tut"
+
+msgid "Retry"
+msgstr "Yeniden dene"
+
+msgid "Cannot paste {0}: {1}"
+msgstr "{0} yapıştırılamıyor: {1}"
+
+msgid "The destination changed while copying. Retry to review it."
+msgstr "Kopyalama sırasında hedef değişti. Yeniden incelemek için tekrar deneyin."
+
+msgid "The destination already exists."
+msgstr "Hedef zaten var."
+
+msgid "Skipped {} item."
+msgid_plural "Skipped {} items."
+msgstr[0] "{} öğe atlandı."
+msgstr[1] "{} öğe atlandı."
+
+msgid "Size: {0} bytes; modified: {1}"
+msgstr "Boyut: {0} bayt; değiştirilme: {1}"
+
+msgid "The replaced file will be sent to the trash. If that fails, nothing will be replaced."
+msgstr "Değiştirilen dosya çöpe taşınacak. Bu başarısız olursa hiçbir şey değiştirilmeyecek."
+
+msgid "Trash is unavailable on this filesystem. Overwrite is disabled."
+msgstr "Bu dosya sisteminde çöp kullanılamıyor. Üzerine yazma devre dışı."
+
+msgid "A name already exists.\nFrom: {0}\n{1}\nTo: {2}\n{3}\n{4}"
+msgstr "Bu ad zaten var.\nKaynak: {0}\n{1}\nHedef: {2}\n{3}\n{4}"
+
+msgid "The previous file was sent to the trash, but the new file could not be published: {}"
+msgstr "Önceki dosya çöpe taşındı, ancak yeni dosya hedefe yerleştirilemedi: {}"
+
+msgid "Sent {} replaced item to the trash."
+msgid_plural "Sent {} replaced items to the trash."
+msgstr[0] "{} değiştirilen öğe çöpe taşındı."
+msgstr[1] "{} değiştirilen öğe çöpe taşındı."

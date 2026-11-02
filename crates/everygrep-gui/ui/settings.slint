@@ -225,6 +225,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> remember-columns;
     in-out property <bool> rename-name-only;
     in-out property <bool> fileops-rename-dialog;
+    in-out property <bool> fileops-conflict-ask;
     in-out property <bool> fileops-search-new-window;
     in-out property <bool> fileops-search-recursive;
     in-out property <bool> fileops-search-exact-name;
@@ -1058,6 +1059,7 @@ export component SettingsWindow inherits Window {
                             Heading { text: @tr("File operations"); }
                             FileopsSettings {
                                 rename-dialog <=> root.fileops-rename-dialog;
+                                conflict-ask <=> root.fileops-conflict-ask;
                                 search-new-window <=> root.fileops-search-new-window;
                                 search-recursive <=> root.fileops-search-recursive;
                                 search-exact-name <=> root.fileops-search-exact-name;

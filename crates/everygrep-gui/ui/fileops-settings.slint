@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 
 export component FileopsSettings inherits VerticalLayout {
     in-out property <bool> rename-dialog;
+    in-out property <bool> conflict-ask;
     in-out property <int> shortcut-kind;
     in-out property <int> shortcut-collision;
     in-out property <bool> search-new-window;
@@ -13,6 +14,11 @@ export component FileopsSettings inherits VerticalLayout {
     CheckBox {
         text: @tr("Rename in a dialog");
         checked <=> root.rename-dialog;
+        toggled => { root.changed(); }
+    }
+    CheckBox {
+        text: @tr("Ask when a pasted name exists");
+        checked <=> root.conflict-ask;
         toggled => { root.changed(); }
     }
     Text { text: @tr("Shortcut type"); color: Theme.text; }
