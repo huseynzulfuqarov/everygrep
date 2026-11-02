@@ -329,6 +329,24 @@ are off by default. Opening a context search in a new window follows the tab
 preference, as do query-bearing launches handed to the running window. Explicit
 New window commands continue to create windows.
 
+Session restore saves only the last window's tabs, active tab and last ten
+closed tabs in `session` beside `settings` (private mode 0600). Queries, filter
+snapshots, tab matching toggles, sort and column layout are kept. Hidden-file
+mode and the three parse policies always follow Settings. Row ids,
+selection and navigation trails stay in memory. A bare startup restores only
+when the index identity matches; an explicit search, `--new-window` or
+`--new-instance` starts as requested. Session persistence also requires history
+recording and disk storage. Turning any of these off deletes the session file;
+no session is loaded or written while disabled. Clear history deletes the saved
+session and recently closed tabs; Delete entry removes matching closed tabs.
+Queries cleared/deleted while still visible in open tabs are redacted from later
+session saves for the rest of that window's lifetime. Writes use a sibling lock and atomic replacement:
+the first change is saved immediately, changes during the next 15 seconds are
+coalesced, and exit saves the latest state. Malformed or newer files are
+preserved and reported with their path and reset instructions in the status
+line. Turning restore off and on explicitly resets the saved file. Reading is limited to 8 MiB and
+1,000 tab records.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the

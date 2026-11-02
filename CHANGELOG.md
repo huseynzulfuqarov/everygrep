@@ -10,6 +10,9 @@ First version, 0.1.0, not released yet.
 
 ### Tabs
 
+- Opt-in last-window session restore, with private, locked atomic snapshots,
+  coalesced autosave and preservation of malformed or newer session files.
+
 - Custom overflow-aware tab strip and rebindable tab commands; independent
   search, filter, matching, sort, columns, selection and navigation state.
 - Close selected, left, right or other tabs; reopen the last ten individually

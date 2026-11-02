@@ -1,8 +1,10 @@
 //! Custom tab strip backed by Rust state and one shared result view.
 use crate::engine::Engine;
+use crate::i18n::fill;
 use crate::i18n::tr;
 use crate::prefs::Prefs;
 use crate::results::ResultsModel;
+use crate::session::{self, Session, Writer};
 use crate::settings::Columns;
 use crate::tabs::{SearchState, Tab, Tabs, tab_options};
 use crate::{AppWindow, Command, TabEntry, TabsWindow};
@@ -10,7 +12,7 @@ use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct State {
     main: slint::Weak<AppWindow>,
@@ -22,6 +24,10 @@ struct State {
     picker: RefCell<Option<TabsWindow>>,
     poll: Timer,
     last_submitted: RefCell<SearchState>,
+    scope: String,
+    writer: RefCell<Writer>,
+    started: Instant,
+    session_error: RefCell<Option<String>>,
 }
 thread_local! { static STATE: RefCell<Option<Rc<State>>> = const { RefCell::new(None) }; }
 fn with<R>(f: impl FnOnce(&Rc<State>) -> R) -> Option<R> {
@@ -35,9 +41,31 @@ pub fn connect(
     model: &Rc<ResultsModel>,
     prefs: &Rc<Prefs>,
     pause: &Rc<Timer>,
+    start: session::Start,
 ) {
     let mut tabs = Tabs::default();
     tabs.open[0].search = read(w);
+    let path = crate::settings::config_dir().map(|d| d.join("session"));
+    let mut restored = false;
+    let mut session_error = None;
+    if start.restore {
+        match path.as_deref().map(Session::load).transpose() {
+            Ok(Some(Some(session))) => {
+                if let Some(previous) = session.restore(&start.scope) {
+                    tabs = previous;
+                    restored = true;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                session_error = Some(fill(
+                    tr("Cannot restore tabs: {}"),
+                    &[&session_detail(path.as_deref(), &e)],
+                ))
+            }
+        }
+    }
+    tabs.history_policy(prefs.history_limit(), false);
     let state = Rc::new(State {
         main: w.as_weak(),
         engine: engine.clone(),
@@ -48,6 +76,10 @@ pub fn connect(
         picker: RefCell::new(None),
         poll: Timer::default(),
         last_submitted: RefCell::new(read(w)),
+        scope: start.scope,
+        writer: RefCell::new(Writer::new(path)),
+        started: Instant::now(),
+        session_error: RefCell::new(None),
     });
     STATE.with(|s| *s.borrow_mut() = Some(state.clone()));
     w.on_tab_command(|command| {
@@ -85,22 +117,49 @@ pub fn connect(
                 s.observe();
             }
         });
+    if restored {
+        state.install(w);
+    }
+    if let Some(error) = session_error {
+        crate::error(w, error);
+    }
     state.fill();
 }
 
 pub fn history_policy(max: usize, clear: bool) {
     with(|s| {
-        s.tabs.borrow_mut().histories(|h| {
-            if clear {
-                h.set_max(0);
+        if clear || max == 0 {
+            s.pause.stop();
+            if let Some(w) = s.main.upgrade() {
+                s.observe_search(&w);
             }
-            h.set_max(max);
-        })
+        }
+        s.tabs.borrow_mut().history_policy(max, clear);
+        s.fill();
+        if clear || max == 0 {
+            s.forget_session();
+        }
     });
 }
 
 pub fn remove_history(query: &str) {
-    with(|s| s.tabs.borrow_mut().histories(|h| h.remove(query)));
+    with(|s| {
+        s.pause.stop();
+        if let Some(w) = s.main.upgrade() {
+            s.observe_search(&w);
+        }
+        s.tabs.borrow_mut().remove_history(query);
+        s.fill();
+        s.forget_session();
+    });
+}
+
+pub fn session_policy() {
+    with(|s| {
+        if !s.prefs.restore_session() {
+            s.forget_session();
+        }
+    });
 }
 
 pub fn close_picker() {
@@ -117,6 +176,19 @@ pub fn submitted_sort(column: i32, descending: bool) {
 
 pub fn submitted(w: &AppWindow) {
     with(|s| *s.last_submitted.borrow_mut() = read(w));
+}
+
+pub fn flush() {
+    with(|s| {
+        let Some(w) = s.main.upgrade() else { return };
+        s.observe_search(&w);
+        let snapshot = Session::capture(&s.scope, &s.tabs.borrow());
+        let result = s
+            .writer
+            .borrow_mut()
+            .finish(s.prefs.restore_session(), snapshot);
+        s.report_write(result);
+    });
 }
 
 pub fn refresh() {
@@ -148,6 +220,14 @@ pub fn open_search(
         }
         s.fill();
     });
+}
+
+fn session_detail(path: Option<&std::path::Path>, error: &std::io::Error) -> String {
+    let path = path.map(|p| p.display().to_string()).unwrap_or_default();
+    format!(
+        "{path}: {error}\n{}",
+        tr("To reset saved tabs, turn session restore off and on.")
+    )
 }
 
 fn blocked(w: &AppWindow) -> bool {
@@ -246,9 +326,25 @@ fn title(tab: &Tab) -> String {
 }
 
 impl State {
+    fn forget_session(&self) {
+        let result = self.writer.borrow_mut().forget();
+        self.report_write(result);
+    }
+
     fn observe(&self) {
         let Some(w) = self.main.upgrade() else { return };
-        let search = read(&w);
+        self.observe_search(&w);
+        let snapshot = Session::capture(&self.scope, &self.tabs.borrow());
+        let result = self.writer.borrow_mut().observe(
+            self.prefs.restore_session(),
+            snapshot,
+            self.started.elapsed(),
+        );
+        self.report_write(result);
+    }
+
+    fn observe_search(&self, w: &AppWindow) {
+        let search = read(w);
         let changed = {
             let mut tabs = self.tabs.borrow_mut();
             let active = tabs.active;
@@ -258,6 +354,22 @@ impl State {
         };
         if changed {
             self.fill();
+        }
+    }
+
+    fn report_write(&self, result: std::io::Result<()>) {
+        if let Err(e) = result {
+            let message = fill(
+                tr("Cannot save tabs: {}"),
+                &[&session_detail(self.writer.borrow().path(), &e)],
+            );
+            if self.session_error.borrow().as_ref() != Some(&message) {
+                eprintln!("everygrep-gui: cannot save tabs: {e}");
+                if let Some(w) = self.main.upgrade() {
+                    crate::error(&w, message.clone());
+                }
+                *self.session_error.borrow_mut() = Some(message);
+            }
         }
     }
 
@@ -297,9 +409,15 @@ impl State {
         install_columns(w, &search.columns);
         crate::apply_detail_columns(w);
         self.model.restore(tab.result.as_ref());
-        w.set_current(tab.current);
+        w.set_current(if self.model.row_count() == 0 {
+            -1
+        } else {
+            tab.current.clamp(0, self.model.row_count() as i32 - 1)
+        });
         w.set_results_scroll_y(tab.scroll_y);
-        *self.prefs.history.borrow_mut() = tab.history.clone();
+        let mut history = tab.history.clone();
+        history.set_max(self.prefs.history_limit());
+        *self.prefs.history.borrow_mut() = history;
         let pending = tab.pending && !crate::typing::with(|t| t.as_you_type());
         let submitted = if pending {
             tab.submitted.as_ref().unwrap_or(search)

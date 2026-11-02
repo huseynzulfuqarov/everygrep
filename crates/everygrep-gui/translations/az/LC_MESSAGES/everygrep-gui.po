@@ -2902,3 +2902,15 @@ msgstr "9-cu taba keç"
 
 msgid "Select tab 10"
 msgstr "10-cu taba keç"
+
+msgid "Cannot restore tabs: {}"
+msgstr "Tabları bərpa etmək olmur: {}"
+
+msgid "Cannot save tabs: {}"
+msgstr "Tabları saxlamaq olmur: {}"
+
+msgid "Saving tabs requires search history recording and disk storage."
+msgstr "Tabların saxlanması üçün axtarış tarixçəsinin qeydi və diskdə saxlanması aktiv olmalıdır."
+
+msgid "To reset saved tabs, turn session restore off and on."
+msgstr "Saxlanmış tabları sıfırlamaq üçün sessiyanın bərpasını söndürüb yenidən yandırın."

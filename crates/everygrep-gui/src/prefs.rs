@@ -2525,6 +2525,7 @@ impl Prefs {
         m.set_switch_to_new_tab(s.switch_to_new_tab);
         m.set_restore_session(s.restore_session);
         drop(s);
+        crate::tabs_ui::session_policy();
         if old_options != crate::options(&m) {
             crate::show_badges(&m);
             crate::search_now(&m, &self.engine);
@@ -2891,6 +2892,20 @@ impl Prefs {
 
     pub fn search_policy(&self) -> QueryOptions {
         self.settings.borrow().options
+    }
+
+    pub fn history_limit(&self) -> usize {
+        let s = self.settings.borrow();
+        if s.history_enabled { s.history_size } else { 0 }
+    }
+
+    pub fn restore_session(&self) -> bool {
+        let s = self.settings.borrow();
+        crate::session::can_persist(
+            s.restore_session,
+            s.history_enabled && s.history_size > 0,
+            s.history_on_disk,
+        )
     }
 
     pub fn open_searches_in_tabs(&self) -> bool {

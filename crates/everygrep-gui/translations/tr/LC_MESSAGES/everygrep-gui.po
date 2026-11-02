@@ -2902,3 +2902,15 @@ msgstr "9. sekmeye geç"
 
 msgid "Select tab 10"
 msgstr "10. sekmeye geç"
+
+msgid "Cannot restore tabs: {}"
+msgstr "Sekmeler geri yüklenemiyor: {}"
+
+msgid "Cannot save tabs: {}"
+msgstr "Sekmeler kaydedilemiyor: {}"
+
+msgid "Saving tabs requires search history recording and disk storage."
+msgstr "Sekmeleri kaydetmek için arama geçmişi kaydı ve diskte saklama açık olmalıdır."
+
+msgid "To reset saved tabs, turn session restore off and on."
+msgstr "Kaydedilen sekmeleri sıfırlamak için oturum geri yüklemeyi kapatıp yeniden açın."

@@ -4,6 +4,7 @@ use crate::results::ResultSnapshot;
 use crate::saved_searches::NamedFilter;
 use crate::settings::Columns;
 use everygrep_core::query::QueryOptions;
+use std::collections::HashSet;
 
 pub const CLOSED_LIMIT: usize = 10;
 
@@ -85,6 +86,9 @@ pub struct Tabs {
     pub active: usize,
     /// Oldest first; reopening removes an entry from this list.
     pub closed: Vec<Tab>,
+    pub recording: bool,
+    /// Cleared/deleted searches stay visible in open tabs but must not return to disk.
+    pub forgotten: HashSet<String>,
 }
 
 impl Default for Tabs {
@@ -93,6 +97,8 @@ impl Default for Tabs {
             open: vec![Tab::default()],
             active: 0,
             closed: Vec::new(),
+            recording: true,
+            forgotten: HashSet::new(),
         }
     }
 }
@@ -110,6 +116,32 @@ impl Tabs {
                 .iter()
                 .map(|t| &t.search)
                 .eq(other.closed.iter().map(|t| &t.search))
+    }
+
+    pub fn history_policy(&mut self, max: usize, clear: bool) {
+        self.recording = max > 0;
+        if clear || !self.recording {
+            self.forgotten.extend(
+                self.open
+                    .iter()
+                    .chain(self.closed.iter())
+                    .flat_map(|t| std::iter::once(&t.search).chain(t.submitted.iter()))
+                    .map(|s| s.query.clone()),
+            );
+            self.closed.clear();
+        }
+        self.histories(|h| {
+            if clear {
+                h.set_max(0);
+            }
+            h.set_max(max);
+        });
+    }
+
+    pub fn remove_history(&mut self, query: &str) {
+        self.forgotten.insert(query.into());
+        self.closed.retain(|t| t.search.query != query);
+        self.histories(|h| h.remove(query));
     }
 
     pub fn histories(&mut self, change: impl Fn(&mut History)) {
@@ -152,7 +184,10 @@ impl Tabs {
         for &i in indexes.iter().rev() {
             let tab = self.open.remove(i);
             // Closed tabs retain searches, history and layout, but release results.
-            if !tab.search.query.is_empty() {
+            if self.recording
+                && !self.forgotten.contains(&tab.search.query)
+                && !tab.search.query.is_empty()
+            {
                 closed.push(Tab {
                     result: None,
                     ..tab
@@ -255,6 +290,23 @@ mod tests {
         assert_eq!(t.open[0].search, expected);
         assert_eq!(t.closed.len(), 1);
         assert_eq!(t.closed[0].search.query, "0");
+    }
+
+    #[test]
+    fn privacy_controls_remove_closed_queries_and_disable_closed_recording() {
+        let mut t = filled(3);
+        t.close(&[0, 1]);
+        t.remove_history("0");
+        assert_eq!(t.closed.len(), 1);
+        assert_eq!(t.closed[0].search.query, "1");
+        assert!(t.forgotten.contains("0"));
+        t.history_policy(10, true);
+        assert!(t.closed.is_empty());
+        assert!(t.forgotten.contains("1") && t.forgotten.contains("2"));
+        t.history_policy(0, false);
+        t.open[0].search.query = "private".into();
+        t.close(&[0]);
+        assert!(t.closed.is_empty());
     }
 
     #[test]

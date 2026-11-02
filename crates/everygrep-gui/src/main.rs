@@ -33,6 +33,7 @@ mod saved_ui;
 mod schedule;
 mod search_history;
 mod selection;
+mod session;
 mod settings;
 mod stalled;
 mod tabs;
@@ -101,6 +102,23 @@ fn main() -> Result<(), slint::PlatformError> {
     // chosen language.
     let (settings_path, settings, settings_error) = prefs::load();
     commands::set_current(commands::Keymap::with_overrides(&settings.shortcuts));
+    let (session_roots, session_file) = instance::identity(&args.roots, args.index_file.as_deref());
+    let session_start = session::Start {
+        scope: instance::bus_name(
+            &session_roots,
+            session_file.as_deref(),
+            instance::default_index().as_deref(),
+        ),
+        restore: session::should_restore(
+            session::can_persist(
+                settings.restore_session,
+                settings.history_enabled && settings.history_size > 0,
+                settings.history_on_disk,
+            ),
+            args.options_given || !args.query.is_empty(),
+            args.new_instance || args.new_window,
+        ),
+    };
     // Held until the window closes: dropping it releases the bus name.
     let _instance = if args.new_instance {
         None
@@ -316,7 +334,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let pause = Rc::new(Timer::default());
-    tabs_ui::connect(&window, &engine, &model, &prefs, &pause);
+    tabs_ui::connect(&window, &engine, &model, &prefs, &pause, session_start);
     let query_edit = |manual: bool| {
         let (engine, weak, pause, prefs) =
             (engine.clone(), weak.clone(), pause.clone(), prefs.clone());
@@ -620,6 +638,7 @@ fn main() -> Result<(), slint::PlatformError> {
     left.into_iter().for_each(instance::Request::refuse);
     // Gives the clipboard up and closes the XWayland connection.
     X11.with(|x| x.borrow_mut().take());
+    tabs_ui::flush();
     window.hide()?;
     // Settings and history changed last (columns, searches) are on disk
     // before the program ends, unless the disk does not answer.
@@ -838,8 +857,8 @@ struct Presentation {
 
 /// The changes a later launch's arguments ask for. Arguments that do not
 /// parse (they were checked by the launch already) change nothing.
-fn presentation(args: &[String]) -> Presentation {
-    match parse_args(args.iter().map(OsString::from)) {
+fn presentation(args: &[String], defaults: QueryOptions) -> Presentation {
+    match parse_args_with_options(args.iter().map(OsString::from), defaults) {
         Ok(Cli::Run(a)) => Presentation {
             query: (!a.query.is_empty()).then_some(a.query),
             options: a.options_given.then_some(a.options),
@@ -927,7 +946,7 @@ fn present(
         PresentAction::Hide => return close_window(w, engine, prefs, true),
         PresentAction::Quit => return close_window(w, engine, prefs, false),
     }
-    let p = presentation(&request.args);
+    let p = presentation(&request.args, prefs.search_policy());
     if p.query.is_some() {
         w.set_notice("".into());
     }
@@ -946,7 +965,7 @@ fn present(
             },
         );
         prefs.record(p.query.as_deref().unwrap_or(""));
-        if prefs.focus_on_show() {
+        if prefs.focus_on_show() && !w.get_confirm_open() && !w.get_fileops_rename_open() {
             w.invoke_focus_search();
         }
         raise(w, request.activation_token);
@@ -1754,7 +1773,17 @@ enum Cli {
 /// option or value is an error, so a mistyped flag never opens a window on
 /// the default roots; after `--` every argument is a query word.
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Cli, String> {
-    let mut out = Args::default();
+    parse_args_with_options(args, QueryOptions::default())
+}
+
+fn parse_args_with_options(
+    args: impl IntoIterator<Item = OsString>,
+    defaults: QueryOptions,
+) -> Result<Cli, String> {
+    let mut out = Args {
+        options: defaults,
+        ..Default::default()
+    };
     let mut words: Vec<String> = Vec::new();
     let mut args = args.into_iter();
     // Paths are taken as they are; every other argument must be text.
@@ -1881,6 +1910,12 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         descending,
         folders,
     }
+}
+
+/// Whether the result table can be sorted by `column` (a column that sorts
+/// by a key of its own), as tab sessions keep it.
+pub fn is_sort_column(column: i32) -> bool {
+    column_of(sort_for_column(column, false, FolderSize::default()).key) == column
 }
 
 /// The column of the result table that sorts by `key`; the reverse of
@@ -2205,7 +2240,10 @@ mod tests {
     }
 
     fn present_args(list: &[&str]) -> Presentation {
-        presentation(&list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
+        presentation(
+            &list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+            QueryOptions::default(),
+        )
     }
 
     #[test]
@@ -2255,14 +2293,19 @@ mod tests {
 
     #[test]
     fn forwarded_case_search_uses_settings_policy_and_preserves_layout() {
-        let p = present_args(&["--case", "--columns", "created", "foo"]);
         let policy = QueryOptions {
+            whole_words: true,
             hidden_files: HiddenFiles::Only,
             and_before_or: true,
             literal_operators: true,
             wildcards_anywhere: true,
             ..Default::default()
         };
+        let p = presentation(
+            &["--case", "--columns", "created", "foo"].map(str::to_owned),
+            policy,
+        );
+        assert!(p.options.unwrap().whole_words);
         let current = tabs::SearchState {
             columns: settings::Columns {
                 show_type: true,

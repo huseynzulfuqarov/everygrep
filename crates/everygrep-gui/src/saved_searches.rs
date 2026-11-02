@@ -481,7 +481,7 @@ fn move_entry<T>(entries: &mut [T], matches: impl Fn(&T) -> bool, step: i32) -> 
     Ok(())
 }
 
-fn encode_options(o: QueryOptions) -> String {
+pub(crate) fn encode_options(o: QueryOptions) -> String {
     let bits = [
         o.case_sensitive,
         o.whole_words,
@@ -502,7 +502,7 @@ fn encode_options(o: QueryOptions) -> String {
     format!("{}\t{bits}\t{}", o.filter.id(), o.hidden_files.id())
 }
 
-fn decode_options(filter: &str, bits: &str, hidden: &str) -> io::Result<QueryOptions> {
+pub(crate) fn decode_options(filter: &str, bits: &str, hidden: &str) -> io::Result<QueryOptions> {
     let filter = Filter::from_id(filter).ok_or_else(|| invalid(tr("Invalid filter kind.")))?;
     let bits = bits
         .parse::<u16>()

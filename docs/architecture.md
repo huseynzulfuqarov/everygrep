@@ -561,3 +561,29 @@ A custom horizontal strip appears for two or more tabs; the list dialog and
 Tabs menu make every overflowed tab reachable. A 250 ms observer sees changes
 made by history, bookmarks and settings without additional search callbacks or
 copying result arrays. It updates titles only when search/layout state changed.
+
+### Tab sessions (`session.rs`)
+
+`session` lives beside settings/history, using escaped `key = value` fields
+and a version header. It stores a single window's search states and active tab,
+plus up to ten closed searches; result ids and selection never go to disk.
+Columns are named, not positional: `columns = type md5 …` lists the optional
+columns shown and `widths = name:350 folder:420 …` the widths set (hash and
+frequency columns and Folder's own width included); names a later version adds
+are skipped. `sort` accepts every column the table sorts by (0–8, 12–14).
+Index identity gates restoration. Explicit searches and explicit extra windows
+skip restoring. Restore, history recording and history disk storage must all be
+enabled for reading/writing. Disabling deletes the session. Clear/delete also
+invalidate the writer cache and disk file; runtime tombstones redact those
+queries from later captures without destroying visible open-tab work.
+Each save holds `session.lock`, validates existing data, creates a unique file
+with `settings::create_temp`, sets 0600, syncs and renames it. Malformed/newer
+files are preserved. Readers are bounded to 8 MiB / 1,000 records, skip unknown
+keys and use the last duplicate field. Active indexes are clamped and closed
+records pruned. Each window writes a complete snapshot; the last one to exit
+wins, without merging independent windows.
+
+The title observer captures cheap search states for persistence. `Writer` uses
+a fixed 15-second save window: a leading write, then one trailing write if
+changed; edits never restart it. Normal exit captures and writes once more.
+Restore submits only the selected tab, leaving background searches dormant.

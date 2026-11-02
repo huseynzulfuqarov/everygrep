@@ -998,6 +998,11 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.restore-session;
                                 toggled => { root.window-changed(); }
                             }
+                            Text {
+                                text: @tr("Saving tabs requires search history recording and disk storage.");
+                                color: Theme.text-muted;
+                                wrap: word-wrap;
+                            }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Closing the window"); }
                             HorizontalLayout {

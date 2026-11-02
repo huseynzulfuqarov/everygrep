@@ -462,3 +462,28 @@ size/date ranges build the query. Dates are local YYYY-MM-DD. Empty bounds are
 unrestricted; invalid or reversed ranges leave the main field unchanged.
 Use query replaces the field, applies the form's matching modes and follows
 Search as you type. The form never tries to reverse-parse an existing query.
+
+### Search tabs and session
+
+A flat 34 px tab strip sits above the search field only with two or more tabs.
+Each tab shows its query (or New tab) and a close button; middle click closes.
+The active tab uses the selection colors and an accent border. Horizontal
+scrolling and an all-tabs button handle overflow. Tabs have accessible labels
+and selection state. Commands in the Tabs menu and keyboard settings cover
+creation, duplication, navigation, direct selection, bulk closure and reopening.
+The list dialog supports keyboard focus on every tab; multiple closure uses
+checkboxes. Closing the last tab leaves a blank search.
+
+Each tab retains its search, filter, matching modes, sort, columns, selection,
+scroll position and navigation trail in memory. Background results freeze;
+activation restores the snapshot and updates the visible search. Unsubmitted
+text still waits for Enter. The last ten closed searches can be reopened from
+the Tabs menu. Searches requested in new windows can instead open background
+tabs; immediate activation is a separate option. Both settings are off by
+default, in the Tabs menu and Window settings.
+
+Session restore is separately opt-in. It restores only the last window's
+searches for the same index, selected tab and closed searches; an explicit
+startup query takes precedence. Selection, raw row ids and navigation trails
+stay in memory. Saving is coalesced, and a malformed session is preserved with
+a status message.
