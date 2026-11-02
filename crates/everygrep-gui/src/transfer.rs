@@ -293,6 +293,11 @@ fn copy_in(
             Err(stop) => return Err(stop),
         }
     };
+    // Cancelled after the last read: the copy is not published (and a
+    // move does not remove its source).
+    if progress.is_cancelled() {
+        return Err(cleaned_up(&temp, Stop::Cancelled));
+    }
     loop {
         let target = free_name(dest, name, meta.is_dir());
         match rename_noreplace(&temp, &target) {
@@ -370,6 +375,11 @@ impl Copier<'_> {
     /// Copies the entry `src` (described by `meta`, links not followed) to
     /// `dst`, which must not exist.
     fn tree(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
+        // Folders and links read no data, so the read loop alone would not
+        // see a cancel in a tree of them.
+        if self.progress.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
         let kind = meta.file_type();
         if kind.is_symlink() {
             std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
@@ -760,7 +770,9 @@ mod tests {
             special: &mut special,
             made: false,
         };
-        assert!(matches!(c.tree(&big, &meta, &temp), Err(Stop::Cancelled)));
+        // Past the check at the top of the tree: the file is made, and the
+        // read loop sees the cancel.
+        assert!(matches!(c.file(&big, &meta, &temp), Err(Stop::Cancelled)));
         assert!(c.made);
         remove_partial(&temp).unwrap();
         assert!(names(&dest).is_empty());
@@ -813,6 +825,34 @@ mod tests {
         assert!(fs::symlink_metadata(&part).is_err(), "partial copy left");
         // Nothing there is not an error.
         remove_partial(&part).unwrap();
+    }
+
+    #[test]
+    fn cancel_stops_a_tree_of_folders_and_links() {
+        let t = TempDir::new("cancel-tree");
+        let src = t.path("src/tree");
+        for i in 0..20 {
+            fs::create_dir_all(src.join(format!("d{i}/e"))).unwrap();
+            symlink("d0", src.join(format!("l{i}"))).unwrap();
+        }
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let progress = Progress::new();
+        progress.cancel();
+        let meta = fs::symlink_metadata(&src).unwrap();
+        let mut special = 0;
+        let got = copy_in(
+            &src,
+            &meta,
+            &dest,
+            OsStr::new("tree"),
+            &progress,
+            true,
+            &mut special,
+        );
+        assert!(matches!(got, Err(Stop::Cancelled)), "{got:?}");
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(fs::read_dir(&src).unwrap().count(), 40);
     }
 
     #[test]
