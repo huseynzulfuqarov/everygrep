@@ -194,6 +194,9 @@ fn main() -> Result<(), slint::PlatformError> {
         hooks,
     );
     engine.set_content_options(settings.content.options());
+    engine
+        .hashes
+        .set_max_bytes(settings.content.hash_cache_bytes());
     let model = Rc::new(ResultsModel::new(engine.clone()));
     // Created, Accessed and Attributes are read off the window's thread.
     model.read_details_with(results::DetailReader::start({

@@ -37,40 +37,39 @@ impl HashStore {
     /// that cannot be read is ignored (and replaced at the next save).
     pub fn cache(&self) -> &Mutex<HashCache> {
         self.loaded.call_once(|| {
+            // Held while the file is read, so a clear meanwhile waits.
+            let mut cache = self.cache.lock().expect("hash cache");
             let max = self.max_bytes.load(Ordering::SeqCst);
             if let Some(path) = &self.path {
                 match HashCache::load(path, max) {
-                    Ok(loaded) => {
-                        let mut cache = self.cache.lock().expect("hash cache");
-                        // Entries added before the load (none normally) stay.
-                        if cache.is_empty() {
-                            *cache = loaded;
-                        }
-                    }
+                    Ok(loaded) => *cache = loaded,
                     Err(e) => eprintln!("hash cache {}: {e}", path.display()),
                 }
             }
+            cache.set_max_bytes(max);
             self.ready.store(true, Ordering::SeqCst);
         });
         &self.cache
     }
 
-    /// Changes the size limit (0 keeps nothing), dropping entries now when
-    /// the cache was read already.
+    /// Changes the size limit (0 keeps nothing). It applies when the cache
+    /// is next saved or read, not at once: the settings change it on every
+    /// value typed, and a value on the way (`5` before `512`) must not drop
+    /// entries.
     pub fn set_max_bytes(&self, max_bytes: u64) {
         self.max_bytes.store(max_bytes, Ordering::SeqCst);
-        self.cache
-            .lock()
-            .expect("hash cache")
-            .set_max_bytes(max_bytes);
     }
 
-    /// Forgets every hash and removes the file.
+    /// Forgets every hash and removes the file, without reading it first.
     pub fn clear(&self) -> io::Result<()> {
-        let mut cache = self.cache().lock().expect("hash cache");
+        let mut cache = self.cache.lock().expect("hash cache");
         cache.clear();
+        cache.set_changed(false);
         match &self.path {
-            Some(path) => cache.save(path),
+            Some(path) => match std::fs::remove_file(path) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            },
             None => Ok(()),
         }
     }
@@ -103,6 +102,10 @@ impl HashStore {
         }
         let bytes = {
             let mut cache = self.cache.lock().expect("hash cache");
+            let max = self.max_bytes.load(Ordering::SeqCst);
+            if cache.max_bytes() != max {
+                cache.set_max_bytes(max);
+            }
             if !cache.is_changed() {
                 return Ok(());
             }
@@ -173,10 +176,21 @@ mod tests {
         next.clear().unwrap();
         assert!(!path.exists());
         assert_eq!(next.bytes(), 0);
-        // A limit of 0 keeps nothing.
-        next.set_max_bytes(0);
+        // A new limit applies at the save: 0 keeps nothing.
         next.cache().lock().unwrap().put(key, &hashes);
+        next.set_max_bytes(0);
+        assert_eq!(next.cache().lock().unwrap().len(), 1);
+        next.save().unwrap();
         assert!(next.cache().lock().unwrap().is_empty());
+        assert!(!path.exists());
+        // Clearing before the file was read removes it without reading it.
+        let fresh = HashStore::new(Some(path.clone()), DEFAULT_MAX_BYTES);
+        fresh.cache().lock().unwrap().put(key, &hashes);
+        fresh.save().unwrap();
+        let unread = HashStore::new(Some(path.clone()), DEFAULT_MAX_BYTES);
+        unread.clear().unwrap();
+        assert!(!path.exists());
+        assert!(unread.cache().lock().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

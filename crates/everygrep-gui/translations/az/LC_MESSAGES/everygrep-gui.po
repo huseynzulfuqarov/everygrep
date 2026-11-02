@@ -2119,3 +2119,27 @@ msgstr "Ada görə"
 #: ui/app.slint
 msgid "By size"
 msgstr "Ölçüyə görə"
+
+#: src/content_settings.rs
+msgid "In use: {}"
+msgstr "İstifadədə: {}"
+
+#: src/prefs.rs
+msgid "Could not remove the hash cache file: {}"
+msgstr "Heş keşi faylı silinmədi: {}"
+
+#: ui/content-settings.slint
+msgid "Largest hash cache (MB)"
+msgstr "Heş keşinin ən böyük ölçüsü (MB)"
+
+#: ui/content-settings.slint
+msgid "Hashes of the files that duplicate searches compared, so the next search reads only the files that changed. No names or paths are kept. 0 keeps none."
+msgstr "Dublikat axtarışlarının müqayisə etdiyi faylların heşləri: növbəti axtarış yalnız dəyişən faylları oxuyur. Ad və yollar saxlanılmır. 0 heç nə saxlamır."
+
+#: ui/content-settings.slint
+msgid "Clear hash cache"
+msgstr "Heş keşini təmizlə"
+
+#: ui/settings.slint
+msgid "Hash cache"
+msgstr "Heş keşi"

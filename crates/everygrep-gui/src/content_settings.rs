@@ -1,7 +1,9 @@
-//! Settings of content search (`content:`): which files are read and how.
-//! They are on the Search page.
+//! Settings of content search (`content:`): which files are read and how,
+//! and the size of the hash cache of duplicate searches. They are on the
+//! Search page.
 
 use everygrep_core::content::{self, CodePage, ContentOptions};
+use everygrep_core::hashcache;
 use slint::{ModelRc, SharedString, VecModel};
 
 use crate::i18n::tr;
@@ -17,6 +19,8 @@ pub struct Settings {
     pub code_page: CodePage,
     /// Read PDF files through pdftotext.
     pub pdf: bool,
+    /// Largest size of the hash cache, in MiB; 0 keeps no hashes.
+    pub hash_cache_mb: u64,
 }
 
 impl Default for Settings {
@@ -25,6 +29,7 @@ impl Default for Settings {
             max_size_mb: content::DEFAULT_MAX_SIZE / (1024 * 1024),
             code_page: CodePage::default(),
             pdf: false,
+            hash_cache_mb: hashcache::DEFAULT_MAX_BYTES / (1024 * 1024),
         }
     }
 }
@@ -37,6 +42,11 @@ impl Settings {
             code_page: self.code_page,
             pdf: self.pdf,
         }
+    }
+
+    /// The size limit of the hash cache in bytes.
+    pub fn hash_cache_bytes(&self) -> u64 {
+        self.hash_cache_mb * 1024 * 1024
     }
 
     pub fn fill_window(&self, w: &crate::SettingsWindow) {
@@ -56,6 +66,8 @@ impl Settings {
         );
         w.set_content_pdf(self.pdf);
         w.set_content_pdf_note(pdf_note(content::pdf_reader_available()).into());
+        w.set_hash_cache_max(i32::try_from(self.hash_cache_mb).unwrap_or(i32::MAX));
+        w.set_hash_cache_max_max(i32::try_from(MAX_SIZE_MB).unwrap_or(i32::MAX));
     }
 
     pub fn from_window(w: &crate::SettingsWindow) -> Self {
@@ -68,6 +80,9 @@ impl Settings {
                 .and_then(|i| CodePage::ALL.get(i).copied())
                 .unwrap_or_default(),
             pdf: w.get_content_pdf(),
+            hash_cache_mb: u64::try_from(w.get_hash_cache_max())
+                .unwrap_or(0)
+                .min(MAX_SIZE_MB),
         }
     }
 
@@ -78,6 +93,12 @@ impl Settings {
                 .ok()
                 .filter(|n| *n <= MAX_SIZE_MB)
                 .map(|n| self.max_size_mb = n)
+                .is_some(),
+            "hash-cache-max-mb" => value
+                .parse::<u64>()
+                .ok()
+                .filter(|n| *n <= MAX_SIZE_MB)
+                .map(|n| self.hash_cache_mb = n)
                 .is_some(),
             "content-code-page" => CodePage::from_id(value)
                 .map(|c| self.code_page = c)
@@ -108,6 +129,9 @@ impl Settings {
         if self.pdf != d.pdf {
             out.push_str(&format!("content-pdf = {}\n", self.pdf));
         }
+        if self.hash_cache_mb != d.hash_cache_mb {
+            out.push_str(&format!("hash-cache-max-mb = {}\n", self.hash_cache_mb));
+        }
     }
 }
 
@@ -121,6 +145,11 @@ pub fn code_page_name(c: CodePage) -> &'static str {
         CodePage::Windows1254 => tr("Windows-1254 (Turkish, Azerbaijani)"),
         CodePage::Windows1257 => tr("Windows-1257 (Baltic)"),
     }
+}
+
+/// How much of the hash cache is used, under its size.
+pub fn hash_cache_used(bytes: u64) -> String {
+    crate::i18n::fill(tr("In use: {}"), &[&crate::format::size(bytes)])
 }
 
 /// The note under "Search inside PDF files": what it uses, or how to get it.
@@ -145,17 +174,20 @@ mod tests {
     fn content_settings_roundtrip_reset_with_the_search_page_and_reject_bad_values() {
         let d = super::Settings::default();
         assert_eq!(
-            (d.max_size_mb, d.code_page, d.pdf),
-            (100, CodePage::Windows1254, false)
+            (d.max_size_mb, d.code_page, d.pdf, d.hash_cache_mb),
+            (100, CodePage::Windows1254, false, 512)
         );
+        assert_eq!(d.hash_cache_bytes(), 512 * 1024 * 1024);
         assert_eq!(
             d.options(),
             everygrep_core::content::ContentOptions::default()
         );
         assert!(!Settings::default().to_text().contains("content-"));
+        assert!(!Settings::default().to_text().contains("hash-cache"));
         let mut s = Settings::parse(
-            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\n",
+            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\n",
         );
+        assert_eq!(s.content.hash_cache_bytes(), 0);
         assert_eq!(
             (s.content.max_size_mb, s.content.code_page, s.content.pdf),
             (0, CodePage::Windows1251, true)
@@ -167,9 +199,9 @@ mod tests {
         s.reset(Page::Search);
         assert_eq!(s.content, super::Settings::default());
         let bad = Settings::parse(
-            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\n",
+            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\n",
         );
-        assert_eq!(bad.problems.len(), 4);
+        assert_eq!(bad.problems.len(), 5);
         assert_eq!(bad.content, super::Settings::default());
     }
 

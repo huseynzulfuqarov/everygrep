@@ -739,6 +739,9 @@ impl Prefs {
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
         s.content.fill_window(w);
+        w.set_hash_cache_used(
+            crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
+        );
 
         let closes: Vec<SharedString> = OnClose::ALL
             .iter()
@@ -1126,6 +1129,7 @@ impl Prefs {
             }
         }));
         w.on_search_changed(on(|p| p.search_changed()));
+        w.on_clear_hash_cache(on(|p| p.clear_hash_cache()));
         w.on_window_changed(on(|p| p.window_changed()));
         w.on_start_on_login_changed({
             let me = me.clone();
@@ -1330,8 +1334,28 @@ impl Prefs {
     /// Gives the engine the content search settings; a change searches
     /// again.
     fn apply_content(&self) {
-        let options = self.settings.borrow().content.options();
+        let (options, hash_bytes) = {
+            let s = self.settings.borrow();
+            (s.content.options(), s.content.hash_cache_bytes())
+        };
         self.engine.set_content_options(options);
+        self.engine.hashes.set_max_bytes(hash_bytes);
+    }
+
+    /// Empties the hash cache and removes its file.
+    fn clear_hash_cache(&self) {
+        let result = self.engine.hashes.clear();
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_hash_cache_used(
+                crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
+            );
+        }
+        if let Err(e) = result {
+            self.set_error(Some(i18n::fill(
+                i18n::tr("Could not remove the hash cache file: {}"),
+                &[&e.to_string()],
+            )));
+        }
     }
 
     /// Applies interaction settings and search policy to the main window.

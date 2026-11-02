@@ -328,6 +328,7 @@ the program behaves as before, except that folders show their total size.
 | | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
 | | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
 | | search inside PDF files (with `pdftotext` from poppler; the page says when it is missing) | off |
+| | hash cache of duplicate searches: largest size in MB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
@@ -476,7 +477,8 @@ size-width = 120
 
 `root` and `exclude` repeat for each folder (an `exclude` may be a pattern).
 `content-max-size-mb`, `content-code-page` (`windows-1250` … `windows-1257`)
-and `content-pdf` set how files are read for `content:`.
+and `content-pdf` set how files are read for `content:`; `hash-cache-max-mb`
+the size of the hash cache.
 `watch-changes` turns watching off (`false`), `search-as-you-type` the
 search at every key press, and `rename-in-dialog` chooses the rename editor.
 `context-search-new-window`, `context-search-subfolders` and
@@ -658,7 +660,8 @@ collects nothing. It stores:
 - hashes of files that a duplicate search compared, in
   `~/.cache/everygrep/hashes.bin` next to the window's index (device and
   inode numbers, sizes, modification times and hashes, never names or
-  paths), at most 512 MB;
+  paths), at most 512 MB (Settings → Search → Hash cache, with a button
+  that empties it);
 - the settings, in `~/.config/everygrep/settings` (and an empty
   `settings.lock` next to it, which windows lock while they save);
 - the search history, in `~/.config/everygrep/history`, only when "Keep the

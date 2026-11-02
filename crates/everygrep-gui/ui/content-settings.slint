@@ -1,4 +1,4 @@
-import { CheckBox, ComboBox, SpinBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, SpinBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 // Settings of content search (content:), on the Search page.
@@ -68,5 +68,52 @@ export component ContentSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+    }
+}
+
+// The size of the hash cache of duplicate searches, how much of it is used,
+// and a button to empty it; on the Search page.
+export component HashCacheSettings inherits VerticalLayout {
+    in-out property <int> max-size;
+    in property <int> max-size-max;
+    in property <string> used;
+    callback changed();
+    callback clear();
+    spacing: Theme.s3;
+    HorizontalLayout {
+        spacing: Theme.s3;
+        Text {
+            text: @tr("Largest hash cache (MB)");
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        SpinBox {
+            width: 140px;
+            horizontal-stretch: 0;
+            accessible-label: @tr("Largest hash cache (MB)");
+            minimum: 0;
+            maximum: root.max-size-max;
+            value <=> root.max-size;
+            edited => { root.changed(); }
+        }
+        Text {
+            text: root.used;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+    Text {
+        text: @tr("Hashes of the files that duplicate searches compared, so the next search reads only the files that changed. No names or paths are kept. 0 keeps none.");
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+    HorizontalLayout {
+        Button {
+            text: @tr("Clear hash cache");
+            clicked => { root.clear(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
     }
 }

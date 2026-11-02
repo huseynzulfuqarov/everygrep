@@ -2119,3 +2119,27 @@ msgstr "Ada göre"
 #: ui/app.slint
 msgid "By size"
 msgstr "Boyuta göre"
+
+#: src/content_settings.rs
+msgid "In use: {}"
+msgstr "Kullanımda: {}"
+
+#: src/prefs.rs
+msgid "Could not remove the hash cache file: {}"
+msgstr "Özet önbelleği dosyası silinemedi: {}"
+
+#: ui/content-settings.slint
+msgid "Largest hash cache (MB)"
+msgstr "En büyük özet önbelleği (MB)"
+
+#: ui/content-settings.slint
+msgid "Hashes of the files that duplicate searches compared, so the next search reads only the files that changed. No names or paths are kept. 0 keeps none."
+msgstr "Yinelenen aramalarının karşılaştırdığı dosyaların özetleri: sonraki arama yalnızca değişen dosyaları okur. Ad ve yollar saklanmaz. 0 hiçbirini saklamaz."
+
+#: ui/content-settings.slint
+msgid "Clear hash cache"
+msgstr "Özet önbelleğini temizle"
+
+#: ui/settings.slint
+msgid "Hash cache"
+msgstr "Özet önbelleği"

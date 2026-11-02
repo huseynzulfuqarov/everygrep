@@ -3,7 +3,7 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
-import { ContentSettings } from "content-settings.slint";
+import { ContentSettings, HashCacheSettings } from "content-settings.slint";
 
 // A command for a keyboard shortcut, on the Keyboard shortcut page.
 export struct ShortcutCommand {
@@ -168,6 +168,10 @@ export component SettingsWindow inherits Window {
     in-out property <int> content-code-page;
     in-out property <bool> content-pdf;
     in property <string> content-pdf-note;
+    in-out property <int> hash-cache-max;
+    in property <int> hash-cache-max-max;
+    in property <string> hash-cache-used;
+    callback clear-hash-cache();
     callback search-changed();
 
     // Appearance
@@ -569,6 +573,15 @@ export component SettingsWindow inherits Window {
                                 pdf <=> root.content-pdf;
                                 pdf-note: root.content-pdf-note;
                                 changed => { root.search-changed(); }
+                            }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Hash cache"); }
+                            HashCacheSettings {
+                                max-size <=> root.hash-cache-max;
+                                max-size-max: root.hash-cache-max-max;
+                                used: root.hash-cache-used;
+                                changed => { root.search-changed(); }
+                                clear => { root.clear-hash-cache(); }
                             }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("When EveryGrep starts"); }
