@@ -738,6 +738,21 @@ fn is_valid_name(name: &[u8], root: bool) -> bool {
         }
 }
 
+/// Checks that `path` can be the name of a root node, as a saved index
+/// gives it: a valid root name whose raw and folded forms both fit in a
+/// name's length.
+pub(crate) fn check_root_name(path: &[u8]) -> Result<(), &'static str> {
+    if !is_valid_name(path, true) {
+        return Err("bad name");
+    }
+    let mut folded = Vec::new();
+    fold_into(path, &mut folded);
+    if path.len().max(folded.len()) > usize::from(u16::MAX) {
+        return Err("name too long");
+    }
+    Ok(())
+}
+
 fn push(pool: &mut Vec<u8>, bytes: &[u8]) -> (u32, u16) {
     let start = u32::try_from(pool.len()).expect("name pool exceeds 4 GiB");
     let len = u16::try_from(bytes.len()).expect("name longer than 65535 bytes");

@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 
 use crate::index::Index;
 use crate::rules::RuleSpec;
-use crate::store::{Columns, Meta, NodeId, NodeStore};
+use crate::store::{Columns, Meta, NodeId, NodeStore, check_root_name};
 
 const MAGIC: &[u8; 8] = b"EGRPIDX\0";
 const VERSION: u32 = 6;
@@ -415,7 +415,9 @@ pub fn load(path: &Path) -> io::Result<Saved> {
         .collect();
     for root in &roots {
         if !indexed_roots.contains(root) {
-            index.insert(None, root.as_os_str().as_bytes(), true, Meta::default());
+            let name = root.as_os_str().as_bytes();
+            check_root_name(name).map_err(invalid)?;
+            index.insert(None, name, true, Meta::default());
         }
     }
     Ok(Saved {
@@ -882,6 +884,31 @@ mod tests {
         let err = load(&path).err().expect("damaged file must not load");
         fs::remove_file(&path).unwrap();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn saved_roots_that_cannot_be_names_are_rejected() {
+        let path = temp_file("bad-roots");
+        let empty = Index::new(NodeStore::new());
+        // Too long, too long once folded (`İ` folds from 2 bytes to 3), not
+        // absolute, with a NUL byte.
+        let long = format!("/{}", "a".repeat(65_535));
+        let folds_long = format!("/{}", "İ".repeat(30_000));
+        for root in [long.as_str(), folds_long.as_str(), "relative", "/a\0b"] {
+            save(&empty, &[PathBuf::from(root)], &path).unwrap();
+            let loaded = std::panic::catch_unwind(|| load(&path));
+            let _ = fs::remove_file(&path);
+            let err = loaded
+                .expect("loading must not panic")
+                .err()
+                .expect("must not load");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        }
+        // An absent root that can be a name still gets its node.
+        save(&empty, &[PathBuf::from("/absent/root")], &path).unwrap();
+        let loaded = load(&path);
+        fs::remove_file(&path).unwrap();
+        assert_eq!(loaded.unwrap().index.len(), 1);
     }
 
     #[test]
