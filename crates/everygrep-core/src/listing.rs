@@ -58,7 +58,9 @@ impl Tree {
         if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
             return Err(io::ErrorKind::InvalidInput.into());
         }
-        let fd = if NO_OPENAT2.load(Ordering::Relaxed) {
+        let fd = if rel.as_os_str().is_empty() {
+            self.open_root()?
+        } else if NO_OPENAT2.load(Ordering::Relaxed) {
             open_by_components(self.fd.as_fd(), rel)?
         } else {
             match open_beneath(self.fd.as_fd(), rel) {
@@ -71,6 +73,19 @@ impl Tree {
             }
         };
         Ok(Listing { dir: Dir::new(fd)? })
+    }
+
+    /// Opens the root itself for reading. Looking up `.` in it would need
+    /// search permission on it, which reading it does not, so it is opened
+    /// by its path again, still not followed if it became a link, and taken
+    /// only if it is the folder opened first.
+    fn open_root(&self) -> io::Result<OwnedFd> {
+        let fd = rustix::fs::open(&self.root, read_flags(), Mode::empty())?;
+        let (now, first) = (rustix::fs::fstat(&fd)?, rustix::fs::fstat(&self.fd)?);
+        if (now.st_dev, now.st_ino) != (first.st_dev, first.st_ino) {
+            return Err(io::Error::other("the root folder was replaced"));
+        }
+        Ok(fd)
     }
 }
 
@@ -311,6 +326,24 @@ mod tests {
             unreadable.unwrap_err().kind(),
             io::ErrorKind::PermissionDenied
         );
+    }
+
+    #[test]
+    fn a_root_that_can_be_read_but_not_searched_is_listed() {
+        let base = tree("root-unsearchable");
+        let root = base.join("root");
+        fs::write(root.join("x"), b"").unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o444)).unwrap();
+        let tree = Tree::open(&root).unwrap();
+        let listed = names(&tree, &root);
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        // A root replaced by another folder after it was opened is not read.
+        fs::rename(&root, base.join("root-moved")).unwrap();
+        fs::create_dir(&root).unwrap();
+        let replaced = tree.list(&root).map(|_| ());
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(listed.unwrap(), vec![b"a".to_vec(), b"x".to_vec()]);
+        assert!(replaced.is_err());
     }
 
     #[test]
