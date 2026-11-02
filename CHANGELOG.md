@@ -318,6 +318,10 @@ First version, 0.1.0, not released yet.
   XWayland clipboard (`x-special/gnome-copied-files`, `text/uri-list` and
   the paths as text), and files cut or copied in a file manager paste here;
   without XWayland, the paths as text. The name moved to `Ctrl+Alt+C`.
+  Neither cut and copy nor paste wait for the display on the window's
+  thread: a paste goes on once the other program answered, and when the
+  clipboard cannot be taken with the files, the paths are put on it as text
+  afterwards, unless something else was copied meanwhile.
 - Copy path: the containing folders (`Ctrl+Alt+Shift+C`), next to copy
   name and copy full path.
 - Open with… (`Shift+Enter`): the desktop's application chooser, through

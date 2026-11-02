@@ -131,6 +131,18 @@ pub fn moved_already(op: Operation, paths: &[PathBuf], moved: Option<&[PathBuf]>
         && paths.iter().all(|p| std::fs::symlink_metadata(p).is_err())
 }
 
+/// The text to put on the clipboard once the offer of the files `offered`
+/// was answered: their paths, when the clipboard could not be `taken` with
+/// the files, unless this window put something else on it meanwhile
+/// (`current` is what it holds now).
+pub fn fallback_text<'a>(
+    current: Option<&Held>,
+    offered: &'a Held,
+    taken: bool,
+) -> Option<&'a str> {
+    (!taken && current == Some(offered)).then_some(offered.text.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +155,23 @@ mod tests {
             PathBuf::from("/tmp/şəkil.png"),
             PathBuf::from(OsStr::from_bytes(b"/x/\xff%")),
         ]
+    }
+
+    #[test]
+    fn a_late_answer_never_replaces_a_newer_copy() {
+        let held = |name: &str| Held {
+            op: Operation::Copy,
+            paths: vec![PathBuf::from(name)],
+            text: name.into(),
+        };
+        let (a, b) = (held("/a"), held("/b"));
+        // Taken with the files: no text needed.
+        assert_eq!(fallback_text(Some(&a), &a, true), None);
+        // Not taken: the text, while the files are still the latest.
+        assert_eq!(fallback_text(Some(&a), &a, false), Some("/a"));
+        // Copied again meanwhile, or pasted and let go: left alone.
+        assert_eq!(fallback_text(Some(&b), &a, false), None);
+        assert_eq!(fallback_text(None, &a, false), None);
     }
 
     #[test]

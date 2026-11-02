@@ -191,13 +191,14 @@ fn fits(have: usize, value: usize, bytes_after: u32) -> bool {
 }
 
 /// Waits on a helper thread at most `wait` for `answer`, then calls `done`
-/// with it (`None` when it did not come).
+/// with it (`otherwise` when it did not come).
 fn answer_then<T: Send + 'static>(
-    answer: Receiver<Option<T>>,
+    answer: Receiver<T>,
     wait: Duration,
-    done: impl FnOnce(Option<T>) + Send + 'static,
+    otherwise: T,
+    done: impl FnOnce(T) + Send + 'static,
 ) {
-    std::thread::spawn(move || done(answer.recv_timeout(wait).ok().flatten()));
+    std::thread::spawn(move || done(answer.recv_timeout(wait).unwrap_or(otherwise)));
 }
 
 /// Whether a read that ended with `found` empties the clipboard for
@@ -269,11 +270,16 @@ impl X11Clipboard {
         })
     }
 
-    /// Takes the clipboard with `held`. `false` when it could not be taken
-    /// in time; the caller then puts the text on the clipboard instead.
-    pub fn offer(&self, held: Held) -> bool {
+    /// Takes the clipboard with `held` without waiting: `done` learns on a
+    /// helper thread whether it was taken (`false` when not within
+    /// [`OFFER_WAIT`]; the caller then puts the text on the clipboard).
+    pub fn offer_then(&self, held: Held, done: impl FnOnce(bool) + Send + 'static) {
         let (reply, answer) = mpsc::channel();
-        self.send(Cmd::Offer(held, reply)) && answer.recv_timeout(OFFER_WAIT).unwrap_or(false)
+        if !self.send(Cmd::Offer(held, reply)) {
+            done(false);
+            return;
+        }
+        answer_then(answer, OFFER_WAIT, false, done);
     }
 
     /// Gives the clipboard up if this program still holds it.
@@ -304,7 +310,7 @@ impl X11Clipboard {
             done(None);
             return;
         }
-        answer_then(answer, READ_WAIT, done);
+        answer_then(answer, READ_WAIT, None, done);
     }
 
     /// Queues `cmd` and wakes the thread. `false` when the thread is gone.
@@ -996,7 +1002,7 @@ mod tests {
         let (_reply, answer) = mpsc::channel::<Option<u32>>();
         let start = std::time::Instant::now();
         let tx = done_tx.clone();
-        answer_then(answer, Duration::from_millis(300), move |got| {
+        answer_then(answer, Duration::from_millis(300), None, move |got| {
             tx.send(got).unwrap();
         });
         assert!(start.elapsed() < Duration::from_millis(100));
@@ -1004,7 +1010,7 @@ mod tests {
         assert!(start.elapsed() >= Duration::from_millis(300));
         // An answer is passed on.
         let (reply, answer) = mpsc::channel();
-        answer_then(answer, Duration::from_secs(5), move |got| {
+        answer_then(answer, Duration::from_secs(5), None, move |got| {
             done_tx.send(got).unwrap();
         });
         reply.send(Some(7)).unwrap();

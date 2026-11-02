@@ -1204,13 +1204,32 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             }
             let text = actions::paths_text(&paths, false);
             let held = clipboard::Held { op, paths, text };
-            // Other programs get the files through XWayland; without it,
-            // the full paths as text.
-            if !with_x11(|x| x.is_some_and(|x| x.offer(held.clone()))) {
+            HELD.with(|h| *h.borrow_mut() = Some(held.clone()));
+            info(&w, labels::on_clipboard(op, held.paths.len()));
+            // Other programs get the files through XWayland, offered without
+            // waiting for the display; without it, or when the clipboard
+            // could not be taken, the full paths as text (unless something
+            // else was copied meanwhile).
+            let offered = with_x11(|x| {
+                let Some(x) = x else { return false };
+                let weak = weak.clone();
+                let offered = held.clone();
+                x.offer_then(held.clone(), move |taken| {
+                    let _ = weak.upgrade_in_event_loop(move |w| {
+                        let text = HELD.with(|h| {
+                            clipboard::fallback_text(h.borrow().as_ref(), &offered, taken)
+                                .map(str::to_owned)
+                        });
+                        if let Some(text) = text {
+                            w.invoke_copy_text(text.into());
+                        }
+                    });
+                });
+                true
+            });
+            if !offered {
                 w.invoke_copy_text(held.text.as_str().into());
             }
-            info(&w, labels::on_clipboard(op, held.paths.len()));
-            HELD.with(|h| *h.borrow_mut() = Some(held));
         }
     };
     let put = Rc::new(put);
