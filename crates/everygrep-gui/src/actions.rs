@@ -155,8 +155,19 @@ impl fmt::Display for RenameError {
 }
 
 /// Checks a new name for `old` and returns the new path. `Ok(None)` means
-/// the name did not change.
+/// the name did not change: also when `old`'s name is not UTF-8 and
+/// `new_name` is the name as shown, with U+FFFD for those bytes (renaming
+/// to it would replace the bytes nobody edited).
 pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, RenameError> {
+    // First: a lossy name can be longer than the limit.
+    if let Some(name) = old.file_name() {
+        let name = name.as_bytes();
+        if name == new_name.as_bytes()
+            || (std::str::from_utf8(name).is_err() && String::from_utf8_lossy(name) == new_name)
+        {
+            return Ok(None);
+        }
+    }
     if new_name.is_empty() {
         return Err(RenameError::Empty);
     }
@@ -171,9 +182,6 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
     }
     if new_name.len() > NAME_MAX {
         return Err(RenameError::TooLong);
-    }
-    if old.file_name() == Some(OsStr::new(new_name)) {
-        return Ok(None);
     }
     let target = old.with_file_name(new_name);
     if std::fs::symlink_metadata(&target).is_ok() && !case_only(old, &target) {
@@ -471,6 +479,29 @@ mod tests {
         assert!(!a.exists());
         assert_eq!(fs::read_to_string(&c).unwrap(), "a");
         assert!(matches!(rename(&a, "d.txt"), Err(RenameError::Io(_))));
+    }
+
+    #[test]
+    fn accepting_the_shown_name_of_a_name_that_is_not_utf8_changes_nothing() {
+        let dir = TempDir::new("rename-lossy");
+        let old = dir.0.join(OsStr::from_bytes(b"a\xff.txt"));
+        fs::write(&old, "x").unwrap();
+        // The editors show (and give back) the name with U+FFFD.
+        let shown = String::from_utf8_lossy(old.file_name().unwrap().as_bytes()).into_owned();
+        assert_eq!(shown, "a\u{fffd}.txt");
+        assert!(matches!(rename_target(&old, &shown), Ok(None)));
+        assert!(matches!(rename(&old, &shown), Ok(None)));
+        assert_eq!(fs::read_to_string(&old).unwrap(), "x");
+        assert!(!dir.0.join(&shown).exists());
+        // Also when the shown name is longer than the limit in bytes.
+        let long = dir.0.join(OsStr::from_bytes(&[0xff; 200]));
+        fs::write(&long, "y").unwrap();
+        let shown = "\u{fffd}".repeat(200);
+        assert!(matches!(rename(&long, &shown), Ok(None)));
+        assert_eq!(fs::read_to_string(&long).unwrap(), "y");
+        // A real new name still renames it.
+        let new = rename(&old, "b.txt").unwrap().unwrap();
+        assert_eq!(fs::read_to_string(new).unwrap(), "x");
     }
 
     #[test]
