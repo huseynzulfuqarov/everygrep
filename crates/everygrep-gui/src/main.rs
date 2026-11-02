@@ -1913,7 +1913,7 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
 }
 
 /// Whether the result table can be sorted by `column` (a column that sorts
-/// by a key of its own), as tab sessions keep it.
+/// by a key of its own), as tab sessions and bookmarks keep it.
 pub fn is_sort_column(column: i32) -> bool {
     column_of(sort_for_column(column, false, FolderSize::default()).key) == column
 }

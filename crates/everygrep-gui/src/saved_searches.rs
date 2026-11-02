@@ -186,7 +186,7 @@ impl Library {
     }
 
     pub fn put_bookmark(&mut self, id: Option<u64>, mut entry: Bookmark) -> io::Result<u64> {
-        if entry.name.trim().is_empty() || !(0..=8).contains(&entry.sort_column) {
+        if entry.name.trim().is_empty() || !crate::is_sort_column(entry.sort_column) {
             return Err(invalid(tr("Invalid bookmark.")));
         }
         Query::parse(&entry.search, entry.options).map_err(|_| invalid(tr("Invalid query.")))?;
@@ -386,7 +386,7 @@ impl Library {
                     filter,
                 };
                 // Keep structurally sound records editable across parser changes.
-                if entry.name.trim().is_empty() || !(0..=8).contains(&entry.sort_column) {
+                if entry.name.trim().is_empty() || !crate::is_sort_column(entry.sort_column) {
                     return Err(invalid(tr("Invalid bookmark.")));
                 }
                 library.bookmarks.push(entry);
@@ -797,9 +797,35 @@ mod tests {
         assert!(l.put_bookmark(None, b.clone()).is_err());
         b.name = "valid".into();
         b.sort_column = 9;
-        assert!(l.put_bookmark(None, b).is_err());
+        assert!(l.put_bookmark(None, b.clone()).is_err());
         l.restore_filters();
         assert_eq!(l.bookmarks.len(), 1);
+    }
+
+    #[test]
+    fn bookmarks_keep_every_sort_column_of_the_table() {
+        let dir = Scratch::new("bookmark-sorts");
+        let path = dir.0.join("saved-searches");
+        let mut l = Library::default();
+        for column in (-1..32).filter(|c| crate::is_sort_column(*c)) {
+            let mut b = bookmark(&l, &format!("sort {column}"));
+            b.sort_column = column;
+            l.put_bookmark(None, b).unwrap();
+        }
+        // The frequency columns (12-14) sort too.
+        let sorts: Vec<i32> = l.bookmarks.iter().map(|b| b.sort_column).collect();
+        assert_eq!(sorts, [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]);
+        update(&path, |stored| {
+            *stored = l.clone();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        for column in [9, 10, 11, 15, -1] {
+            let mut b = bookmark(&l, "hash column");
+            b.sort_column = column;
+            assert!(l.put_bookmark(None, b).is_err(), "{column}");
+        }
     }
 
     #[test]
