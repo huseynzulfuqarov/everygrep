@@ -14,6 +14,7 @@ mod fileops_settings;
 mod fileops_shortcut;
 mod filetype;
 mod format;
+mod hash_columns;
 mod hashes;
 mod history;
 mod i18n;
@@ -203,6 +204,13 @@ fn main() -> Result<(), slint::PlatformError> {
         let weak = window.as_weak();
         move |batch| {
             let _ = weak.upgrade_in_event_loop(move |w| with_model(&w, |m| m.take_details(batch)));
+        }
+    }));
+    // So are the hash columns.
+    model.read_hashes_with(hash_columns::HashReader::start(engine.hashes.clone(), {
+        let weak = window.as_weak();
+        move |batch| {
+            let _ = weak.upgrade_in_event_loop(move |w| with_model(&w, |m| m.take_hashes(batch)));
         }
     }));
     window.set_results(ModelRc::from(model.clone()));
@@ -1895,7 +1903,15 @@ fn apply_detail_columns(w: &AppWindow) {
         accessed: w.get_show_accessed(),
         attributes: w.get_show_attrs(),
     };
-    with_model(w, |m| m.set_detail_columns(columns));
+    let hashes = hash_columns::HashColumns {
+        md5: w.get_show_md5(),
+        sha256: w.get_show_sha256(),
+        crc32: w.get_show_crc32(),
+    };
+    with_model(w, |m| {
+        m.set_detail_columns(columns);
+        m.set_hash_columns(hashes);
+    });
 }
 
 fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {

@@ -305,6 +305,13 @@ window's order and `Dupes::arrange` keeps each group together.
 
 ### Result model (`results.rs`)
 
+The hash columns (`hash_columns.rs`) work like Created and Accessed: a row
+on screen asks a `HashReader` thread for the hashes of its file and shows
+the cells empty until they come. The thread takes the smallest file asked
+for first, reads it once for every hash column shown (or takes the hashes
+from the engine's `HashStore`, which keeps them) and hands them over in
+batches; a new list cancels the file being read.
+
 The table holds only the list of matching ids. Rows (name split around the
 match, folder, size, date, type) are built on demand when the list view asks
 for them, so a million results cost no more than ten. The selection is kept

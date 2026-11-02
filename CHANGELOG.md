@@ -238,6 +238,9 @@ First version, 0.1.0, not released yet.
   results), with the hashes kept in `hashes.bin` next to the index so a
   second search reads only changed files. Search → Find duplicates puts
   `duplicates:`, `duplicates:name` or `duplicates:size` in the query or takes it out.
+- MD5, SHA-256 and CRC-32 columns (View menu, header menu): hashes of the
+  files on screen, read on a helper thread, smallest files first, kept in
+  the hash cache; a new result list gives up the file being read.
 - Settings → Search → Hash cache: its largest size (512 MB by default, 0
   keeps none), how much is in use and "Clear hash cache".
 - Settings → Search → File contents: the largest file to search (100 MB;

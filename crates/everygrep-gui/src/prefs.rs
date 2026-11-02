@@ -58,6 +58,9 @@ const TYPE_WIDTH: f32 = 130.0;
 const EXT_WIDTH: f32 = 80.0;
 const CREATED_WIDTH: f32 = 120.0;
 const ACCESSED_WIDTH: f32 = 120.0;
+const CRC32_WIDTH: f32 = 90.0;
+const SHA256_WIDTH: f32 = 300.0;
+const MD5_WIDTH: f32 = 270.0;
 const ATTRS_WIDTH: f32 = 64.0;
 
 /// The folders a window indexes.
@@ -423,6 +426,9 @@ impl Prefs {
         w.set_show_created(w.get_show_created() || c.show_created);
         w.set_show_accessed(w.get_show_accessed() || c.show_accessed);
         w.set_show_attrs(w.get_show_attrs() || c.show_attrs);
+        w.set_show_md5(w.get_show_md5() || c.show_md5);
+        w.set_show_sha256(w.get_show_sha256() || c.show_sha256);
+        w.set_show_crc32(w.get_show_crc32() || c.show_crc32);
         if let Some(n) = c.name {
             w.set_name_want(n);
             w.set_name_set(true);
@@ -435,6 +441,9 @@ impl Prefs {
         c.created.into_iter().for_each(|v| w.set_created_want(v));
         c.accessed.into_iter().for_each(|v| w.set_accessed_want(v));
         c.attrs.into_iter().for_each(|v| w.set_attr_want(v));
+        c.md5.into_iter().for_each(|v| w.set_md5_want(v));
+        c.sha256.into_iter().for_each(|v| w.set_sha256_want(v));
+        c.crc32.into_iter().for_each(|v| w.set_crc32_want(v));
     }
 
     /// Keeps the main window's columns, when they are remembered.
@@ -449,6 +458,9 @@ impl Prefs {
             show_created: w.get_show_created(),
             show_accessed: w.get_show_accessed(),
             show_attrs: w.get_show_attrs(),
+            show_md5: w.get_show_md5(),
+            show_sha256: w.get_show_sha256(),
+            show_crc32: w.get_show_crc32(),
             name: w.get_name_set().then(|| w.get_name_want().round()),
             folder: (w.get_folder_want() >= 0.5).then(|| w.get_folder_want().round()),
             size: differs(w.get_size_want(), SIZE_WIDTH),
@@ -458,6 +470,9 @@ impl Prefs {
             created: differs(w.get_created_want(), CREATED_WIDTH),
             accessed: differs(w.get_accessed_want(), ACCESSED_WIDTH),
             attrs: differs(w.get_attr_want(), ATTRS_WIDTH),
+            md5: differs(w.get_md5_want(), MD5_WIDTH),
+            sha256: differs(w.get_sha256_want(), SHA256_WIDTH),
+            crc32: differs(w.get_crc32_want(), CRC32_WIDTH),
         };
         if self.settings.borrow().columns != columns {
             self.change(move |s| s.columns = columns.clone());

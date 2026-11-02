@@ -2143,3 +2143,27 @@ msgstr "Özet önbelleğini temizle"
 #: ui/settings.slint
 msgid "Hash cache"
 msgstr "Özet önbelleği"
+
+#: ui/app.slint
+msgid "MD5"
+msgstr "MD5"
+
+#: ui/app.slint
+msgid "SHA-256"
+msgstr "SHA-256"
+
+#: ui/app.slint
+msgid "CRC-32"
+msgstr "CRC-32"
+
+#: src/commands.rs
+msgid "MD5 column"
+msgstr "MD5 sütunu"
+
+#: src/commands.rs
+msgid "SHA-256 column"
+msgstr "SHA-256 sütunu"
+
+#: src/commands.rs
+msgid "CRC-32 column"
+msgstr "CRC-32 sütunu"

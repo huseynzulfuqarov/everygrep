@@ -22,9 +22,11 @@ use slint::{Model, ModelNotify, ModelTracker, SharedString};
 use crate::engine::{Engine, IndexState, SearchResult};
 use crate::filetype::{self, KindIcon};
 use crate::format;
+use crate::hash_columns::{HashBatch, HashColumns, HashReader, HashRequest};
 use crate::labels;
 use crate::selection::{Changed, Selection};
 use crate::{Marked, ResultRow};
+use everygrep_core::hashcache::Cached;
 
 /// Rows of the result table, backed by a list of node ids.
 pub struct ResultsModel {
@@ -60,6 +62,13 @@ pub struct ResultsModel {
     detail_reader: RefCell<Option<DetailReader>>,
     /// Nodes whose details were asked of the reader and did not come yet.
     detail_pending: RefCell<HashSet<NodeId>>,
+    /// Which hash columns are shown, the hashes found for rows on screen
+    /// (until the next result), the thread that finds them, and the nodes
+    /// asked for.
+    hash_columns: Cell<HashColumns>,
+    hash_cache: RefCell<HashMap<NodeId, Cached>>,
+    hash_reader: RefCell<Option<HashReader>>,
+    hash_pending: RefCell<HashSet<NodeId>>,
     notify: ModelNotify,
 }
 
@@ -198,6 +207,10 @@ impl ResultsModel {
             detail_cache: RefCell::new(HashMap::new()),
             detail_reader: RefCell::new(None),
             detail_pending: RefCell::new(HashSet::new()),
+            hash_columns: Cell::new(HashColumns::default()),
+            hash_cache: RefCell::new(HashMap::new()),
+            hash_reader: RefCell::new(None),
+            hash_pending: RefCell::new(HashSet::new()),
             notify: ModelNotify::default(),
         }
     }
@@ -267,6 +280,82 @@ impl ResultsModel {
         }
     }
 
+    /// Says which hash columns are shown, and shows the rows again when
+    /// that changed.
+    pub fn set_hash_columns(&self, columns: HashColumns) {
+        if self.hash_columns.replace(columns) != columns {
+            self.forget_hashes();
+            self.relabel();
+        }
+    }
+
+    /// Finds the hashes of rows with `reader` from now on; without one the
+    /// hash columns stay empty (files are never read on the window's
+    /// thread).
+    pub fn read_hashes_with(&self, reader: HashReader) {
+        self.forget_hashes();
+        *self.hash_reader.borrow_mut() = Some(reader);
+    }
+
+    fn forget_hashes(&self) {
+        self.hash_cache.borrow_mut().clear();
+        self.hash_pending.borrow_mut().clear();
+        if let Some(reader) = &*self.hash_reader.borrow() {
+            reader.new_list();
+        }
+    }
+
+    /// The hashes known for the file of `row`; a file not looked at yet is
+    /// asked of the reader and has none until they come.
+    fn hashes_of(&self, index: &everygrep_core::index::Index, id: NodeId, row: usize) -> Cached {
+        if let Some(h) = self.hash_cache.borrow().get(&id) {
+            return *h;
+        }
+        let store = index.store();
+        if store.is_dir(id) || index.is_offline(id) {
+            return Cached::default();
+        }
+        if let Some(reader) = &*self.hash_reader.borrow() {
+            if self.hash_pending.borrow_mut().insert(id) {
+                let request = HashRequest {
+                    list: reader.list(),
+                    row,
+                    id,
+                    path: store.path(id),
+                    size: store.meta(id).size,
+                    columns: self.hash_columns.get(),
+                };
+                if !reader.ask(request) {
+                    self.hash_pending.borrow_mut().remove(&id);
+                }
+            }
+        }
+        Cached::default()
+    }
+
+    /// Takes hashes the [`HashReader`] found and shows them in their rows;
+    /// those found for an older list are dropped.
+    pub fn take_hashes(&self, batch: HashBatch) {
+        let current = match &*self.hash_reader.borrow() {
+            Some(reader) => reader.list(),
+            None => return,
+        };
+        for (list, row, id, hashes) in batch.found {
+            if list != current || !self.hash_pending.borrow_mut().remove(&id) {
+                continue;
+            }
+            let mut cache = self.hash_cache.borrow_mut();
+            if cache.len() >= MAX_CACHED_DETAILS {
+                cache.clear();
+            }
+            cache.insert(id, hashes);
+            drop(cache);
+            if self.ids.borrow().get(row) == Some(&id) {
+                self.notify.row_changed(row);
+            }
+        }
+    }
+
     /// Reads the details of rows with `reader` from now on.
     pub fn read_details_with(&self, reader: DetailReader) {
         self.forget_details();
@@ -275,6 +364,7 @@ impl ResultsModel {
 
     /// Drops the details read and asked for: they belong to another list.
     fn forget_details(&self) {
+        self.forget_hashes();
         self.detail_cache.borrow_mut().clear();
         self.detail_pending.borrow_mut().clear();
         if let Some(reader) = &*self.detail_reader.borrow() {
@@ -579,7 +669,10 @@ impl ResultsModel {
                 5 => d.extension.into(),
                 6 => d.created.into(),
                 7 => d.accessed.into(),
-                _ => d.attributes.into(),
+                8 => d.attributes.into(),
+                9 => d.md5.into(),
+                10 => d.sha256.into(),
+                _ => d.crc32.into(),
             })
             .collect()
     }
@@ -765,6 +858,16 @@ impl Model for ResultsModel {
         } else {
             Details::default()
         };
+        let hash_columns = self.hash_columns.get();
+        let hashes = if hash_columns.any() {
+            self.hashes_of(&index, id, row)
+        } else {
+            Cached::default()
+        };
+        let hex = |shown: bool, bytes: Option<&[u8]>| match bytes {
+            Some(b) if shown => SharedString::from(everygrep_core::hash::hex(b)),
+            _ => SharedString::new(),
+        };
         let time = |shown: bool, ns: Option<i64>| match ns {
             Some(ns) if shown => format::date(ns, now, &self.zone).into(),
             _ => SharedString::new(),
@@ -784,6 +887,12 @@ impl Model for ResultsModel {
                 .filter(|_| columns.attributes)
                 .map(|a| a.letters().into())
                 .unwrap_or_default(),
+            md5: hex(hash_columns.md5, hashes.md5.as_ref().map(|h| &h[..])),
+            sha256: hex(hash_columns.sha256, hashes.sha256.as_ref().map(|h| &h[..])),
+            crc32: hex(
+                hash_columns.crc32,
+                hashes.crc32.map(u32::to_be_bytes).as_ref().map(|h| &h[..]),
+            ),
             is_dir,
             kind: kind.icon_index(),
             selected: self.selection.borrow().contains(id),

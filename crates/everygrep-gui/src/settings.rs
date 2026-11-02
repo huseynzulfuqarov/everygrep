@@ -177,6 +177,9 @@ pub struct Columns {
     pub show_created: bool,
     pub show_accessed: bool,
     pub show_attrs: bool,
+    pub show_md5: bool,
+    pub show_sha256: bool,
+    pub show_crc32: bool,
     pub name: Option<f32>,
     /// Folder's own width, kept only while the columns are wider than the
     /// window (Folder otherwise takes the room the others leave).
@@ -188,6 +191,9 @@ pub struct Columns {
     pub created: Option<f32>,
     pub accessed: Option<f32>,
     pub attrs: Option<f32>,
+    pub md5: Option<f32>,
+    pub sha256: Option<f32>,
+    pub crc32: Option<f32>,
 }
 
 /// Every setting the window has. `Default` gives the program's behaviour
@@ -563,8 +569,12 @@ impl Settings {
             "show-created-column" => put_flag(&mut self.columns.show_created),
             "show-accessed-column" => put_flag(&mut self.columns.show_accessed),
             "show-attributes-column" => put_flag(&mut self.columns.show_attrs),
+            "show-md5-column" => put_flag(&mut self.columns.show_md5),
+            "show-sha256-column" => put_flag(&mut self.columns.show_sha256),
+            "show-crc32-column" => put_flag(&mut self.columns.show_crc32),
             "name-width" | "folder-width" | "size-width" | "modified-width" | "type-width"
-            | "extension-width" | "created-width" | "accessed-width" | "attributes-width" => {
+            | "extension-width" | "created-width" | "accessed-width" | "attributes-width"
+            | "md5-width" | "sha256-width" | "crc32-width" => {
                 let Some(w) = width(value) else { return false };
                 let c = &mut self.columns;
                 *match key {
@@ -576,7 +586,10 @@ impl Settings {
                     "extension-width" => &mut c.ext,
                     "created-width" => &mut c.created,
                     "accessed-width" => &mut c.accessed,
-                    _ => &mut c.attrs,
+                    "attributes-width" => &mut c.attrs,
+                    "md5-width" => &mut c.md5,
+                    "sha256-width" => &mut c.sha256,
+                    _ => &mut c.crc32,
                 } = Some(w);
                 true
             }
@@ -823,6 +836,9 @@ impl Settings {
         flag(&mut out, "show-created-column", c.show_created, false);
         flag(&mut out, "show-accessed-column", c.show_accessed, false);
         flag(&mut out, "show-attributes-column", c.show_attrs, false);
+        flag(&mut out, "show-md5-column", c.show_md5, false);
+        flag(&mut out, "show-sha256-column", c.show_sha256, false);
+        flag(&mut out, "show-crc32-column", c.show_crc32, false);
         let widths = [
             ("name-width", c.name),
             ("folder-width", c.folder),
@@ -833,6 +849,9 @@ impl Settings {
             ("created-width", c.created),
             ("accessed-width", c.accessed),
             ("attributes-width", c.attrs),
+            ("md5-width", c.md5),
+            ("sha256-width", c.sha256),
+            ("crc32-width", c.crc32),
         ];
         for (key, width) in widths {
             if let Some(w) = width {
@@ -1453,6 +1472,12 @@ pub(crate) mod tests {
                 created: Some(110.0),
                 accessed: None,
                 attrs: Some(50.0),
+                show_md5: true,
+                show_sha256: false,
+                show_crc32: true,
+                md5: Some(280.0),
+                sha256: None,
+                crc32: Some(70.0),
             },
             theme: ThemeChoice::Dark,
             density: Density::Compact,

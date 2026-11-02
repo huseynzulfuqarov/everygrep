@@ -2,7 +2,7 @@
 //!
 //! The columns are numbered as the window numbers them (0 Name, 1 Folder,
 //! 2 Size, 3 Modified, 4 Type, 5 Extension, 6 Created, 7 Accessed,
-//! 8 Attributes) and sit side by side; a hidden column has width 0. Folder
+//! 8 Attributes, 9 MD5, 10 SHA-256, 11 CRC-32) and sit side by side; a hidden column has width 0. Folder
 //! takes the room the other columns leave in the window, but never less than
 //! its minimum, nor less than its own width once it has one. So the columns
 //! together are as wide as the window or, when they do not fit, wider: the
@@ -27,7 +27,7 @@
 //! window again.
 
 /// Number of columns of the result list.
-pub const COLUMNS: usize = 9;
+pub const COLUMNS: usize = 12;
 /// Folder, the column that takes the spare room.
 const FOLDER: usize = 1;
 
@@ -149,13 +149,24 @@ pub fn drag_in_window(
 mod tests {
     use super::*;
 
-    const MINS: [f32; COLUMNS] = [120.0, 100.0, 56.0, 80.0, 64.0, 48.0, 80.0, 80.0, 40.0];
+    /// `first` and zeros for the columns after them.
+    fn pad(first: &[f32]) -> [f32; COLUMNS] {
+        let mut a = [0.0; COLUMNS];
+        a[..first.len()].copy_from_slice(first);
+        a
+    }
+
+    fn mins() -> [f32; COLUMNS] {
+        let mut a = [48.0; COLUMNS];
+        a[..9].copy_from_slice(&[120.0, 100.0, 56.0, 80.0, 64.0, 48.0, 80.0, 80.0, 40.0]);
+        a
+    }
 
     /// The four default columns in a window of `window` pixels, Name at 300.
     fn four(window: f32) -> Layout {
         let mut l = Layout {
-            widths: [300.0, 0.0, 96.0, 120.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            mins: MINS,
+            widths: pad(&[300.0, 0.0, 96.0, 120.0]),
+            mins: mins(),
             window,
             folder_want: 0.0,
         };
@@ -251,7 +262,7 @@ mod tests {
     #[test]
     fn a_narrow_window_with_every_column_is_wider_than_the_window() {
         let mut l = four(560.0);
-        l.widths = [300.0, 0.0, 96.0, 120.0, 130.0, 80.0, 120.0, 120.0, 64.0];
+        l.widths = pad(&[300.0, 0.0, 96.0, 120.0, 130.0, 80.0, 120.0, 120.0, 64.0]);
         l.settle();
         assert!(close(l.widths[1], 100.0));
         assert!(l.total() > 560.0);
@@ -266,7 +277,7 @@ mod tests {
         // Hidden columns (Type, Extension) are skipped as the window does.
         let shown = [0, 1, 2, 3, 6, 7, 8];
         let mut l = four(900.0);
-        l.widths = [250.0, 0.0, 96.0, 120.0, 0.0, 0.0, 120.0, 120.0, 64.0];
+        l.widths = pad(&[250.0, 0.0, 96.0, 120.0, 0.0, 0.0, 120.0, 120.0, 64.0]);
         l.settle();
         let mut seed = 7_u32;
         for _ in 0..2000 {

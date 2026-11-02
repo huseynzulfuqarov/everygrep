@@ -658,6 +658,27 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::Md5Column,
+        id: "view.md5-column",
+        category: Category::View,
+        label: || tr("MD5 column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::Sha256Column,
+        id: "view.sha256-column",
+        category: Category::View,
+        label: || tr("SHA-256 column"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::Crc32Column,
+        id: "view.crc32-column",
+        category: Category::View,
+        label: || tr("CRC-32 column"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::SelectionDetails,
         id: "view.selection-details",
         category: Category::View,
@@ -1144,6 +1165,9 @@ impl Keymap {
             created_column => CreatedColumn,
             accessed_column => AccessedColumn,
             attributes_column => AttributesColumn,
+            md5_column => Md5Column,
+            sha256_column => Sha256Column,
+            crc32_column => Crc32Column,
             selection_details => SelectionDetails,
             menu_bar => MenuBar,
             fit_columns => FitColumns,
@@ -1230,10 +1254,10 @@ mod tests {
         for spec in COMMANDS {
             assert!(
                 spec.id.contains('.')
-                    && spec
-                        .id
-                        .chars()
-                        .all(|c| c.is_ascii_lowercase() || c == '.' || c == '-'),
+                    && spec.id.chars().all(|c| c.is_ascii_lowercase()
+                        || c.is_ascii_digit()
+                        || c == '.'
+                        || c == '-'),
                 "{}",
                 spec.id
             );
