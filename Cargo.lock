@@ -1097,6 +1097,7 @@ name = "everygrep-core"
 version = "0.1.0"
 dependencies = [
  "regex",
+ "rustix 1.1.5",
 ]
 
 [[package]]

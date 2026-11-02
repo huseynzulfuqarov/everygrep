@@ -8,6 +8,7 @@ pub mod fold;
 pub mod index;
 pub mod inotify;
 pub mod kind;
+mod listing;
 pub mod localtime;
 pub mod order;
 pub mod persist;

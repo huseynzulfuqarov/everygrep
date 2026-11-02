@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+use crate::listing::{Entry, Listing, Tree};
 use crate::progress::{Cancelled, Progress};
 use crate::rules::IndexRules;
 use crate::store::{Meta, NodeId, NodeStore};
@@ -123,7 +124,18 @@ fn walk(
     progress: &Progress,
 ) -> Result<(), Cancelled> {
     let mut pending = vec![(root_id, root.to_path_buf())];
-    let result = walk_pending(store, &mut pending, options, skip, stats, progress);
+    // Without the root no folder can be read: the root then fails like a
+    // folder whose listing fails.
+    let tree = Tree::open(root);
+    let result = walk_pending(
+        store,
+        tree.as_ref().ok(),
+        &mut pending,
+        options,
+        skip,
+        stats,
+        progress,
+    );
     if result.is_err() {
         // Cancelled: the folders not read yet keep a time no folder has, so a
         // catch-up of what was read (see [`crate::sync::resume_scan`]) reads
@@ -142,10 +154,12 @@ fn walk(
     result
 }
 
-/// Reads the folders in `pending` and the folders found below them. A
-/// folder is taken off `pending` only once it is being read.
+/// Reads the folders in `pending` and the folders found below them, all
+/// below the root of `tree`. A folder is taken off `pending` only once it is
+/// being read.
 fn walk_pending(
     store: &mut NodeStore,
+    tree: Option<&Tree>,
     pending: &mut Vec<(NodeId, PathBuf)>,
     options: &ScanOptions,
     skip: &Skip,
@@ -170,32 +184,28 @@ fn walk_pending(
             },
         );
         let mut complete = true;
-        let entries = match fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => {
-                stats.errors += 1;
-                continue;
-            }
+        let Some(mut entries) = tree.and_then(|t| t.list(&dir).ok()) else {
+            stats.errors += 1;
+            continue;
         };
-        for entry in entries {
+        while let Some(entry) = entries.read() {
             let Ok(entry) = entry else {
                 stats.errors += 1;
                 complete = false;
                 continue;
             };
-            let Ok(file_type) = entry.file_type() else {
+            let Ok(is_dir) = entries.is_dir(&entry) else {
                 complete = false;
                 stats.errors += 1;
                 continue;
             };
-            let is_dir = file_type.is_dir();
-            let name = entry.file_name();
-            if !skip.rules.accepts(&dir, name.as_bytes(), is_dir) {
+            let name = entry.name();
+            if !skip.rules.accepts(&dir, name, is_dir) {
                 continue;
             }
             let meta = if options.with_metadata || is_dir {
-                match entry.metadata() {
-                    Ok(m) => meta_of(&m, options),
+                match entries.meta(&entry) {
+                    Ok(m) => m,
                     Err(_) => {
                         complete = false;
                         stats.errors += 1;
@@ -205,7 +215,7 @@ fn walk_pending(
             } else {
                 Meta::default()
             };
-            let id = store.add(Some(dir_id), name.as_bytes(), is_dir, meta);
+            let id = store.add(Some(dir_id), name, is_dir, meta);
             unreported += 1;
             if unreported == PROGRESS_BATCH {
                 progress.add(std::mem::take(&mut unreported));
@@ -213,7 +223,7 @@ fn walk_pending(
             }
             if is_dir {
                 stats.dirs += 1;
-                let path = entry.path();
+                let path = dir.join(entry.name_os());
                 if skip.enters(&path) {
                     pending.push((id, path));
                 }
@@ -271,9 +281,14 @@ impl Skip {
 
     /// Reads entry metadata only when needed for directory catch-up or
     /// requested for files. File type comes from the directory listing.
-    pub(crate) fn entry_meta(&self, entry: &fs::DirEntry, is_dir: bool) -> std::io::Result<Meta> {
+    pub(crate) fn entry_meta(
+        &self,
+        listing: &Listing,
+        entry: &Entry,
+        is_dir: bool,
+    ) -> std::io::Result<Meta> {
         if self.with_metadata || is_dir {
-            entry.metadata().map(|m| Meta::from_metadata(&m))
+            listing.meta(entry)
         } else {
             Ok(Meta::default())
         }
@@ -429,6 +444,44 @@ mod tests {
         };
         assert_eq!(size_of(base.as_os_str().as_bytes()), (4, 2));
         assert_eq!(size_of(b"a"), (3, 2));
+    }
+
+    #[test]
+    fn a_queued_folder_replaced_by_a_link_is_not_followed() {
+        let base = temp_tree("swap");
+        let outside = base.with_extension("outside");
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), b"").unwrap();
+        // `a` was listed as a folder; it becomes a link just before it is read.
+        let (a, target) = (base.join("a"), outside.clone());
+        let _hook = crate::listing::hook::set(move |dir| {
+            if dir == a {
+                fs::remove_dir_all(&a).unwrap();
+                std::os::unix::fs::symlink(&target, &a).unwrap();
+            }
+        });
+        let mut store = NodeStore::new();
+        let stats = scan(
+            &mut store,
+            std::slice::from_ref(&base),
+            &ScanOptions::default(),
+        );
+        drop(_hook);
+        fs::remove_dir_all(&base).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+
+        let paths: Vec<PathBuf> = (0..store.len())
+            .map(|i| store.path(NodeId(i as u32)))
+            .collect();
+        assert!(!paths.contains(&base.join("a/secret.txt")), "{paths:?}");
+        let a = (0..store.len())
+            .map(|i| NodeId(i as u32))
+            .find(|&id| store.path(id) == base.join("a"))
+            .unwrap();
+        assert!(store.is_dir(a));
+        assert_eq!(store.meta(a).mtime_ns, 0, "read again by the next catch-up");
+        assert_eq!(stats.errors, 1);
     }
 
     #[test]

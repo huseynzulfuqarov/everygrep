@@ -12,9 +12,11 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use crate::index::Index;
+use crate::listing::Tree;
 use crate::progress::{Cancelled, Progress};
 use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
@@ -253,7 +255,13 @@ fn check_dir(
             .collect();
     }
 
-    let Ok(entries) = fs::read_dir(&path) else {
+    // Read from the root of the tree, and only if it is still the folder
+    // just looked at, not a link that replaced it or a folder above it.
+    let Some(mut entries) = Tree::open(&root_path(index, dir))
+        .and_then(|t| t.list(&path))
+        .ok()
+        .filter(|l| l.identity().ok() == Some((m.dev(), m.ino())))
+    else {
         stats.errors += 1;
         return Vec::new();
     };
@@ -263,26 +271,26 @@ fn check_dir(
     let mut listing_failed = false;
     // Some entries were listed but could not be looked at.
     let mut incomplete = false;
-    for entry in entries {
+    while let Some(entry) = entries.read() {
         let Ok(entry) = entry else {
             listing_failed = true;
             break;
         };
-        let name = entry.file_name().as_bytes().to_vec();
-        let Ok(ft) = entry.file_type() else {
+        let name = entry.name().to_vec();
+        let Ok(is_dir) = entries.is_dir(&entry) else {
             listing_failed = true;
             break;
         };
-        if !skip.rules.accepts(&path, &name, ft.is_dir()) {
+        if !skip.rules.accepts(&path, &name, is_dir) {
             continue;
         }
         // No permission to look at the entry (folder readable but not
         // searchable), or it vanished: the listing still gives its name
         // and type, so additions and removals are applied, and the
         // folder is read again next time to fill in what is missing.
-        let meta = skip.entry_meta(&entry, ft.is_dir()).ok();
+        let meta = skip.entry_meta(&entries, &entry, is_dir).ok();
         incomplete |= meta.is_none();
-        on_disk.insert(name, (ft.is_dir(), meta));
+        on_disk.insert(name, (is_dir, meta));
     }
     if listing_failed {
         stats.errors += 1;
@@ -377,6 +385,16 @@ fn add_listed(
     1
 }
 
+/// Path of the root of the tree that `node` is in.
+fn root_path(index: &Index, node: NodeId) -> PathBuf {
+    let store = index.store();
+    let mut top = node;
+    while let Some(p) = store.parent(top) {
+        top = p;
+    }
+    PathBuf::from(OsStr::from_bytes(store.name(top)))
+}
+
 /// Adds the entry `name` at `path` under `parent`, and for a folder all entries
 /// below it, leaving out what the rules leave out. `on_new_dir` is called
 /// for each added folder before its contents are read. Returns how many
@@ -400,6 +418,9 @@ pub(crate) fn add_tree(
         return 1;
     }
     let mut added = 1;
+    // Folders are read from the root of the tree, so none of them can be
+    // replaced by a link that is followed (see [`crate::listing`]).
+    let tree = Tree::open(&root_path(index, parent)).ok();
     let mut pending = vec![(id, path.to_path_buf())];
     while let Some((dir_id, dir_path)) = pending.pop() {
         if !skip.enters(&dir_path) {
@@ -414,38 +435,30 @@ pub(crate) fn add_tree(
             },
         );
         on_new_dir(index, dir_id);
-        let Ok(entries) = fs::read_dir(&dir_path) else {
+        let Some(mut entries) = tree.as_ref().and_then(|t| t.list(&dir_path).ok()) else {
             continue;
         };
         let mut complete = true;
-        for entry in entries {
+        while let Some(entry) = entries.read() {
             let Ok(entry) = entry else {
                 complete = false;
                 continue;
             };
-            let Ok(ft) = entry.file_type() else {
+            let Ok(is_dir) = entries.is_dir(&entry) else {
                 complete = false;
                 continue;
             };
-            if !skip
-                .rules
-                .accepts(&dir_path, entry.file_name().as_bytes(), ft.is_dir())
-            {
+            if !skip.rules.accepts(&dir_path, entry.name(), is_dir) {
                 continue;
             }
-            let Ok(meta) = skip.entry_meta(&entry, ft.is_dir()) else {
+            let Ok(meta) = skip.entry_meta(&entries, &entry, is_dir) else {
                 complete = false;
                 continue;
             };
-            let child = index.insert(
-                Some(dir_id),
-                entry.file_name().as_bytes(),
-                ft.is_dir(),
-                meta,
-            );
+            let child = index.insert(Some(dir_id), entry.name(), is_dir, meta);
             added += 1;
-            if ft.is_dir() {
-                pending.push((child, entry.path()));
+            if is_dir {
+                pending.push((child, dir_path.join(entry.name_os())));
             }
         }
         if complete {
@@ -714,6 +727,80 @@ mod tests {
         catch_up(&mut index, &ScanOptions::default());
         assert_eq!(paths(&index), paths(&index_of(&base)));
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A folder next to `base` with `deep/secret.txt` in it.
+    fn outside(base: &Path) -> PathBuf {
+        let outside = base.with_extension("outside");
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(outside.join("deep")).unwrap();
+        fs::write(outside.join("deep/secret.txt"), b"").unwrap();
+        outside
+    }
+
+    #[test]
+    fn catch_up_does_not_follow_a_folder_replaced_by_a_link() {
+        let base = tree("swap-catch-up");
+        let outside = outside(&base);
+        let mut index = index_of(&base);
+        fs::write(base.join("keep/deep/new.txt"), b"").unwrap();
+        // `keep` is checked and unchanged; just before its changed subfolder
+        // `deep` is read, `keep` becomes a link to the outside.
+        let (keep, deep, target) = (base.join("keep"), base.join("keep/deep"), outside.clone());
+        let moved = base.with_extension("moved");
+        let hook_moved = moved.clone();
+        let _hook = crate::listing::hook::set(move |dir| {
+            if dir == deep {
+                fs::rename(&keep, &hook_moved).unwrap();
+                std::os::unix::fs::symlink(&target, &keep).unwrap();
+            }
+        });
+        let stats = catch_up(&mut index, &ScanOptions::default());
+        drop(_hook);
+        let found = paths(&index);
+        fs::remove_dir_all(&base).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+        fs::remove_dir_all(&moved).unwrap();
+
+        assert!(
+            !found.contains(&base.join("keep/deep/secret.txt")),
+            "{found:?}"
+        );
+        assert!(!found.contains(&base.join("keep/deep/new.txt")));
+        assert!(found.contains(&base.join("keep/deep/b.txt")));
+        assert_eq!(stats.errors, 1);
+    }
+
+    #[test]
+    fn add_tree_does_not_follow_a_folder_replaced_by_a_link() {
+        let base = tree("swap-add-tree");
+        let outside = outside(&base);
+        let mut index = index_of(&base);
+        let added = base.join("added");
+        fs::create_dir_all(added.join("deep")).unwrap();
+        let deep = added.join("deep");
+        let root = index.roots()[0];
+        add_tree(
+            &mut index,
+            root,
+            b"added",
+            &added,
+            &Skip::new(&ScanOptions::default()),
+            // Called for each new folder before it is read.
+            &mut |idx: &Index, dir| {
+                if idx.store().path(dir) == deep {
+                    fs::remove_dir(&deep).unwrap();
+                    std::os::unix::fs::symlink(outside.join("deep"), &deep).unwrap();
+                }
+            },
+        );
+        let found = paths(&index);
+        fs::remove_dir_all(&base).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+
+        assert!(found.contains(&deep));
+        assert!(!found.contains(&deep.join("secret.txt")), "{found:?}");
+        assert_eq!(index.store().meta(find(&index, &deep)).mtime_ns, 0);
     }
 
     #[test]

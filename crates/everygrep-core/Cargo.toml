@@ -11,6 +11,11 @@ authors.workspace = true
 # Regular expressions in queries. The locked version and default features
 # add no crates that were not in Cargo.lock already.
 regex = "1.13.1"
+# Folders are opened relative to their parent tree without following
+# symbolic links (`openat2`, `O_NOFOLLOW`), and read from that descriptor.
+# The locked version is already used by other crates of the workspace and
+# adds no crates to Cargo.lock.
+rustix = { version = "1.1.5", default-features = false, features = ["fs", "std"] }
 
 [lints]
 workspace = true
