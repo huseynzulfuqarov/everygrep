@@ -653,4 +653,255 @@ mod tests {
         assert_eq!(found.len(), 2);
         assert_eq!((progress.done(), progress.total()), (2, Some(2)));
     }
+
+    /// Content search speed on a tree of text files and one large file, warm
+    /// and with the files dropped from the page cache, and how soon a cancel
+    /// is seen. Writes about 0.7 GB below `EVERYGREP_TIMING_DIR` (default:
+    /// the temp folder; use a disk, not tmpfs) and removes it at the end.
+    #[test]
+    #[ignore = "timing only"]
+    fn content_timing() {
+        use crate::content::{
+            ContentCache, ContentOptions, ContentTerm, Decisions, Pending, decide_all,
+        };
+        use std::io::Write;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let base = std::env::var_os("EVERYGREP_TIMING_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join(format!("everygrep-content-timing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let small_dir = base.join("small");
+        std::fs::create_dir_all(&small_dir).unwrap();
+        const SMALL: usize = 50_000;
+        let words = [
+            "alpha", "report", "invoice", "total", "date", "line", "value", "şəhər", "number",
+            "item",
+        ];
+        let mut small_bytes = 0u64;
+        let mut small_paths = Vec::with_capacity(SMALL);
+        for i in 0..SMALL {
+            let mut text = String::with_capacity(4200);
+            let mut h = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            while text.len() < 4000 {
+                h ^= h << 13;
+                h ^= h >> 7;
+                h ^= h << 17;
+                text.push_str(words[(h % words.len() as u64) as usize]);
+                text.push(if h % 11 == 0 { '\n' } else { ' ' });
+            }
+            if i % 1000 == 0 {
+                text.push_str("\nthe needle is here\n");
+            }
+            let path = small_dir.join(format!("f{i:05}.txt"));
+            std::fs::write(&path, &text).unwrap();
+            small_bytes += text.len() as u64;
+            small_paths.push(path);
+        }
+        let big = base.join("big.log");
+        const BIG_MB: usize = 512;
+        {
+            let mut f = std::io::BufWriter::new(std::fs::File::create(&big).unwrap());
+            let line = format!("{}\n", "0123456789 abcdefghij ".repeat(4));
+            let lines = BIG_MB * 1024 * 1024 / line.len();
+            for _ in 0..lines {
+                f.write_all(line.as_bytes()).unwrap();
+            }
+            f.flush().unwrap();
+        }
+        let big_bytes = std::fs::metadata(&big).unwrap().len();
+        let _ = std::process::Command::new("sync").status();
+
+        let pending = |paths: &[std::path::PathBuf]| -> Vec<Pending> {
+            paths
+                .iter()
+                .map(|p| Pending {
+                    path: p.as_os_str().as_encoded_bytes().to_vec(),
+                    size: 0,
+                    mtime_ns: 0,
+                    table: 0b10,
+                })
+                .collect()
+        };
+        let drop_cache = |paths: &[std::path::PathBuf]| {
+            for p in paths {
+                if let Ok(f) = std::fs::File::open(p) {
+                    let _ = rustix::fs::fadvise(&f, 0, None, rustix::fs::Advice::DontNeed);
+                }
+            }
+        };
+        let rss_peak_kb = || -> u64 {
+            std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find(|l| l.starts_with("VmHWM:"))
+                        .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
+                })
+                .unwrap_or(0)
+        };
+        let term = |text: &str| {
+            Arc::new(ContentTerm::new(text, false, false, false, Default::default()).unwrap())
+        };
+        let run = |list: &[Pending],
+                   terms: &[Arc<ContentTerm>],
+                   threads: usize,
+                   cache: Option<&std::sync::Mutex<ContentCache>>|
+         -> (Duration, usize) {
+            let decisions = Decisions::new(list.len());
+            let started = Instant::now();
+            decide_all(
+                list,
+                terms,
+                &ContentOptions {
+                    max_size: 0,
+                    ..ContentOptions::default()
+                },
+                cache,
+                threads,
+                &Progress::new(),
+                &decisions,
+                || {},
+            )
+            .unwrap();
+            (started.elapsed(), decisions.matched())
+        };
+        let small = pending(&small_paths);
+        let needle = [term("needle")];
+        let mb = |bytes: u64, d: Duration| bytes as f64 / 1048576.0 / d.as_secs_f64();
+        eprintln!(
+            "tree: {SMALL} files, {:.1} MB; big file {:.0} MB; threads available {}",
+            small_bytes as f64 / 1048576.0,
+            big_bytes as f64 / 1048576.0,
+            std::thread::available_parallelism().map_or(1, |n| n.get())
+        );
+        let rss_before = rss_peak_kb();
+        for (label, cold) in [("cold", true), ("warm", false)] {
+            for threads in [1, 4, 8] {
+                if cold {
+                    drop_cache(&small_paths);
+                }
+                let (d, found) = run(&small, &needle, threads, None);
+                eprintln!(
+                    "small files {label} t={threads}: {:.0} ms, {:.0} files/s, {:.0} MB/s, {found} matches",
+                    d.as_secs_f64() * 1e3,
+                    SMALL as f64 / d.as_secs_f64(),
+                    mb(small_bytes, d)
+                );
+            }
+        }
+        // Non-ASCII term (no second pass for UTF-8 files) and two terms.
+        let (d, _) = run(&small, &[term("şəhər needle")], 8, None);
+        eprintln!(
+            "small warm t=8 non-ASCII term: {:.0} ms",
+            d.as_secs_f64() * 1e3
+        );
+        let both = Query::parse("content:<needle şəhər>", QueryOptions::default()).unwrap();
+        let both_pending: Vec<Pending> = small
+            .iter()
+            .map(|p| Pending {
+                table: 0b1000,
+                ..p.clone()
+            })
+            .collect();
+        let (d, found) = run(&both_pending, both.content_terms(), 8, None);
+        eprintln!(
+            "small warm t=8 two terms (AND): {:.0} ms, {found} matches",
+            d.as_secs_f64() * 1e3
+        );
+        // The cache: a second search of the same term.
+        let cache = std::sync::Mutex::new(ContentCache::new());
+        let (first, _) = run(&small, &needle, 8, Some(&cache));
+        let (second, _) = run(&small, &needle, 8, Some(&cache));
+        eprintln!(
+            "cache: first {:.0} ms, again {:.0} ms ({} answers)",
+            first.as_secs_f64() * 1e3,
+            second.as_secs_f64() * 1e3,
+            cache.lock().unwrap().len()
+        );
+        // The large file, one thread (one file is read by one thread).
+        let big_list = pending(std::slice::from_ref(&big));
+        for (label, cold) in [("cold", true), ("warm", false)] {
+            if cold {
+                drop_cache(std::slice::from_ref(&big));
+            }
+            let (d, _) = run(&big_list, &needle, 1, None);
+            eprintln!(
+                "big file {label}: {:.0} ms, {:.0} MB/s",
+                d.as_secs_f64() * 1e3,
+                mb(big_bytes, d)
+            );
+        }
+        // Cancel latency: cancel 100 ms in, time until decide_all returns.
+        for (label, list, threads) in [("big file", &big_list, 1), ("small files", &small, 8)] {
+            for cold in [true, false] {
+                if cold {
+                    drop_cache(std::slice::from_ref(&big));
+                    drop_cache(&small_paths);
+                }
+                let progress = Progress::new();
+                let decisions = Decisions::new(list.len());
+                let cancelled_at = std::sync::Mutex::new(None);
+                let returned = std::thread::scope(|scope| {
+                    scope.spawn(|| {
+                        std::thread::sleep(Duration::from_millis(100));
+                        *cancelled_at.lock().unwrap() = Some(Instant::now());
+                        progress.cancel();
+                    });
+                    let _ = decide_all(
+                        list,
+                        &needle,
+                        &ContentOptions {
+                            max_size: 0,
+                            ..ContentOptions::default()
+                        },
+                        None,
+                        threads,
+                        &progress,
+                        &decisions,
+                        || {},
+                    );
+                    Instant::now()
+                });
+                let at = cancelled_at.lock().unwrap().unwrap_or(returned);
+                eprintln!(
+                    "cancel {label} {}: returned {:.1} ms after the cancel ({} decided)",
+                    if cold { "cold" } else { "warm" },
+                    returned.saturating_duration_since(at).as_secs_f64() * 1e3,
+                    decisions.decided()
+                );
+            }
+        }
+        eprintln!(
+            "peak RSS: {} MB before, {} MB after",
+            rss_before / 1024,
+            rss_peak_kb() / 1024
+        );
+        // PDF files through pdftotext: time per file.
+        if crate::content::pdf_reader_available() {
+            let pdf = base.join("doc.pdf");
+            std::fs::write(&pdf, crate::content::tests_pdf("Quarterly report text")).unwrap();
+            let options = ContentOptions {
+                pdf: true,
+                ..ContentOptions::default()
+            };
+            let mut times: Vec<f64> = (0..100)
+                .map(|_| {
+                    let t = Instant::now();
+                    let o =
+                        crate::content::search_file(&pdf, &needle[0], &options, &Progress::new());
+                    assert!(o.is_ok());
+                    t.elapsed().as_secs_f64() * 1e3
+                })
+                .collect();
+            times.sort_by(f64::total_cmp);
+            eprintln!(
+                "pdftotext per file (tiny PDF, no match): median {:.1} ms, p95 {:.1} ms",
+                times[50], times[95]
+            );
+        }
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }

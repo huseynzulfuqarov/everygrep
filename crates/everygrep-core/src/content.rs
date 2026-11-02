@@ -846,6 +846,9 @@ impl Utf8Check {
 }
 
 #[cfg(test)]
+pub(crate) use tests::tiny_pdf as tests_pdf;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -1220,7 +1223,7 @@ mod tests {
 
     /// A one-page PDF file with `text` in Helvetica, written as a hex
     /// string, so the raw file does not hold the text.
-    fn tiny_pdf(text: &str) -> Vec<u8> {
+    pub(crate) fn tiny_pdf(text: &str) -> Vec<u8> {
         let hex: String = text.bytes().map(|b| format!("{b:02X}")).collect();
         let stream = format!("BT /F1 18 Tf 20 100 Td <{hex}> Tj ET");
         let objects = [
