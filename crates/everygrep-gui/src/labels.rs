@@ -461,6 +461,9 @@ pub fn busy(b: &Busy) -> String {
             &[&done],
         ),
         (TaskKind::Searching, p) => fill(tr("Searching: {}%"), &[&p.unwrap_or(0)]),
+        (TaskKind::SearchingContent, p) => {
+            fill(tr("Searching file contents: {}%"), &[&p.unwrap_or(0)])
+        }
         (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::Copying, Some(p)) => fill(tr("Copying: {}%"), &[&p]),
         (TaskKind::Copying, None) => tr("Copying…").to_owned(),
@@ -482,6 +485,9 @@ pub fn stopped(s: &Stopped) -> String {
             &[name],
         ),
         Stopped::Search => tr("Search cancelled. The list shows the previous results.").to_owned(),
+        Stopped::ContentSearch => {
+            tr("Content search cancelled. The list shows the matches found so far.").to_owned()
+        }
         Stopped::Sort(_) => tr("Sort cancelled. The previous order is kept.").to_owned(),
     }
 }
@@ -829,6 +835,10 @@ mod tests {
         );
         assert_eq!(busy_with(TaskKind::Sorting, 0, Some(50)), "Sorting: 50%");
         assert_eq!(busy_with(TaskKind::Searching, 0, None), "Searching: 0%");
+        assert_eq!(
+            busy_with(TaskKind::SearchingContent, 30, Some(12)),
+            "Searching file contents: 12%"
+        );
         assert!(stopped(&Stopped::Drive("USB".into())).contains("USB"));
     }
 

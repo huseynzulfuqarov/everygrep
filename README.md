@@ -409,7 +409,9 @@ The Cancel button next to it stops the operation and keeps what was there
 before: a cancelled first index is not saved (the next start, or "Rebuild
 index now", indexes again), a cancelled rescan keeps the previous index,
 folders and rules (the settings go back to them; a newer change of the
-folders or rules cancels the older rescan without a message), a cancelled sort or search keeps the results and order shown, and
+folders or rules cancels the older rescan without a message), a cancelled sort or search keeps the results and order shown (a content
+search shows its matches while it reads files, about once a second, and a
+cancel keeps the matches found so far), and
 a drive whose first reading was cancelled goes on where it stopped when it
 is plugged in again (also after it was removed while being read, or the
 program quit while it was read: quitting cancels the reading and waits up to

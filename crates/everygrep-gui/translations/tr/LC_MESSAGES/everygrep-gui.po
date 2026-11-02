@@ -1148,6 +1148,10 @@ msgstr[1] "Updating: {} folders"
 msgid "Searching: {}%"
 msgstr "Searching: {}%"
 
+#: src/labels.rs
+msgid "Searching file contents: {}%"
+msgstr "Dosya içerikleri aranıyor: {}%"
+
 # TODO: translate (English for now)
 #: src/labels.rs
 msgid "Sorting: {}%"
@@ -1171,6 +1175,10 @@ msgstr "{} dizinleme iptal edildi. Yeniden bağlandığında kaldığı yerden d
 #: src/labels.rs
 msgid "Search cancelled. The list shows the previous results."
 msgstr "Search cancelled. The list shows the previous results."
+
+#: src/labels.rs
+msgid "Content search cancelled. The list shows the matches found so far."
+msgstr "İçerik araması iptal edildi. Listede şimdiye kadar bulunanlar gösteriliyor."
 
 # TODO: translate (English for now)
 #: src/labels.rs

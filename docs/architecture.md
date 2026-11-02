@@ -232,7 +232,7 @@ command line is English only.
 | Thread | Work |
 |---|---|
 | UI (Slint event loop) | the windows, the result model, settings, file actions started by the user |
-| search (`engine.rs`) | parses and runs the newest query, sorts it, hands the ids to the UI |
+| search (`engine.rs`) | parses and runs the newest query, sorts it, hands the ids to the UI; for `content:` terms it waits for up to 8 file readers (scoped threads) |
 | index (`engine.rs`) | loads or scans the index, catches up, then watches and applies changes |
 | zbus | the session bus connection for the single instance |
 | short-lived helpers | trash and permanent delete, the folder chooser, the export, the desktop color-scheme watcher |
@@ -249,6 +249,20 @@ The search thread is woken again when the index finishes loading and at most
 every 500 ms while changes arrive, so the shown results stay current. The
 index is saved at most every five minutes while it changes, after a rebuild
 and when the program ends.
+
+A query with `content:` terms takes the read lock only for its index stage
+(`search_staged`), which copies the paths of the files to read. The files
+are read with the lock released, so the watcher and the result table never
+wait for a disk; 500 ms after the reading began and then at most once a
+second (when new matches came) the search thread takes the lock again
+briefly, sorts the matches so far and hands them to the window (the status
+line shows "Searching file contents: 42%"). If node ids changed meaning
+meanwhile, the query runs again. File changes do not interrupt the
+reading: the search runs again once it is done, and the engine's
+`ContentCache` (answers by term, path, size and time; dropped when the
+content settings change) means only changed files are read again; a new
+order is searched the same way. A cancel keeps the matches shown so far,
+and file changes then leave them alone until the next search.
 
 ### Result model (`results.rs`)
 

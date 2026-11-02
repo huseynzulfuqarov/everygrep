@@ -6,6 +6,11 @@
 //! short read locks; the watcher takes the write lock only while it applies a
 //! batch of changes, never while it waits for them.
 //!
+//! A query with `content:` terms reads files: the index part runs under a
+//! read lock as usual, the files are read after it is released (see
+//! [`everygrep_core::content`]), and the matches found so far are handed
+//! to the window about once a second while they are read.
+//!
 //! Long operations (the first index, indexing again, reading a drive,
 //! catching up, a search or a sort) are listed as tasks with a
 //! [`Progress`]. The window asks for the one to show ([`Engine::busy`]) a few
@@ -28,6 +33,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use everygrep_core::content::{ContentCache, ContentOptions, Decisions, decide_all};
 use everygrep_core::drives::{self, Drive, DriveEnv, DriveInfo, MountWatch};
 use everygrep_core::index::Index;
 use everygrep_core::persist;
@@ -35,7 +41,7 @@ use everygrep_core::progress::{self, Progress};
 use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
 use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
-use everygrep_core::search::search_with_progress;
+use everygrep_core::search::{Staged, search_staged, search_with_progress};
 use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::sync::{folders_below, resume_scan};
@@ -96,6 +102,8 @@ pub enum TaskKind {
     /// Catching up with changes made while nothing watched.
     Updating,
     Searching,
+    /// Reading files for the `content:` terms of the search.
+    SearchingContent,
     Sorting,
     /// Pasting files that were copied.
     Copying,
@@ -129,6 +137,9 @@ pub enum Stopped {
     Drive(String),
     /// A search: the previous results stay.
     Search,
+    /// A search that was reading file contents: the matches found so far
+    /// stay, and file changes do not start it again.
+    ContentSearch,
     /// A new order: the previous results stay in this, their order.
     Sort(Sort),
 }
@@ -232,7 +243,10 @@ impl Tasks {
         let list = self.list.lock().expect("lock");
         for task in list.iter() {
             let kind = task.kind.lock().expect("lock");
-            if matches!(*kind, TaskKind::Searching | TaskKind::Sorting) {
+            if matches!(
+                *kind,
+                TaskKind::Searching | TaskKind::SearchingContent | TaskKind::Sorting
+            ) {
                 task.progress.cancel();
             }
         }
@@ -412,6 +426,24 @@ pub struct Engine {
     applying_changes: AtomicBool,
     /// Indexed folders the watcher could not watch, for the status line.
     unwatched: Mutex<Unwatched>,
+    /// How files are read for `content:` terms.
+    content_options: Mutex<ContentOptions>,
+    /// Answers of content terms, so a search again (another order, file
+    /// changes) reads only what changed.
+    content_cache: Mutex<ContentCache>,
+    content_state: Mutex<ContentState>,
+}
+
+/// The reading of file contents for a search.
+#[derive(Debug, Default)]
+struct ContentState {
+    /// Files are being read now.
+    running: bool,
+    /// Files changed meanwhile: search again when the reading is done.
+    refresh: bool,
+    /// The user stopped the last reading, and its matches so far are shown:
+    /// file changes do not start it again.
+    stopped: bool,
 }
 
 /// Indexed folders whose changes are not reported, because their watch
@@ -434,6 +466,12 @@ struct QueryState {
 }
 
 const REFRESH_EVERY: Duration = Duration::from_millis(500);
+/// While files are read for a content search, the matches so far are shown
+/// first after this long, then at most this often.
+const PARTIAL_FIRST: Duration = Duration::from_millis(500);
+const PARTIAL_EVERY: Duration = Duration::from_secs(1);
+/// Most threads reading files for a content search.
+const CONTENT_THREADS: usize = 8;
 const SAVE_EVERY: Duration = Duration::from_secs(300);
 /// How often folders that could not be watched are watched again or, failing
 /// that, checked for changes, and how many of them at most each time.
@@ -502,6 +540,9 @@ impl Engine {
             indexed_with: Mutex::new((Vec::new(), IndexRules::default())),
             incomplete: AtomicBool::new(false),
             applied: Mutex::new(QueryState::default()),
+            content_options: Mutex::new(ContentOptions::default()),
+            content_cache: Mutex::new(ContentCache::new()),
+            content_state: Mutex::new(ContentState::default()),
         });
         // Watched from before the index thread first looks at the drives, so
         // a drive mounted after that look is never missed, however late the
@@ -697,6 +738,7 @@ impl Engine {
         let mut q = self.query.lock().expect("lock");
         q.text = text.to_owned();
         q.options = options;
+        self.content_state.lock().expect("lock").stopped = false;
         // Under the lock, so a cancelled search never undoes this request.
         self.request_search()
     }
@@ -706,6 +748,7 @@ impl Engine {
     pub fn set_sort(&self, sort: Sort) -> u64 {
         let mut q = self.query.lock().expect("lock");
         q.sort = sort;
+        self.content_state.lock().expect("lock").stopped = false;
         self.request_search()
     }
 
@@ -714,6 +757,7 @@ impl Engine {
     /// request.
     pub fn refresh(&self) -> u64 {
         let _query = self.query.lock().expect("lock");
+        self.content_state.lock().expect("lock").stopped = false;
         self.forget_details();
         self.request_search()
     }
@@ -732,6 +776,34 @@ impl Engine {
     /// Whether `generation` is still the newest request.
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
+    }
+
+    /// How files are read for `content:` terms from now on. A change runs
+    /// the current query again, with every file read again.
+    pub fn set_content_options(&self, options: ContentOptions) {
+        let mut current = self.content_options.lock().expect("lock");
+        if *current == options {
+            return;
+        }
+        *current = options;
+        drop(current);
+        let _query = self.query.lock().expect("lock");
+        self.content_state.lock().expect("lock").stopped = false;
+        self.request_search();
+    }
+
+    /// The query runs again because files changed. While files are read
+    /// for a content search, it runs again only when that is done (the
+    /// answers are cached, so only changed files are read again); after the
+    /// user stopped one, file changes leave its matches alone.
+    fn request_refresh(&self) {
+        let mut state = self.content_state.lock().expect("lock");
+        if state.running {
+            state.refresh = true;
+        } else if !state.stopped {
+            drop(state);
+            self.request_search();
+        }
     }
 
     fn request_search(&self) -> u64 {
@@ -761,6 +833,46 @@ impl Engine {
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
             let (ids, error) = match Query::parse(&state.text, state.options) {
+                Ok(query) if !query.content_terms().is_empty() => {
+                    terms = query.highlight_terms();
+                    let terms = Arc::new(std::mem::take(&mut terms));
+                    let found = self.search_contents(generation, &state, &query, started, &terms);
+                    match found {
+                        Ok(Some((ids, at))) => {
+                            epoch = at;
+                            let mut q = self.content_state.lock().expect("lock");
+                            q.stopped = false;
+                            drop(q);
+                            if self.is_current(generation) {
+                                *self.applied.lock().expect("lock") = state.clone();
+                                (self.hooks.on_results)(SearchResult {
+                                    ids: Arc::new(ids),
+                                    terms,
+                                    took: started.elapsed(),
+                                    error: None,
+                                    query: state.text,
+                                    epoch,
+                                    generation,
+                                });
+                            }
+                            self.refresh_after_contents();
+                            continue;
+                        }
+                        Ok(None) => break,
+                        Err(Stopped::ContentSearch) => {
+                            self.content_stopped(generation, &state);
+                            continue;
+                        }
+                        Err(_) => {
+                            // Stopped by the user or for a newer request:
+                            // changes seen meanwhile need no search of
+                            // their own.
+                            self.content_state.lock().expect("lock").refresh = false;
+                            self.search_cancelled(generation, &state);
+                            continue;
+                        }
+                    }
+                }
                 Ok(query) => {
                     terms = query.highlight_terms();
                     let index = self.index.read().expect("index lock");
@@ -812,6 +924,171 @@ impl Engine {
                 });
             }
         }
+    }
+
+    /// Runs a query with `content:` terms: the index part under a read lock,
+    /// then the files without it, showing the matches so far now and then.
+    /// Returns the sorted results and the epoch of their ids, `None` when
+    /// quitting began, or why it stopped: [`Stopped::ContentSearch`] when
+    /// the user cancelled it after matches were shown, [`Stopped::Search`]
+    /// for any other cancel (or when the ids changed meaning meanwhile; it
+    /// is asked for again then).
+    fn search_contents(
+        &self,
+        generation: u64,
+        state: &QueryState,
+        query: &Query,
+        started: Instant,
+        terms: &Arc<Vec<HighlightTerm>>,
+    ) -> Result<Option<(Vec<NodeId>, u64)>, Stopped> {
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let task = self.tasks.begin(TaskKind::Searching, true);
+        if !self.is_current(generation) {
+            task.progress().cancel();
+        }
+        let (staged, epoch) = {
+            let index = self.index.read().expect("index lock");
+            if self.stop.load(Ordering::SeqCst) {
+                return Ok(None);
+            }
+            let epoch = self.epoch();
+            let staged = search_staged(&index, query, threads, task.progress())
+                .map_err(|_| Stopped::Search)?;
+            (staged, epoch)
+        };
+        let decisions = Decisions::new(staged.pending.len());
+        let mut shown = false;
+        if !staged.pending.is_empty() {
+            task.set_kind(TaskKind::SearchingContent);
+            task.progress().restart(Some(staged.pending.len() as u64));
+            self.content_state.lock().expect("lock").running = true;
+            let options = *self.content_options.lock().expect("lock");
+            let reading = Instant::now();
+            let mut last: Option<(Instant, usize)> = None;
+            let read = decide_all(
+                &staged.pending,
+                query.content_terms(),
+                &options,
+                Some(&self.content_cache),
+                threads.min(CONTENT_THREADS),
+                task.progress(),
+                &decisions,
+                || {
+                    let now = Instant::now();
+                    let due = match last {
+                        None => now.duration_since(reading) >= PARTIAL_FIRST,
+                        Some((at, matched)) => {
+                            now.duration_since(at) >= PARTIAL_EVERY
+                                && decisions.matched() != matched
+                        }
+                    };
+                    if due {
+                        last = Some((now, decisions.matched()));
+                        shown |= self.show_partial(
+                            generation, state, query, &staged, &decisions, epoch, started, terms,
+                        );
+                    }
+                },
+            );
+            self.content_state.lock().expect("lock").running = false;
+            read.map_err(|_| self.why_stopped(generation, shown))?;
+        }
+        let index = self.index.read().expect("index lock");
+        if self.stop.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        if self.epoch() != epoch {
+            // Ids changed meaning while the files were read: search again;
+            // the answers are cached.
+            drop(index);
+            self.request_search();
+            return Err(Stopped::Search);
+        }
+        let mut ids = staged.results(&decisions);
+        if self.is_current(generation) {
+            task.set_kind(TaskKind::Sorting);
+            task.progress().restart(None);
+            self.sort(&index, &mut ids, state.sort, threads, task.progress())
+                .map_err(|_| self.why_stopped(generation, shown))?;
+            query.apply_limit(&mut ids);
+        }
+        Ok(Some((ids, epoch)))
+    }
+
+    /// Why a content search for `generation` was cancelled: the user stopped
+    /// it after matches were `shown`, or anything else.
+    fn why_stopped(&self, generation: u64, shown: bool) -> Stopped {
+        if shown && self.is_current(generation) && !self.stop.load(Ordering::SeqCst) {
+            Stopped::ContentSearch
+        } else {
+            Stopped::Search
+        }
+    }
+
+    /// Hands the matches found so far to the window, sorted, unless the ids
+    /// changed meaning or a newer request came. Returns whether it did.
+    #[allow(clippy::too_many_arguments)]
+    fn show_partial(
+        &self,
+        generation: u64,
+        state: &QueryState,
+        query: &Query,
+        staged: &Staged,
+        decisions: &Decisions,
+        epoch: u64,
+        started: Instant,
+        terms: &Arc<Vec<HighlightTerm>>,
+    ) -> bool {
+        let index = self.index.read().expect("index lock");
+        if self.epoch() != epoch || !self.is_current(generation) {
+            return false;
+        }
+        let mut ids = staged.results(decisions);
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        if self
+            .sort(&index, &mut ids, state.sort, threads, &Progress::new())
+            .is_err()
+        {
+            return false;
+        }
+        query.apply_limit(&mut ids);
+        drop(index);
+        *self.applied.lock().expect("lock") = state.clone();
+        (self.hooks.on_results)(SearchResult {
+            ids: Arc::new(ids),
+            terms: Arc::clone(terms),
+            took: started.elapsed(),
+            error: None,
+            query: state.text.clone(),
+            epoch,
+            generation,
+        });
+        true
+    }
+
+    /// Files changed while the contents were read: search again now.
+    fn refresh_after_contents(&self) {
+        let mut state = self.content_state.lock().expect("lock");
+        if std::mem::take(&mut state.refresh) {
+            drop(state);
+            self.request_search();
+        }
+    }
+
+    /// The user cancelled a content search after its first matches were
+    /// shown: they stay, with the query that found them.
+    fn content_stopped(&self, generation: u64, state: &QueryState) {
+        let q = self.query.lock().expect("lock");
+        if !self.is_current(generation) {
+            return;
+        }
+        let mut content = self.content_state.lock().expect("lock");
+        content.stopped = true;
+        content.refresh = false;
+        drop(content);
+        *self.applied.lock().expect("lock") = state.clone();
+        drop(q);
+        (self.hooks.on_stopped)(Stopped::ContentSearch);
     }
 
     /// Sorts results of `index` (read-locked by the caller), with the
@@ -1241,7 +1518,7 @@ impl Engine {
             if pending_refresh && last_refresh.elapsed() >= REFRESH_EVERY {
                 pending_refresh = false;
                 last_refresh = Instant::now();
-                self.request_search();
+                self.request_refresh();
                 self.report(IndexState::Watching);
             }
             if self.dirty.load(Ordering::SeqCst) && last_save.elapsed() >= SAVE_EVERY {
@@ -3202,6 +3479,234 @@ mod tests {
             .set_query("nothing-like-this", QueryOptions::default());
         assert_eq!(probe.wait_stopped(), Stopped::Search);
         assert_eq!(probe.engine.query.lock().unwrap().text, "txt");
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn content_search_finds_files_and_follows_the_content_settings() {
+        let dir = Scratch::new("content-search");
+        let root = dir.0.join("files");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("a.txt"), "the needle\n").unwrap();
+        fs::write(root.join("b.txt"), "hay\n").unwrap();
+        fs::write(
+            root.join("sub/c.md"),
+            format!("{}\nneedle\n", "x".repeat(500)),
+        )
+        .unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("content:needle"), ["a.txt", "c.md"]);
+        assert_eq!(
+            probe.names("content:needle | b.txt"),
+            ["a.txt", "b.txt", "c.md"]
+        );
+        assert_eq!(probe.engine.content_cache.lock().unwrap().len(), 3);
+        assert_eq!(probe.names("content:needle"), ["a.txt", "c.md"]);
+        // Another order searches again with the cached answers: a file
+        // changed behind the index's back keeps its answer.
+        fs::write(root.join("b.txt"), "needle now\n").unwrap();
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_sort(Sort {
+            key: everygrep_core::sort::SortKey::Size,
+            ..Sort::default()
+        });
+        let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+        assert_eq!(r.ids.len(), 2);
+        // New settings read every file again: c.md is now too large.
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_content_options(ContentOptions {
+            max_size: 100,
+            ..ContentOptions::default()
+        });
+        let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+        let index = probe.engine.index.read().unwrap();
+        let mut names: Vec<String> = r
+            .ids
+            .iter()
+            .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+            .collect();
+        drop(index);
+        names.sort();
+        assert_eq!(names, ["a.txt", "b.txt"]);
+        // Searching again with the same settings changes nothing.
+        let generation = probe.engine.generation.load(Ordering::SeqCst);
+        probe.engine.set_content_options(ContentOptions {
+            max_size: 100,
+            ..ContentOptions::default()
+        });
+        assert_eq!(probe.engine.generation.load(Ordering::SeqCst), generation);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn file_changes_wait_for_a_content_search_and_leave_a_stopped_one() {
+        let dir = Scratch::new("content-refresh");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "needle\n").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("content:needle"), ["a.txt"]);
+        let engine = &probe.engine;
+        let generation = || engine.generation.load(Ordering::SeqCst);
+
+        // While files are read, a change is noted and searched after.
+        let before = generation();
+        engine.content_state.lock().unwrap().running = true;
+        engine.request_refresh();
+        assert_eq!(generation(), before);
+        engine.content_state.lock().unwrap().running = false;
+        engine.refresh_after_contents();
+        assert_eq!(generation(), before + 1);
+        engine.refresh_after_contents();
+        assert_eq!(generation(), before + 1, "once");
+        assert_eq!(probe.names("content:needle"), ["a.txt"]);
+
+        // Stopped by the user after matches were shown: they stay, and file
+        // changes do not start it again until the user asks for a search.
+        while probe.stopped.try_recv().is_ok() {}
+        let state = engine.query.lock().unwrap().clone();
+        engine.content_stopped(generation(), &state);
+        assert_eq!(probe.wait_stopped(), Stopped::ContentSearch);
+        assert_eq!(engine.applied.lock().unwrap().text, "content:needle");
+        let before = generation();
+        engine.request_refresh();
+        assert_eq!(generation(), before);
+        engine.set_sort(Sort::default());
+        assert!(!engine.content_state.lock().unwrap().stopped);
+        engine.request_refresh();
+        assert_eq!(generation(), before + 2);
+        // A stop for an older request is not reported.
+        engine.content_stopped(before, &state);
+        assert!(
+            probe
+                .stopped
+                .recv_timeout(Duration::from_millis(200))
+                .is_err()
+        );
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_content_search_cancelled_before_matches_were_shown_keeps_the_previous_results() {
+        let dir = Scratch::new("content-cancel");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "needle\n").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        while probe.results.try_recv().is_ok() {}
+        probe.armed.store(true, Ordering::SeqCst);
+        probe
+            .engine
+            .set_query("content:needle", QueryOptions::default());
+        assert_eq!(probe.wait_stopped(), Stopped::Search);
+        assert_eq!(probe.engine.query.lock().unwrap().text, "txt");
+        assert!(!probe.engine.content_state.lock().unwrap().running);
+        assert!(
+            probe
+                .results
+                .recv_timeout(Duration::from_millis(200))
+                .is_err()
+        );
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn matches_so_far_are_shown_sorted_for_the_current_request_only() {
+        let dir = Scratch::new("content-partial");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("small.txt"), "needle\n").unwrap();
+        fs::write(
+            root.join("large.txt"),
+            format!("needle {}\n", "x".repeat(100)),
+        )
+        .unwrap();
+        fs::write(root.join("other.txt"), "hay\n").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("content:needle"), ["large.txt", "small.txt"]);
+        let engine = &probe.engine;
+        let query = Query::parse("content:needle", QueryOptions::default()).unwrap();
+        let (staged, epoch) = {
+            let index = engine.index.read().unwrap();
+            (
+                search_staged(&index, &query, 1, &Progress::new()).unwrap(),
+                engine.epoch(),
+            )
+        };
+        let decisions = Decisions::new(staged.pending.len());
+        decide_all(
+            &staged.pending,
+            query.content_terms(),
+            &ContentOptions::default(),
+            None,
+            1,
+            &Progress::new(),
+            &decisions,
+            || {},
+        )
+        .unwrap();
+        let state = QueryState {
+            text: "content:needle".into(),
+            options: QueryOptions::default(),
+            sort: Sort {
+                key: everygrep_core::sort::SortKey::Size,
+                descending: true,
+                ..Sort::default()
+            },
+        };
+        let terms = Arc::new(Vec::new());
+        let generation = engine.set_query("other", QueryOptions::default());
+        let _ = probe.names("other");
+        while probe.results.try_recv().is_ok() {}
+        // An older request shows nothing.
+        let shown = engine.show_partial(
+            generation - 1,
+            &state,
+            &query,
+            &staged,
+            &decisions,
+            epoch,
+            Instant::now(),
+            &terms,
+        );
+        assert!(!shown);
+        let generation = engine.generation.load(Ordering::SeqCst);
+        assert!(engine.show_partial(
+            generation,
+            &state,
+            &query,
+            &staged,
+            &decisions,
+            epoch,
+            Instant::now(),
+            &terms,
+        ));
+        let r = probe.results.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            (r.generation, r.query.as_str()),
+            (generation, "content:needle")
+        );
+        let index = engine.index.read().unwrap();
+        let names: Vec<&[u8]> = r.ids.iter().map(|&id| index.store().name(id)).collect();
+        assert_eq!(names, [&b"large.txt"[..], b"small.txt"], "largest first");
+        drop(index);
+        assert_eq!(engine.applied.lock().unwrap().text, "content:needle");
+        // Ids of another epoch are never shown.
+        assert!(!engine.show_partial(
+            generation,
+            &state,
+            &query,
+            &staged,
+            &decisions,
+            epoch + 1,
+            Instant::now(),
+            &terms,
+        ));
         probe.engine.shutdown();
     }
 
