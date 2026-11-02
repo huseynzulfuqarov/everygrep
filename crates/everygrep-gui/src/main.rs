@@ -265,6 +265,7 @@ fn main() -> Result<(), slint::PlatformError> {
     prefs.apply_look();
     prefs.apply_as_you_type();
     prefs.apply_behaviour();
+    prefs.apply_watch_changes();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
         let _ = portal::watch_color_scheme(|scheme| {
@@ -660,6 +661,8 @@ fn connect_menus(w: &AppWindow) {
         });
     });
     w.on_status_details_changed(|on| prefs::with(|p| p.set_status_details(on)));
+    w.on_rebuild_index(|| prefs::with(|p| p.rebuild()));
+    w.on_index_paused_changed(|paused| prefs::with(|p| p.set_watch_changes(!paused)));
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
 }
 

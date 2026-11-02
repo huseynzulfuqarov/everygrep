@@ -2191,3 +2191,11 @@ msgstr "Genişlənmə tezliyi sütunu"
 #: src/commands.rs
 msgid "Same size column"
 msgstr "Ölçü tezliyi sütunu"
+
+#: ui/app.slint
+msgid "Index"
+msgstr "İndeks"
+
+#: ui/app.slint
+msgid "Pause index updates"
+msgstr "İndeksin yenilənməsinə fasilə ver"

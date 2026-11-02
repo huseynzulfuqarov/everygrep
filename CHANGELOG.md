@@ -417,6 +417,10 @@ First version, 0.1.0, not released yet.
   them again before the right column gets room. Folder still takes the
   spare room; the width it keeps while the columns are too wide is saved as
   `folder-width`.
+- Index menu: Rebuild index now (as the button on the Indexing page) and
+  Pause index updates, the "Watch for changes" setting the other way round
+  (resuming catches up with what changed meanwhile); both commands can get
+  keys.
 
 ### Project
 

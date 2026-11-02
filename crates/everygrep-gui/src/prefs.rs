@@ -595,9 +595,24 @@ impl Prefs {
         let Some(on) = self.window.borrow().as_ref().map(|w| w.get_watch_changes()) else {
             return;
         };
+        self.set_watch_changes(on);
+    }
+
+    /// Turns watching for file changes on or off: the Indexing page's
+    /// switch, and Index → Pause index updates the other way round.
+    /// Resuming catches up with what changed meanwhile.
+    pub fn set_watch_changes(&self, on: bool) {
         self.change(move |s| s.watch_changes = on);
         self.engine.set_watching(on);
+        self.apply_watch_changes();
         self.refresh();
+    }
+
+    /// Shows in the Index menu whether updates are paused.
+    pub fn apply_watch_changes(&self) {
+        if let Some(m) = self.main.upgrade() {
+            m.set_index_paused(!self.settings.borrow().watch_changes);
+        }
     }
 
     /// Adds a folder pattern typed on the Indexing page.
@@ -633,7 +648,9 @@ impl Prefs {
         w.set_exclude_files(index.rules.exclude_files.as_str().into());
     }
 
-    fn rebuild(&self) {
+    /// Builds the index again from scratch over the folders to index
+    /// (Index → Rebuild index now, and the button of the Indexing page).
+    pub fn rebuild(&self) {
         let (roots, rules) = {
             let index = self.index.borrow();
             let roots = if index.roots.is_empty() {
@@ -1653,6 +1670,7 @@ impl Prefs {
                 s.watch_changes = true;
             });
             self.engine.set_watching(true);
+            self.apply_watch_changes();
             self.engine
                 .set_drive_settings(self.settings.borrow().drives.clone());
             let saved = self.index.borrow().saved;

@@ -408,6 +408,7 @@ pub enum Category {
     Edit,
     View,
     Search,
+    Index,
     Tools,
     Help,
 }
@@ -419,6 +420,7 @@ impl Category {
             Category::Edit => tr("Edit"),
             Category::View => tr("View"),
             Category::Search => tr("Search"),
+            Category::Index => tr("Index"),
             Category::Tools => tr("Tools"),
             Category::Help => tr("Help"),
         }
@@ -882,6 +884,20 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::RebuildIndex,
+        id: "index.rebuild",
+        category: Category::Index,
+        label: || tr("Rebuild index now"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::PauseIndexUpdates,
+        id: "index.pause-updates",
+        category: Category::Index,
+        label: || tr("Pause index updates"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::Settings,
         id: "tools.settings",
         category: Category::Tools,
@@ -1218,6 +1234,8 @@ impl Keymap {
             find_name_duplicates => FindNameDuplicates,
             find_size_duplicates => FindSizeDuplicates,
             clear_duplicates => ClearDuplicates,
+            rebuild_index => RebuildIndex,
+            pause_index_updates => PauseIndexUpdates,
             settings => Settings,
             keyboard_settings => KeyboardSettings,
             shortcuts_help => ShortcutsHelp,

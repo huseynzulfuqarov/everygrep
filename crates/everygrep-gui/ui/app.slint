@@ -970,6 +970,12 @@ export component AppWindow inherits Window {
     in property <string> more-label;
     // Saves the result list to a file.
     callback export-results();
+    // Index menu: builds the index again from scratch, and stops applying
+    // file changes until updates are resumed (the "Watch for changes"
+    // setting, the other way round).
+    callback rebuild-index();
+    in-out property <bool> index-paused;
+    callback index-paused-changed(bool);
 
     // Menu bar and the appearance choices in its View menu. The choices
     // are saved as settings; the program sets the lists again after a
@@ -1656,6 +1662,11 @@ export component AppWindow inherits Window {
         } else if (c == Command.clear-duplicates) {
             root.dupe-term(-1);
             root.results-replaced();
+        } else if (c == Command.rebuild-index) {
+            root.rebuild-index();
+        } else if (c == Command.pause-index-updates) {
+            root.index-paused = !root.index-paused;
+            root.toggled(c);
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -1702,6 +1713,8 @@ export component AppWindow inherits Window {
             root.status-details-changed(root.status-details);
         } else if (c == Command.menu-bar) {
             root.menu-bar-changed(root.show-menu-bar);
+        } else if (c == Command.pause-index-updates) {
+            root.index-paused-changed(root.index-paused);
         } else {
             root.options-edited();
         }
@@ -3280,6 +3293,22 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.next-search;
                 enabled: root.can-run(Command.next-search);
                 activated => { root.run(Command.next-search); }
+            }
+        }
+        Menu {
+            title: @tr("Index");
+            MenuItem {
+                title: @tr("Rebuild index now");
+                shortcut: root.menu-keys.rebuild-index;
+                enabled: root.can-run(Command.rebuild-index);
+                activated => { root.run(Command.rebuild-index); }
+            }
+            MenuItem {
+                title: @tr("Pause index updates");
+                shortcut: root.menu-keys.pause-index-updates;
+                checkable: true;
+                checked <=> root.index-paused;
+                activated => { root.toggled(Command.pause-index-updates); }
             }
         }
         Menu {

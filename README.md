@@ -228,11 +228,15 @@ offline entry is followed by a tab and `(offline)`, and a backslash, line
 break or tab in a path is written as `\\`, `\n`, `\r` or `\t`. The file is written to
 a temporary file and renamed into place.
 
-The menu bar (File, Edit, View, Search, Tools, Help) holds the same actions,
+The menu bar (File, Edit, View, Search, Index, Tools, Help) holds the same actions,
 File → Close window (`Ctrl+W`, as the close button: hide or quit as set),
 the appearance choices (optional columns, sort by a column and direction,
 folder size, density, theme, selection details, the menu bar itself), the
 matching modes with their `Alt` keys, the filters and the search history.
+Index → Rebuild index now scans the folders to index again from scratch;
+Index → Pause index updates stops applying file changes (it is the "Watch for
+changes" setting, the other way round) until it is turned off again, which
+catches up with what changed meanwhile.
 Tools → Settings… and Tools → Customize shortcuts… open the settings. Help →
 Keyboard shortcuts lists every key; Help → About shows the version and the
 license. The Edit actions show no key in the menu, because menu keys would
