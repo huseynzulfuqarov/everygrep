@@ -525,6 +525,7 @@ pub struct Unwatched {
 struct QueryState {
     text: String,
     options: QueryOptions,
+    filter_query: Option<(String, QueryOptions)>,
     sort: Sort,
 }
 
@@ -930,8 +931,20 @@ impl Engine {
     }
 
     /// Runs `text` as the current query. Returns the generation of the request.
+    #[cfg(test)]
     pub fn set_query(&self, text: &str, options: QueryOptions) -> u64 {
+        self.set_filtered_query(text, options, None)
+    }
+
+    /// Runs the field and a selected named filter as independent expressions.
+    pub fn set_filtered_query(
+        &self,
+        text: &str,
+        options: QueryOptions,
+        filter: Option<(String, QueryOptions)>,
+    ) -> u64 {
         let mut q = self.query.lock().expect("lock");
+        q.filter_query = filter;
         q.text = text.to_owned();
         q.options = options;
         self.content_state.lock().expect("lock").stopped = false;
@@ -1028,7 +1041,14 @@ impl Engine {
             let started = Instant::now();
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
-            let (ids, error) = match Query::parse(&state.text, state.options) {
+            let (ids, error) = match Query::parse(&state.text, state.options).and_then(|query| {
+                match &state.filter_query {
+                    Some((text, options)) => {
+                        Query::parse(text, *options).and_then(|filter| query.and(filter))
+                    }
+                    None => Ok(query),
+                }
+            }) {
                 Ok(query) if !query.content_terms().is_empty() || query.dupes().is_some() => {
                     terms = query.highlight_terms();
                     let terms = Arc::new(std::mem::take(&mut terms));
@@ -4015,6 +4035,70 @@ mod tests {
     }
 
     #[test]
+    fn a_filter_and_the_field_with_content_terms_each_read_their_own() {
+        let dir = Scratch::new("content-filter");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "alpha\n").unwrap();
+        fs::write(root.join("b.txt"), "beta\n").unwrap();
+        fs::write(root.join("ab.txt"), "alpha beta\n").unwrap();
+        fs::write(root.join("none.txt"), "gamma\n").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let filtered = |field: &str, filter: &str| -> Result<Vec<String>, String> {
+            while probe.results.try_recv().is_ok() {}
+            let options = QueryOptions::default();
+            probe
+                .engine
+                .set_filtered_query(field, options, Some((filter.to_owned(), options)));
+            loop {
+                let r = probe
+                    .results
+                    .recv_timeout(Duration::from_secs(20))
+                    .expect("results");
+                if r.query != field {
+                    continue;
+                }
+                if let Some(e) = r.error {
+                    return Err(e);
+                }
+                let index = probe.engine.index.read().unwrap();
+                let mut names: Vec<String> = r
+                    .ids
+                    .iter()
+                    .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                    .collect();
+                names.sort();
+                return Ok(names);
+            }
+        };
+        assert_eq!(
+            filtered("content:alpha", "content:beta").unwrap(),
+            ["ab.txt"]
+        );
+        assert_eq!(
+            filtered("content:beta", "!content:alpha").unwrap(),
+            ["b.txt"]
+        );
+        assert_eq!(
+            filtered("content:alpha", "content:beta | content:gamma").unwrap(),
+            ["ab.txt"]
+        );
+        assert_eq!(
+            filtered("ext:txt", "content:alpha").unwrap(),
+            ["a.txt", "ab.txt"]
+        );
+        // Seven content terms together are refused, as in one query.
+        let error = filtered(
+            "content:a content:b content:c content:d",
+            "content:e content:f content:g",
+        )
+        .unwrap_err();
+        assert!(error.contains("at most 6 content terms"), "{error}");
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn file_changes_wait_for_a_content_search_and_leave_a_stopped_one() {
         let dir = Scratch::new("content-refresh");
         let root = dir.0.join("files");
@@ -4243,6 +4327,7 @@ mod tests {
         let state = QueryState {
             text: "content:needle".into(),
             options: QueryOptions::default(),
+            filter_query: None,
             sort: Sort {
                 key: everygrep_core::sort::SortKey::Size,
                 descending: true,

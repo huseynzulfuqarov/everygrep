@@ -8,6 +8,11 @@ All notable changes to EveryGrep are listed here. The format follows
 
 First version, 0.1.0, not released yet.
 
+### Saved searches
+
+- Manage named filters with matching modes in the existing selector and Search
+  menu; restore built-ins, reorder with Alt+Up/Down and save edits atomically.
+
 ### Search history
 
 - Organize search history in a filterable table, delete individual searches or

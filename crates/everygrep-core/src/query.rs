@@ -352,6 +352,39 @@ impl EvalScratch {
 }
 
 impl Query {
+    /// Intersection of independently parsed searches, including their filters.
+    /// The stricter result limit wins and is still applied after sorting.
+    /// The `content:` terms of `other` move to the slots after those of
+    /// `self`, so each leaf still reads the answer of its own term. Fails
+    /// when together they have more than [`MAX_CONTENT_TERMS`] content
+    /// terms, or both have a duplicate term.
+    pub fn and(self, other: Self) -> Result<Self, ParseError> {
+        if self.content.len() + other.content.len() > MAX_CONTENT_TERMS {
+            return Err(ParseError(format!(
+                "a query can have at most {MAX_CONTENT_TERMS} content terms"
+            )));
+        }
+        if self.dupe.is_some() && other.dupe.is_some() {
+            return Err(ParseError(
+                "only one of duplicates:, extra-copies:, distinct: and unique: per query".into(),
+            ));
+        }
+        let mut other_root = other.root;
+        shift_content_slots(&mut other_root, self.content.len());
+        let mut content = self.content;
+        content.extend(other.content);
+        Ok(Self {
+            root: Node::And(vec![self.root, other_root]),
+            uses_path: self.uses_path || other.uses_path,
+            limit: match (self.limit, other.limit) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            },
+            content,
+            dupe: self.dupe.or(other.dupe),
+        })
+    }
+
     /// Parses `text`. An empty query matches every node.
     pub fn parse(text: &str, options: QueryOptions) -> Result<Self, ParseError> {
         Self::parse_with(text, options, now_ns(), None)
@@ -936,6 +969,20 @@ impl Query {
         let mut out = Vec::new();
         collect_highlight_terms(&self.root, &mut out);
         out
+    }
+}
+
+/// Moves every `content:` leaf under `node` `by` slots further on.
+fn shift_content_slots(node: &mut Node, by: usize) {
+    match node {
+        Node::And(items) | Node::Or(items) => {
+            for item in items {
+                shift_content_slots(item, by);
+            }
+        }
+        Node::Not(inner) => shift_content_slots(inner, by),
+        Node::Leaf(Pred::Content(slot, _)) => *slot += by,
+        Node::All | Node::Leaf(_) => {}
     }
 }
 
@@ -2957,6 +3004,99 @@ mod tests {
             out.sort();
             out
         }
+    }
+
+    #[test]
+    fn independent_queries_intersect_options_paths_and_limits() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/tmp/Docs", true, Meta::default());
+        let yes = store.add(Some(root), b"Report.rs", false, Meta::default());
+        let wrong_case = store.add(Some(root), b"report.rs", false, Meta::default());
+        let wrong_kind = store.add(Some(root), b"Report.jpg", false, Meta::default());
+        let field = Query::parse(
+            "^Report",
+            QueryOptions {
+                regex: true,
+                case_sensitive: true,
+                ..QueryOptions::default()
+            },
+        )
+        .unwrap();
+        let filter = Query::parse(
+            "path:Docs limit:2",
+            QueryOptions {
+                filter: Filter::Code,
+                ..QueryOptions::default()
+            },
+        )
+        .unwrap();
+        let combined = field.and(filter).unwrap();
+        assert!(combined.matches(&store, yes, &mut EvalScratch::default()));
+        for id in [root, wrong_case, wrong_kind] {
+            assert!(!combined.matches(&store, id, &mut EvalScratch::default()));
+        }
+        let combined = combined
+            .and(Query::parse("limit:1", QueryOptions::default()).unwrap())
+            .unwrap();
+        let mut ids = vec![yes, wrong_case];
+        combined.apply_limit(&mut ids);
+        assert_eq!(ids, [yes]);
+        assert!(combined.highlight_terms().len() >= 2);
+    }
+
+    #[test]
+    fn intersected_queries_keep_each_content_term_in_its_own_slot() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/nowhere", true, Meta::default());
+        let notes = s.add(Some(root), b"notes.txt", false, Meta::default());
+        let parse = |text: &str| Query::parse(text, QueryOptions::default()).unwrap();
+        // Field `content:alpha` (slot 0) and a filter `content:beta` (its
+        // own slot 0): together slot 0 is alpha, slot 1 beta.
+        let both = parse("content:alpha").and(parse("content:beta")).unwrap();
+        let terms: Vec<_> = both.content_terms().iter().map(|t| t.key()).collect();
+        assert_eq!(terms.len(), 2);
+        assert!(terms[0].ends_with("/alpha") && terms[1].ends_with("/beta"));
+        // Only bits 0b11 (alpha and beta found) match.
+        let stage = |q: &Query| q.stage(&s, notes, &mut EvalScratch::default());
+        assert_eq!(stage(&both), Stage::Contents(0b1000));
+        // A negated filter term reads its own bit, not the field's.
+        let not = parse("content:alpha").and(parse("!content:beta")).unwrap();
+        assert_eq!(stage(&not), Stage::Contents(0b0010));
+        // Groups and an OR on the filter side move together.
+        let or = parse("content:<a|b>")
+            .and(parse("content:c | content:d"))
+            .unwrap();
+        let Stage::Contents(table) = stage(&or) else {
+            panic!("contents decide");
+        };
+        for bits in 0..16u64 {
+            let expected = (bits & 0b11 != 0) && (bits & 0b1100 != 0);
+            assert_eq!(table >> bits & 1 == 1, expected, "bits {bits:04b}");
+        }
+        // A field without content terms leaves the filter's slots alone.
+        let name = parse("notes").and(parse("content:beta")).unwrap();
+        assert_eq!(stage(&name), Stage::Contents(0b10));
+        // The limit counts the terms of both sides.
+        let four = parse("content:a content:b content:c content:d");
+        let three = parse("content:e content:f content:g");
+        assert!(four.clone().and(parse("content:e content:f")).is_ok());
+        assert!(four.and(three).is_err());
+        // Only one side may group duplicates.
+        assert!(
+            parse("duplicates:")
+                .and(parse("ext:txt"))
+                .unwrap()
+                .dupes()
+                .is_some()
+        );
+        assert!(
+            parse("ext:txt")
+                .and(parse("duplicates:"))
+                .unwrap()
+                .dupes()
+                .is_some()
+        );
+        assert!(parse("duplicates:").and(parse("distinct:")).is_err());
     }
 
     #[test]

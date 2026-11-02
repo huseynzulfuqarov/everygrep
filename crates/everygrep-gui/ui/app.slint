@@ -5,6 +5,7 @@ import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
 export { HistoryWindow } from "history.slint";
+export { SavedWindow } from "saved.slint";
 export { StalledDialog } from "stalled.slint";
 
 // A text with up to four highlighted runs: plain and bold pieces in turn,
@@ -1520,6 +1521,9 @@ export component AppWindow inherits Window {
     // The command a key runs while the focus is in a scope (0 anywhere,
     // 1 the search field, 2 the result list); Command.none for none. See
     // src/commands.rs.
+    callback add-filter();
+    callback organize-filters();
+    callback restore-filters();
     callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
 
     // File actions that are refused, with a note, for an item on a drive
@@ -1720,6 +1724,12 @@ export component AppWindow inherits Window {
         } else if (c == Command.organize-history) {
             root.history-open = false;
             root.organize-history();
+        } else if (c == Command.add-filter) {
+            root.add-filter();
+        } else if (c == Command.organize-filters) {
+            root.organize-filters();
+        } else if (c == Command.restore-filters) {
+            root.restore-filters();
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -3340,6 +3350,9 @@ export component AppWindow inherits Window {
             }
             Menu {
                 title: @tr("Filter");
+                MenuItem { title: @tr("Save as filter…"); shortcut: root.menu-keys.add-filter; activated => { root.run(Command.add-filter); } }
+                MenuItem { title: @tr("Manage filters…"); shortcut: root.menu-keys.organize-filters; activated => { root.run(Command.organize-filters); } }
+                MenuItem { title: @tr("Restore default filters"); shortcut: root.menu-keys.restore-filters; activated => { root.run(Command.restore-filters); } }
                 for item[i] in root.filter-items: MenuItem {
                     title: item.title;
                     checkable: true;

@@ -499,3 +499,20 @@ delete removes files and folders directly (links as links). Renames are
 checked first (empty names, `/`, `.` and `..`, too long, existing names).
 The index is not touched by these actions: the watcher sees the change on
 disk and updates it like any other change.
+
+### Named filters (`saved_searches.rs`, `saved_ui.rs`)
+
+The main selector and Search menu use one ordered collection of named filters.
+Each retains a core `Filter` kind and a query with independent `QueryOptions`.
+The engine intersects the two parsed expressions with `Query::and`, preserving
+path requirements, highlighting and the smaller result limit. The versioned
+`saved-searches` file lives beside settings; every mutation reloads it under
+its sibling lock and uses `settings::create_temp`, mode 0600, sync and rename.
+Stable numeric identities prevent stale edits from recreating removed items.
+Restore replaces built-ins in their original order and retains user entries.
+The editor exposes hidden visibility and all parse flags. Built-in requests check
+against the original record, using a temporary snapshot if it was edited/deleted.
+Query validation is lenient on load and strict on save; manager rows mark invalid
+queries. Structural corruption requires explicit recovery: a unique mode-0600
+backup is synced before an atomic reset. The latest file is checked under the
+lock so a stale recovery dialog cannot reset an already repaired library.

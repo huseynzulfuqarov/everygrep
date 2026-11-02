@@ -765,3 +765,16 @@ The window is built with [Slint](https://slint.dev), used under its
 royalty-free license, which asks for its attribution in an about dialog
 reachable from the top-level menu: Help → About EveryGrep (or `⋯` → About
 when the menu bar is hidden).
+
+Search → Filter → Save as filter saves the field text and its matching modes.
+Manage filters adds, edits, removes and reorders the entries used by the same
+selector and menu. Alt+Up/Down moves the selected entry in the manager.
+A filter is intersected with the field query using its own matching modes.
+Restore default filters asks first and keeps user filters. The private
+`saved-searches` file beside settings is updated atomically under a lock;
+invalid files are preserved and reported. Hidden-files mode and all three parse
+options are visible in the editor; new filters start with Show hidden files.
+Delete asks for confirmation. Invalid queries remain visible for editing; a
+structurally unreadable file offers a confirmed reset after saving a private copy.
+Built-in requests use an original snapshot with a notice if that built-in was
+edited or removed.

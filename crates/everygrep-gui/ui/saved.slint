@@ -1,0 +1,164 @@
+import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, StandardTableView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component SavedWindow inherits Window {
+    title: @tr("Manage filters");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 800px;
+    preferred-height: 700px;
+    min-width: 720px;
+    min-height: 480px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    forward-focus: table;
+    in property <[[StandardListViewItem]]> rows;
+    in-out property <int> current <=> table.current-row;
+    in-out property <bool> editing;
+    in-out property <string> entry-name;
+    in-out property <string> search-text;
+    in property <[string]> kinds;
+    in-out property <int> kind;
+    in-out property <bool> match-case;
+    in-out property <bool> whole-words;
+    in-out property <bool> match-path;
+    in-out property <bool> diacritics;
+    in-out property <bool> prefix;
+    in-out property <bool> suffix;
+    in-out property <bool> punctuation;
+    in-out property <bool> whitespace;
+    in-out property <bool> regex;
+    in property <[string]> hidden-names;
+    in-out property <int> hidden-mode;
+    in-out property <bool> and-before-or;
+    in-out property <bool> literal-operators;
+    in-out property <bool> wildcards-anywhere;
+    in-out property <bool> deleting;
+    in-out property <bool> resetting;
+    in property <bool> recoverable;
+    in property <string> confirm-name;
+    private property <bool> busy: root.editing || root.confirming || root.deleting || root.resetting;
+    callback request-remove();
+    callback recover();
+    in property <string> notice;
+    in property <bool> notice-error;
+    in-out property <bool> confirming;
+    callback begin-edit(bool);
+    callback save-entry();
+    callback remove-entry();
+    callback move-entry(int);
+    callback restore();
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+    public function focus-name() { name.focus(); }
+
+    FocusScope {
+        capture-key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (root.deleting) { root.deleting = false; }
+                else if (root.resetting) { root.resetting = false; }
+                else if (root.editing) { root.editing = false; }
+                else if (root.confirming) { root.confirming = false; }
+                else { root.close-window(); }
+                return accept;
+            }
+            if (!root.busy && event.modifiers.alt && !event.modifiers.control && !event.modifiers.shift && !event.modifiers.meta && (event.text == Key.UpArrow || event.text == Key.DownArrow)) {
+                root.move-entry(event.text == Key.UpArrow ? -1 : 1); return accept;
+            }
+            reject
+        }
+        ScrollView {
+        VerticalLayout {
+            padding: Theme.s4;
+            spacing: Theme.s2;
+            table := StandardTableView {
+                accessible-label: @tr("Filters");
+                enabled: !root.confirming && !root.deleting && !root.resetting;
+                rows: root.rows;
+                columns: [ { title: @tr("Name"), width: 240px, horizontal-stretch: 1 }, { title: @tr("Search"), width: 400px, horizontal-stretch: 1 } ];
+                min-height: 120px;
+            }
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Button { enabled: !root.busy; text: @tr("New"); clicked => { root.begin-edit(true); } }
+                Button { text: @tr("Edit"); enabled: !root.busy && root.current >= 0; clicked => { root.begin-edit(false); } }
+                Button { text: @tr("Delete"); enabled: !root.busy && root.current >= 0; clicked => { root.request-remove(); } }
+                Button { text: @tr("Move up"); enabled: !root.busy && root.current > 0; clicked => { root.move-entry(-1); } }
+                Button { text: @tr("Move down"); enabled: !root.busy && root.current >= 0 && root.current + 1 < root.rows.length; clicked => { root.move-entry(1); } }
+            }
+            VerticalLayout {
+                spacing: Theme.s2;
+                HorizontalLayout {
+                    Text { text: @tr("Name"); color: Theme.text; vertical-alignment: center; }
+                    name := LineEdit { enabled: root.editing; accessible-label: @tr("Name"); text <=> root.entry-name; }
+                }
+                HorizontalLayout {
+                    Text { text: @tr("Search"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { enabled: root.editing; accessible-label: @tr("Search"); text <=> root.search-text; }
+                }
+                HorizontalLayout {
+                    Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox { enabled: root.editing; accessible-label: @tr("Filter"); model: root.kinds; current-index <=> root.kind; }
+                }
+                HorizontalLayout {
+                    Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox { enabled: root.editing; accessible-label: @tr("Hidden files"); model: root.hidden-names; current-index <=> root.hidden-mode; }
+                }
+                CheckBox { enabled: root.editing; text: @tr("Evaluate AND before OR"); checked <=> root.and-before-or; }
+                CheckBox { enabled: root.editing; text: @tr("Allow literal AND / OR / NOT operators"); checked <=> root.literal-operators; }
+                CheckBox { enabled: root.editing; text: @tr("Match wildcards anywhere in the filename"); checked <=> root.wildcards-anywhere; }
+                GridLayout {
+                    Row {
+                        CheckBox { enabled: root.editing; text: @tr("Match case"); checked <=> root.match-case; }
+                        CheckBox { enabled: root.editing; text: @tr("Whole words"); checked <=> root.whole-words; }
+                        CheckBox { enabled: root.editing; text: @tr("Match full path"); checked <=> root.match-path; }
+                    }
+                    Row {
+                        CheckBox { enabled: root.editing; text: @tr("Match diacritics"); checked <=> root.diacritics; }
+                        CheckBox { enabled: root.editing; text: @tr("Match prefix"); checked <=> root.prefix; }
+                        CheckBox { enabled: root.editing; text: @tr("Match suffix"); checked <=> root.suffix; }
+                    }
+                    Row {
+                        CheckBox { enabled: root.editing; text: @tr("Ignore punctuation"); checked <=> root.punctuation; }
+                        CheckBox { enabled: root.editing; text: @tr("Ignore whitespace"); checked <=> root.whitespace; }
+                        CheckBox { enabled: root.editing; text: @tr("Regular expression"); checked <=> root.regex; }
+                    }
+                }
+                HorizontalLayout {
+                    Button { enabled: root.editing; text: @tr("Save"); clicked => { root.save-entry(); } }
+                    Button { text: @tr("Cancel"); clicked => { root.editing = false; } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+            }
+            if root.deleting: HorizontalLayout {
+                Text { text: @tr("Delete “{}”?", root.confirm-name); color: Theme.text; wrap: word-wrap; }
+                Button { text: @tr("Delete"); clicked => { root.deleting = false; root.remove-entry(); } }
+                Button { text: @tr("Cancel"); clicked => { root.deleting = false; } }
+            }
+            if root.resetting: HorizontalLayout {
+                Text { text: @tr("Save a copy of unreadable saved searches and reset them?"); color: Theme.text; wrap: word-wrap; }
+                Button { text: @tr("Save a copy and reset"); clicked => { root.resetting = false; root.recover(); } }
+                Button { text: @tr("Cancel"); clicked => { root.resetting = false; } }
+            }
+            if root.recoverable: Button {
+                text: @tr("Save a copy and reset…"); enabled: !root.busy;
+                clicked => { root.resetting = true; }
+            }
+            if root.notice != "": Text { text: root.notice; color: root.notice-error ? Theme.danger : Theme.text-muted; wrap: word-wrap; }
+            if root.confirming: HorizontalLayout {
+                Text { text: @tr("Restore built-in filters and keep your own filters?"); color: Theme.text; wrap: word-wrap; }
+                Button { text: @tr("Restore"); clicked => { root.confirming = false; root.restore(); } }
+                Button { text: @tr("Cancel"); clicked => { root.confirming = false; } }
+            }
+            HorizontalLayout {
+                Button { text: @tr("Restore default filters"); enabled: !root.busy; clicked => { root.confirming = true; } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Close"); clicked => { root.close-window(); } }
+            }
+        }
+        }
+    }
+}

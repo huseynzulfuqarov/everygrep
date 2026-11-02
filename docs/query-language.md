@@ -365,7 +365,9 @@ a content term alone reads every file of the index.
   Azerbaijani Latin, by default). `content-utf8:`, `content-utf16le:` (little
   endian), `content-utf16be:` and `content-codepage:` (that code page) read every
   file in that one encoding, without looking for a byte order mark.
-- A query can have at most 6 content terms.
+- A query can have at most 6 content terms. A named filter chosen in the
+  window is searched with the query, so its content terms count too; only one
+  of the two may have a duplicate term (`duplicates:` and its relatives).
 
 ## Duplicates
 

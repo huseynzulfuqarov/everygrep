@@ -2555,3 +2555,104 @@ msgstr "Tarixçə faylı ilə əməliyyat alınmadı: {}"
 
 msgid "Invalid history CSV (expected query,times_used,last_used_utc with UTC dates)."
 msgstr "Tarixçə CSV-si yanlışdır (query,times_used,last_used_utc başlığı və UTC tarixləri gözlənilir)."
+
+msgid "Save as filter…"
+msgstr "Filtr kimi saxla…"
+
+msgid "Manage filters…"
+msgstr "Filtrləri idarə et…"
+
+msgid "Manage filters"
+msgstr "Filtrləri idarə et"
+
+msgid "Restore default filters"
+msgstr "Standart filtrləri bərpa et"
+
+msgid "Filters"
+msgstr "Filtrlər"
+
+msgid "New"
+msgstr "Yeni"
+
+msgid "Move up"
+msgstr "Yuxarı daşı"
+
+msgid "Move down"
+msgstr "Aşağı daşı"
+
+msgid "Match full path"
+msgstr "Tam yolda axtar"
+
+msgid "Save"
+msgstr "Saxla"
+
+msgid "Restore"
+msgstr "Bərpa et"
+
+msgid "Restore built-in filters and keep your own filters?"
+msgstr "Öz filtrlərinizi saxlayaraq daxili filtrlər bərpa edilsin?"
+
+msgid "Cannot read saved searches: {}"
+msgstr "Saxlanmış axtarışlar oxunmur: {}"
+
+msgid "Cannot save searches: {}"
+msgstr "Axtarışlar saxlanmır: {}"
+
+msgid "Enter a name."
+msgstr "Ad daxil edin."
+msgid "{} (invalid query)"
+msgstr "{} (yanlış sorğu)"
+
+msgid "{} (snapshot)"
+msgstr "{} (surət)"
+
+msgid "Using the original built-in filter: {}."
+msgstr "İlkin daxili filtr tətbiq edilir: {}."
+
+msgid "Delete “{}”?"
+msgstr "“{}” silinsin?"
+
+msgid "Save a copy of unreadable saved searches and reset them?"
+msgstr "Oxunmayan saxlanmış axtarışların nüsxəsi yaradılıb axtarışlar sıfırlansın?"
+
+msgid "Save a copy and reset"
+msgstr "Nüsxə yarat və sıfırla"
+
+msgid "Save a copy and reset…"
+msgstr "Nüsxə yarat və sıfırla…"
+
+msgid "Saved searches reset. A copy was saved to {}."
+msgstr "Saxlanmış axtarışlar sıfırlandı. Nüsxə burada saxlandı: {}."
+
+msgid "Saved searches changed. Reopen the manager."
+msgstr "Saxlanmış axtarışlar dəyişib. İdarə pəncərəsini yenidən açın."
+
+msgid "Could not create a saved searches backup."
+msgstr "Saxlanmış axtarışların ehtiyat nüsxəsi yaradıla bilmədi."
+
+msgid "Too many saved searches."
+msgstr "Həddən çox axtarış saxlanıb."
+
+msgid "Invalid saved searches header."
+msgstr "Saxlanmış axtarışların fayl başlığı yanlışdır."
+
+msgid "Invalid saved search identity."
+msgstr "Saxlanmış axtarışın identifikatoru yanlışdır."
+
+msgid "Invalid saved search record."
+msgstr "Saxlanmış axtarış qeydi yanlışdır."
+
+msgid "Invalid filter kind."
+msgstr "Filtr növü yanlışdır."
+
+msgid "Invalid saved search options."
+msgstr "Saxlanmış axtarışın seçimləri yanlışdır."
+
+msgid "Invalid saved search text."
+msgstr "Saxlanmış axtarışın mətni yanlışdır."
+
+msgid "Invalid query."
+msgstr "Sorğu yanlışdır."
+
+msgid "The entry was removed in another window."
+msgstr "Qeyd başqa pəncərədə silinib."

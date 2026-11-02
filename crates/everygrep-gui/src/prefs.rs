@@ -822,6 +822,7 @@ impl Prefs {
             return;
         }
         self.scheme_set.set(true);
+        crate::saved_ui::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
         }
@@ -2555,6 +2556,10 @@ impl Prefs {
     }
 
     /// Applies the settings of the Appearance page to the windows.
+    pub fn color_scheme(&self) -> i32 {
+        look::resolve(self.settings.borrow().theme, self.desktop_scheme.get()) as i32
+    }
+
     pub fn apply_look(&self) {
         self.apply_language();
         self.apply_theme();

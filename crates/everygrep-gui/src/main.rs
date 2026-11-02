@@ -26,6 +26,8 @@ mod open;
 mod portal;
 mod prefs;
 mod results;
+mod saved_searches;
+mod saved_ui;
 mod schedule;
 mod search_history;
 mod selection;
@@ -255,6 +257,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
     });
+    saved_ui::connect(&window, &engine);
     set_filter_names(&window);
     set_options(&window, start_options);
     window.set_show_type(args.show_type);
@@ -303,7 +306,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let initial_options = options(&window);
     if !args.query.is_empty() || initial_options != QueryOptions::default() {
         window.set_query(args.query.as_str().into());
-        engine.set_query(&args.query, initial_options);
+        run_query(&window, &engine);
         prefs.record(&args.query);
     }
 
@@ -319,7 +322,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 wait_for_enter(&w);
                 return;
             }
-            engine.set_query(&text, options(&w));
+            run_query(&w, &engine);
             w.set_notice("".into());
             let epoch = prefs.history_epoch.get();
             let prefs = prefs.clone();
@@ -342,7 +345,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move || {
             if let Some(w) = weak.upgrade() {
                 if typing::with(|t| t.edited()) {
-                    engine.set_query(&w.get_query(), options(&w));
+                    run_query(&w, &engine);
                 } else {
                     wait_for_enter(&w);
                 }
@@ -416,7 +419,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 // Setting the text keeps the old cursor offset; put the caret
                 // at the end of the restored query instead.
                 w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
-                engine.set_query(&text, options(&w));
+                run_query(&w, &engine);
                 typing::with(|t| t.searched());
                 w.set_search_pending(false);
                 w.set_notice("".into());
@@ -437,7 +440,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let text = everygrep_core::dupe::replace_term(&w.get_query(), term);
             w.set_query(text.as_str().into());
             w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
-            engine.set_query(&text, options(&w));
+            run_query(&w, &engine);
             typing::with(|t| t.searched());
             w.set_search_pending(false);
             w.set_notice("".into());
@@ -628,11 +631,7 @@ fn new_window_args(roots: &[PathBuf], index_file: Option<&std::path::Path>) -> V
 }
 
 fn set_filter_names(w: &AppWindow) {
-    let filter_names: Vec<SharedString> = Filter::ALL
-        .iter()
-        .map(|&f| labels::filter(f).into())
-        .collect();
-    w.set_filter_names(ModelRc::new(VecModel::from(filter_names)));
+    saved_ui::fill_filters(w);
 }
 
 /// Gives the window the keys in use: the menu bar's keys, the ⋯ button's
@@ -914,6 +913,9 @@ fn present(
         PresentAction::Quit => return close_window(w, engine, prefs, false),
     }
     let p = presentation(&request.args);
+    if p.query.is_some() {
+        w.set_notice("".into());
+    }
     if let Some(o) = p.options {
         set_options(w, o);
     }
@@ -931,10 +933,9 @@ fn present(
         w.set_query(query.as_str().into());
         w.invoke_place_search_caret(i32::try_from(query.len()).unwrap_or(i32::MAX));
         prefs.record(query);
-        w.set_notice("".into());
     }
     if p.query.is_some() || p.options.is_some() {
-        engine.set_query(&w.get_query(), options(w));
+        run_query(w, engine);
     }
     raise(w, request.activation_token);
     if let Some(page) = p.settings_page {
@@ -1884,7 +1885,7 @@ fn wait_for_enter(w: &AppWindow) {
 /// Runs the search in the field now and keeps it in the history.
 pub fn search_now(w: &AppWindow, engine: &Engine) {
     let query = w.get_query();
-    engine.set_query(&query, options(w));
+    run_query(w, engine);
     w.set_search_pending(false);
     w.set_notice("".into());
     prefs::with(|p| p.record(&query));
@@ -1896,6 +1897,11 @@ pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool) {
     if typing::with(|t| t.set_as_you_type(on)) {
         search_now(w, engine);
     }
+}
+
+fn run_query(w: &AppWindow, engine: &Engine) {
+    let filter = saved_ui::selected(w).map(|f| (f.search, f.options));
+    engine.set_filtered_query(&w.get_query(), options(w), filter);
 }
 
 fn options(w: &AppWindow) -> QueryOptions {
@@ -1916,10 +1922,7 @@ fn options(w: &AppWindow) -> QueryOptions {
         and_before_or: w.get_and_before_or(),
         literal_operators: w.get_literal_operators(),
         wildcards_anywhere: w.get_wildcards_anywhere(),
-        filter: usize::try_from(w.get_filter_index())
-            .ok()
-            .and_then(|i| Filter::ALL.get(i).copied())
-            .unwrap_or_default(),
+        filter: saved_ui::selected(w).map_or(Filter::All, |f| f.options.filter),
     }
 }
 
@@ -1934,8 +1937,7 @@ fn set_options(w: &AppWindow, o: QueryOptions) {
     w.set_ignore_punctuation(o.ignore_punctuation);
     w.set_ignore_whitespace(o.ignore_whitespace);
     w.set_use_regex(o.regex);
-    let index = Filter::ALL.iter().position(|&f| f == o.filter).unwrap_or(0);
-    w.set_filter_index(index as i32);
+    saved_ui::select_builtin(w, o.filter);
     show_badges(w);
 }
 
@@ -1946,11 +1948,7 @@ fn show_badges(w: &AppWindow) {
         .collect();
     w.set_badges(ModelRc::new(VecModel::from(badges)));
     // A new list, so the Filter menu shows a fresh check mark.
-    w.set_filter_items(prefs::choices(
-        &Filter::ALL,
-        options(w).filter,
-        labels::filter,
-    ));
+    saved_ui::fill_filters(w);
 }
 
 /// Tells the result rows which columns read from the file system are shown.

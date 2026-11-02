@@ -1,0 +1,524 @@
+//! Named filters and their private, locked, atomic storage.
+use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+
+use crate::i18n::{fill, tr};
+use crate::{labels, settings};
+use everygrep_core::filter::Filter;
+use everygrep_core::query::{HiddenFiles, Query, QueryOptions};
+
+const HEADER: &str = "EveryGrep saved searches 1";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamedFilter {
+    pub id: u64,
+    // Empty names on built-ins follow the interface language.
+    pub name: String,
+    pub search: String,
+    pub options: QueryOptions,
+}
+
+impl NamedFilter {
+    pub fn manager_title(&self) -> String {
+        if Query::parse(&self.search, self.options).is_err() {
+            fill(tr("{} (invalid query)"), &[&self.title()])
+        } else {
+            self.title()
+        }
+    }
+    pub fn title(&self) -> String {
+        if self.name.is_empty() {
+            labels::filter(self.options.filter).into()
+        } else {
+            self.name.clone()
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Library {
+    pub filters: Vec<NamedFilter>,
+    next_id: u64,
+}
+
+impl Default for Library {
+    fn default() -> Self {
+        Self {
+            filters: defaults(),
+            next_id: 10,
+        }
+    }
+}
+
+fn defaults() -> Vec<NamedFilter> {
+    Filter::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(i, filter)| NamedFilter {
+            id: i as u64 + 1,
+            name: String::new(),
+            search: String::new(),
+            options: QueryOptions {
+                filter,
+                ..QueryOptions::default()
+            },
+        })
+        .collect()
+}
+
+impl Library {
+    /// Built-in requests retain their original meaning even after the user
+    /// edits or deletes the corresponding library entry.
+    pub fn builtin_selection(&self, filter: Filter) -> (NamedFilter, Option<usize>) {
+        let original = defaults()
+            .into_iter()
+            .find(|f| f.options.filter == filter)
+            .expect("built-in filter");
+        let index = self.filters.iter().position(|f| *f == original);
+        (original, index)
+    }
+
+    /// Restoring replaces the built-ins and their order, keeping user entries.
+    pub fn restore_filters(&mut self) {
+        self.filters.retain(|f| f.id > 9);
+        self.filters.splice(..0, defaults());
+    }
+
+    /// None adds a fresh identity. Editing a missing entry never recreates it.
+    pub fn put_filter(
+        &mut self,
+        id: Option<u64>,
+        name: &str,
+        search: &str,
+        options: QueryOptions,
+    ) -> io::Result<u64> {
+        if name.trim().is_empty() {
+            return Err(invalid(tr("Enter a name.")));
+        }
+        Query::parse(search, options).map_err(|_| invalid(tr("Invalid query.")))?;
+        let id = match id {
+            Some(id) => {
+                if !self.filters.iter().any(|f| f.id == id) {
+                    return Err(missing());
+                }
+                id
+            }
+            None => {
+                let id = self.next_id;
+                self.next_id = id
+                    .checked_add(1)
+                    .ok_or_else(|| invalid(tr("Too many saved searches.")))?;
+                id
+            }
+        };
+        let entry = NamedFilter {
+            id,
+            name: name.trim().into(),
+            search: search.into(),
+            options,
+        };
+        if let Some(old) = self.filters.iter_mut().find(|f| f.id == id) {
+            *old = entry;
+        } else {
+            self.filters.push(entry);
+        }
+        Ok(id)
+    }
+
+    pub fn remove_filter(&mut self, id: u64) -> io::Result<()> {
+        let i = self
+            .filters
+            .iter()
+            .position(|f| f.id == id)
+            .ok_or_else(missing)?;
+        self.filters.remove(i);
+        Ok(())
+    }
+
+    pub fn move_filter(&mut self, id: u64, step: i32) -> io::Result<()> {
+        move_entry(&mut self.filters, |f| f.id == id, step)
+    }
+
+    pub fn load(path: &Path) -> io::Result<Self> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e),
+        };
+        let mut lines = text.lines();
+        if lines.next() != Some(HEADER) {
+            return Err(invalid(tr("Invalid saved searches header.")));
+        }
+        let next_id = lines
+            .next()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|n| *n >= 10)
+            .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
+        let mut library = Self {
+            filters: Vec::new(),
+            next_id,
+        };
+        for line in lines {
+            let parts: Vec<_> = line.split('\t').collect();
+            if parts.len() != 7 || parts[0] != "F" {
+                return Err(invalid(tr("Invalid saved search record.")));
+            }
+            let id = parts[1]
+                .parse::<u64>()
+                .ok()
+                .filter(|id| *id > 0 && *id < next_id)
+                .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
+            if library.filters.iter().any(|f| f.id == id) {
+                return Err(invalid(tr("Invalid saved search identity.")));
+            }
+            let name = decode(parts[2])?;
+            if name.trim().is_empty() && id > 9 {
+                return Err(invalid(tr("Enter a name.")));
+            }
+            let search = decode(parts[3])?;
+            let options = decode_options(parts[4], parts[5], parts[6])?;
+            library.filters.push(NamedFilter {
+                id,
+                name,
+                search,
+                options,
+            });
+        }
+        Ok(library)
+    }
+
+    fn text(&self) -> String {
+        let mut text = format!("{HEADER}\n{}\n", self.next_id);
+        for f in &self.filters {
+            text.push_str(&format!(
+                "F\t{}\t{}\t{}\t{}\n",
+                f.id,
+                settings::escape(f.name.as_bytes()),
+                settings::escape(f.search.as_bytes()),
+                encode_options(f.options)
+            ));
+        }
+        text
+    }
+}
+
+fn move_entry<T>(entries: &mut [T], matches: impl Fn(&T) -> bool, step: i32) -> io::Result<()> {
+    let i = entries.iter().position(matches).ok_or_else(missing)?;
+    let next = if step == -1 {
+        i.checked_sub(1)
+    } else if step == 1 {
+        i.checked_add(1)
+    } else {
+        None
+    };
+    if let Some(next) = next.filter(|n| *n < entries.len()) {
+        entries.swap(i, next);
+    }
+    Ok(())
+}
+
+fn encode_options(o: QueryOptions) -> String {
+    let bits = [
+        o.case_sensitive,
+        o.whole_words,
+        o.match_path,
+        o.match_diacritics,
+        o.prefix,
+        o.suffix,
+        o.ignore_punctuation,
+        o.ignore_whitespace,
+        o.regex,
+        o.and_before_or,
+        o.literal_operators,
+        o.wildcards_anywhere,
+    ]
+    .into_iter()
+    .enumerate()
+    .fold(0u16, |bits, (i, on)| bits | (u16::from(on) << i));
+    format!("{}\t{bits}\t{}", o.filter.id(), o.hidden_files.id())
+}
+
+fn decode_options(filter: &str, bits: &str, hidden: &str) -> io::Result<QueryOptions> {
+    let filter = Filter::from_id(filter).ok_or_else(|| invalid(tr("Invalid filter kind.")))?;
+    let bits = bits
+        .parse::<u16>()
+        .ok()
+        .filter(|b| *b < 4096)
+        .ok_or_else(|| invalid(tr("Invalid saved search options.")))?;
+    let bit = |i: u32| bits & (1u16 << i) != 0u16;
+    Ok(QueryOptions {
+        filter,
+        hidden_files: HiddenFiles::from_id(hidden)
+            .ok_or_else(|| invalid(tr("Invalid saved search options.")))?,
+        case_sensitive: bit(0),
+        whole_words: bit(1),
+        match_path: bit(2),
+        match_diacritics: bit(3),
+        prefix: bit(4),
+        suffix: bit(5),
+        ignore_punctuation: bit(6),
+        ignore_whitespace: bit(7),
+        regex: bit(8),
+        and_before_or: bit(9),
+        literal_operators: bit(10),
+        wildcards_anywhere: bit(11),
+    })
+}
+
+fn decode(s: &str) -> io::Result<String> {
+    settings::unescape(s)
+        .and_then(|b| String::from_utf8(b).ok())
+        .ok_or_else(|| invalid(tr("Invalid saved search text.")))
+}
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+fn missing() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        tr("The entry was removed in another window."),
+    )
+}
+
+/// All edits reload under one lock, including the identity allocation.
+/// Malformed files are never overwritten, even by Restore defaults.
+pub fn update<R>(
+    path: &Path,
+    change: impl FnOnce(&mut Library) -> io::Result<R>,
+) -> io::Result<(Library, R)> {
+    let _lock = settings::lock(path)?;
+    let mut library = Library::load(path)?;
+    let result = change(&mut library)?;
+    write(path, &library)?;
+    Ok((library, result))
+}
+
+fn write(path: &Path, library: &Library) -> io::Result<()> {
+    let (mut file, tmp) = settings::create_temp(path)?;
+    let written = (|| {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file.write_all(library.text().as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written?;
+    Ok(())
+}
+
+/// Explicit recovery only: a private, non-overwriting copy is durable before
+/// replacing the unreadable library. A stale dialog cannot reset a repaired file.
+pub fn recover(path: &Path) -> io::Result<(Library, std::path::PathBuf)> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let _lock = settings::lock(path)?;
+    if Library::load(path).is_ok() {
+        return Err(invalid(tr("Saved searches changed. Reopen the manager.")));
+    }
+    let bytes = std::fs::read(path)?;
+    for attempt in 0..100 {
+        let backup = path.with_file_name(format!(
+            "saved-searches.backup-{}-{}-{attempt}",
+            crate::search_history::now(),
+            std::process::id()
+        ));
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&backup);
+        let mut file = match file {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        let library = Library::default();
+        write(path, &library)?;
+        return Ok((library, backup));
+    }
+    Err(invalid(tr("Could not create a saved searches backup.")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::tests::Scratch;
+
+    #[test]
+    fn builtin_requests_reject_modified_or_deleted_library_entries() {
+        let mut library = Library::default();
+        let (original, index) = library.builtin_selection(Filter::Audio);
+        assert_eq!(index, Some(1));
+        library.filters[1].options.filter = Filter::Video;
+        assert_eq!(
+            library.builtin_selection(Filter::Audio),
+            (original.clone(), None)
+        );
+        library.filters.remove(1);
+        assert_eq!(library.builtin_selection(Filter::Audio), (original, None));
+    }
+
+    #[test]
+    fn invalid_queries_remain_editable_without_hiding_other_filters() {
+        let dir = Scratch::new("saved-query-recovery");
+        let path = dir.0.join("saved-searches");
+        update(&path, |l| {
+            l.put_filter(None, "Broken", "ext:md", QueryOptions::default())
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("ext:md", "size:invalid");
+        std::fs::write(&path, text).unwrap();
+        let library = Library::load(&path).unwrap();
+        assert_eq!(library.filters.len(), 10);
+        let broken = &library.filters[9];
+        assert!(Query::parse(&broken.search, broken.options).is_err());
+        update(&path, |l| {
+            l.put_filter(Some(broken.id), "Repaired", "ext:txt", broken.options)
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap().filters[9].search, "ext:txt");
+    }
+
+    #[test]
+    fn explicit_recovery_saves_a_private_copy_and_refuses_stale_dialogs() {
+        let dir = Scratch::new("saved-recovery");
+        let path = dir.0.join("saved-searches");
+        std::fs::write(&path, "malformed\noriginal\n").unwrap();
+        let (library, backup) = recover(&path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            "malformed\noriginal\n"
+        );
+        assert_eq!(
+            std::fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(Library::load(&path).unwrap(), library);
+        assert!(recover(&path).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            "malformed\noriginal\n"
+        );
+    }
+
+    #[test]
+    fn filter_edit_move_remove_and_restore_keep_custom_entries() {
+        let mut l = Library::default();
+        let id = l
+            .put_filter(None, "  Notes  ", "ext:md", QueryOptions::default())
+            .unwrap();
+        l.move_filter(id, -1).unwrap();
+        assert_eq!(l.filters[8].id, id);
+        l.put_filter(Some(id), "Work", "ext:rs", QueryOptions::default())
+            .unwrap();
+        assert_eq!(l.filters[8].name, "Work");
+        l.remove_filter(1).unwrap();
+        l.restore_filters();
+        assert_eq!(l.filters.len(), 10);
+        assert_eq!(l.filters[9].id, id);
+        l.move_filter(1, -1).unwrap();
+        l.move_filter(id, 1).unwrap();
+        assert_eq!(l.filters[9].id, id);
+        l.remove_filter(id).unwrap();
+        assert!(
+            l.put_filter(Some(id), "missing", "", QueryOptions::default())
+                .is_err()
+        );
+        assert!(l.move_filter(id, -1).is_err());
+        assert!(
+            l.put_filter(None, " ", "", QueryOptions::default())
+                .is_err()
+        );
+        assert!(
+            l.put_filter(None, "bad", "size:invalid", QueryOptions::default())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn storage_round_trip_options_escapes_and_permissions() {
+        let d = Scratch::new("saved-roundtrip");
+        let path = d.0.join("saved-searches");
+        let options = QueryOptions {
+            case_sensitive: true,
+            whole_words: true,
+            match_path: true,
+            match_diacritics: true,
+            prefix: true,
+            suffix: true,
+            ignore_punctuation: true,
+            ignore_whitespace: true,
+            regex: true,
+            and_before_or: true,
+            literal_operators: true,
+            wildcards_anywhere: true,
+            filter: Filter::Code,
+            hidden_files: HiddenFiles::Only,
+        };
+        let (l, _) = update(&path, |l| l.put_filter(None, "Ad\t\n\\", "foo.*", options)).unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read_dir(&d.0).unwrap().count(), 2);
+        assert!(decode_options("all", "4096", "show").is_err());
+    }
+
+    #[test]
+    fn concurrent_edits_reload_and_allocate_unique_ids() {
+        let d = Scratch::new("saved-lock");
+        let path = d.0.join("saved-searches");
+        let jobs: Vec<_> = (0..8)
+            .map(|i| {
+                let p = path.clone();
+                std::thread::spawn(move || {
+                    update(&p, |l| {
+                        l.put_filter(None, &i.to_string(), "", QueryOptions::default())
+                    })
+                    .unwrap()
+                })
+            })
+            .collect();
+        for job in jobs {
+            job.join().unwrap();
+        }
+        let l = Library::load(&path).unwrap();
+        assert_eq!(l.filters.len(), 17);
+        for (i, f) in l.filters.iter().enumerate() {
+            assert!(!l.filters[i + 1..].iter().any(|g| g.id == f.id));
+        }
+    }
+
+    #[test]
+    fn failed_reads_and_failed_edits_preserve_file() {
+        let d = Scratch::new("saved-invalid");
+        let path = d.0.join("saved-searches");
+        for bad in [
+            "wrong".into(),
+            format!("{HEADER}\n10\nF\t1\tbad\t\\q\tall\t0\tshow\n"),
+            format!("{HEADER}\n10\nF\t1\tbad\t\tall\t8192\tshow\n"),
+        ] {
+            std::fs::write(&path, &bad).unwrap();
+            assert!(
+                update(&path, |l| {
+                    l.restore_filters();
+                    Ok(())
+                })
+                .is_err()
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), bad);
+        }
+        std::fs::remove_file(&path).unwrap();
+        update(&path, |_| Ok(())).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert!(update(&path, |l| l.remove_filter(99)).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+}

@@ -2555,3 +2555,104 @@ msgstr "Geçmiş dosyası işlemi başarısız oldu: {}"
 
 msgid "Invalid history CSV (expected query,times_used,last_used_utc with UTC dates)."
 msgstr "Geçmiş CSV dosyası geçersiz (query,times_used,last_used_utc başlığı ve UTC tarihleri bekleniyor)."
+
+msgid "Save as filter…"
+msgstr "Filtre olarak kaydet…"
+
+msgid "Manage filters…"
+msgstr "Filtreleri yönet…"
+
+msgid "Manage filters"
+msgstr "Filtreleri yönet"
+
+msgid "Restore default filters"
+msgstr "Varsayılan filtreleri geri yükle"
+
+msgid "Filters"
+msgstr "Filtreler"
+
+msgid "New"
+msgstr "Yeni"
+
+msgid "Move up"
+msgstr "Yukarı taşı"
+
+msgid "Move down"
+msgstr "Aşağı taşı"
+
+msgid "Match full path"
+msgstr "Tam yolda ara"
+
+msgid "Save"
+msgstr "Kaydet"
+
+msgid "Restore"
+msgstr "Geri yükle"
+
+msgid "Restore built-in filters and keep your own filters?"
+msgstr "Kendi filtreleriniz korunarak yerleşik filtreler geri yüklensin mi?"
+
+msgid "Cannot read saved searches: {}"
+msgstr "Kaydedilen aramalar okunamıyor: {}"
+
+msgid "Cannot save searches: {}"
+msgstr "Aramalar kaydedilemiyor: {}"
+
+msgid "Enter a name."
+msgstr "Bir ad girin."
+msgid "{} (invalid query)"
+msgstr "{} (geçersiz sorgu)"
+
+msgid "{} (snapshot)"
+msgstr "{} (kopya)"
+
+msgid "Using the original built-in filter: {}."
+msgstr "Özgün yerleşik filtre kullanılıyor: {}."
+
+msgid "Delete “{}”?"
+msgstr "“{}” silinsin mi?"
+
+msgid "Save a copy of unreadable saved searches and reset them?"
+msgstr "Okunamayan kayıtlı aramaların kopyası kaydedilip aramalar sıfırlansın mı?"
+
+msgid "Save a copy and reset"
+msgstr "Kopyasını kaydet ve sıfırla"
+
+msgid "Save a copy and reset…"
+msgstr "Kopyasını kaydet ve sıfırla…"
+
+msgid "Saved searches reset. A copy was saved to {}."
+msgstr "Kayıtlı aramalar sıfırlandı. Kopya şuraya kaydedildi: {}."
+
+msgid "Saved searches changed. Reopen the manager."
+msgstr "Kayıtlı aramalar değişti. Yönetim penceresini yeniden açın."
+
+msgid "Could not create a saved searches backup."
+msgstr "Kayıtlı aramaların yedeği oluşturulamadı."
+
+msgid "Too many saved searches."
+msgstr "Çok fazla kayıtlı arama var."
+
+msgid "Invalid saved searches header."
+msgstr "Kayıtlı aramalar dosyasının başlığı geçersiz."
+
+msgid "Invalid saved search identity."
+msgstr "Kayıtlı aramanın kimliği geçersiz."
+
+msgid "Invalid saved search record."
+msgstr "Kayıtlı arama kaydı geçersiz."
+
+msgid "Invalid filter kind."
+msgstr "Filtre türü geçersiz."
+
+msgid "Invalid saved search options."
+msgstr "Kayıtlı aramanın seçenekleri geçersiz."
+
+msgid "Invalid saved search text."
+msgstr "Kayıtlı aramanın metni geçersiz."
+
+msgid "Invalid query."
+msgstr "Sorgu geçersiz."
+
+msgid "The entry was removed in another window."
+msgstr "Kayıt başka bir pencerede silindi."
