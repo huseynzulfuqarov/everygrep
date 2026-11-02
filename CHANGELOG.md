@@ -20,7 +20,9 @@ First version, 0.1.0, not released yet.
 - Index rules: excluded folders by exact path or pattern, "include only" and
   "exclude" file patterns (wildcards with `*`, `**`, `?`, or `regex:`),
   matched against the name or, with a `/`, the full path; compiled once and
-  applied the same way by scans, catch-ups and live updates.
+  applied the same way by scans, catch-ups and live updates. Case is ignored
+  the same way for both (`*.k` also leaves out a name ending in the Kelvin
+  sign, as `/x/*.k` does).
 - Live updates with inotify: creations, deletions, renames and moves keep the
   index current; a queue overflow rebuilds it. A file created just before
   its folder is renamed is kept; a rename whose two halves are read in two

@@ -107,24 +107,41 @@ impl std::error::Error for RuleError {}
 enum Matcher {
     /// Matches any text (`*`, `**`).
     Any,
-    /// The whole text, ASCII case ignored.
-    Exact(Vec<u8>),
-    Prefix(Vec<u8>),
-    Suffix(Vec<u8>),
-    Contains(Vec<u8>),
+    /// An ASCII pattern with `*` at most at its ends: compared with ASCII
+    /// case ignored when the text is ASCII, by `other` (the same pattern
+    /// with Unicode case folding, as every other pattern) when it is not,
+    /// so `*.k` also matches a name ending in the Kelvin sign.
+    Fixed {
+        at: Anchor,
+        bytes: Vec<u8>,
+        other: Regex,
+    },
     Regex(Regex),
+}
+
+/// Where a [`Matcher::Fixed`] text must be.
+#[derive(Clone, Copy, Debug)]
+enum Anchor {
+    /// The whole text.
+    Exact,
+    Prefix,
+    Suffix,
+    Contains,
 }
 
 impl Matcher {
     fn matches(&self, text: &[u8]) -> bool {
         match self {
             Matcher::Any => true,
-            Matcher::Exact(p) => text.eq_ignore_ascii_case(p),
-            Matcher::Prefix(p) => text.len() >= p.len() && text[..p.len()].eq_ignore_ascii_case(p),
-            Matcher::Suffix(p) => {
-                text.len() >= p.len() && text[text.len() - p.len()..].eq_ignore_ascii_case(p)
-            }
-            Matcher::Contains(p) => text.windows(p.len()).any(|w| w.eq_ignore_ascii_case(p)),
+            Matcher::Fixed { other, .. } if !text.is_ascii() => other.is_match(text),
+            Matcher::Fixed { at, bytes: p, .. } => match at {
+                Anchor::Exact => text.eq_ignore_ascii_case(p),
+                Anchor::Prefix => text.len() >= p.len() && text[..p.len()].eq_ignore_ascii_case(p),
+                Anchor::Suffix => {
+                    text.len() >= p.len() && text[text.len() - p.len()..].eq_ignore_ascii_case(p)
+                }
+                Anchor::Contains => text.windows(p.len()).any(|w| w.eq_ignore_ascii_case(p)),
+            },
             Matcher::Regex(r) => r.is_match(text),
         }
     }
@@ -347,21 +364,34 @@ fn compile(item: &str, list: RuleList) -> Result<Rule, RuleError> {
             full_path: false,
         });
     }
+    let regex = glob_regex(pattern, full_path).map_err(|e| error(short_reason(&e)))?;
     if !full_path && pattern.is_ascii() && !pattern.contains('?') {
         let inner = pattern.trim_matches('*');
         if !inner.contains('*') {
             let lead = pattern.starts_with('*');
             let trail = pattern.ends_with('*');
-            let bytes = inner.as_bytes().to_vec();
-            let matcher = match (lead, trail) {
-                (false, false) => Matcher::Exact(bytes),
-                (true, false) => Matcher::Suffix(bytes),
-                (false, true) => Matcher::Prefix(bytes),
-                (true, true) => Matcher::Contains(bytes),
+            let at = match (lead, trail) {
+                (false, false) => Anchor::Exact,
+                (true, false) => Anchor::Suffix,
+                (false, true) => Anchor::Prefix,
+                (true, true) => Anchor::Contains,
+            };
+            let matcher = Matcher::Fixed {
+                at,
+                bytes: inner.as_bytes().to_vec(),
+                other: regex,
             };
             return Ok(Rule { matcher, full_path });
         }
     }
+    Ok(Rule {
+        matcher: Matcher::Regex(regex),
+        full_path,
+    })
+}
+
+/// The regular expression of a wildcard pattern, case ignored.
+fn glob_regex(pattern: &str, full_path: bool) -> Result<Regex, regex::Error> {
     let mut expr = String::from("(?i)");
     if full_path && !pattern.starts_with('/') {
         expr.push_str("(?:^|/)");
@@ -383,14 +413,9 @@ fn compile(item: &str, list: RuleList) -> Result<Rule, RuleError> {
         rest = &rest[ch.len_utf8()..];
     }
     expr.push('$');
-    let regex = RegexBuilder::new(&expr)
+    RegexBuilder::new(&expr)
         .size_limit(REGEX_SIZE_LIMIT)
         .build()
-        .map_err(|e| error(short_reason(&e)))?;
-    Ok(Rule {
-        matcher: Matcher::Regex(regex),
-        full_path,
-    })
 }
 
 #[cfg(test)]
@@ -485,6 +510,26 @@ mod tests {
         assert!(!raw.accepts(Path::new("/x"), b"\xff\xfe.bin", false));
         let star = rules(&[], "", "a*z");
         assert!(!star.accepts(Path::new("/x"), b"a\xffz", false));
+    }
+
+    #[test]
+    fn name_and_path_patterns_ignore_case_the_same_way() {
+        // U+212A KELVIN SIGN folds to `k`, U+017F LONG S to `s`.
+        for (pattern, path) in [
+            ("*.k", "/x/a.\u{212a}"),
+            ("/x/*.k", "/x/a.\u{212a}"),
+            ("k*", "/x/\u{212a}.txt"),
+            ("*ss*", "/x/a\u{17f}s.txt"),
+            ("kelvin.txt", "/x/\u{212a}elvin.txt"),
+            ("*.K", "/x/a.k"),
+        ] {
+            let r = rules(&[], "", pattern);
+            assert!(!file(&r, path), "{pattern} {path}");
+        }
+        // Non-ASCII names still have to match.
+        let r = rules(&[], "", "*.k");
+        assert!(file(&r, "/x/\u{212a}.txt"));
+        assert!(!file(&r, "/x/\u{e9}.k"));
     }
 
     #[test]
