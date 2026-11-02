@@ -290,7 +290,8 @@ First version, 0.1.0, not released yet.
 - Removable drives mounted by the desktop are indexed automatically, each
   into its own file and recognised by file system UUID. A removed drive's
   entries stay searchable, dimmed and with file actions refused, or are
-  forgotten, as a setting says; plugged in again they are caught up and
+  forgotten, as a setting says (also those in a rename that was half read
+  when the drive went away); plugged in again they are caught up and
   watched. Settings → Indexing lists the known drives with Forget and
   Don't index this drive. Mounts are noticed through `POLLPRI` on the mount
   table at no idle cost; fstab mounts are never indexed this way. A drive

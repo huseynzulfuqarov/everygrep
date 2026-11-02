@@ -230,7 +230,8 @@ impl Watcher {
 
     /// Stops watching the folders below `root`, for a root that goes
     /// offline. Events already read for them are ignored too, since the
-    /// mapping from their watches is gone.
+    /// mapping from their watches is gone, and so are moves still waiting
+    /// for their other half: their entries stay at their old names.
     pub fn unwatch_root(&mut self, index: &Index, root: NodeId) {
         let store = index.store();
         if !store.is_live(root) {
@@ -243,6 +244,11 @@ impl Watcher {
             stack.extend(store.children(dir).filter(|&k| store.is_dir(k)));
         }
         self.watches.forget(&dirs);
+        let below = |id: NodeId| store.is_live(id) && store.root_of(id) == root;
+        self.waiting_moves.retain(|_, (node, _)| !below(*node));
+        self.unsettled.retain(|&dir, _| !below(dir));
+        self.incomplete.retain(|&dir| !below(dir));
+        self.moved_away.retain(|&dir| !below(dir));
     }
 
     /// Brings `index` up to date with changes made while nothing was watching
@@ -411,7 +417,8 @@ impl Watcher {
         // Moves left over from the last batch: this one is their last chance.
         let mut last_chance: HashSet<MoveKey> = HashSet::new();
         for (key, (node, _)) in std::mem::take(&mut self.waiting_moves) {
-            if !index.store().is_live(node) {
+            // An offline root keeps its entries as they were.
+            if !index.store().is_live(node) || index.is_offline(node) {
                 continue;
             }
             let parent = index.store().parent(node);
@@ -590,7 +597,8 @@ impl Watcher {
         self.incomplete.extend(incomplete);
         // A folder whose move was applied by now is listed at its new place,
         // which gives the entries looked for at the old one.
-        self.moved_away.retain(|&dir| index.store().is_live(dir));
+        self.moved_away
+            .retain(|&dir| index.store().is_live(dir) && !index.is_offline(dir));
         let arrived: Vec<NodeId> = self
             .moved_away
             .iter()
@@ -1491,6 +1499,30 @@ mod tests {
         );
         assert!(has(&f.index, &papers.join("f7.txt")));
         assert_eq!(f.index.len(), 23);
+    }
+
+    #[test]
+    fn a_rename_cut_by_its_root_going_offline_keeps_the_entries() {
+        let mut f = Fixture::new("split-rename-offline");
+        let root = f.index.roots()[0];
+        let docs = f.root().join("docs");
+        fs::rename(&docs, f.root().join("papers")).unwrap();
+        let events = read_until(&mut f.watcher, Mask::MOVED_TO);
+        let to = events
+            .iter()
+            .position(|e| e.mask.contains(Mask::MOVED_TO))
+            .unwrap();
+        f.watcher.apply(&mut f.index, &events[..to]);
+        assert!(f.watcher.has_pending());
+        // The root goes offline (a drive unplugged) between the halves.
+        f.watcher.unwatch_root(&f.index, root);
+        f.index.set_offline(root, true);
+        let second = f.watcher.apply(&mut f.index, &events[to..]);
+        let third = f.watcher.apply(&mut f.index, &[]);
+        assert_eq!((second.removed, third.removed), (0, 0));
+        assert!(has(&f.index, &docs.join("a.txt")), "{:?}", f.paths());
+        assert_eq!(f.index.len(), 3);
+        assert!(!f.watcher.has_pending());
     }
 
     #[test]
