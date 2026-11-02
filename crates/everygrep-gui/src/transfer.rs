@@ -4,7 +4,9 @@
 //! gets the first free name of the form `name (2).ext`, `name (3).ext`, …
 //! A copy is written under a temporary name in the target folder and gets
 //! its real name only when it is complete, so a failure or a cancel leaves
-//! no partial item. A move is a rename when the folder is on the same file
+//! no partial item (when the partial copy cannot be removed, the failure
+//! names it). An existing entry under the temporary name is never touched.
+//! A move is a rename when the folder is on the same file
 //! system; otherwise the item is copied the same way and only the entries
 //! that were copied are removed from the source afterwards, so the source
 //! is never deleted when the move fails. Links are copied as links; special
@@ -36,6 +38,13 @@ pub enum Failure {
     /// Moved by copying, but some of the original could not be removed;
     /// the copy is complete and nothing was lost.
     NotRemoved(io::Error),
+    /// The copy stopped (for `cause`, or a cancel when `None`) and its
+    /// hidden partial copy `part` could not be removed.
+    PartLeft {
+        cause: Option<io::Error>,
+        part: PathBuf,
+        error: io::Error,
+    },
 }
 
 impl fmt::Display for Failure {
@@ -47,6 +56,16 @@ impl fmt::Display for Failure {
                 tr("copied, but the original could not be removed: {}"),
                 &[e],
             )),
+            Failure::PartLeft { cause, part, error } => {
+                let left = fill(
+                    tr("the partial copy “{}” could not be removed: {}"),
+                    &[&part.display(), error],
+                );
+                match cause {
+                    Some(c) => write!(f, "{c}; {left}"),
+                    None => f.write_str(&left),
+                }
+            }
         }
     }
 }
@@ -73,6 +92,13 @@ pub struct Outcome {
 enum Stop {
     Cancelled,
     Io(io::Error),
+    /// Stopped for `cause`, and the partial copy `part` could not be
+    /// removed.
+    PartLeft {
+        cause: Box<Stop>,
+        part: PathBuf,
+        error: io::Error,
+    },
 }
 
 impl From<io::Error> for Stop {
@@ -130,6 +156,18 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
                 break;
             }
             Err(Stop::Io(e)) => out.failed.push((src.clone(), Failure::Io(e))),
+            Err(Stop::PartLeft { cause, part, error }) => {
+                let (cause, cancelled) = match *cause {
+                    Stop::Io(e) => (Some(e), false),
+                    _ => (None, true),
+                };
+                out.failed
+                    .push((src.clone(), Failure::PartLeft { cause, part, error }));
+                if cancelled {
+                    out.cancelled = true;
+                    break;
+                }
+            }
         }
     }
     out
@@ -227,40 +265,92 @@ fn copy_in(
     sync: bool,
     special: &mut u64,
 ) -> Result<(PathBuf, Vec<(PathBuf, bool)>), Stop> {
-    let temp = temp_name(dest);
     let mut copied = Vec::new();
     let mut buf = vec![0; CHUNK];
-    let mut copier = Copier {
-        progress,
-        sync,
-        buf: &mut buf,
-        copied: &mut copied,
-        special,
+    let mut tries = 0;
+    let temp = loop {
+        let temp = temp_name(dest);
+        let mut copier = Copier {
+            progress,
+            sync,
+            buf: &mut buf,
+            copied: &mut copied,
+            special: &mut *special,
+            made: false,
+        };
+        match copier.tree(src, meta, &temp) {
+            Ok(()) => break temp,
+            // The hidden name is taken by an entry that is not ours (left
+            // by a crash, or by another program): keep it, take the next.
+            Err(Stop::Io(e))
+                if e.kind() == io::ErrorKind::AlreadyExists
+                    && !copier.made
+                    && tries < TEMP_TRIES =>
+            {
+                tries += 1;
+            }
+            Err(stop) if copier.made => return Err(cleaned_up(&temp, stop)),
+            Err(stop) => return Err(stop),
+        }
     };
-    if let Err(stop) = copier.tree(src, meta, &temp) {
-        remove_partial(&temp);
-        return Err(stop);
-    }
     loop {
         let target = free_name(dest, name, meta.is_dir());
         match rename_noreplace(&temp, &target) {
             Ok(()) => return Ok((target, copied)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => {
-                remove_partial(&temp);
-                return Err(e.into());
-            }
+            Err(e) => return Err(cleaned_up(&temp, e.into())),
         }
     }
 }
 
-/// Removes a temporary copy of ours.
-fn remove_partial(temp: &Path) {
-    let _ = match fs::symlink_metadata(temp) {
-        Ok(m) if m.is_dir() => fs::remove_dir_all(temp),
+/// How many hidden temporary names one copy tries before it gives up.
+const TEMP_TRIES: u32 = 100;
+
+/// Removes our partial copy `temp` after the copy stopped for `stop`, and
+/// tells when it could not be removed.
+fn cleaned_up(temp: &Path, stop: Stop) -> Stop {
+    match remove_partial(temp) {
+        Ok(()) => stop,
+        Err(error) => Stop::PartLeft {
+            cause: Box::new(stop),
+            part: temp.to_owned(),
+            error,
+        },
+    }
+}
+
+/// Removes a temporary copy of ours. Its folders are made writable first,
+/// since a copied read-only folder could not be emptied otherwise.
+fn remove_partial(temp: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(temp) {
+        Ok(m) if m.is_dir() => {
+            writable_tree(temp);
+            fs::remove_dir_all(temp)
+        }
         Ok(_) => fs::remove_file(temp),
-        Err(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Gives the owner full access to the folder `dir` and the folders in it,
+/// links not followed. Errors are left to the removal that follows.
+fn writable_tree(dir: &Path) {
+    let Ok(meta) = fs::symlink_metadata(dir) else {
+        return;
     };
+    if !meta.is_dir() {
+        return;
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o700 != 0o700 {
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(mode | 0o700));
+    }
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            writable_tree(&entry.path());
+        }
+    }
 }
 
 struct Copier<'a> {
@@ -271,6 +361,9 @@ struct Copier<'a> {
     buf: &'a mut Vec<u8>,
     copied: &'a mut Vec<(PathBuf, bool)>,
     special: &'a mut u64,
+    /// Whether the copy's top entry was made, so there is something of
+    /// ours to remove when it stops.
+    made: bool,
 }
 
 impl Copier<'_> {
@@ -280,12 +373,14 @@ impl Copier<'_> {
         let kind = meta.file_type();
         if kind.is_symlink() {
             std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
+            self.made = true;
             self.copied.push((src.to_owned(), false));
         } else if kind.is_file() {
             self.file(src, meta, dst)?;
             self.copied.push((src.to_owned(), false));
         } else if kind.is_dir() {
             fs::create_dir(dst)?;
+            self.made = true;
             self.copied.push((src.to_owned(), true));
             for entry in fs::read_dir(src)? {
                 let entry = entry?;
@@ -307,6 +402,7 @@ impl Copier<'_> {
     fn file(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
         let mut from = File::open(src)?;
         let mut to = OpenOptions::new().write(true).create_new(true).open(dst)?;
+        self.made = true;
         loop {
             if self.progress.is_cancelled() {
                 return Err(Stop::Cancelled);
@@ -662,10 +758,61 @@ mod tests {
             buf: &mut buf,
             copied: &mut copied,
             special: &mut special,
+            made: false,
         };
         assert!(matches!(c.tree(&big, &meta, &temp), Err(Stop::Cancelled)));
-        remove_partial(&temp);
+        assert!(c.made);
+        remove_partial(&temp).unwrap();
         assert!(names(&dest).is_empty());
+    }
+
+    #[test]
+    fn a_paste_never_removes_an_entry_it_did_not_make() {
+        let t = TempDir::new("foreign-temp");
+        let src = t.path("src/a.txt");
+        write(&src, "a");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        // Entries under the hidden names the next pastes of this process
+        // would use: left by an earlier crash, or by another program.
+        let next = temp_name(&dest);
+        let name = next.file_name().unwrap().to_string_lossy().into_owned();
+        let (head, n) = name.trim_end_matches(".part").rsplit_once('-').unwrap();
+        let n: u64 = n.parse().unwrap();
+        let victims: Vec<PathBuf> = (n + 1..n + 65)
+            .map(|i| dest.join(format!("{head}-{i}.part")))
+            .collect();
+        for v in &victims {
+            write(&v.join("keep"), "keep");
+        }
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        for v in &victims {
+            assert_eq!(read(&v.join("keep")), "keep", "{v:?}");
+        }
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(read(&dest.join("a.txt")), "a");
+    }
+
+    #[test]
+    fn a_partial_copy_with_a_read_only_folder_is_removed() {
+        let t = TempDir::new("ro-partial");
+        let part = t.path("dest/.everygrep-paste-test.part");
+        write(&part.join("ro/sub/f"), "f");
+        fs::set_permissions(part.join("ro/sub"), fs::Permissions::from_mode(0o555)).unwrap();
+        fs::set_permissions(part.join("ro"), fs::Permissions::from_mode(0o555)).unwrap();
+        if fs::write(part.join("ro/probe"), "").is_ok() {
+            // Running as root: the folder is writable anyway.
+            return;
+        }
+        remove_partial(&part).unwrap();
+        assert!(fs::symlink_metadata(&part).is_err(), "partial copy left");
+        // Nothing there is not an error.
+        remove_partial(&part).unwrap();
     }
 
     #[test]
@@ -846,6 +993,20 @@ mod tests {
             Failure::NotRemoved(e)
                 .to_string()
                 .starts_with("copied, but the original could not be removed: ")
+        );
+        let left = |cause| Failure::PartLeft {
+            cause,
+            part: PathBuf::from("/d/.p"),
+            error: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        assert_eq!(
+            left(None).to_string(),
+            "the partial copy “/d/.p” could not be removed: permission denied"
+        );
+        assert!(
+            left(Some(io::Error::from(io::ErrorKind::NotFound)))
+                .to_string()
+                .ends_with("; the partial copy “/d/.p” could not be removed: permission denied")
         );
     }
 }

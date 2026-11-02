@@ -1242,6 +1242,10 @@ msgstr "A folder cannot be pasted into itself."
 msgid "copied, but the original could not be removed: {}"
 msgstr "copied, but the original could not be removed: {}"
 
+#: src/transfer.rs
+msgid "the partial copy “{}” could not be removed: {}"
+msgstr "qismən surət “{}” silinə bilmədi: {}"
+
 # TODO: translate (English for now)
 #: src/labels.rs
 msgid "Copying: {}%"
