@@ -366,6 +366,9 @@ impl NodeStore {
 
     /// Like [`compacted`](Self::compacted), but keeps only the live nodes for
     /// which `keep` is true. The parent of every kept node must be kept.
+    /// Folder sizes are those of the kept nodes: when only part of a
+    /// folder's contents is kept, its size and those above it are added up
+    /// again.
     ///
     /// # Panics
     ///
@@ -387,8 +390,8 @@ impl NodeStore {
         }
         // A parent can have a higher id than its child (after moves), so add all
         // nodes first and link parents in a second pass.
-        // Folder sizes are copied as they are; the tree of live nodes does not
-        // change.
+        // Folder sizes are copied as they are, and added up again only if a
+        // live node of a kept folder was left out.
         let mut out = NodeStore::new();
         for (i, kept) in remap.iter().enumerate() {
             if kept.is_some() {
@@ -396,13 +399,24 @@ impl NodeStore {
                 out.push_node(self.name(id), self.is_dir(id), self.meta(id));
             }
         }
+        let mut part_dropped = false;
         for i in 0..self.len() {
             let id = NodeId(i as u32);
-            if let (Some(new_id), Some(parent)) = (remap[i], self.parent(id)) {
-                let new_parent = remap[parent.index()].expect("kept node with a dropped parent");
-                out.set_parent_word(new_id, Some(new_parent));
-                out.link(new_id, new_parent);
+            match (remap[i], self.parent(id)) {
+                (Some(new_id), Some(parent)) => {
+                    let new_parent =
+                        remap[parent.index()].expect("kept node with a dropped parent");
+                    out.set_parent_word(new_id, Some(new_parent));
+                    out.link(new_id, new_parent);
+                }
+                (None, Some(parent)) if self.is_live(id) => {
+                    part_dropped |= remap[parent.index()].is_some();
+                }
+                _ => {}
             }
+        }
+        if part_dropped {
+            out.compute_folder_sizes();
         }
         out.shrink_to_fit();
         (out, remap)
@@ -824,6 +838,25 @@ mod tests {
             c.name_pool.extend_from_slice(name);
         }
         c
+    }
+
+    #[test]
+    fn keeping_part_of_a_folder_adds_its_size_up_again() {
+        let mut store = NodeStore::new();
+        let file = |size| Meta { size, mtime_ns: 1 };
+        let root = store.add(None, b"/r", true, Meta::default());
+        let sub = store.add(Some(root), b"sub", true, Meta::default());
+        let five = store.add(Some(sub), b"five", false, file(5));
+        let seven = store.add(Some(sub), b"seven", false, file(7));
+        let other = store.add(Some(root), b"other", false, file(100));
+        assert_eq!(store.meta(root).size, 112);
+        let (part, remap) = store.compacted_where(|id| id != seven);
+        let size = |id: NodeId| part.meta(remap[id.index()].unwrap()).size;
+        assert_eq!((size(root), size(sub), size(five)), (105, 5, 5));
+        assert_eq!(part.items(remap[sub.index()].unwrap()), 1);
+        // Without the file in the root.
+        let (part, remap) = store.compacted_where(|id| id != other);
+        assert_eq!(part.meta(remap[root.index()].unwrap()).size, 12);
     }
 
     #[test]
