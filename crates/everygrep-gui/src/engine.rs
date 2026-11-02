@@ -3055,6 +3055,52 @@ mod tests {
     }
 
     #[test]
+    fn row_details_are_read_without_holding_up_the_window() {
+        use crate::results::{DetailColumns, DetailReader, ResultsModel};
+        use slint::Model;
+        let dir = Scratch::new("row-details");
+        fs::create_dir_all(dir.0.join("a")).unwrap();
+        fs::write(dir.0.join("a/slow.txt"), "").unwrap();
+        let probe = Probe::start(vec![dir.0.join("a")], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("slow", QueryOptions::default());
+        let result = loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if r.query == "slow" && r.ids.len() == 1 {
+                break r;
+            }
+        };
+        let slow = fs::canonicalize(dir.0.join("a/slow.txt")).unwrap();
+        crate::results::tests::slow_details(&slow);
+
+        let model = ResultsModel::new(Arc::clone(&probe.engine));
+        let (deliver, batches) = mpsc::channel();
+        let deliver = Mutex::new(deliver);
+        model.read_details_with(DetailReader::start(move |batch| {
+            let _ = deliver.lock().unwrap().send(batch);
+        }));
+        model.set_result(&result);
+        model.set_detail_columns(DetailColumns {
+            created: true,
+            accessed: true,
+            attributes: true,
+        });
+        let asked = Instant::now();
+        let row = model.row_data(0).unwrap();
+        let took = asked.elapsed();
+        assert!(took < Duration::from_millis(300), "the row took {took:?}");
+        assert!(row.accessed.is_empty(), "not read yet");
+        // Shown again before the details came: asked only once.
+        model.row_data(0).unwrap();
+        let batch = batches.recv_timeout(Duration::from_secs(10)).unwrap();
+        model.take_details(batch);
+        assert!(!model.row_data(0).unwrap().accessed.is_empty());
+        assert!(batches.recv_timeout(Duration::from_millis(1500)).is_err());
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn results_name_the_request_they_answer() {
         let dir = Scratch::new("result-generation");
         fs::create_dir_all(dir.0.join("a")).unwrap();

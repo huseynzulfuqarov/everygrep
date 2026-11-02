@@ -192,6 +192,13 @@ fn main() -> Result<(), slint::PlatformError> {
         hooks,
     );
     let model = Rc::new(ResultsModel::new(engine.clone()));
+    // Created, Accessed and Attributes are read off the window's thread.
+    model.read_details_with(results::DetailReader::start({
+        let weak = window.as_weak();
+        move |batch| {
+            let _ = weak.upgrade_in_event_loop(move |w| with_model(&w, |m| m.take_details(batch)));
+        }
+    }));
     window.set_results(ModelRc::from(model.clone()));
     let progress_timer = Rc::new(Timer::default());
     let shown_task = Rc::new(Cell::new(None));

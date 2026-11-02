@@ -76,8 +76,9 @@ neighbour finds the runs, and only their folders get a path key), so that
 order means something to the reader. Folder paths compare component by
 component in the same natural order (`dir2` before `dir10`). Creation time, access time and attributes are
 not kept in the index; `details.rs` reads them with `lstat` (`statx` with the
-birth time) for the rows on screen, and the sort reads them for every result
-on several threads.
+birth time) for the rows on screen, on a thread of the window's own
+(`DetailReader`: the rows are shown at once and updated when the values
+come), and the sort reads them for every result on several threads.
 
 A `DetailCache` keeps the creation times or attributes one sort read, by
 node id, for the next sort of the same results (the refresh after file

@@ -3,10 +3,11 @@
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::ffi::OsStrExt;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use everygrep_core::details::Details;
@@ -54,7 +55,78 @@ pub struct ResultsModel {
     detail_columns: Cell<DetailColumns>,
     /// Details read for rows that were on screen, until the next result.
     detail_cache: RefCell<HashMap<NodeId, Details>>,
+    /// Reads details off the window's thread; without one they are read
+    /// when a row is shown.
+    detail_reader: RefCell<Option<DetailReader>>,
+    /// Nodes whose details were asked of the reader and did not come yet.
+    detail_pending: RefCell<HashSet<NodeId>>,
     notify: ModelNotify,
+}
+
+/// Reads the details of rows on screen (Created, Accessed, Attributes) on a
+/// thread of its own, so a slow or hanging file system never holds up the
+/// window: the rows show those cells empty until their values come (see
+/// [`ResultsModel::take_details`]).
+pub struct DetailReader {
+    requests: mpsc::Sender<DetailRequest>,
+    /// Requests made for another list than this one are skipped.
+    current: Arc<AtomicU64>,
+}
+
+struct DetailRequest {
+    list: u64,
+    row: usize,
+    id: NodeId,
+    path: PathBuf,
+    name: Vec<u8>,
+}
+
+/// Details a [`DetailReader`] read, for [`ResultsModel::take_details`].
+pub struct DetailBatch {
+    found: Vec<(u64, usize, NodeId, Details)>,
+}
+
+/// At most this many rows are read before what was read is passed on.
+const DETAIL_BATCH: usize = 64;
+
+impl DetailReader {
+    /// Starts the reading thread; `deliver` gets each batch read, on that
+    /// thread.
+    pub fn start(deliver: impl Fn(DetailBatch) + Send + 'static) -> Self {
+        let (requests, asked) = mpsc::channel::<DetailRequest>();
+        let current = Arc::new(AtomicU64::new(0));
+        let list = Arc::clone(&current);
+        let _ = std::thread::Builder::new()
+            .name("row-details".into())
+            .spawn(move || {
+                while let Ok(first) = asked.recv() {
+                    let mut found = Vec::new();
+                    for r in std::iter::once(first).chain(asked.try_iter().take(DETAIL_BATCH - 1)) {
+                        if r.list == list.load(Ordering::SeqCst) {
+                            found.push((r.list, r.row, r.id, read_details(&r.path, &r.name)));
+                        }
+                    }
+                    if !found.is_empty() {
+                        deliver(DetailBatch { found });
+                    }
+                }
+            });
+        Self { requests, current }
+    }
+}
+
+/// The details of the entry at `path` (named `name`).
+fn read_details(path: &Path, name: &[u8]) -> Details {
+    #[cfg(test)]
+    if tests::SLOW_DETAILS
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|p| p == path)
+    {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    Details::read(path, name)
 }
 
 /// A file action was refused: a drive that is not connected holds some of
@@ -124,6 +196,8 @@ impl ResultsModel {
             details: Cell::new(true),
             detail_columns: Cell::new(DetailColumns::default()),
             detail_cache: RefCell::new(HashMap::new()),
+            detail_reader: RefCell::new(None),
+            detail_pending: RefCell::new(HashSet::new()),
             notify: ModelNotify::default(),
         }
     }
@@ -176,7 +250,7 @@ impl ResultsModel {
         self.epoch.set(result.epoch);
         *self.ids.borrow_mut() = Arc::clone(&result.ids);
         // A new result also follows file changes, so read the details again.
-        self.detail_cache.borrow_mut().clear();
+        self.forget_details();
         self.notify.reset();
         if !carried {
             return None;
@@ -193,24 +267,78 @@ impl ResultsModel {
         }
     }
 
-    /// Details of a node for the columns shown, from the cache or the file
-    /// system. Entries on a drive that is not connected are not read.
-    fn details_of(&self, index: &everygrep_core::index::Index, id: NodeId) -> Details {
-        if let Some(d) = self.detail_cache.borrow().get(&id) {
-            return *d;
+    /// Reads the details of rows with `reader` from now on.
+    pub fn read_details_with(&self, reader: DetailReader) {
+        self.forget_details();
+        *self.detail_reader.borrow_mut() = Some(reader);
+    }
+
+    /// Drops the details read and asked for: they belong to another list.
+    fn forget_details(&self) {
+        self.detail_cache.borrow_mut().clear();
+        self.detail_pending.borrow_mut().clear();
+        if let Some(reader) = &*self.detail_reader.borrow() {
+            reader.current.fetch_add(1, Ordering::SeqCst);
         }
-        let store = index.store();
-        let d = if index.is_offline(id) {
-            Details::default()
-        } else {
-            Details::read(&store.path(id), store.name(id))
-        };
+    }
+
+    fn cache_details(&self, id: NodeId, d: Details) {
         let mut cache = self.detail_cache.borrow_mut();
         if cache.len() >= MAX_CACHED_DETAILS {
             cache.clear();
         }
         cache.insert(id, d);
+    }
+
+    /// Details of the node of `row` for the columns shown, from the cache or
+    /// the file system. Entries on a drive that is not connected are not
+    /// read. With a [`DetailReader`], a node not read yet is asked of it and
+    /// shows no details until they come.
+    fn details_of(&self, index: &everygrep_core::index::Index, id: NodeId, row: usize) -> Details {
+        if let Some(d) = self.detail_cache.borrow().get(&id) {
+            return *d;
+        }
+        let store = index.store();
+        if index.is_offline(id) {
+            self.cache_details(id, Details::default());
+            return Details::default();
+        }
+        if let Some(reader) = &*self.detail_reader.borrow() {
+            if self.detail_pending.borrow_mut().insert(id) {
+                let request = DetailRequest {
+                    list: reader.current.load(Ordering::SeqCst),
+                    row,
+                    id,
+                    path: store.path(id),
+                    name: store.name(id).to_vec(),
+                };
+                if reader.requests.send(request).is_err() {
+                    self.detail_pending.borrow_mut().remove(&id);
+                }
+            }
+            return Details::default();
+        }
+        let d = read_details(&store.path(id), store.name(id));
+        self.cache_details(id, d);
         d
+    }
+
+    /// Takes details a [`DetailReader`] read and shows them in their rows;
+    /// those read for an older list are dropped.
+    pub fn take_details(&self, batch: DetailBatch) {
+        let current = match &*self.detail_reader.borrow() {
+            Some(reader) => reader.current.load(Ordering::SeqCst),
+            None => return,
+        };
+        for (list, row, id, d) in batch.found {
+            if list != current || !self.detail_pending.borrow_mut().remove(&id) {
+                continue;
+            }
+            self.cache_details(id, d);
+            if self.ids.borrow().get(row) == Some(&id) {
+                self.notify.row_changed(row);
+            }
+        }
     }
 
     /// Changes the selection with `f` and refreshes the rows that changed.
@@ -633,7 +761,7 @@ impl Model for ResultsModel {
             .unwrap_or_default();
         let columns = self.detail_columns.get();
         let details = if columns.any() {
-            self.details_of(&index, id)
+            self.details_of(&index, id, row)
         } else {
             Details::default()
         };
@@ -842,9 +970,18 @@ mod fit_tests {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use everygrep_core::query::{Query, QueryOptions};
+
+    /// Paths whose details take a second to read, as on a file system that
+    /// hardly answers.
+    pub(super) static SLOW_DETAILS: std::sync::Mutex<Vec<PathBuf>> =
+        std::sync::Mutex::new(Vec::new());
+
+    pub(crate) fn slow_details(path: &Path) {
+        SLOW_DETAILS.lock().unwrap().push(path.to_path_buf());
+    }
 
     fn terms(q: &str) -> Vec<HighlightTerm> {
         Query::parse(q, QueryOptions::default())

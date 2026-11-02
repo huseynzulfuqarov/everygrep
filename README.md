@@ -139,7 +139,8 @@ Double-click a header border to size the column on its left to fit
 the rows on screen; View → Size all columns to fit (the spare room goes to
 Folder) and Fit columns to window (every column scaled to fill the
 window) do it for all shown columns, also from the header's context menu. Created, Accessed and Attributes are not in the index: they are read
-from the file system for the rows on screen while their column is shown, and
+from the file system for the rows on screen while their column is shown (on
+a helper thread, so their cells fill in a moment later on a slow drive), and
 for every result when sorting by them (the status line shows the progress).
 Created stays empty where the file system does not record a birth time;
 Accessed is coarse on most systems, which update it at most once a day

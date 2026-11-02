@@ -212,7 +212,8 @@ First version, 0.1.0, not released yet.
   also in the Folder column),
   file-type icons and sortable, resizable columns (Name, Folder, Size,
   Modified, and optional Type, Extension, Created, Accessed and
-  Attributes).
+  Attributes). Created, Accessed and Attributes are read on a helper
+  thread, so a slow or hanging file system never holds up the window.
 - Edit → Invert selection (`Ctrl+I`), which costs the same for any number
   of results.
 - File → Export results… (`Ctrl+S`): the results as CSV (name, folder,

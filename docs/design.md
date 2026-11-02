@@ -77,7 +77,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   context menu and the View menu; Full path is planned. Created, Accessed and
   Attributes are not in the index, which keeps it small: they are read from
   the file system (`statx`) for the rows on screen while their column is
-  shown, and for every result when sorting by one of them, with progress and
+  shown, off the window's thread (the cells fill in once read), and for every result when sorting by one of them, with progress and
   Cancel. Created is the birth time and stays empty where the file system
   has none (never 0 or 1970); Accessed follows `relatime`, so it is coarse.
   Attributes are letters in the order `RHDLX`: `R` read-only (no write
