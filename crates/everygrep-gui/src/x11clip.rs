@@ -45,6 +45,9 @@ const OFFER_WAIT: Duration = Duration::from_millis(500);
 const READ_WAIT: Duration = Duration::from_secs(1);
 /// Largest clipboard content read from another program.
 const MAX_READ: usize = 32 << 20;
+/// [`MAX_READ`] in the 32-bit units a `GetProperty` length is given in, so
+/// one reply never holds more.
+const READ_UNITS: u32 = (MAX_READ / 4) as u32;
 /// Room for the request header when content is written in one request.
 const REQUEST_HEADER: usize = 64;
 
@@ -178,6 +181,13 @@ enum Then {
     Reply(Sender<Option<Found>>),
     /// The clipboard is emptied if it held these files.
     EmptyIf(Found),
+}
+
+/// Whether content read so far (`have` bytes) plus a reply of `value`
+/// bytes, with `bytes_after` more bytes left in the property, stays within
+/// [`MAX_READ`].
+fn fits(have: usize, value: usize, bytes_after: u32) -> bool {
+    bytes_after == 0 && have.checked_add(value).is_some_and(|n| n <= MAX_READ)
 }
 
 /// Whether a read that ended with `found` empties the clipboard for
@@ -635,7 +645,7 @@ impl Worker {
                 self.atoms.paste,
                 AtomEnum::ANY,
                 0,
-                u32::MAX / 4,
+                READ_UNITS,
             )?
             .reply()?;
         self.conn.flush()?;
@@ -646,7 +656,19 @@ impl Worker {
             }
             return Ok(());
         }
+        if !fits(0, reply.value.len(), reply.bytes_after) {
+            return self.too_large();
+        }
         self.parsed(&reply.value)
+    }
+
+    /// Ends a read whose content is over [`MAX_READ`]: too large to be a
+    /// list of files worth pasting. The property is not deleted by a
+    /// partial `GetProperty`, so it is deleted here.
+    fn too_large(&mut self) -> XResult<()> {
+        self.conn.delete_property(self.window, self.atoms.paste)?;
+        self.conn.flush()?;
+        self.finish(None)
     }
 
     /// One `INCR` step; an empty one ends the content.
@@ -659,7 +681,7 @@ impl Worker {
                 self.atoms.paste,
                 AtomEnum::ANY,
                 0,
-                u32::MAX / 4,
+                READ_UNITS,
             )?
             .reply()?;
         self.conn.flush()?;
@@ -673,11 +695,12 @@ impl Worker {
             let content = std::mem::take(buf);
             return self.parsed(&content);
         }
-        buf.extend_from_slice(&reply.value);
-        if buf.len() > MAX_READ {
-            // Too large to be a list of files worth pasting.
-            return self.finish(None);
+        // Checked before the step is added, so the buffer never grows past
+        // the limit.
+        if !fits(buf.len(), reply.value.len(), reply.bytes_after) {
+            return self.too_large();
         }
+        buf.extend_from_slice(&reply.value);
         Ok(())
     }
 
@@ -952,6 +975,17 @@ mod tests {
         // A read for Paste never empties.
         let (reply, _answer) = mpsc::channel();
         assert!(!empties(&Then::Reply(reply), Some(&moved)));
+    }
+
+    #[test]
+    fn reads_stay_within_the_limit() {
+        // One reply never asks for more than the limit.
+        assert_eq!(READ_UNITS as usize * 4, MAX_READ);
+        assert!(fits(0, MAX_READ, 0));
+        assert!(!fits(0, MAX_READ, 1), "more left in the property");
+        assert!(fits(MAX_READ - 10, 10, 0));
+        assert!(!fits(MAX_READ - 10, 11, 0), "a step past the limit");
+        assert!(!fits(usize::MAX, 1, 0));
     }
 
     #[test]
