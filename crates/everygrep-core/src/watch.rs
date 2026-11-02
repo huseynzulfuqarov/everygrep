@@ -158,6 +158,11 @@ pub struct Watcher {
     /// and they are listed again when they get an event, until a listing
     /// is complete.
     incomplete: HashSet<NodeId>,
+    /// Folders where a created entry was not found because the folder was
+    /// no longer at its indexed path: it was moved, and its move is in a
+    /// batch not applied yet. Each is listed again once the index has it at
+    /// a path that is a folder; its time is not kept until then.
+    moved_away: HashSet<NodeId>,
 }
 
 impl Watcher {
@@ -180,6 +185,7 @@ impl Watcher {
             unmounted: Vec::new(),
             waiting_moves: HashMap::new(),
             incomplete: HashSet::new(),
+            moved_away: HashSet::new(),
         };
         for root in online_roots(index) {
             w.watch_root(index, root);
@@ -371,6 +377,10 @@ impl Watcher {
             .into_iter()
             .filter_map(|dir| remap.get(dir.index()).copied().flatten())
             .collect();
+        self.moved_away = std::mem::take(&mut self.moved_away)
+            .into_iter()
+            .filter_map(|dir| remap.get(dir.index()).copied().flatten())
+            .collect();
         remap
     }
 
@@ -540,7 +550,14 @@ impl Watcher {
             }
             match self.add_from_disk(index, dir, &name) {
                 Ok(added) => stats.added += added,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                // Gone again, unless the folder itself is gone from its
+                // indexed path: then it moved too, and the events of that
+                // move come in a later batch.
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    if !is_dir_at(&index.store().path(dir)) {
+                        self.moved_away.insert(dir);
+                    }
+                }
                 // Not allowed to look: the folder keeps its older time, so a
                 // catch-up reads it again.
                 Err(_) => {
@@ -556,6 +573,29 @@ impl Watcher {
         // listing is complete.
         self.incomplete.retain(|&dir| index.store().is_live(dir));
         self.incomplete.extend(incomplete);
+        // A folder whose move was applied by now is listed at its new place,
+        // which gives the entries looked for at the old one.
+        self.moved_away.retain(|&dir| index.store().is_live(dir));
+        let arrived: Vec<NodeId> = self
+            .moved_away
+            .iter()
+            .copied()
+            .filter(|&dir| is_dir_at(&index.store().path(dir)))
+            .collect();
+        for dir in arrived {
+            self.moved_away.remove(&dir);
+            let watches = &mut self.watches;
+            let skip = &self.skip;
+            let listed = recheck_dirs(index, &[dir], skip, true, &mut |idx: &Index, new| {
+                watches.watch(idx, new, skip)
+            });
+            stats.added += listed.added;
+            stats.removed += listed.removed;
+            stats.updated += listed.updated;
+            if listed.errors != 0 {
+                self.incomplete.insert(dir);
+            }
+        }
         let relist: Vec<NodeId> = self
             .incomplete
             .iter()
@@ -580,9 +620,11 @@ impl Watcher {
         // reports its changes; one without a watch keeps its older time, and
         // so does one still marked incomplete.
         let incomplete = &self.incomplete;
+        let moved_away = &self.moved_away;
         let keeps_time = |index: &Index, watches: &Watches, dir: NodeId| {
             index.store().is_live(dir)
                 && !incomplete.contains(&dir)
+                && !moved_away.contains(&dir)
                 && watches.watch_of.contains_key(&dir)
         };
         for (dir, meta) in std::mem::take(&mut self.unsettled) {
@@ -724,6 +766,11 @@ impl Watcher {
             &mut |idx: &Index, dir| watches.watch(idx, dir, skip),
         ))
     }
+}
+
+/// Whether `path` is a folder now (not followed if it is a link).
+fn is_dir_at(path: &std::path::Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
 }
 
 /// A move: its cookie, and which of the folders that show the watched one
@@ -1011,6 +1058,43 @@ mod tests {
         // The renamed folder is still watched.
         fs::write(papers.join("later.txt"), b"l").unwrap();
         assert!(f.settle(|i| has(i, &papers.join("later.txt"))));
+    }
+
+    #[test]
+    fn a_file_created_before_its_folder_is_renamed_in_the_next_batch_is_kept() {
+        let mut f = Fixture::new("create-then-later-rename");
+        let papers = f.root().join("papers");
+        let reports = f.root().join("reports");
+        fs::write(f.root().join("docs/new.txt"), b"n").unwrap();
+        let created = read_until(&mut f.watcher, Mask::CREATE);
+        // Renamed after the creation was read and before it is applied, so
+        // the rename is only in the next batch.
+        fs::rename(f.root().join("docs"), &papers).unwrap();
+        f.watcher.apply(&mut f.index, &created);
+        let renamed = read_until(&mut f.watcher, Mask::MOVED_TO);
+        f.watcher.apply(&mut f.index, &renamed);
+        f.watcher.apply(&mut f.index, &[]);
+        assert!(has(&f.index, &papers.join("a.txt")));
+        assert!(has(&f.index, &papers.join("new.txt")));
+        // The same with the two halves of the rename in two more batches.
+        fs::write(papers.join("other.txt"), b"o").unwrap();
+        let created = read_until(&mut f.watcher, Mask::CREATE);
+        fs::rename(&papers, &reports).unwrap();
+        f.watcher.apply(&mut f.index, &created);
+        let renamed = read_until(&mut f.watcher, Mask::MOVED_TO);
+        let to = renamed
+            .iter()
+            .position(|e| e.mask.contains(Mask::MOVED_TO))
+            .unwrap();
+        f.watcher.apply(&mut f.index, &renamed[..to]);
+        f.watcher.apply(&mut f.index, &renamed[to..]);
+        f.watcher.apply(&mut f.index, &[]);
+        assert!(has(&f.index, &reports.join("other.txt")));
+        assert!(has(&f.index, &reports.join("new.txt")));
+        assert_eq!(f.index.len(), 5, "{:?}", f.paths());
+        // The folder's time is kept only with its entries complete.
+        assert_eq!(f.watcher.catch_up(&mut f.index).dirs_rescanned, 0);
+        assert_eq!(f.index.len(), 5);
     }
 
     #[test]

@@ -40,7 +40,8 @@ First version, 0.1.0, not released yet.
   sign, as `/x/*.k` does).
 - Live updates with inotify: creations, deletions, renames and moves keep the
   index current; a queue overflow rebuilds it. A file created just before
-  its folder is renamed is kept; a rename whose two halves are read in two
+  its folder is renamed is kept, also when the rename is read in a later
+  batch; a rename whose two halves are read in two
   batches stays a rename; a folder that shows up twice (a bind mount inside
   the indexed folders) is kept current at both places; a file system
   unmounted inside the indexed folders is read again at its mount point.
