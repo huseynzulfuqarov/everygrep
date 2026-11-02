@@ -12,10 +12,25 @@ pub fn open(path: &Path) {
 
 /// Opens the containing folders in the file manager with the items selected,
 /// using the freedesktop `FileManager1` interface. Falls back to opening the
-/// parent folder of the first item.
+/// parent folder of the first item. The call waits for the file manager,
+/// which may have to start first (or not answer for long), so it runs on a
+/// thread of its own.
 pub fn show_in_folder(paths: &[PathBuf]) {
+    show_in_folder_with(Path::new("gdbus"), paths);
+}
+
+/// [`show_in_folder`] with the `gdbus` program at `gdbus`.
+fn show_in_folder_with(gdbus: &Path, paths: &[PathBuf]) {
+    if paths.is_empty() {
+        return;
+    }
+    let (gdbus, paths) = (gdbus.to_path_buf(), paths.to_vec());
+    std::thread::spawn(move || show_items(&gdbus, &paths));
+}
+
+fn show_items(gdbus: &Path, paths: &[PathBuf]) {
     let Some(first) = paths.first() else { return };
-    let status = Command::new("gdbus")
+    let status = Command::new(gdbus)
         .args([
             "call",
             "--session",
@@ -77,6 +92,34 @@ pub fn file_uri(path: &Path) -> String {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn showing_items_does_not_wait_for_the_file_manager() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("everygrep-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file manager that takes long to answer, then says it showed them.
+        let gdbus = dir.join("gdbus");
+        let done = dir.join("answered");
+        std::fs::write(
+            &gdbus,
+            format!("#!/bin/sh\nsleep 1\ntouch '{}'\n", done.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&gdbus, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let start = std::time::Instant::now();
+        show_in_folder_with(&gdbus, &[dir.join("item")]);
+        let took = start.elapsed();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let answered = done.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+        assert!(answered);
+    }
 
     #[test]
     fn uri_lists_are_gvariant_arrays() {
