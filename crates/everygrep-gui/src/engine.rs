@@ -1441,11 +1441,23 @@ impl Engine {
             if v.root.is_some() || v.info.path != drive.mount_point {
                 continue;
             }
+            if new.roots().len() != 1 {
+                // Its mount point could not be read: there is nothing to
+                // add, and reading it again at once would find nothing
+                // either. It is read when it is connected again.
+                self.not_now
+                    .lock()
+                    .expect("lock")
+                    .insert(drive.uuid.clone());
+                continue;
+            }
             let mut index = self.index.write().expect("index lock");
             if root_id(&index, &drive.mount_point).is_some() {
                 continue;
             }
-            let root = index.graft(&new)[0];
+            let [root] = index.graft(&new)[..] else {
+                unreachable!("one root was checked above");
+            };
             v.root = Some(drive.mount_point.clone());
             v.rules = rules;
             v.info.entries = new.len() as u64;
@@ -3012,6 +3024,47 @@ mod tests {
     }
 
     #[test]
+    fn a_drive_whose_mount_point_cannot_be_read_is_left_out() {
+        let dir = Scratch::new("drives-unreadable");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let usb = dir.0.join("media/USB");
+        fs::create_dir_all(&usb).unwrap();
+        fs::write(usb.join("later.txt"), "").unwrap();
+        let probe = Probe::start_with(
+            vec![home],
+            Vec::new(),
+            dir.0.join("index.bin"),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        probe.wait_for(IndexState::Watching);
+        let e = &probe.engine;
+        // Listed in the mount table, but its mount point cannot be looked
+        // at: its reading finds nothing, not even its root.
+        fake.mount("GHOST-1", "sdx3", "GHOST");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !e
+            .drives()
+            .iter()
+            .any(|d| d.uuid == "GHOST-1" && !d.scanning)
+        {
+            assert!(Instant::now() < deadline, "the drive was never read");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(!e.index.is_poisoned() && !e.volumes.is_poisoned());
+        let ghost = e.drives().into_iter().find(|d| d.uuid == "GHOST-1");
+        assert!(ghost.is_some_and(|d| !d.indexed));
+        // The index thread still takes drives in.
+        fake.mount("REAL-1", "sdx4", "USB");
+        until(e, "the next drive", |i| {
+            find(i, &usb.join("later.txt")).is_some()
+        });
+        e.shutdown();
+    }
+
+    #[test]
     fn removed_drives_can_be_forgotten_or_never_indexed() {
         let dir = Scratch::new("drives-forget");
         let fake = FakeDrives::new(&dir.0);
@@ -3132,6 +3185,16 @@ mod tests {
         assert!(took < QUIT_WAIT);
         // Nothing of it went into the index file of the folders.
         assert_eq!(persist::load(&index).unwrap().index.len(), 1);
+        // A file that was read is deleted before the drive is read again.
+        let partial = persist::load(&fake.env.partial_path("AAAA-1111")).unwrap();
+        let deleted = partial
+            .index
+            .order()
+            .iter()
+            .find(|&id| !partial.index.store().is_dir(id))
+            .map(|id| partial.index.store().path(id))
+            .expect("a file was read");
+        fs::remove_file(&deleted).unwrap();
 
         // The next start goes on from there and ends with the whole drive.
         let probe = Probe::start_with(
@@ -3142,13 +3205,14 @@ mod tests {
         );
         until(&probe.engine, "the whole drive", |i| {
             find(i, &usb.join("folder00399/file0099.dat")).is_some()
-                && find(i, &usb.join("folder00000/file0000.dat")).is_some()
+                && find(i, &usb.join("folder00000/file0001.dat")).is_some()
         });
         until(&probe.engine, "the partial file gone", |_| {
             !fake.env.partial_path("AAAA-1111").exists()
         });
         let entries = probe.engine.drives()[0].entries;
-        assert_eq!(entries, total);
+        assert_eq!(entries, total - 1);
+        assert!(find(&probe.engine.index.read().unwrap(), &deleted).is_none());
         probe.engine.shutdown();
     }
 

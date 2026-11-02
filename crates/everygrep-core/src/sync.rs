@@ -119,7 +119,9 @@ pub(crate) fn catch_up_with(
 /// does, so changes made in between are found too. Unlike a catch-up, new
 /// folders are read one at a time, so a cancel is seen after each folder.
 /// `progress` counts the entries added. When it is cancelled, `index` again
-/// holds a state this can go on from.
+/// holds a state this can go on from. When it ends, `index` is compacted
+/// (entries removed meanwhile leave no empty slots), so it can be grafted
+/// into another index like a fresh scan.
 pub fn resume_scan(
     index: &mut Index,
     roots: &[PathBuf],
@@ -170,6 +172,9 @@ pub fn resume_scan(
         queue.extend(subfolders);
     }
     index.take_removed();
+    if index.needs_compaction() {
+        index.compact_in_place();
+    }
     Ok(stats)
 }
 
@@ -901,6 +906,47 @@ mod tests {
         assert_eq!(progress.done(), stats.added as u64);
         // The finished index is complete: a catch-up reads nothing.
         assert_eq!(again.dirs_rescanned, 0, "{again:?}");
+    }
+
+    #[test]
+    fn a_finished_resumed_scan_can_be_added_to_another_index() {
+        use crate::scan::scan_with_progress;
+        let base = std::env::temp_dir().join(format!(
+            "everygrep-sync-resume-graft-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        for d in 0..10 {
+            let dir = base.join(format!("d{d}"));
+            fs::create_dir_all(&dir).unwrap();
+            for f in 0..10 {
+                fs::write(dir.join(format!("f{f}.txt")), b"x").unwrap();
+            }
+        }
+        let roots = [base.clone()];
+        let options = ScanOptions::default();
+        let mut store = NodeStore::new();
+        let progress = Progress::new();
+        progress.cancel_when_done(40);
+        assert!(scan_with_progress(&mut store, &roots, &options, &progress).is_err());
+        let mut index = Index::new(store);
+        // A file that was read before the cancel is deleted meanwhile.
+        let read = index
+            .order()
+            .iter()
+            .find(|&id| !index.store().is_dir(id))
+            .map(|id| index.store().path(id))
+            .expect("a file was read");
+        fs::remove_file(&read).unwrap();
+
+        resume_scan(&mut index, &roots, &options, &Progress::new()).unwrap();
+        let mut window = Index::new(NodeStore::new());
+        let added = window.graft(&index);
+        let found = paths(&window);
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(added.len(), 1);
+        assert!(!found.contains(&read));
+        assert_eq!(found.len(), 1 + 10 + 10 * 10 - 1);
     }
 
     #[test]
