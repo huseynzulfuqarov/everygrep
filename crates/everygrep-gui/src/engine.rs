@@ -459,6 +459,9 @@ pub struct Engine {
     /// The query that gave the results shown; a cancelled search goes back
     /// to it.
     applied: Mutex<QueryState>,
+    /// The request whose complete results were shown last, and the index
+    /// version they were found in (see [`Engine::settled_search`]).
+    answered: Mutex<(u64, Option<u64>)>,
     /// Creation times or attributes read by the last sort, used by the next
     /// one while file changes are applied (see [`DetailCache`]). Only the
     /// search thread uses it.
@@ -527,6 +530,16 @@ struct QueryState {
     options: QueryOptions,
     filter_query: Option<(String, QueryOptions)>,
     sort: Sort,
+}
+
+/// A request whose complete results were shown, with the index version and
+/// id epoch they were found in (see [`Engine::settled_search`]). A tab keeps
+/// it to show its results again without searching while nothing changed.
+#[derive(Clone, PartialEq)]
+pub struct SettledSearch {
+    state: QueryState,
+    version: u64,
+    epoch: u64,
 }
 
 /// A content search the user stopped, with the request whose matches so
@@ -614,6 +627,7 @@ impl Engine {
             indexed_with: Mutex::new((Vec::new(), ScanOptions::default())),
             incomplete: AtomicBool::new(false),
             applied: Mutex::new(QueryState::default()),
+            answered: Mutex::new((0, None)),
             content_options: Mutex::new(ContentOptions::default()),
             content_cache: Mutex::new(ContentCache::new()),
             content_state: Mutex::new(ContentState::default()),
@@ -967,6 +981,69 @@ impl Engine {
         (stopped && *applied == *q).then(|| StoppedSearch(q.clone()))
     }
 
+    /// The request asked last, when its complete results are shown and no
+    /// newer request, file reading or stop came after them.
+    pub fn settled_search(&self) -> Option<SettledSearch> {
+        let q = self.query.lock().expect("lock");
+        let content = self.content_state.lock().expect("lock");
+        if content.running || content.stopped {
+            return None;
+        }
+        drop(content);
+        let (generation, version) = *self.answered.lock().expect("lock");
+        if generation != self.generation.load(Ordering::SeqCst)
+            || *self.applied.lock().expect("lock") != *q
+        {
+            return None;
+        }
+        Some(SettledSearch {
+            state: q.clone(),
+            version: version?,
+            epoch: self.epoch(),
+        })
+    }
+
+    /// Makes `settled` the current request again without searching, when
+    /// the query, its filter and the order asked for are the ones it had and
+    /// the index has not changed since (same ids, same version): its results
+    /// (kept by the caller) are still the answer. A search or sort running
+    /// for another request is cancelled. Never waits for the index: while
+    /// it is being changed, `None` (search again), as when anything differs.
+    pub fn show_settled(
+        &self,
+        settled: &SettledSearch,
+        text: &str,
+        options: QueryOptions,
+        filter: Option<(String, QueryOptions)>,
+        sort: Sort,
+    ) -> Option<u64> {
+        let state = QueryState {
+            text: text.to_owned(),
+            options,
+            filter_query: filter,
+            sort,
+        };
+        if state != settled.state || self.epoch() != settled.epoch {
+            return None;
+        }
+        let index = self.index.try_read().ok()?;
+        if index.version() != settled.version || self.epoch() != settled.epoch {
+            return None;
+        }
+        drop(index);
+        let mut q = self.query.lock().expect("lock");
+        *q = state.clone();
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.tasks.cancel_search();
+        let mut content = self.content_state.lock().expect("lock");
+        content.stopped = false;
+        content.refresh = false;
+        drop(content);
+        *self.applied.lock().expect("lock") = state;
+        *self.answered.lock().expect("lock") = (generation, Some(settled.version));
+        Some(generation)
+    }
+
     /// Makes `stopped` the current request again, still stopped, when the
     /// query, its filter and the order asked for are the ones it had: its
     /// matches so far (kept by the caller) stay shown and no file is read
@@ -1091,6 +1168,7 @@ impl Engine {
             let started = Instant::now();
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
+            let mut version = None;
             let (ids, error) = match Query::parse(&state.text, state.options).and_then(|query| {
                 match &state.filter_query {
                     Some((text, options)) => {
@@ -1104,13 +1182,14 @@ impl Engine {
                     let terms = Arc::new(std::mem::take(&mut terms));
                     let found = self.search_contents(generation, &state, &query, started, &terms);
                     match found {
-                        Ok(Some((ids, at))) => {
+                        Ok(Some((ids, at, searched))) => {
                             epoch = at;
                             let mut q = self.content_state.lock().expect("lock");
                             q.stopped = false;
                             drop(q);
                             if self.is_current(generation) {
                                 *self.applied.lock().expect("lock") = state.clone();
+                                *self.answered.lock().expect("lock") = (generation, Some(searched));
                                 (self.hooks.on_results)(SearchResult {
                                     ids: Arc::new(ids),
                                     terms,
@@ -1147,6 +1226,7 @@ impl Engine {
                         break;
                     }
                     epoch = self.epoch();
+                    version = Some(index.version());
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
                     let task = self.tasks.begin(TaskKind::Searching, true);
                     // A request that came before the task was listed could
@@ -1179,6 +1259,7 @@ impl Engine {
             };
             if self.is_current(generation) {
                 *self.applied.lock().expect("lock") = state.clone();
+                *self.answered.lock().expect("lock") = (generation, version);
                 (self.hooks.on_results)(SearchResult {
                     ids: Arc::new(ids),
                     terms: Arc::new(terms),
@@ -1194,7 +1275,8 @@ impl Engine {
 
     /// Runs a query with `content:` terms: the index part under a read lock,
     /// then the files without it, showing the matches so far now and then.
-    /// Returns the sorted results and the epoch of their ids, `None` when
+    /// Returns the sorted results, the epoch of their ids and the version of
+    /// the index they were found in, `None` when
     /// quitting began, or why it stopped: [`Stopped::ContentSearch`] when
     /// the user cancelled it after matches were shown, [`Stopped::Search`]
     /// for any other cancel (or when the ids changed meaning meanwhile; it
@@ -1206,13 +1288,13 @@ impl Engine {
         query: &Query,
         started: Instant,
         terms: &Arc<Vec<HighlightTerm>>,
-    ) -> Result<Option<(Vec<NodeId>, u64)>, Stopped> {
+    ) -> Result<Option<(Vec<NodeId>, u64, u64)>, Stopped> {
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let task = self.tasks.begin(TaskKind::Searching, true);
         if !self.is_current(generation) {
             task.progress().cancel();
         }
-        let (staged, epoch) = {
+        let (staged, epoch, version) = {
             let index = self.index.read().expect("index lock");
             if self.stop.load(Ordering::SeqCst) {
                 return Ok(None);
@@ -1220,7 +1302,7 @@ impl Engine {
             let epoch = self.epoch();
             let staged = search_staged(&index, query, threads, task.progress())
                 .map_err(|_| Stopped::Search)?;
-            (staged, epoch)
+            (staged, epoch, index.version())
         };
         let decisions = Decisions::new(staged.pending.len());
         let mut shown = false;
@@ -1305,7 +1387,7 @@ impl Engine {
             }
             query.apply_limit(&mut ids);
         }
-        Ok(Some((ids, epoch)))
+        Ok(Some((ids, epoch, version)))
     }
 
     /// The index again after files were read without it: `None` when
@@ -4247,6 +4329,69 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("at most 6 content terms"), "{error}");
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_tab_shown_again_searches_only_when_the_index_changed() {
+        let dir = Scratch::new("settled-tab");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "same\n").unwrap();
+        fs::write(root.join("b.txt"), "same\n").unwrap();
+        let probe = Probe::start(vec![root.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        let engine = &probe.engine;
+        let generation = || engine.generation.load(Ordering::SeqCst);
+        let options = QueryOptions::default();
+        let sort = engine.asked_sort();
+        // A duplicate search, complete: its tab keeps it.
+        assert_eq!(probe.names("duplicates:"), ["a.txt", "b.txt"]);
+        let dupes = engine.settled_search().expect("complete");
+        assert_eq!(probe.names("b.txt"), ["b.txt"]);
+        assert!(engine.settled_search().is_some());
+        // Shown again unchanged: current, without a search.
+        while probe.results.try_recv().is_ok() {}
+        let before = generation();
+        assert!(
+            engine
+                .show_settled(&dupes, "duplicates:", options, None, by_size(sort))
+                .is_none()
+        );
+        assert_eq!(generation(), before, "another order is searched");
+        let shown = engine
+            .show_settled(&dupes, "duplicates:", options, None, sort)
+            .expect("unchanged");
+        assert_eq!(generation(), shown);
+        assert!(
+            probe
+                .results
+                .recv_timeout(Duration::from_millis(700))
+                .is_err()
+        );
+        assert_eq!(engine.applied.lock().unwrap().text, "duplicates:");
+        assert!(engine.settled_search().is_some(), "still complete");
+        // After a file change the tab searches again.
+        let version = engine.index.read().unwrap().version();
+        fs::write(root.join("c.txt"), "same\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while engine.index.read().unwrap().version() == version {
+            assert!(Instant::now() < deadline, "change not seen");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            engine
+                .show_settled(&dupes, "duplicates:", options, None, sort)
+                .is_none()
+        );
+        assert_eq!(probe.names("duplicates:"), ["a.txt", "b.txt", "c.txt"]);
+        probe.engine.shutdown();
+
+        fn by_size(sort: Sort) -> Sort {
+            Sort {
+                key: everygrep_core::sort::SortKey::Size,
+                ..sort
+            }
+        }
     }
 
     #[test]

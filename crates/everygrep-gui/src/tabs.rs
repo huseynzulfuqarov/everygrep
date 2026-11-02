@@ -83,6 +83,9 @@ pub struct Tab {
     /// The tab's content search, when the user stopped it: shown again, it
     /// stays stopped with its matches so far.
     pub stopped: Option<crate::engine::StoppedSearch>,
+    /// The tab's search, when its complete results were shown: shown again
+    /// while the index is unchanged, they are not searched again.
+    pub settled: Option<crate::engine::SettledSearch>,
 }
 
 #[derive(Clone)]

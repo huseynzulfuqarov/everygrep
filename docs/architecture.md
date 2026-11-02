@@ -556,7 +556,14 @@ positions belong to the tab; the sideways one is kept within the table's room
 when the tab is shown. A content or duplicate search the user stopped stays stopped
 when its tab is shown again (`Engine::show_stopped`): its matches so far come back
 from the tab and no file is read again, until the user asks for a search, the
-order changes or the index's ids change. Enter-pending edits keep their
+order changes or the index's ids change. A tab whose complete results were shown keeps the index
+version they were found in (`Engine::settled_search`); shown again with the same
+request while the index has that version and the same ids, its frozen results are
+the answer and no search runs (`Engine::show_settled`), so a duplicate or content
+search and the frequency counts are not done again for nothing. The check never
+waits for the index lock: while the index is being changed the tab searches again.
+A frequency column the tab shows and the one before did not also searches again,
+to count the index. Enter-pending edits keep their
 last submitted search separately. Hidden-file mode and the three parse policies
 follow Settings across all tabs. Filters resolve by live identity, falling back
 to their snapshot only after deletion; bookmarks retain their explicit snapshots.

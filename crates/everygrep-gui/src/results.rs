@@ -88,7 +88,7 @@ pub struct FrequencyColumns {
 }
 
 impl FrequencyColumns {
-    fn any(self) -> bool {
+    pub fn any(self) -> bool {
         self.name || self.extension || self.size
     }
 }
@@ -348,6 +348,11 @@ impl ResultsModel {
             self.forget_hashes();
             self.relabel();
         }
+    }
+
+    /// Which frequency columns are shown.
+    pub fn frequency_columns(&self) -> FrequencyColumns {
+        self.frequency_columns.get()
     }
 
     /// Says which frequency columns are shown. Showing the first one counts
