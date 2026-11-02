@@ -80,6 +80,9 @@ pub struct Tab {
     pub scroll_y: f32,
     /// How far the result table was scrolled sideways (0 or less).
     pub scroll_x: f32,
+    /// The tab's content search, when the user stopped it: shown again, it
+    /// stays stopped with its matches so far.
+    pub stopped: Option<crate::engine::StoppedSearch>,
 }
 
 #[derive(Clone)]

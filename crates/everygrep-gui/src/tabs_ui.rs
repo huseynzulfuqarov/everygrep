@@ -399,6 +399,7 @@ impl State {
         tab.current = w.get_current();
         tab.scroll_y = w.get_results_scroll_y();
         tab.scroll_x = w.get_results_scroll_x();
+        tab.stopped = self.engine.stopped_search();
         tab.pending = w.get_search_pending();
         tab.submitted = Some(self.last_submitted.borrow().clone());
     }
@@ -440,21 +441,33 @@ impl State {
         } else {
             search
         };
-        self.engine.set_sort(crate::sort_for_column(
+        let sort = crate::sort_for_column(
             submitted.sort_column,
             submitted.descending,
             self.model.folder_size(),
-        ));
+        );
         // Only the visible tab updates. Unsubmitted text keeps waiting for Enter.
         let filter = submitted
             .filter
             .as_ref()
             .map(|f| crate::saved_ui::filter_for_tab(f, submitted.filter_snapshot));
-        self.engine.set_filtered_query(
-            &submitted.query,
-            submitted.effective_options(policy, filter.as_ref()),
-            filter.map(|f| (f.search, f.options)),
-        );
+        let options = submitted.effective_options(policy, filter.as_ref());
+        let filter = filter.map(|f| (f.search, f.options));
+        // A content search the user stopped stays stopped with its matches
+        // so far, while they are still for this index and nothing changed
+        // the request; otherwise the tab searches again.
+        let kept = !pending
+            && self.model.snapshot().1 == self.engine.epoch()
+            && tab.stopped.as_ref().is_some_and(|stopped| {
+                self.engine
+                    .show_stopped(stopped, &submitted.query, options, filter.clone(), sort)
+                    .is_some()
+            });
+        if !kept {
+            self.engine.set_sort(sort);
+            self.engine
+                .set_filtered_query(&submitted.query, options, filter);
+        }
         *self.last_submitted.borrow_mut() = submitted.clone();
         crate::typing::with(|t| {
             t.searched();

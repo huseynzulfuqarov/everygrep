@@ -521,13 +521,19 @@ pub struct Unwatched {
 }
 
 /// What the search thread runs: the query text, its options and the result order.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct QueryState {
     text: String,
     options: QueryOptions,
     filter_query: Option<(String, QueryOptions)>,
     sort: Sort,
 }
+
+/// A content search the user stopped, with the request whose matches so
+/// far are shown (see [`Engine::stopped_search`]). A tab keeps it to show
+/// that search stopped again.
+#[derive(Clone, PartialEq)]
+pub struct StoppedSearch(QueryState);
 
 /// The hash cache's file, next to the index file.
 pub const HASH_FILE: &str = "hashes.bin";
@@ -950,6 +956,50 @@ impl Engine {
         self.content_state.lock().expect("lock").stopped = false;
         // Under the lock, so a cancelled search never undoes this request.
         self.request_search()
+    }
+
+    /// The content search the user stopped, when the results shown are its
+    /// matches so far for the request asked last.
+    pub fn stopped_search(&self) -> Option<StoppedSearch> {
+        let q = self.query.lock().expect("lock");
+        let stopped = self.content_state.lock().expect("lock").stopped;
+        let applied = self.applied.lock().expect("lock");
+        (stopped && *applied == *q).then(|| StoppedSearch(q.clone()))
+    }
+
+    /// Makes `stopped` the current request again, still stopped, when the
+    /// query, its filter and the order asked for are the ones it had: its
+    /// matches so far (kept by the caller) stay shown and no file is read
+    /// again, as after the stop. A search or sort running for another
+    /// request is cancelled. Returns the generation of the request, `None`
+    /// (nothing changed) when the request differs.
+    pub fn show_stopped(
+        &self,
+        stopped: &StoppedSearch,
+        text: &str,
+        options: QueryOptions,
+        filter: Option<(String, QueryOptions)>,
+        sort: Sort,
+    ) -> Option<u64> {
+        let state = QueryState {
+            text: text.to_owned(),
+            options,
+            filter_query: filter,
+            sort,
+        };
+        if state != stopped.0 {
+            return None;
+        }
+        let mut q = self.query.lock().expect("lock");
+        *q = state.clone();
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.tasks.cancel_search();
+        let mut content = self.content_state.lock().expect("lock");
+        content.stopped = true;
+        content.refresh = false;
+        drop(content);
+        *self.applied.lock().expect("lock") = state;
+        Some(generation)
     }
 
     /// Changes the result order and runs the current query again. The order
@@ -4196,6 +4246,69 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("at most 6 content terms"), "{error}");
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_stopped_content_search_shown_again_stays_stopped() {
+        let dir = Scratch::new("content-stopped-tab");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "needle\n").unwrap();
+        fs::write(root.join("b.txt"), "other\n").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let engine = &probe.engine;
+        let generation = || engine.generation.load(Ordering::SeqCst);
+        assert_eq!(probe.names("content:needle"), ["a.txt"]);
+        assert!(engine.stopped_search().is_none(), "not stopped");
+        // The user stops it (its matches so far stay shown).
+        while probe.stopped.try_recv().is_ok() {}
+        let state = engine.query.lock().unwrap().clone();
+        engine.content_stopped(generation(), &state);
+        assert_eq!(probe.wait_stopped(), Stopped::ContentSearch);
+        let stopped = engine.stopped_search().expect("stopped");
+        // Another tab searches.
+        assert_eq!(probe.names("b.txt"), ["b.txt"]);
+        assert!(engine.stopped_search().is_none());
+        // A different request does not count as the stopped one.
+        let options = QueryOptions::default();
+        let sort = engine.asked_sort();
+        let by_size = Sort {
+            key: everygrep_core::sort::SortKey::Size,
+            ..sort
+        };
+        let before = generation();
+        assert!(
+            engine
+                .show_stopped(&stopped, "content:needle", options, None, by_size)
+                .is_none()
+        );
+        assert!(
+            engine
+                .show_stopped(&stopped, "content:needlE", options, None, sort)
+                .is_none()
+        );
+        assert_eq!(generation(), before);
+        // Its tab shown again: current and still stopped, nothing searched.
+        while probe.results.try_recv().is_ok() {}
+        let shown = engine
+            .show_stopped(&stopped, "content:needle", options, None, sort)
+            .expect("the same request");
+        assert_eq!(generation(), shown);
+        assert!(
+            probe
+                .results
+                .recv_timeout(Duration::from_millis(700))
+                .is_err()
+        );
+        assert!(engine.stopped_search().is_some());
+        assert_eq!(engine.applied.lock().unwrap().text, "content:needle");
+        // File changes leave it alone; asking for a search runs it.
+        engine.request_refresh();
+        assert_eq!(generation(), shown);
+        assert_eq!(probe.names("content:needle"), ["a.txt"]);
+        assert!(engine.stopped_search().is_none());
         probe.engine.shutdown();
     }
 
