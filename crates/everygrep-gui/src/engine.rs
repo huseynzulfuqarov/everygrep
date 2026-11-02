@@ -33,7 +33,7 @@ use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::progress::{self, Progress};
 use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
-use everygrep_core::rules::IndexRules;
+use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
 use everygrep_core::search::search_with_progress;
 use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
@@ -213,6 +213,16 @@ impl Tasks {
         }
     }
 
+    /// Cancels the running new index of the folders, if any.
+    fn cancel_rescan(&self) {
+        let list = self.list.lock().expect("lock");
+        for task in list.iter() {
+            if *task.kind.lock().expect("lock") == TaskKind::Rescanning {
+                task.progress.cancel();
+            }
+        }
+    }
+
     /// Cancels the running search or sort, if any.
     fn cancel_search(&self) {
         let list = self.list.lock().expect("lock");
@@ -339,6 +349,10 @@ pub struct Engine {
     /// Set by [`Engine::reindex`]; the index thread scans again when it sees
     /// it.
     rescan: AtomicBool,
+    /// Counts the calls of [`Engine::reindex`], under the `roots` lock, so a
+    /// cancelled new index goes back to the previous folders only when no
+    /// newer request came meanwhile.
+    reindexed: AtomicU64,
     /// Whether file changes are watched (see [`Engine::set_watching`]).
     watching: AtomicBool,
     index_file: Option<PathBuf>,
@@ -455,6 +469,7 @@ impl Engine {
                 ..ScanOptions::default()
             }),
             rescan: AtomicBool::new(false),
+            reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
             index_file: index_file.or_else(persist::default_path),
             generation: AtomicU64::new(0),
@@ -640,11 +655,26 @@ impl Engine {
     /// Indexes `roots` again from scratch with `rules`, in the background.
     /// Empty `roots` stand for the home folder. The status hook reports the
     /// scan as for a first start; the new index is saved as soon as it is
-    /// complete.
+    /// complete. A new index of an older request that is still running is
+    /// cancelled: it would be replaced at once. That is not reported as a
+    /// stop, and the folders and rules stay the newest ones.
     pub fn reindex(&self, roots: &[PathBuf], rules: IndexRules) {
-        *self.roots.lock().expect("lock") = normalize_roots(roots);
+        let mut current = self.roots.lock().expect("lock");
+        *current = normalize_roots(roots);
         self.options.lock().expect("lock").rules = rules;
+        self.reindexed.fetch_add(1, Ordering::SeqCst);
         self.rescan.store(true, Ordering::SeqCst);
+        drop(current);
+        self.tasks.cancel_rescan();
+    }
+
+    /// The folders to index and the rules asked for last: after a cancelled
+    /// new index (see [`Stopped::Rescan`]) the ones of the index that was
+    /// kept.
+    pub fn setup(&self) -> (Vec<PathBuf>, RuleSpec) {
+        let roots = self.roots.lock().expect("lock");
+        let rules = self.options.lock().expect("lock").rules.spec();
+        (roots.clone(), rules)
     }
 
     /// Starts or stops watching for file changes. Stopping removes every
@@ -885,7 +915,7 @@ impl Engine {
                 }
             }
         }
-        if !loaded && !self.scan_fresh(TaskKind::Indexing) {
+        if !loaded && self.scan_fresh(TaskKind::Indexing).is_err() {
             // Nothing is saved until a new index is complete; the next
             // start indexes again.
             self.incomplete.store(true, Ordering::SeqCst);
@@ -899,7 +929,9 @@ impl Engine {
         // Changes during any scan precede watch installation too.
         let mut catch_up = true;
         while !self.stop.load(Ordering::SeqCst) {
-            if !self.watching.load(Ordering::SeqCst) {
+            if self.rescan.load(Ordering::SeqCst) {
+                // A new index is due: nothing to watch until it is built.
+            } else if !self.watching.load(Ordering::SeqCst) {
                 self.wait_unwatched();
                 // Turned on again: what changed meanwhile is caught up.
                 catch_up = true;
@@ -907,19 +939,27 @@ impl Engine {
                 catch_up = self.watch_once(catch_up, &mut drives_to_catch_up);
             }
             if self.rescan.swap(false, Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst) {
-                if self.scan_fresh(TaskKind::Rescanning) {
-                    *self.shown.lock().expect("lock") = Arc::new(Vec::new());
-                    self.request_search();
-                    self.save();
-                    catch_up = true;
-                } else {
-                    // The previous index stays, with its folders; nothing
-                    // watched it during the scan, so it is caught up.
-                    let (roots, rules) = self.indexed_with.lock().expect("lock").clone();
-                    *self.roots.lock().expect("lock") = roots;
-                    self.options.lock().expect("lock").rules = rules;
-                    catch_up = true;
-                    (self.hooks.on_stopped)(Stopped::Rescan);
+                // Nothing watched the index during the scan: it is caught
+                // up either way.
+                catch_up = true;
+                match self.scan_fresh(TaskKind::Rescanning) {
+                    Ok(()) => {
+                        *self.shown.lock().expect("lock") = Arc::new(Vec::new());
+                        self.request_search();
+                        self.save();
+                    }
+                    Err(request) => {
+                        // The previous index stays, with its folders, unless
+                        // a newer request came: that one is built next.
+                        let mut roots = self.roots.lock().expect("lock");
+                        if self.reindexed.load(Ordering::SeqCst) == request {
+                            let (indexed, rules) = self.indexed_with.lock().expect("lock").clone();
+                            *roots = indexed;
+                            self.options.lock().expect("lock").rules = rules;
+                            drop(roots);
+                            (self.hooks.on_stopped)(Stopped::Rescan);
+                        }
+                    }
                 }
             }
         }
@@ -1011,11 +1051,12 @@ impl Engine {
     }
 
     /// Builds the index from scratch over the current roots (the home
-    /// folder when there are none) and swaps it in. Returns false, with the
-    /// index as it was, when the task (shown as `kind`) is cancelled.
-    fn scan_fresh(&self, kind: TaskKind) -> bool {
+    /// folder when there are none) and swaps it in. When the task (shown as
+    /// `kind`) is cancelled, the index stays as it was and the error holds
+    /// the [`Engine::reindex`] count the scan was for.
+    fn scan_fresh(&self, kind: TaskKind) -> Result<(), u64> {
         self.report(IndexState::Scanning);
-        let roots = {
+        let (roots, options, request) = {
             let mut roots = self.roots.lock().expect("lock");
             if roots.is_empty() {
                 *roots = std::env::var_os("HOME")
@@ -1023,25 +1064,25 @@ impl Engine {
                     .into_iter()
                     .collect();
             }
-            roots.clone()
+            let request = self.reindexed.load(Ordering::SeqCst);
+            (roots.clone(), self.scan_options(), request)
         };
-        let options = self.scan_options();
         let task = self.tasks.begin(kind, true);
         task.progress().set_total(self.estimate(&roots, &options));
         let mut store = NodeStore::new();
         if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
-            return false;
+            return Err(request);
         }
         let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options.rules);
         if task.progress().is_cancelled() {
-            return false;
+            return Err(request);
         }
         self.replace_index(fresh);
         self.read_drives_again(&left_out);
         *self.indexed_with.lock().expect("lock") = (roots, options.rules);
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
-        true
+        Ok(())
     }
 
     /// The expected number of entries of a scan of `roots`: as many as the
@@ -1191,7 +1232,10 @@ impl Engine {
             self.report(IndexState::CatchingUp);
             watcher.catch_up(&mut self.index.write().expect("index lock"));
             self.report(IndexState::Watching);
-            (self.hooks.on_stopped)(Stopped::Rescan);
+            // A request to index again cancels it too; that one runs next.
+            if !self.rescan.load(Ordering::SeqCst) {
+                (self.hooks.on_stopped)(Stopped::Rescan);
+            }
             return;
         }
         drop(task);
@@ -2626,6 +2670,45 @@ mod tests {
         until(&probe.engine, "the new file", |i| {
             find(i, &fs::canonicalize(root("a")).unwrap().join("three.txt")).is_some()
         });
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_newer_request_to_index_again_is_never_undone() {
+        let dir = Scratch::new("rescan-newer");
+        let root = |p: &str| dir.0.join(p);
+        for f in ["a/one.txt", "b/two.txt", "c/three.txt"] {
+            fs::create_dir_all(root(f).parent().unwrap()).unwrap();
+            fs::write(root(f), "").unwrap();
+        }
+        let probe = Probe::start(vec![root("a")], Vec::new(), root("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+
+        // The new index of "b" waits right after it is listed, as if slow.
+        let (release, wait) = mpsc::channel();
+        *probe.hold.lock().unwrap() = Some(wait);
+        probe.engine.reindex(&[root("b")], IndexRules::default());
+        probe
+            .held
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the new index begins");
+        // Meanwhile "c" is asked for, then the "b" one is cancelled.
+        let excluded = folders(vec![root("c/never")]);
+        probe.engine.reindex(&[root("c")], excluded.clone());
+        let running = probe.engine.tasks.list.lock().unwrap().clone();
+        for task in running {
+            probe.engine.cancel(task.id);
+        }
+        release.send(()).unwrap();
+
+        let c = fs::canonicalize(root("c")).unwrap();
+        until(&probe.engine, "the newer folders indexed", |i| {
+            find(i, &c.join("three.txt")).is_some()
+        });
+        assert_eq!(probe.names("txt"), ["three.txt"]);
+        assert_eq!(probe.engine.roots(), std::slice::from_ref(&c));
+        assert_eq!(probe.engine.scan_options().rules.spec(), excluded.spec());
         probe.engine.shutdown();
     }
 

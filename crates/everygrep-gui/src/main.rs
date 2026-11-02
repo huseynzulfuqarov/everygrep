@@ -166,6 +166,9 @@ fn main() -> Result<(), slint::PlatformError> {
                     if let Some(w) = weak.upgrade() {
                         show_stopped(&w, &stopped);
                     }
+                    if stopped == Stopped::Rescan {
+                        prefs::with(|p| p.rescan_stopped());
+                    }
                 });
             }
         }),

@@ -117,6 +117,29 @@ impl IndexSetup {
             _ => Ok(()),
         }
     }
+
+    /// Takes over the folders and rules the engine indexes, `roots` (as
+    /// [`normalize_roots`] gives them) and `rules`, after a new index was
+    /// cancelled, and saves them as [`change`](Self::change) does. Folders
+    /// left empty stay empty: they stand for the folders the index has.
+    /// Returns whether anything changed.
+    pub fn follow(
+        &mut self,
+        roots: &[PathBuf],
+        rules: &RuleSpec,
+        path: Option<&Path>,
+    ) -> std::io::Result<bool> {
+        let same_roots = self.roots.is_empty() || normalize_roots(&self.roots) == roots;
+        if same_roots && self.rules == *rules {
+            return Ok(false);
+        }
+        let roots = if same_roots {
+            self.roots.clone()
+        } else {
+            roots.to_vec()
+        };
+        self.change(roots, rules.clone(), path).map(|()| true)
+    }
 }
 
 /// Settings of the running program.
@@ -441,17 +464,46 @@ impl Prefs {
             return false;
         }
         self.rule_error.borrow_mut().clear();
-        let result = if self.read_error.is_some() && self.index.borrow().saved {
-            self.index.borrow_mut().change(roots, rules, None)
-        } else {
-            let path = self.path.clone();
-            self.index
-                .borrow_mut()
-                .change(roots, rules, path.as_deref())
-        };
+        let path = self.index_path();
+        let result = self
+            .index
+            .borrow_mut()
+            .change(roots, rules, path.as_deref());
         self.set_error(result.err().map(|e| labels::cannot_save(&e)));
         self.rebuild();
         true
+    }
+
+    /// Where folder and rule changes are saved: nowhere when the settings
+    /// file could not be read and these are the saved settings.
+    fn index_path(&self) -> Option<PathBuf> {
+        if self.read_error.is_some() && self.index.borrow().saved {
+            None
+        } else {
+            self.path.clone()
+        }
+    }
+
+    /// A new index was cancelled ([`crate::engine::Stopped::Rescan`]): the
+    /// engine went back to the folders and rules of the index it kept, and
+    /// the Indexing page and the settings file follow, so the next start
+    /// does not index the cancelled ones.
+    pub fn rescan_stopped(&self) {
+        let (roots, rules) = self.engine.setup();
+        let path = self.index_path();
+        let result = self
+            .index
+            .borrow_mut()
+            .follow(&roots, &rules, path.as_deref());
+        if matches!(result, Ok(false)) {
+            return;
+        }
+        self.set_error(result.err().map(|e| labels::cannot_save(&e)));
+        if let Ok(window) = self.window.try_borrow() {
+            if let Some(w) = window.as_ref() {
+                self.fill_rule_texts(w);
+            }
+        }
     }
 
     /// The rules being edited, with `f` applied.
@@ -1723,6 +1775,48 @@ mod tests {
         let setup = IndexSetup::new(&[], None, &Settings::default());
         assert!(setup.saved && setup.roots.is_empty());
         assert_eq!(setup.rules, RuleSpec::default());
+    }
+
+    #[test]
+    fn a_cancelled_new_index_puts_the_saved_folders_back() {
+        let dir = Scratch::new("setup-follow");
+        let path = dir.0.join("settings");
+        let (a, b) = (dir.0.join("a"), dir.0.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let mut setup = IndexSetup::new(&[], None, &Settings::default());
+        setup
+            .change(vec![a.clone()], RuleSpec::default(), Some(&path))
+            .unwrap();
+        let kept = normalize_roots(std::slice::from_ref(&a));
+        // Asked for, then cancelled: the engine went back to "a".
+        let asked = RuleSpec {
+            exclude_files: "*.tmp".into(),
+            ..RuleSpec::default()
+        };
+        setup.change(vec![b], asked, Some(&path)).unwrap();
+        assert!(
+            setup
+                .follow(&kept, &RuleSpec::default(), Some(&path))
+                .unwrap()
+        );
+        assert_eq!(setup.roots, kept);
+        assert_eq!(setup.rules, RuleSpec::default());
+        let back = Settings::load(&path).unwrap();
+        assert_eq!(back.roots, kept);
+        assert_eq!(back.rule_spec(), RuleSpec::default());
+        // Nothing to take over: the file is not written.
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            !setup
+                .follow(&kept, &RuleSpec::default(), Some(&path))
+                .unwrap()
+        );
+        assert!(!path.exists());
+        // Folders left empty stay empty.
+        let mut empty = IndexSetup::new(&[], None, &Settings::default());
+        assert!(!empty.follow(&kept, &RuleSpec::default(), None).unwrap());
+        assert!(empty.roots.is_empty());
     }
 
     #[test]
