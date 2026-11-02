@@ -12,6 +12,7 @@
 //! is never deleted when the move fails. Links are copied as links; special
 //! files (sockets, pipes, devices) are skipped and stay in the source.
 
+use std::collections::HashMap;
 use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_uint};
 use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
@@ -28,6 +29,9 @@ use crate::i18n::{fill, tr};
 
 /// Size of one read when copying a file; cancel is checked between reads.
 const CHUNK: usize = 1 << 20;
+
+/// Longest file name Linux file systems accept, in bytes.
+const NAME_MAX: usize = 255;
 
 /// Why an item was not pasted.
 #[derive(Debug)]
@@ -137,12 +141,13 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
         .sum();
     progress.restart(Some(total));
 
+    let mut run = Run::default();
     for src in sources {
         if progress.is_cancelled() {
             out.cancelled = true;
             break;
         }
-        match paste_one(op, src, &dest, progress, &mut out.skipped_special) {
+        match paste_one(op, src, &dest, progress, &mut run) {
             Ok(Pasted::New(target)) => {
                 if target.file_name() != src.file_name() {
                     out.renamed += 1;
@@ -170,7 +175,27 @@ pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progres
             }
         }
     }
+    out.skipped_special = run.special;
     out
+}
+
+/// What one paste keeps from item to item.
+#[derive(Default)]
+struct Run {
+    /// Special files left out so far.
+    special: u64,
+    /// For each name (and whether it is a folder's), the first number
+    /// `name (N)` not yet known to be taken in the target folder.
+    next: HashMap<(OsString, bool), u64>,
+}
+
+impl Run {
+    /// [`free_name`] in the target folder `dir`, starting after the number
+    /// the last item of the same name got.
+    fn free_name(&mut self, dir: &Path, name: &OsStr, is_dir: bool) -> io::Result<PathBuf> {
+        let from = self.next.entry((name.to_owned(), is_dir)).or_insert(2);
+        free_name(dir, name, is_dir, from)
+    }
 }
 
 /// What became of one item.
@@ -186,7 +211,7 @@ fn paste_one(
     src: &Path,
     dest: &Path,
     progress: &Progress,
-    special: &mut u64,
+    run: &mut Run,
 ) -> Result<Pasted, Stop> {
     let meta = fs::symlink_metadata(src)?;
     let name = src
@@ -201,10 +226,10 @@ fn paste_one(
     }
     match op {
         Operation::Copy => {
-            let (target, _) = copy_in(src, &meta, dest, name, progress, false, special)?;
+            let (target, _) = copy_in(src, &meta, dest, name, progress, false, run)?;
             Ok(Pasted::New(target))
         }
-        Operation::Cut => move_in(src, &meta, dest, name, progress, special),
+        Operation::Cut => move_in(src, &meta, dest, name, progress, run),
     }
 }
 
@@ -216,10 +241,10 @@ fn move_in(
     dest: &Path,
     name: &OsStr,
     progress: &Progress,
-    special: &mut u64,
+    run: &mut Run,
 ) -> Result<Pasted, Stop> {
     loop {
-        let target = free_name(dest, name, meta.is_dir());
+        let target = run.free_name(dest, name, meta.is_dir())?;
         match rename_noreplace(src, &target) {
             Ok(()) => return Ok(Pasted::New(target)),
             // Taken since we looked: try the next free name.
@@ -228,7 +253,7 @@ fn move_in(
             Err(e) => return Err(e.into()),
         }
     }
-    let (target, copied) = copy_in(src, meta, dest, name, progress, true, special)?;
+    let (target, copied) = copy_in(src, meta, dest, name, progress, true, run)?;
     match remove_copied(&copied) {
         None => Ok(Pasted::New(target)),
         Some(e) => Ok(Pasted::Failed(Failure::NotRemoved(e))),
@@ -263,7 +288,7 @@ fn copy_in(
     name: &OsStr,
     progress: &Progress,
     sync: bool,
-    special: &mut u64,
+    run: &mut Run,
 ) -> Result<(PathBuf, Vec<(PathBuf, bool)>), Stop> {
     let mut copied = Vec::new();
     let mut buf = vec![0; CHUNK];
@@ -275,7 +300,7 @@ fn copy_in(
             sync,
             buf: &mut buf,
             copied: &mut copied,
-            special: &mut *special,
+            special: &mut run.special,
             made: false,
         };
         match copier.tree(src, meta, &temp) {
@@ -299,7 +324,10 @@ fn copy_in(
         return Err(cleaned_up(&temp, Stop::Cancelled));
     }
     loop {
-        let target = free_name(dest, name, meta.is_dir());
+        let target = match run.free_name(dest, name, meta.is_dir()) {
+            Ok(t) => t,
+            Err(e) => return Err(cleaned_up(&temp, e.into())),
+        };
         match rename_noreplace(&temp, &target) {
             Ok(()) => return Ok((target, copied)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -464,29 +492,72 @@ fn tree_size(path: &Path, progress: &Progress) -> u64 {
 }
 
 /// `dir/name` when nothing has that name, else the first free
-/// `stem (N)ext` with N from 2. Folders have no extension. A dangling link
-/// counts as taken.
-pub fn free_name(dir: &Path, name: &OsStr, is_dir: bool) -> PathBuf {
+/// `stem (N)ext`, trying N from `*from` (at least 2) on; `*from` becomes
+/// the number after the one used. Folders have no extension. A dangling
+/// link counts as taken; an error other than "not found" is returned, since
+/// the name may well be taken. The stem is shortened (never inside a UTF-8
+/// sequence) so that the name with its number fits in [`NAME_MAX`] bytes.
+fn free_name(dir: &Path, name: &OsStr, is_dir: bool, from: &mut u64) -> io::Result<PathBuf> {
     let first = dir.join(name);
-    if fs::symlink_metadata(&first).is_err() {
-        return first;
+    if !taken(&first)? {
+        return Ok(first);
     }
     let bytes = name.as_bytes();
     let (stem, ext) = match bytes.iter().rposition(|&b| b == b'.') {
         Some(dot) if dot > 0 && !is_dir => bytes.split_at(dot),
         _ => (bytes, &b""[..]),
     };
-    let mut n: u64 = 2;
+    let mut n = (*from).max(2);
     loop {
-        let mut candidate = stem.to_vec();
-        candidate.extend_from_slice(format!(" ({n})").as_bytes());
-        candidate.extend_from_slice(ext);
-        let path = dir.join(OsString::from_vec(candidate));
-        if fs::symlink_metadata(&path).is_err() {
-            return path;
+        let path = dir.join(OsString::from_vec(numbered(bytes, stem, ext, n)));
+        if !taken(&path)? {
+            *from = n + 1;
+            return Ok(path);
         }
         n += 1;
     }
+}
+
+/// `stem (n)ext` in at most [`NAME_MAX`] bytes. An extension too long to
+/// keep is treated as part of the name.
+fn numbered(name: &[u8], stem: &[u8], ext: &[u8], n: u64) -> Vec<u8> {
+    let mark = format!(" ({n})");
+    let (stem, ext) = if mark.len() + ext.len() >= NAME_MAX {
+        (name, &b""[..])
+    } else {
+        (stem, ext)
+    };
+    let mut end = stem.len().min(NAME_MAX - mark.len() - ext.len());
+    // Back off over UTF-8 continuation bytes, to cut between characters.
+    while end > 0 && end < stem.len() && stem[end] & 0xC0 == 0x80 {
+        end -= 1;
+    }
+    let mut out = stem[..end].to_vec();
+    out.extend_from_slice(mark.as_bytes());
+    out.extend_from_slice(ext);
+    out
+}
+
+/// Whether something (a dangling link too) has the name `path`.
+fn taken(path: &Path) -> io::Result<bool> {
+    probed();
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Names [`free_name`] looked at on this thread (tests only).
+    static PROBES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts one name looked at (tests only).
+fn probed() {
+    #[cfg(test)]
+    PROBES.with(|p| p.set(p.get() + 1));
 }
 
 /// A name in `dir` for a copy in progress; hidden, and unique to this
@@ -616,7 +687,7 @@ mod tests {
         let t = TempDir::new("names");
         let dir = t.path("d");
         fs::create_dir(&dir).unwrap();
-        let n = |name: &str, is_dir| free_name(&dir, OsStr::new(name), is_dir);
+        let n = |name: &str, is_dir| free_name(&dir, OsStr::new(name), is_dir, &mut 2).unwrap();
         assert_eq!(n("a.txt", false), dir.join("a.txt"));
         write(&dir.join("a.txt"), "");
         assert_eq!(n("a.txt", false), dir.join("a (2).txt"));
@@ -630,6 +701,63 @@ mod tests {
         assert_eq!(n("photos.2026", true), dir.join("photos.2026 (2)"));
         symlink(dir.join("missing"), dir.join("dangling")).unwrap();
         assert_eq!(n("dangling", false), dir.join("dangling (2)"));
+        // A folder whose entries cannot be looked at gives no name.
+        let shut = t.path("shut");
+        fs::create_dir(&shut).unwrap();
+        fs::set_permissions(&shut, fs::Permissions::from_mode(0o600)).unwrap();
+        let denied = fs::symlink_metadata(shut.join("x"))
+            .is_err_and(|e| e.kind() == io::ErrorKind::PermissionDenied);
+        // (Running as root, the entry can be looked at anyway.)
+        if denied {
+            assert!(free_name(&shut, OsStr::new("x"), false, &mut 2).is_err());
+        }
+    }
+
+    #[test]
+    fn a_name_of_the_longest_length_gets_a_shortened_free_name() {
+        let t = TempDir::new("name-max");
+        let dir = t.path("d");
+        let long = format!("{}.txt", "x".repeat(251));
+        write(&dir.join(&long), "x");
+        let out = paste(Operation::Copy, &[dir.join(&long)], &dir, &Progress::new());
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let short = format!("{} (2).txt", "x".repeat(247));
+        assert_eq!(read(&dir.join(&short)), "x");
+        // A name in another script is cut between characters, and a name
+        // that is not UTF-8 between whole sequences.
+        let wide = format!("{}.txt", "ə".repeat(125));
+        write(&dir.join(&wide), "");
+        let got = free_name(&dir, OsStr::new(&wide), false, &mut 2).unwrap();
+        let got = got.file_name().unwrap().to_str().unwrap().to_owned();
+        assert_eq!(got, format!("{} (2).txt", "ə".repeat(123)));
+        let mut odd = vec![0xff];
+        odd.extend("ə".repeat(127).as_bytes());
+        write(&dir.join(OsStr::from_bytes(&odd)), "");
+        let got = free_name(&dir, OsStr::from_bytes(&odd), false, &mut 2).unwrap();
+        let got = got.file_name().unwrap().as_bytes().to_vec();
+        assert!(got.len() <= 255, "{}", got.len());
+        assert!(got.ends_with(" (2)".as_bytes()));
+        assert!(std::str::from_utf8(&got[1..]).is_ok());
+    }
+
+    #[test]
+    fn many_items_of_one_name_do_not_search_from_the_start_each_time() {
+        let t = TempDir::new("same-names");
+        let dest = t.path("dest");
+        write(&dest.join("README.md"), "0");
+        let sources: Vec<PathBuf> = (0..200)
+            .map(|i| {
+                let p = t.path(&format!("src/{i}/README.md"));
+                write(&p, &i.to_string());
+                p
+            })
+            .collect();
+        PROBES.with(|p| p.set(0));
+        let out = paste(Operation::Copy, &sources, &dest, &Progress::new());
+        let probes = PROBES.with(|p| p.get());
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(read(&dest.join("README (201).md")), "199");
+        assert!(probes < 4 * 200, "{probes} names looked at");
     }
 
     #[test]
@@ -840,7 +968,7 @@ mod tests {
         let progress = Progress::new();
         progress.cancel();
         let meta = fs::symlink_metadata(&src).unwrap();
-        let mut special = 0;
+        let mut run = Run::default();
         let got = copy_in(
             &src,
             &meta,
@@ -848,7 +976,7 @@ mod tests {
             OsStr::new("tree"),
             &progress,
             true,
-            &mut special,
+            &mut run,
         );
         assert!(matches!(got, Err(Stop::Cancelled)), "{got:?}");
         assert!(names(&dest).is_empty(), "{:?}", names(&dest));
@@ -950,7 +1078,7 @@ mod tests {
         let dest = t.path("dest");
         fs::create_dir(&dest).unwrap();
         let meta = fs::symlink_metadata(&src).unwrap();
-        let mut special = 0;
+        let mut run = Run::default();
         let (target, copied) = copy_in(
             &src,
             &meta,
@@ -958,7 +1086,7 @@ mod tests {
             OsStr::new("tree"),
             &Progress::new(),
             true,
-            &mut special,
+            &mut run,
         )
         .unwrap();
         assert_eq!(target, dest.join("tree"));
