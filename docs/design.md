@@ -454,3 +454,11 @@ Its organizer also edits the filter and sort. Opening restores the text, all
 matching modes, frozen filter and sort, revealing the sort column if needed.
 A frozen filter that differs from the live one is available in the same
 selector; choosing another filter leaves the snapshot unused.
+
+Advanced Search (Search menu, Ctrl+Shift+F) is a separate window with a session
+form. Words may use `*` and `?`; the exact phrase is literal. Name/path, location
+and subfolder scope, the existing filter choices, type, extension and inclusive
+size/date ranges build the query. Dates are local YYYY-MM-DD. Empty bounds are
+unrestricted; invalid or reversed ranges leave the main field unchanged.
+Use query replaces the field, applies the form's matching modes and follows
+Search as you type. The form never tries to reverse-parse an existing query.

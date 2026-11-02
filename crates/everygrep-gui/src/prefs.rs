@@ -823,6 +823,7 @@ impl Prefs {
         }
         self.scheme_set.set(true);
         crate::saved_ui::apply_scheme(scheme as i32);
+        crate::advanced::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
         }

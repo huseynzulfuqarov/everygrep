@@ -530,3 +530,15 @@ default command keys, and cannot use typing/navigation keys. Keyboard settings
 checks library ownership before applying a command binding. Commands retain
 priority if an external settings edit introduces a collision. Deleted entries
 lose their keys; restoring filters clears built-in keys and keeps custom keys.
+
+### Advanced Search (`advanced.rs`, `advanced_query.rs`)
+
+The session form produces existing syntax only. Word alternatives are explicitly
+grouped, operators in fields are quoted, and quotes/control characters use the
+same regex escaping as context searches. Those regex terms follow the engine's
+regex matching rules. Location queries share its boundary-safe implementation.
+Size units become exact byte comparisons with checked arithmetic; dates validate
+calendar days before emitting inclusive dm/dc/da comparisons. A full engine
+parse validates the output before changing the field. Filter choices are held
+by value, so a concurrent organizer edit cannot make an index select another
+filter. No form data is persisted and no content query is generated.

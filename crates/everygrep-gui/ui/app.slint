@@ -6,6 +6,7 @@ export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
 export { HistoryWindow } from "history.slint";
 export { SavedWindow } from "saved.slint";
+export { AdvancedWindow } from "advanced.slint";
 export { StalledDialog } from "stalled.slint";
 
 // A text with up to four highlighted runs: plain and bold pieces in turn,
@@ -1043,6 +1044,7 @@ export component AppWindow inherits Window {
     in-out property <bool> about-open;
 
     callback query-edited(string);
+    callback generated-query-edited(string);
     // Runs the current search again and reads the shown details afresh.
     callback refresh();
     callback sort-changed(int, bool);
@@ -1529,6 +1531,7 @@ export component AppWindow inherits Window {
     in property <[string]> bookmark-names;
     callback open-bookmark(int);
     callback saved-key(string, bool, bool, bool, bool) -> bool;
+    callback advanced-search();
     callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
 
     // File actions that are refused, with a note, for an item on a drive
@@ -1737,6 +1740,7 @@ export component AppWindow inherits Window {
             root.restore-filters();
         } else if (c == Command.add-bookmark) { root.add-bookmark();
         } else if (c == Command.organize-bookmarks) { root.organize-bookmarks();
+        } else if (c == Command.advanced-search) { root.advanced-search();
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -3383,6 +3387,7 @@ export component AppWindow inherits Window {
                 enabled: root.can-run(Command.next-filter);
                 activated => { root.run(Command.next-filter); }
             }
+            MenuItem { title: @tr("Advanced Search…"); shortcut: root.menu-keys.advanced-search; activated => { root.run(Command.advanced-search); } }
             MenuSeparator { }
             Menu {
                 title: @tr("Find duplicates");

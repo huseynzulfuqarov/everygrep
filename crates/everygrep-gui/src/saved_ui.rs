@@ -158,6 +158,28 @@ pub fn selected(w: &AppWindow) -> Option<NamedFilter> {
     .flatten()
 }
 
+pub fn filter_choices() -> Vec<NamedFilter> {
+    with(|s| {
+        s.library
+            .borrow()
+            .filters
+            .iter()
+            .chain(s.snapshot.borrow().iter())
+            .cloned()
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+pub fn select_filter(w: &AppWindow, filter: &NamedFilter) {
+    with(|s| {
+        let live = s.library.borrow().filters.iter().position(|f| f == filter);
+        *s.snapshot.borrow_mut() = live.is_none().then(|| filter.clone());
+        w.set_filter_index(live.unwrap_or(s.library.borrow().filters.len()) as i32);
+        fill_filters(w);
+    });
+}
+
 pub fn select_builtin(w: &AppWindow, filter: Filter) {
     with(|s| {
         let (original, index) = s.library.borrow().builtin_selection(filter);
@@ -183,14 +205,28 @@ pub fn fill_filters(w: &AppWindow) {
         let snapshot = s.snapshot.borrow();
         let entries: Vec<_> = l.filters.iter().chain(snapshot.iter()).collect();
         w.set_filter_names(ModelRc::new(VecModel::from(
-            entries.iter().map(|f| f.title().into()).collect::<Vec<_>>(),
+            entries
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    if i == l.filters.len() {
+                        fill(tr("{} (snapshot)"), &[&f.title()]).into()
+                    } else {
+                        f.title().into()
+                    }
+                })
+                .collect::<Vec<_>>(),
         )));
         w.set_filter_items(ModelRc::new(VecModel::from(
             entries
                 .iter()
                 .enumerate()
                 .map(|(i, f)| MenuChoice {
-                    title: item_label(&f.title(), l.shortcut(Target::Filter(f.id))).into(),
+                    title: if i == l.filters.len() {
+                        fill(tr("{} (snapshot)"), &[&f.title()]).into()
+                    } else {
+                        item_label(&f.title(), l.shortcut(Target::Filter(f.id))).into()
+                    },
                     checked: i as i32 == w.get_filter_index(),
                 })
                 .collect::<Vec<_>>(),

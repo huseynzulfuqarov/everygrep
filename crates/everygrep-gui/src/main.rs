@@ -1,6 +1,8 @@
 //! EveryGrep desktop window.
 
 mod actions;
+mod advanced;
+mod advanced_query;
 mod autostart;
 mod clipboard;
 mod columns;
@@ -258,6 +260,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     saved_ui::connect(&window, &engine);
+    advanced::connect(&window);
     set_filter_names(&window);
     set_options(&window, start_options);
     window.set_show_type(args.show_type);
@@ -311,13 +314,15 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let pause = Rc::new(Timer::default());
-    window.on_query_edited({
+    let query_edit = |manual: bool| {
         let (engine, weak, pause, prefs) =
             (engine.clone(), weak.clone(), pause.clone(), prefs.clone());
-        move |text| {
+        move |text: slint::SharedString| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
-            prefs.restore_parse_options(&w);
+            if manual {
+                prefs.restore_parse_options(&w);
+            }
             prefs.fill_history();
             if !typing::with(|t| t.edited()) {
                 wait_for_enter(&w);
@@ -333,7 +338,9 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             });
         }
-    });
+    };
+    window.on_query_edited(query_edit(true));
+    window.on_generated_query_edited(query_edit(false));
     window.on_refresh({
         let engine = engine.clone();
         move || {

@@ -15,7 +15,7 @@ use crate::{AppWindow, engine::Engine, prefs, results::ResultsModel};
 /// Escape through the regex syntax, since query quotes cannot escape quotes
 /// inside a filename. Valid UTF-8 keeps Unicode case matching; invalid UTF-8
 /// is represented as raw bytes. Neither form can inject query operators.
-fn literal(bytes: &[u8]) -> String {
+pub(crate) fn literal(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     if let Ok(text) = std::str::from_utf8(bytes) {
@@ -41,7 +41,7 @@ fn literal(bytes: &[u8]) -> String {
 
 /// Search in a directory, or for a file's name. Path searches always use
 /// the containing directory. Directory boundaries prevent sibling matches.
-fn query(
+pub(crate) fn query(
     path: &Path,
     is_dir: bool,
     containing: bool,

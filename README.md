@@ -793,3 +793,15 @@ shortcut removes it. Conflicts with another
 saved item or any active/default command key are refused. Keyboard settings
 also refuses keys owned by saved items. Item keys appear in menus and keyboard
 help; the organizer's Alt+Up/Down remains local to the organizer.
+
+Search → Advanced Search (Ctrl+Shift+F) builds the existing query syntax from
+all words, an exact phrase, any words and excluded words, in names or paths.
+It offers a location with optional subfolders, the current filter, files or
+folders, extensions, size and modified/created/accessed date ranges. Sizes use
+bytes or binary KiB/MiB/GiB; dates are local `YYYY-MM-DD` and both ends are
+inclusive. Empty ends impose no limit. Use query replaces the field and follows
+Search as you type; with that setting off, press Enter to run it. Content and
+unsupported metadata conditions are omitted.
+
+Advanced Search rejects extension lists combined with Folders or Files without
+an extension. Its form and the saved-item editor scroll in short work areas.

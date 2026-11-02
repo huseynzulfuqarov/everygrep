@@ -951,6 +951,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::AdvancedSearch,
+        id: "search.advanced",
+        category: Category::Search,
+        label: || tr("Advanced Search…"),
+        defaults: &[(Global, "Ctrl+Shift+F")],
+    },
+    Spec {
         cmd: Command::Settings,
         id: "tools.settings",
         category: Category::Tools,
@@ -1295,6 +1302,7 @@ impl Keymap {
             restore_filters => RestoreFilters,
             add_bookmark => AddBookmark,
             organize_bookmarks => OrganizeBookmarks,
+            advanced_search => AdvancedSearch,
             settings => Settings,
             keyboard_settings => KeyboardSettings,
             shortcuts_help => ShortcutsHelp,

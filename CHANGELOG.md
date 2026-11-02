@@ -10,6 +10,9 @@ First version, 0.1.0, not released yet.
 
 ### Saved searches
 
+- Advanced Search builds safe queries for words, paths, kinds, extensions and
+  inclusive size/date ranges, with validation before replacing the search field.
+
 - Optional per-filter and per-bookmark shortcuts reject conflicts with saved
   items and command keys; keyboard settings checks saved keys too.
 

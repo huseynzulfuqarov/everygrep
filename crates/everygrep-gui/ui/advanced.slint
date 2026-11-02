@@ -1,0 +1,141 @@
+import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component AdvancedWindow inherits Window {
+    title: @tr("Advanced Search");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 800px;
+    preferred-height: 800px;
+    min-width: 720px;
+    min-height: 480px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    forward-focus: all;
+    in-out property <string> all-words;
+    in-out property <string> phrase;
+    in-out property <string> any-words;
+    in-out property <string> none-words;
+    in-out property <bool> in-path;
+    in-out property <string> location;
+    in-out property <bool> recursive: true;
+    in-out property <int> kind;
+    in-out property <string> extensions;
+    in-out property <string> min-size;
+    in-out property <string> max-size;
+    in-out property <int> size-unit;
+    in-out property <string> modified-from;
+    in-out property <string> modified-to;
+    in-out property <string> created-from;
+    in-out property <string> created-to;
+    in-out property <string> accessed-from;
+    in-out property <string> accessed-to;
+    in-out property <bool> match-case;
+    in-out property <bool> whole-words;
+    in-out property <bool> diacritics;
+    in property <[string]> filter-names;
+    in-out property <int> filter-index;
+    in property <string> notice;
+    callback use-query();
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.close-window(); return accept; }
+            reject
+        }
+        ScrollView {
+        VerticalLayout {
+            padding: Theme.s4;
+            spacing: Theme.s2;
+            GridLayout {
+                spacing: Theme.s2;
+                Row {
+                    Text { text: @tr("All of these words"); color: Theme.text; vertical-alignment: center; }
+                    all := LineEdit { accessible-label: @tr("All of these words"); text <=> root.all-words; }
+                }
+                Row {
+                    Text { text: @tr("This exact phrase"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("This exact phrase"); text <=> root.phrase; }
+                }
+                Row {
+                    Text { text: @tr("Any of these words"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Any of these words"); text <=> root.any-words; }
+                }
+                Row {
+                    Text { text: @tr("None of these words"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("None of these words"); text <=> root.none-words; }
+                }
+            }
+            Text { text: @tr("Separate words with spaces; * and ? are wildcards. The exact phrase is literal."); color: Theme.text-muted; wrap: word-wrap; }
+            HorizontalLayout {
+                CheckBox { text: @tr("Search in full path"); checked <=> root.in-path; }
+                CheckBox { text: @tr("Match case"); checked <=> root.match-case; }
+                CheckBox { text: @tr("Whole words"); checked <=> root.whole-words; }
+                CheckBox { text: @tr("Match diacritics"); checked <=> root.diacritics; }
+            }
+            GridLayout {
+                spacing: Theme.s2;
+                Row {
+                    Text { text: @tr("Located in"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Located in"); text <=> root.location; }
+                }
+                Row {
+                    Text { text: ""; }
+                    CheckBox { text: @tr("Include subfolders"); checked <=> root.recursive; }
+                }
+                Row {
+                    Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox { accessible-label: @tr("Filter"); model: root.filter-names; current-index <=> root.filter-index; }
+                }
+                Row {
+                    Text { text: @tr("Type"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox { accessible-label: @tr("Type"); model: [@tr("Files and folders"), @tr("Files"), @tr("Folders"), @tr("Files without an extension")]; current-index <=> root.kind; }
+                }
+                Row {
+                    Text { text: @tr("Extensions"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Extensions"); text <=> root.extensions; placeholder-text: @tr("For example pdf;txt"); }
+                }
+            }
+            GridLayout {
+                spacing: Theme.s2;
+                Row {
+                    Text { text: @tr("Size from"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Minimum size"); text <=> root.min-size; }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Maximum size"); text <=> root.max-size; }
+                    ComboBox { accessible-label: @tr("Size unit"); model: [@tr("bytes"), @tr("KiB"), @tr("MiB"), @tr("GiB")]; current-index <=> root.size-unit; }
+                }
+                Row {
+                    Text { text: @tr("Modified from"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Modified from"); text <=> root.modified-from; placeholder-text: @tr("YYYY-MM-DD"); }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Modified to"); text <=> root.modified-to; placeholder-text: @tr("YYYY-MM-DD"); }
+                }
+                Row {
+                    Text { text: @tr("Created from"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Created from"); text <=> root.created-from; placeholder-text: @tr("YYYY-MM-DD"); }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Created to"); text <=> root.created-to; placeholder-text: @tr("YYYY-MM-DD"); }
+                }
+                Row {
+                    Text { text: @tr("Accessed from"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Accessed from"); text <=> root.accessed-from; placeholder-text: @tr("YYYY-MM-DD"); }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Accessed to"); text <=> root.accessed-to; placeholder-text: @tr("YYYY-MM-DD"); }
+                }
+            }
+            Text { text: @tr("Ranges include both ends. Empty ends are unrestricted. Dates use local time."); color: Theme.text-muted; wrap: word-wrap; }
+            if root.notice != "": Text { text: root.notice; color: Theme.danger; wrap: word-wrap; }
+            HorizontalLayout {
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Use query"); primary: true; clicked => { root.use-query(); } }
+                Button { text: @tr("Cancel"); clicked => { root.close-window(); } }
+            }
+        }
+        }
+    }
+}

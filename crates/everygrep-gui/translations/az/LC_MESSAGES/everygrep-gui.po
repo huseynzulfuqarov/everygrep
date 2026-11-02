@@ -2689,3 +2689,129 @@ msgstr "Qısayollar aktiv klaviatura düzülüşündən istifadə edir."
 
 msgid "Invalid saved shortcut."
 msgstr "Saxlanmış qısayol yanlışdır."
+
+msgid "Advanced Search"
+msgstr "Ətraflı axtarış"
+
+msgid "Advanced Search…"
+msgstr "Ətraflı axtarış…"
+
+msgid "All of these words"
+msgstr "Bu sözlərin hamısı"
+
+msgid "This exact phrase"
+msgstr "Bu dəqiq ifadə"
+
+msgid "Any of these words"
+msgstr "Bu sözlərdən hər hansı biri"
+
+msgid "None of these words"
+msgstr "Bu sözlərin heç biri"
+
+msgid "Separate words with spaces; * and ? are wildcards. The exact phrase is literal."
+msgstr "Sözləri boşluqla ayırın; * və ? şablon simvollarıdır. Dəqiq ifadə olduğu kimi axtarılır."
+
+msgid "Search in full path"
+msgstr "Tam yolda axtar"
+
+msgid "Located in"
+msgstr "Bu qovluqda"
+
+msgid "Include subfolders"
+msgstr "Alt qovluqları daxil et"
+
+msgid "Files and folders"
+msgstr "Fayllar və qovluqlar"
+
+msgid "Files"
+msgstr "Fayllar"
+
+msgid "Files without an extension"
+msgstr "Uzantısız fayllar"
+
+msgid "Extensions"
+msgstr "Uzantılar"
+
+msgid "For example pdf;txt"
+msgstr "Məsələn pdf;txt"
+
+msgid "Size from"
+msgstr "Ölçü, ən az"
+
+msgid "Minimum size"
+msgstr "Ən kiçik ölçü"
+
+msgid "Maximum size"
+msgstr "Ən böyük ölçü"
+
+msgid "Size unit"
+msgstr "Ölçü vahidi"
+
+msgid "bytes"
+msgstr "bayt"
+
+msgid "KiB"
+msgstr "KiB"
+
+msgid "MiB"
+msgstr "MiB"
+
+msgid "GiB"
+msgstr "GiB"
+
+msgid "to"
+msgstr "–"
+
+msgid "Modified from"
+msgstr "Dəyişdirilmə, başlanğıc"
+
+msgid "Modified to"
+msgstr "Dəyişdirilmə, son"
+
+msgid "Created from"
+msgstr "Yaradılma, başlanğıc"
+
+msgid "Created to"
+msgstr "Yaradılma, son"
+
+msgid "Accessed from"
+msgstr "Giriş, başlanğıc"
+
+msgid "Accessed to"
+msgstr "Giriş, son"
+
+msgid "YYYY-MM-DD"
+msgstr "YYYY-MM-DD"
+
+msgid "Ranges include both ends. Empty ends are unrestricted. Dates use local time."
+msgstr "Aralığın hər iki həddi daxildir. Boş hədlər məhdudiyyət qoymur. Tarixlər yerli vaxtladır."
+
+msgid "Use query"
+msgstr "Sorğunu tətbiq et"
+
+msgid "Search fields cannot contain NUL characters."
+msgstr "Axtarış sahələrində NUL simvolu ola bilməz."
+
+msgid "Enter an absolute folder path."
+msgstr "Qovluğun mütləq yolunu daxil edin."
+
+msgid "Choose a supported file type."
+msgstr "Dəstəklənən fayl növünü seçin."
+
+msgid "Separate extensions with semicolons, for example pdf;txt."
+msgstr "Uzantıları nöqtəli vergüllə ayırın, məsələn pdf;txt."
+
+msgid "Enter a valid size range."
+msgstr "Düzgün ölçü aralığı daxil edin."
+
+msgid "The minimum must not exceed the maximum."
+msgstr "Ən kiçik ölçü ən böyük ölçüdən çox ola bilməz."
+
+msgid "Use valid dates in YYYY-MM-DD format."
+msgstr "YYYY-MM-DD formatında düzgün tarixlər daxil edin."
+
+msgid "The start date must not follow the end date."
+msgstr "Başlanğıc tarixi son tarixdən sonra ola bilməz."
+
+msgid "Choose Files or Files and folders to use an extension list."
+msgstr "Uzantı siyahısı üçün “Fayllar” və ya “Fayllar və qovluqlar” seçin."
