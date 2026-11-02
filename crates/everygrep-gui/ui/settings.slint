@@ -182,6 +182,7 @@ export component SettingsWindow inherits Window {
     in property <int> history-max;
     in-out property <bool> history-on-disk;
     in-out property <bool> history-enabled;
+    in-out property <bool> always-suggestions;
     in-out property <int> history-days;
     in property <int> committed-history-days;
     callback edit-history-days(int);
@@ -801,6 +802,12 @@ export component SettingsWindow inherits Window {
                             Note { text: @tr("Options given on the command line take their place."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Search history"); }
+                            CheckBox {
+                                text: @tr("Suggest earlier searches while typing");
+                                checked <=> root.always-suggestions;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("Off: suggestions appear only when Search as you type is off."); }
                             CheckBox {
                                 text: @tr("Record search history");
                                 checked <=> root.history-enabled;

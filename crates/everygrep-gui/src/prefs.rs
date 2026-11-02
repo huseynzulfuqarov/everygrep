@@ -28,7 +28,7 @@ use crate::i18n;
 use crate::look::{self, Scheme};
 use crate::portal::ColorScheme;
 use crate::schedule::{self, Schedule};
-use crate::search_history::{self, Searches};
+use crate::search_history::{self, Order, Searches};
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
@@ -496,6 +496,41 @@ impl Prefs {
         } else {
             done(self, true);
         }
+        self.fill_history();
+    }
+
+    pub fn fill_history(&self) {
+        let Some(w) = self.main.upgrade() else { return };
+        let s = self.settings.borrow();
+        let mut entries = self.searches.borrow_mut();
+        entries.retain_days(s.history_days, search_history::now());
+        let rows = if w.get_history_full() {
+            entries.sorted(s.history_sort, "")
+        } else {
+            entries.suggestions(&w.get_query(), s.history_sort)
+        };
+        let rows: Vec<SharedString> = rows.into_iter().map(|e| e.search.as_str().into()).collect();
+        w.set_history_rows(ModelRc::new(VecModel::from(rows)));
+        w.set_history_sort(
+            Order::ALL
+                .iter()
+                .position(|o| *o == s.history_sort)
+                .unwrap_or(0) as i32,
+        );
+        w.set_history_suggestions(
+            s.history_enabled && s.history_size > 0 && (s.always_suggestions || !s.as_you_type),
+        );
+    }
+
+    pub fn set_history_sort(&self, index: i32) {
+        if let Some(order) = usize::try_from(index)
+            .ok()
+            .and_then(|i| Order::ALL.get(i))
+            .copied()
+        {
+            self.change_search_settings(move |s| s.history_sort = order);
+            self.fill_history();
+        }
     }
 
     fn finish_history(&self, revision: u64, result: std::io::Result<Searches>) -> bool {
@@ -503,6 +538,7 @@ impl Prefs {
             Ok(entries) => {
                 if self.history_revision.get() == revision {
                     *self.searches.borrow_mut() = entries;
+                    self.fill_history();
                 }
                 true
             }
@@ -543,6 +579,7 @@ impl Prefs {
         self.history.borrow_mut().set_max(max);
         self.searches.borrow_mut().0.clear();
         self.clear_saved_history();
+        self.fill_history();
     }
 
     /// Notes the index state for the Indexing page.
@@ -1375,6 +1412,7 @@ impl Prefs {
         w.set_hash_cache_used(
             crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
         );
+        w.set_always_suggestions(s.always_suggestions);
         w.set_history_enabled(s.history_enabled);
         w.set_history_days(self.retention.get().draft as i32);
         w.set_committed_history_days(s.history_days as i32);
@@ -2146,6 +2184,7 @@ impl Prefs {
         let was_on_disk = self.settings.borrow().history_on_disk;
         let on_disk = w.get_history_on_disk();
         let enabled = w.get_history_enabled();
+        let suggestions = w.get_always_suggestions();
         let as_you_type = w.get_as_you_type();
         let filter_wrap = w.get_filter_wrap();
         let show_mode_badges = w.get_show_mode_badges();
@@ -2163,6 +2202,7 @@ impl Prefs {
             s.history_size = size;
             s.history_on_disk = on_disk;
             s.history_enabled = enabled;
+            s.always_suggestions = suggestions;
         });
         if on_disk && !was_on_disk {
             let memory = self.searches.borrow().clone();
@@ -2216,6 +2256,7 @@ impl Prefs {
     /// A changed search policy reruns the current query.
     pub fn apply_behaviour(&self) {
         let Some(m) = self.main.upgrade() else { return };
+        self.fill_history();
         let s = self.settings.borrow();
         let old_options = crate::options(&m);
         m.set_wildcards_anywhere(s.options.wildcards_anywhere);

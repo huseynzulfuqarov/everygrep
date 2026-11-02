@@ -313,6 +313,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move |text| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
+            prefs.fill_history();
             if !typing::with(|t| t.edited()) {
                 wait_for_enter(&w);
                 return;
@@ -356,6 +357,25 @@ fn main() -> Result<(), slint::PlatformError> {
                 pause.stop();
                 search_now(&w, &engine);
             }
+        }
+    });
+    window.on_history_list_requested({
+        let prefs = prefs.clone();
+        move || prefs.change_searches(|_| {})
+    });
+    window.on_history_sort_changed({
+        let prefs = prefs.clone();
+        move |i| prefs.set_history_sort(i)
+    });
+    window.on_history_picked({
+        let (weak, engine, pause) = (weak.clone(), engine.clone(), pause.clone());
+        move |text| {
+            pause.stop();
+            let Some(w) = weak.upgrade() else { return };
+            w.set_query(text.clone());
+            w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
+            typing::with(|t| t.searched());
+            search_now(&w, &engine);
         }
     });
     window.on_history_record({

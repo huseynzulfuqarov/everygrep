@@ -57,6 +57,7 @@ use crate::engine::DriveSettings;
 use crate::format::{SizeStandard, SizeUnit};
 use crate::i18n::{self, Lang};
 use crate::schedule::{self, Schedule};
+use crate::search_history::Order;
 
 /// Search history entries kept by default (the number before settings
 /// existed).
@@ -267,6 +268,8 @@ pub struct Settings {
     pub history_enabled: bool,
     /// Retention in days; 0 means forever.
     pub history_days: u32,
+    pub history_sort: Order,
+    pub always_suggestions: bool,
     pub on_close: OnClose,
     /// What the Size column shows for folders, and sorts them by. The one
     /// default that differs from the behaviour before settings existed
@@ -352,6 +355,8 @@ impl Default for Settings {
             reload_changed: true,
             history_enabled: true,
             history_days: 90,
+            history_sort: Order::Date,
+            always_suggestions: false,
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
             remember_columns: true,
@@ -610,6 +615,12 @@ impl Settings {
             "history-on-disk" => put_flag(&mut self.history_on_disk),
             "reload-changed-settings" => put_flag(&mut self.reload_changed),
             "history-enabled" => put_flag(&mut self.history_enabled),
+            "always-search-suggestions" => put_flag(&mut self.always_suggestions),
+            "history-sort" => Order::ALL
+                .into_iter()
+                .find(|o| o.id() == value)
+                .map(|o| self.history_sort = o)
+                .is_some(),
             "history-days" => value
                 .parse::<u32>()
                 .ok()
@@ -912,6 +923,15 @@ impl Settings {
             self.history_enabled,
             d.history_enabled,
         );
+        flag(
+            &mut out,
+            "always-search-suggestions",
+            self.always_suggestions,
+            d.always_suggestions,
+        );
+        if all || self.history_sort != d.history_sort {
+            line(&mut out, "history-sort", self.history_sort.id());
+        }
         if all || self.history_days != d.history_days {
             line(&mut out, "history-days", &self.history_days.to_string());
         }
@@ -1178,6 +1198,8 @@ impl Settings {
                 self.history_on_disk = d.history_on_disk;
                 self.history_enabled = d.history_enabled;
                 self.history_days = d.history_days;
+                self.history_sort = d.history_sort;
+                self.always_suggestions = d.always_suggestions;
                 self.content = d.content;
             }
             Page::Appearance => {
@@ -1429,6 +1451,7 @@ fn is_known(key: &str) -> bool {
         "windows-1254",
         "never",
         "03:00",
+        "date",
     ]
     .iter()
     .any(|v| probe.set(key, v))
@@ -1908,7 +1931,14 @@ pub(crate) mod tests {
         assert_eq!(s.history_days, 0);
         assert_eq!(Settings::parse(&s.to_text()), s);
         assert_eq!(Settings::parse("history-days = 36501\n").problems.len(), 1);
+        for order in Order::ALL {
+            s.history_sort = order;
+            s.always_suggestions = true;
+            assert_eq!(Settings::parse(&s.to_text()), s);
+        }
         s.reset(Page::Search);
+        assert_eq!(s.history_sort, Order::Date);
+        assert!(!s.always_suggestions);
         assert!(s.history_enabled);
         assert_eq!(s.history_days, 90);
     }

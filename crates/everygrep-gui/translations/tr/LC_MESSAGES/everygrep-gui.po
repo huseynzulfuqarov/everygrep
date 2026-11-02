@@ -2474,3 +2474,36 @@ msgstr "Arama geçmişi geçersiz."
 
 msgid "The configuration folder is unavailable."
 msgstr "Yapılandırma klasörüne erişilemiyor."
+
+msgid "Suggest earlier searches while typing"
+msgstr "Arama önerilerini her zaman göster"
+
+msgid "Off: suggestions appear only when Search as you type is off."
+msgstr "Yazarken arama kapalıysa öneriler her zaman gösterilir."
+
+msgid "Show search history"
+msgstr "Arama geçmişini göster"
+
+msgid "History"
+msgstr "Geçmiş"
+
+msgid "Back"
+msgstr "Geri"
+
+msgid "Forward"
+msgstr "İleri"
+
+msgid "Sort history by"
+msgstr "Geçmişi sırala"
+
+msgid "Last used"
+msgstr "Arama tarihi"
+
+msgid "Times used"
+msgstr "Arama sayısı"
+
+msgid "Search text"
+msgstr "Arama metni"
+
+msgid "No search history"
+msgstr "Arama geçmişi boş"

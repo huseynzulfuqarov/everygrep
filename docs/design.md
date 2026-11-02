@@ -47,7 +47,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   (refresh, optional columns, size columns to fit, sort by column and direction, folder size, density,
   theme, selection details, menu bar), Search (matching modes, including
   prefix, suffix, ignore punctuation and ignore whitespace, filters,
-  previous and next filter, previous and next search), Tools (settings,
+  previous and next filter), History (back, forward, search history), Tools (settings,
   keyboard shortcuts settings), Help (keyboard shortcuts, about). Only
   features that exist get an entry. Every entry runs the same command as its
   key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
@@ -252,6 +252,12 @@ persistence remains opt-in. Entries expire after 90 days by default; 0 days
 keeps them indefinitely, subject to the 10,000 distinct-search cap. Changing the
 days field takes effect only on Apply. Search settings can disable recording or
 clear both lists.
+The search field’s ▼ button (F4) shows all saved searches, ordered by newest
+date, highest count or ascending text, with deterministic text ties. Optional
+suggestions match the typed prefix without case sensitivity and show at most
+12 entries. They always appear when search as you type is off; with it on,
+"Suggest earlier searches while typing" enables them. Up/Down selects a suggestion,
+Enter runs it, and Esc dismisses the list.
 
 ### One window
 

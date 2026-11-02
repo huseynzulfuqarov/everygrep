@@ -2474,3 +2474,36 @@ msgstr "Axtarış tarixçəsi yanlışdır."
 
 msgid "The configuration folder is unavailable."
 msgstr "Konfiqurasiya qovluğu əlçatan deyil."
+
+msgid "Suggest earlier searches while typing"
+msgstr "Axtarış təkliflərini həmişə göstər"
+
+msgid "Off: suggestions appear only when Search as you type is off."
+msgstr "Yazarkən axtarış söndürülübsə, təkliflər həmişə göstərilir."
+
+msgid "Show search history"
+msgstr "Axtarış tarixçəsini göstər"
+
+msgid "History"
+msgstr "Tarixçə"
+
+msgid "Back"
+msgstr "Geri"
+
+msgid "Forward"
+msgstr "İrəli"
+
+msgid "Sort history by"
+msgstr "Tarixçənin sıralanması"
+
+msgid "Last used"
+msgstr "Axtarış tarixi"
+
+msgid "Times used"
+msgstr "Axtarış sayı"
+
+msgid "Search text"
+msgstr "Axtarış mətni"
+
+msgid "No search history"
+msgstr "Axtarış tarixçəsi boşdur"

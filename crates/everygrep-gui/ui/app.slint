@@ -221,6 +221,7 @@ component SearchField inherits Rectangle {
     callback edited(string);
     callback accepted();
     callback down-pressed();
+    callback history-requested();
     callback escape-pressed();
     callback modes-changed();
     // The keys of the window's commands; returns whether the key was used.
@@ -343,6 +344,12 @@ component SearchField inherits Rectangle {
                 checked <=> root.use-regex;
                 toggled => { root.modes-changed(); }
             }
+        }
+        Button {
+            text: "▼";
+            width: 28px;
+            accessible-label: @tr("Show search history");
+            clicked => { root.history-requested(); }
         }
     }
     placeholder := Text {
@@ -948,6 +955,39 @@ export component AppWindow inherits Window {
     // takes it out (-1).
     callback dupe-term(int);
     callback history-record();
+    in property <[string]> history-rows;
+    in-out property <int> history-sort;
+    in property <bool> history-suggestions;
+    in-out property <bool> history-full;
+    property <bool> history-open;
+    property <int> history-current: -1;
+    callback history-list-requested();
+    callback history-sort-changed(int);
+    callback history-picked(string);
+
+    function choose-history(index: int) {
+        if (index >= 0 && index < root.history-rows.length) {
+            root.history-open = false;
+            root.history-picked(root.history-rows[index]);
+            root.results-replaced();
+            search.focus-and-select();
+        }
+    }
+
+    function history-key(event: KeyEvent) -> bool {
+        if (!root.history-open) { return false; }
+        if (event.text == Key.Escape) { root.history-open = false; return true; }
+        if (event.text == Key.DownArrow || event.text == Key.UpArrow) {
+            root.history-current = max(-1, min(root.history-rows.length - 1,
+                root.history-current + (event.text == Key.DownArrow ? 1 : -1)));
+            return true;
+        }
+        if (event.text == Key.Return && root.history-current >= 0) {
+            root.choose-history(root.history-current);
+            return true;
+        }
+        return false;
+    }
     // Search as you type is off and the search field changed: Enter runs
     // the search (search-now) instead of opening the current row.
     in property <bool> search-pending;
@@ -1469,6 +1509,7 @@ export component AppWindow inherits Window {
     }
 
     function history-go(step: int) {
+        root.history-open = false;
         root.history-step(step);
         root.results-replaced();
     }
@@ -1667,6 +1708,12 @@ export component AppWindow inherits Window {
         } else if (c == Command.pause-index-updates) {
             root.index-paused = !root.index-paused;
             root.toggled(c);
+        } else if (c == Command.show-history) {
+            root.history-full = true;
+            root.history-current = -1;
+            root.history-list-requested();
+            root.history-open = !root.history-open;
+            search.focus-and-select();
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -1888,11 +1935,16 @@ export component AppWindow inherits Window {
                         edited(text) => {
                             root.current = root.results.length > 0 ? 0 : -1;
                             list.content-y = 0;
+                            root.history-full = false;
+                            root.history-current = -1;
                             root.query-edited(text);
+                            root.history-open = root.history-suggestions && root.history-rows.length > 0;
                         }
                         modes-changed => { root.options-edited(); }
-                        shortcut(event) => { root.dispatch(1, event) }
+                        history-requested => { root.run(Command.show-history); }
+                        shortcut(event) => { root.history-key(event) || root.dispatch(1, event) }
                         accepted => {
+                            root.history-open = false;
                             if (root.search-pending) {
                                 root.search-now();
                             } else {
@@ -2669,6 +2721,54 @@ export component AppWindow inherits Window {
         height: 0;
     }
 
+    if root.history-open: Rectangle {
+        TouchArea { clicked => { root.history-open = false; } }
+        Rectangle {
+            x: search.absolute-position.x - origin.absolute-position.x;
+            y: search.absolute-position.y - origin.absolute-position.y + search.height;
+            width: search.width;
+            height: min(300px, max(100px, root.height - self.y - Theme.s3));
+            background: Theme.surface;
+            border-color: Theme.line;
+            border-width: 1px;
+            border-radius: Theme.radius;
+            VerticalLayout {
+                padding: Theme.s2;
+                spacing: Theme.s1;
+                HorizontalLayout {
+                    Text { text: @tr("Sort history by"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox {
+                        accessible-label: @tr("Sort history by");
+                        model: [@tr("Last used"), @tr("Times used"), @tr("Search text")];
+                        current-index <=> root.history-sort;
+                        selected => { root.history-current = -1; root.history-sort-changed(root.history-sort); }
+                    }
+                }
+                if root.history-rows.length == 0: Text {
+                    text: @tr("No search history"); color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+                ListView {
+                    content-y: -max(0, root.history-current - 6) * Theme.row-height;
+                    for search-text[i] in root.history-rows: Rectangle {
+                        height: Theme.row-height;
+                        background: root.history-current == i ? Theme.selection : history-touch.has-hover ? Theme.hover : Theme.surface;
+                        Text {
+                            x: Theme.s2;
+                            width: parent.width - 2 * Theme.s2;
+                            height: parent.height;
+                            text: search-text;
+                            color: root.history-current == i ? Theme.selection-text : Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        history-touch := TouchArea { clicked => { root.choose-history(i); } }
+                    }
+                }
+            }
+        }
+    }
+
     // Tip of the matching-mode toggle under the mouse.
     if search.hover-tip != "": Rectangle {
         x: min(search.hover-x - origin.absolute-position.x, root.width - self.width - Theme.s2);
@@ -3281,18 +3381,25 @@ export component AppWindow inherits Window {
                     activated => { root.run(Command.clear-duplicates); }
                 }
             }
-            MenuSeparator { }
+        }
+        Menu {
+            title: @tr("History");
             MenuItem {
-                title: @tr("Previous search");
+                title: @tr("Back");
                 shortcut: root.menu-keys.previous-search;
                 enabled: root.can-run(Command.previous-search);
                 activated => { root.run(Command.previous-search); }
             }
             MenuItem {
-                title: @tr("Next search");
+                title: @tr("Forward");
                 shortcut: root.menu-keys.next-search;
                 enabled: root.can-run(Command.next-search);
                 activated => { root.run(Command.next-search); }
+            }
+            MenuItem {
+                title: @tr("Show search history");
+                shortcut: root.menu-keys.show-history;
+                activated => { root.run(Command.show-history); }
             }
         }
         Menu {

@@ -898,6 +898,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::ShowHistory,
+        id: "history.show",
+        category: Category::Search,
+        label: || tr("Show search history"),
+        defaults: &[(Global, "F4")],
+    },
+    Spec {
         cmd: Command::Settings,
         id: "tools.settings",
         category: Category::Tools,
@@ -1236,6 +1243,7 @@ impl Keymap {
             clear_duplicates => ClearDuplicates,
             rebuild_index => RebuildIndex,
             pause_index_updates => PauseIndexUpdates,
+            show_history => ShowHistory,
             settings => Settings,
             keyboard_settings => KeyboardSettings,
             shortcuts_help => ShortcutsHelp,

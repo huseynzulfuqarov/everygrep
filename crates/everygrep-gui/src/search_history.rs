@@ -14,6 +14,25 @@ pub const MAX_ENTRIES: usize = 10_000;
 
 const HEADER: &str = "EveryGrep search history 1";
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Order {
+    #[default]
+    Date,
+    Count,
+    Text,
+}
+
+impl Order {
+    pub const ALL: [Self; 3] = [Self::Date, Self::Count, Self::Text];
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Date => "date",
+            Self::Count => "count",
+            Self::Text => "text",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub search: String,
@@ -97,6 +116,52 @@ impl Searches {
             let cutoff = time.saturating_sub(u64::from(days) * 86_400);
             self.0.retain(|e| e.last >= cutoff);
         }
+    }
+
+    /// Fold each candidate once, before sorting. Prefix suggestions do not
+    /// sort or allocate sort keys for unrelated history entries.
+    fn matching(&self, order: Order, accepts: impl Fn(&Entry, &str) -> bool) -> Vec<&Entry> {
+        let mut rows: Vec<_> = self
+            .0
+            .iter()
+            .filter_map(|entry| {
+                let key = entry.search.to_lowercase();
+                accepts(entry, &key).then_some((entry, key))
+            })
+            .collect();
+        rows.sort_by(|(a, ka), (b, kb)| {
+            let primary = match order {
+                Order::Date => b.last.cmp(&a.last),
+                Order::Count => b.count.cmp(&a.count),
+                Order::Text => std::cmp::Ordering::Equal,
+            };
+            primary
+                .then_with(|| ka.cmp(kb))
+                .then_with(|| a.search.cmp(&b.search))
+        });
+        rows.into_iter().map(|(entry, _)| entry).collect()
+    }
+
+    /// Date and count sort descending, text ascending; ties use the folded
+    /// search then its exact text for a deterministic order.
+    pub fn sorted(&self, order: Order, filter: &str) -> Vec<&Entry> {
+        let filter = filter.to_lowercase();
+        self.matching(order, |_, key| key.contains(&filter))
+    }
+
+    /// Suggest whole earlier searches matching a case-insensitive prefix.
+    /// Empty input and the exact current text never produce a suggestion.
+    pub fn suggestions(&self, prefix: &str, order: Order) -> Vec<&Entry> {
+        if prefix.trim().is_empty() {
+            return Vec::new();
+        }
+        let folded = prefix.to_lowercase();
+        self.matching(order, |entry, key| {
+            entry.search != prefix && key.starts_with(&folded)
+        })
+        .into_iter()
+        .take(12)
+        .collect()
     }
 
     pub fn load(path: &Path) -> io::Result<Self> {
@@ -439,6 +504,40 @@ mod tests {
         let after = update(&path, 0, 101, |s| s.record("new", 101)).unwrap();
         assert_eq!(after.0.len(), 1);
         assert_eq!(after.0[0].search, "new");
+    }
+
+    #[test]
+    fn sorts_dates_counts_and_text_with_deterministic_ties() {
+        let mut s = Searches::default();
+        for (q, t) in [("z", 1), ("Beta", 3), ("alpha", 2), ("alpha", 2), ("Á", 3)] {
+            s.record(q, t);
+        }
+        let names = |order| {
+            s.sorted(order, "")
+                .iter()
+                .map(|e| e.search.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(Order::Date), ["Beta", "Á", "alpha", "z"]);
+        assert_eq!(names(Order::Count), ["alpha", "Beta", "z", "Á"]);
+        assert_eq!(names(Order::Text), ["alpha", "Beta", "z", "Á"]);
+        assert_eq!(s.sorted(Order::Text, "ET")[0].search, "Beta");
+    }
+
+    #[test]
+    fn suggestions_are_prefix_only_bounded_and_unicode_aware() {
+        let mut s = Searches::default();
+        for i in 0..20 {
+            s.record(&format!("query {i:02}"), i);
+        }
+        s.record("ŞƏKİL", 21);
+        assert!(s.suggestions("", Order::Date).is_empty());
+        assert!(s.suggestions(" ", Order::Date).is_empty());
+        assert!(s.suggestions("uery", Order::Date).is_empty());
+        assert_eq!(s.suggestions("QUERY", Order::Date).len(), 12);
+        assert_eq!(s.suggestions("query", Order::Date)[0].search, "query 19");
+        assert_eq!(s.suggestions("şə", Order::Date)[0].search, "ŞƏKİL");
+        assert!(s.suggestions("query 19", Order::Date).is_empty());
     }
 
     #[test]

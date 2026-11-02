@@ -10,6 +10,10 @@ First version, 0.1.0, not released yet.
 
 ### Search history
 
+- A search-field dropdown (F4) sorts history by date, count or text; optional
+  prefix suggestions support arrow keys, Enter and Esc. A History menu holds
+  Back and Forward.
+
 - Record distinct searches with visit counts and last dates; retain them for
   90 days or a chosen duration (0 keeps them forever), disable recording, or
   clear them in Settings. Persistent history uses locked atomic updates.

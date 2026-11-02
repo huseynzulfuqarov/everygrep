@@ -340,6 +340,7 @@ the program behaves as before, except that folders show their total size.
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | record search history | on |
 | | days to keep searches (0 = forever), with Clear now | 90 |
+| | suggest earlier searches while typing (off: suggestions appear only when search as you type is off) | off |
 | | keep the history after EveryGrep closes | off |
 | | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
 | | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
@@ -549,7 +550,11 @@ dates. It is updated atomically under `search-history.lock`; the earlier `histor
 file is imported once and left untouched until history is explicitly cleared
 or disk persistence is turned off. At most 10,000 distinct searches are
 kept, dropping the oldest first. Apply confirms a changed retention period. Recording can be disabled without deleting
-existing entries; Clear now clears the saved and session histories.
+existing entries; Clear now clears the saved and session histories. The search
+field’s ▼ button (`F4`) lists searches, sorted by date, count or text. While
+typing, optional prefix suggestions show at most 12 matches; use Up/Down and
+Enter to choose, or Esc to dismiss them. History → Back/Forward uses the
+session navigation trail.
 
 ### Removable drives
 
