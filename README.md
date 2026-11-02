@@ -209,7 +209,8 @@ CSV file type) gives a CSV file with the columns `Name`, `Folder`, `Size`
 (bytes; for a folder the total of the files below it), `Modified` (local
 time, `YYYY-MM-DD HH:MM:SS`) and `Offline` (`yes` for an entry of a drive
 that is not connected); `.txt` gives one full path per line, where an
-offline entry is followed by a tab and `(offline)`. The file is written to
+offline entry is followed by a tab and `(offline)`, and a backslash, line
+break or tab in a path is written as `\\`, `\n`, `\r` or `\t`. The file is written to
 a temporary file and renamed into place.
 
 The menu bar (File, Edit, View, Search, Tools, Help) holds the same actions,

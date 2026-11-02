@@ -10,7 +10,9 @@
 //!   drive that is not connected. Fields with a comma, a quote or a line
 //!   break are quoted, quotes doubled.
 //! - **Text**: one full path per line (`\n`); an entry of a drive that is not
-//!   connected is followed by a tab and `(offline)`.
+//!   connected is followed by a tab and `(offline)`. A backslash, line feed,
+//!   carriage return or tab in a path is written as `\\`, `\n`, `\r` or
+//!   `\t`.
 //!
 //! Bytes of names that are not UTF-8 become U+FFFD. The file is written to a
 //! temporary file in the same folder, synced and renamed over the target, so
@@ -134,7 +136,7 @@ impl Writer {
                     path.push(b'/');
                 }
                 path.extend_from_slice(row.name);
-                out.write_all(String::from_utf8_lossy(&path).as_bytes())?;
+                out.write_all(text_line(&String::from_utf8_lossy(&path)).as_bytes())?;
                 if row.offline {
                     out.write_all(b"\t(offline)")?;
                 }
@@ -164,6 +166,26 @@ impl Writer {
     pub fn abandon(&mut self) {
         let _ = fs::remove_file(&self.tmp);
     }
+}
+
+/// A path for the text format: `\`, line feed, carriage return and tab
+/// written as `\\`, `\n`, `\r` and `\t`, so it stays on its line and the
+/// tab before `(offline)` is the only one.
+fn text_line(path: &str) -> std::borrow::Cow<'_, str> {
+    if !path.contains(['\\', '\n', '\r', '\t']) {
+        return path.into();
+    }
+    let mut out = String::with_capacity(path.len() + 8);
+    for c in path.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.into()
 }
 
 /// One CSV field, quoted when it has a comma, a quote or a line break.
@@ -251,9 +273,22 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&txt).unwrap(),
             "/home/u/Docs/report, final.pdf\n\
-             /run/media/u/USB/say \"hi\"\n.txt\t(offline)\n\
+             /run/media/u/USB/say \"hi\"\\n.txt\t(offline)\n\
              /bad\u{fffd}byte\n"
         );
+        // A line break, tab or backslash in a name is written as an escape,
+        // so every result stays one line.
+        let mut w = Writer::create(&txt, Format::Text, utc()).unwrap();
+        w.row(&Row {
+            name: b"a\\b\tc\rd\ne",
+            folder: b"/x",
+            size: 0,
+            mtime_ns: 0,
+            offline: false,
+        })
+        .unwrap();
+        w.finish().unwrap();
+        assert_eq!(fs::read_to_string(&txt).unwrap(), "/x/a\\\\b\\tc\\rd\\ne\n");
         // No temporary files are left.
         let left: Vec<_> = fs::read_dir(&dir.0).unwrap().collect();
         assert_eq!(left.len(), 2);
