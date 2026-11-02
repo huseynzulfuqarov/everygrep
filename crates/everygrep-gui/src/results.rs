@@ -270,7 +270,9 @@ impl ResultsModel {
         *self.terms.borrow_mut() = snapshot.map(|s| s.terms.clone()).unwrap_or_default();
         self.took.set(snapshot.map_or(Duration::ZERO, |s| s.took));
         self.renaming.set(None);
-        self.detail_cache.borrow_mut().clear();
+        // Details and hashes asked for the rows shown before are read again
+        // for these rows; answers still on their way are dropped.
+        self.forget_details();
         self.notify.reset();
     }
 

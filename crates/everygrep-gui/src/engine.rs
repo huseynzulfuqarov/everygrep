@@ -3873,6 +3873,57 @@ mod tests {
     }
 
     #[test]
+    fn a_shown_tab_asks_for_row_details_again_and_drops_older_answers() {
+        use crate::results::{DetailColumns, DetailReader, ResultsModel};
+        use slint::Model;
+        let dir = Scratch::new("tab-details");
+        fs::create_dir_all(dir.0.join("a")).unwrap();
+        fs::write(dir.0.join("a/one.txt"), "").unwrap();
+        let probe = Probe::start(vec![dir.0.join("a")], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("one", QueryOptions::default());
+        let result = loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if r.query == "one" && r.ids.len() == 1 {
+                break r;
+            }
+        };
+        let model = ResultsModel::new(Arc::clone(&probe.engine));
+        let (deliver, batches) = mpsc::channel();
+        let deliver = Mutex::new(deliver);
+        model.read_details_with(DetailReader::start(move |batch| {
+            let _ = deliver.lock().unwrap().send(batch);
+        }));
+        model.set_result(&result);
+        model.set_detail_columns(DetailColumns {
+            created: false,
+            accessed: true,
+            attributes: false,
+        });
+        // Asked while this tab was shown; the answer comes after a switch.
+        assert!(model.row_data(0).unwrap().accessed.is_empty());
+        let before_switch = batches.recv_timeout(Duration::from_secs(10)).unwrap();
+        let tab = model.freeze();
+        model.restore(None);
+        model.restore(Some(&tab));
+        // The tab shown again asks once more, and the older answer is not
+        // taken for it.
+        assert!(model.row_data(0).unwrap().accessed.is_empty());
+        model.take_details(before_switch);
+        assert!(
+            model.row_data(0).unwrap().accessed.is_empty(),
+            "older answer"
+        );
+        let after_switch = batches
+            .recv_timeout(Duration::from_secs(10))
+            .expect("asked again");
+        model.take_details(after_switch);
+        assert!(!model.row_data(0).unwrap().accessed.is_empty());
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn thirty_frozen_tabs_share_rows_keep_selection_and_reject_old_epochs() {
         use slint::Model;
         let dir = Scratch::new("tab-snapshots");
