@@ -342,9 +342,9 @@ struct Volume {
     /// when its entries are not in the index.
     root: Option<PathBuf>,
     online: bool,
-    /// The rules its entries were read with, saved with them; meaningful
-    /// only while `root` is set.
-    rules: IndexRules,
+    /// The rules (and whether file details were read) its entries were
+    /// read with, saved with them; meaningful only while `root` is set.
+    options: ScanOptions,
 }
 
 /// Changes to the drives asked for by the window, carried out on the index
@@ -365,7 +365,7 @@ struct Scanned {
     /// read before the scan was cancelled.
     index: Index,
     complete: bool,
-    rules: IndexRules,
+    options: ScanOptions,
 }
 
 /// Shared engine state.
@@ -414,7 +414,7 @@ pub struct Engine {
     /// The folders to index and the rules the index was built with (or,
     /// after a cancelled first index, was to be built with); a cancelled
     /// new index goes back to them.
-    indexed_with: Mutex<(Vec<PathBuf>, IndexRules)>,
+    indexed_with: Mutex<(Vec<PathBuf>, ScanOptions)>,
     /// The first index was cancelled: the index of the folders is not
     /// complete and must not be saved.
     incomplete: AtomicBool,
@@ -508,7 +508,7 @@ impl Engine {
     /// there are indexed as the settings say.
     pub fn start(
         roots: Vec<PathBuf>,
-        rules: IndexRules,
+        options: ScanOptions,
         watch: bool,
         index_file: Option<PathBuf>,
         drives: Option<(DriveEnv, DriveSettings)>,
@@ -525,10 +525,7 @@ impl Engine {
         let engine = Arc::new(Self {
             index: RwLock::new(Index::new(NodeStore::new())),
             roots: Mutex::new(normalize_roots(&roots)),
-            options: Mutex::new(ScanOptions {
-                rules,
-                ..ScanOptions::default()
-            }),
+            options: Mutex::new(options),
             rescan: AtomicBool::new(false),
             reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
@@ -555,7 +552,7 @@ impl Engine {
             not_now: Mutex::new(HashSet::new()),
             mounts_changed: Arc::new(AtomicBool::new(false)),
             tasks: Tasks::new(on_busy),
-            indexed_with: Mutex::new((Vec::new(), IndexRules::default())),
+            indexed_with: Mutex::new((Vec::new(), ScanOptions::default())),
             incomplete: AtomicBool::new(false),
             applied: Mutex::new(QueryState::default()),
             content_options: Mutex::new(ContentOptions::default()),
@@ -715,6 +712,25 @@ impl Engine {
     /// first scan has started.
     pub fn roots(&self) -> Vec<PathBuf> {
         self.roots.lock().expect("lock").clone()
+    }
+
+    /// Whether the next new index reads file sizes and modification times
+    /// (see [`ScanOptions::with_metadata`]); [`reindex`](Self::reindex)
+    /// builds it. A saved index read the other way is not loaded.
+    pub fn set_file_details(&self, on: bool) {
+        self.options.lock().expect("lock").with_metadata = on;
+    }
+
+    /// Whether the index asked for last reads file sizes and times: after a
+    /// cancelled new index, whether the index that was kept does.
+    pub fn file_details(&self) -> bool {
+        self.options.lock().expect("lock").with_metadata
+    }
+
+    /// Whether the index in memory holds file sizes and times; differs from
+    /// [`file_details`](Self::file_details) while a new index is built.
+    pub fn indexed_file_details(&self) -> bool {
+        self.indexed_with.lock().expect("lock").1.with_metadata
     }
 
     /// Indexes `roots` again from scratch with `rules`, in the background.
@@ -1265,11 +1281,11 @@ impl Engine {
                 let mut roots = self.roots.lock().expect("lock");
                 if roots.is_empty() || *roots == saved.roots {
                     *roots = saved.roots;
-                    let rules = self.scan_options().rules;
-                    // An index built with other rules, or saved without
-                    // them, is built again over its folders.
-                    if saved.rules_hash == Some(persist::rules_fingerprint(&rules.spec())) {
-                        *self.indexed_with.lock().expect("lock") = (roots.clone(), rules);
+                    let options = self.scan_options();
+                    // An index built with other rules or file details, or
+                    // saved without them, is built again over its folders.
+                    if saved.rules_hash == Some(fingerprint(&options)) {
+                        *self.indexed_with.lock().expect("lock") = (roots.clone(), options);
                         self.replace_index(saved.index);
                         if saved.reordered {
                             // Store the new order, so it is not sorted again.
@@ -1284,7 +1300,7 @@ impl Engine {
             // Nothing is saved until a new index is complete; the next
             // start indexes again.
             self.incomplete.store(true, Ordering::SeqCst);
-            *self.indexed_with.lock().expect("lock") = (self.roots(), self.scan_options().rules);
+            *self.indexed_with.lock().expect("lock") = (self.roots(), self.scan_options());
             (self.hooks.on_stopped)(Stopped::Index);
         }
         self.load_drives();
@@ -1317,9 +1333,10 @@ impl Engine {
                         // a newer request came: that one is built next.
                         let mut roots = self.roots.lock().expect("lock");
                         if self.reindexed.load(Ordering::SeqCst) == request {
-                            let (indexed, rules) = self.indexed_with.lock().expect("lock").clone();
+                            let (indexed, options) =
+                                self.indexed_with.lock().expect("lock").clone();
                             *roots = indexed;
-                            self.options.lock().expect("lock").rules = rules;
+                            *self.options.lock().expect("lock") = options;
                             drop(roots);
                             (self.hooks.on_stopped)(Stopped::Rescan);
                         }
@@ -1478,13 +1495,13 @@ impl Engine {
         if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
             return Err(request);
         }
-        let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options.rules);
+        let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options);
         if task.progress().is_cancelled() {
             return Err(request);
         }
         self.replace_index(fresh);
         self.read_drives_again(&left_out);
-        *self.indexed_with.lock().expect("lock") = (roots, options.rules);
+        *self.indexed_with.lock().expect("lock") = (roots, options);
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
         Ok(())
@@ -1673,7 +1690,7 @@ impl Engine {
             return true;
         }
         drop(task);
-        let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options.rules);
+        let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options);
         let mut index = self.index.write().expect("index lock");
         *index = fresh;
         self.bump_epoch();
@@ -1688,7 +1705,7 @@ impl Engine {
         drop(index);
         self.read_drives_again(&left_out);
         // Saves record what this index was built with.
-        *self.indexed_with.lock().expect("lock") = (roots, options.rules);
+        *self.indexed_with.lock().expect("lock") = (roots, options);
         watched
     }
 
@@ -1710,8 +1727,8 @@ impl Engine {
         }
         // The folders and rules the index in memory was built with, which
         // differ from the asked-for ones while a new index is being built.
-        let (roots, rules) = self.indexed_with.lock().expect("lock").clone();
-        let rules = rules.spec();
+        let (roots, options) = self.indexed_with.lock().expect("lock").clone();
+        let fingerprint = fingerprint(&options);
         let locked = match deadline {
             None => Some((
                 self.volumes.lock().expect("lock"),
@@ -1742,14 +1759,15 @@ impl Engine {
             .filter(|_| !self.incomplete.load(Ordering::SeqCst));
         if let Some(path) = own_file {
             ok = if drive_roots.is_empty() {
-                persist::save_with_rules(&index, &roots, &rules, path).is_ok()
+                persist::save_with_fingerprint(&index, &roots, fingerprint, path).is_ok()
             } else {
                 let own: Vec<NodeId> = index
                     .roots()
                     .into_iter()
                     .filter(|r| !drive_roots.contains(r))
                     .collect();
-                persist::save_with_rules(&index.extract(&own).0, &roots, &rules, path).is_ok()
+                persist::save_with_fingerprint(&index.extract(&own).0, &roots, fingerprint, path)
+                    .is_ok()
             };
         }
         if let Some(env) = &self.drive_env {
@@ -1772,9 +1790,9 @@ impl Engine {
         &self,
         mut fresh: Index,
         roots: &[PathBuf],
-        rules: &IndexRules,
+        options: &ScanOptions,
     ) -> (Index, Vec<String>) {
-        let fingerprint = persist::rules_fingerprint(&rules.spec());
+        let wanted = fingerprint(options);
         let volumes = self.volumes.lock().expect("lock");
         let old = self.index.read().expect("index lock");
         let mut left_out = Vec::new();
@@ -1782,7 +1800,7 @@ impl Engine {
             let Some(name) = v.root.as_deref() else {
                 continue;
             };
-            if persist::rules_fingerprint(&v.rules.spec()) != fingerprint || overlaps(roots, name) {
+            if fingerprint(&v.options) != wanted || overlaps(roots, name) {
                 left_out.push(v.info.uuid.clone());
                 continue;
             }
@@ -1820,8 +1838,8 @@ impl Engine {
         let Some(env) = &self.drive_env else { return };
         let ignored = self.drive_settings.lock().expect("lock").ignored.clone();
         let configured = self.roots();
-        let rules = self.scan_options().rules;
-        let fingerprint = Some(persist::rules_fingerprint(&rules.spec()));
+        let options = self.scan_options();
+        let wanted = Some(fingerprint(&options));
         let mut volumes = self.volumes.lock().expect("lock");
         for mut info in drives::known_drives(env) {
             let mut root = None;
@@ -1830,7 +1848,7 @@ impl Engine {
                 // read again when it is connected.
                 if let Some(saved) = persist::load(&env.index_path(&info.uuid))
                     .ok()
-                    .filter(|saved| saved.rules_hash == fingerprint)
+                    .filter(|saved| saved.rules_hash == wanted)
                 {
                     let mut drive = saved.index;
                     if let [r] = drive.roots()[..] {
@@ -1853,7 +1871,7 @@ impl Engine {
                 info,
                 root,
                 online: false,
-                rules: rules.clone(),
+                options: options.clone(),
             });
         }
     }
@@ -1960,7 +1978,7 @@ impl Engine {
             drive,
             index: new,
             complete,
-            rules,
+            options,
         } in scanned
         {
             self.scanning.lock().expect("lock").remove(&drive.uuid);
@@ -1980,7 +1998,7 @@ impl Engine {
             if !v.online {
                 // Removed while it was read: folders that could not be read
                 // any more are marked, so the next scan goes on from here.
-                let _ = save_partial(env, &drive, &new, &rules);
+                let _ = save_partial(env, &drive, &new, &options);
                 continue;
             }
             if v.root.is_some() || v.info.path != drive.mount_point {
@@ -2004,7 +2022,7 @@ impl Engine {
                 unreachable!("one root was checked above");
             };
             v.root = Some(drive.mount_point.clone());
-            v.rules = rules;
+            v.options = options;
             v.info.entries = new.len() as u64;
             let _ = v.info.save(env);
             let _ = std::fs::remove_file(env.partial_path(&drive.uuid));
@@ -2025,7 +2043,7 @@ impl Engine {
                         info: new_info(drive, now),
                         root: None,
                         online: false,
-                        rules: IndexRules::default(),
+                        options: ScanOptions::default(),
                     });
                     volumes.len() - 1
                 }
@@ -2128,7 +2146,7 @@ impl Engine {
                 ));
                 let partial = env
                     .as_ref()
-                    .and_then(|env| load_partial(env, &drive, &options.rules));
+                    .and_then(|env| load_partial(env, &drive, &options));
                 let (index, complete) = match partial {
                     Some(mut index) => {
                         // What was read before counts as done.
@@ -2144,13 +2162,13 @@ impl Engine {
                 };
                 drop(task);
                 if let Some(env) = env.as_ref().filter(|_| !complete) {
-                    let _ = save_partial(env, &drive, &index, &options.rules);
+                    let _ = save_partial(env, &drive, &index, &options);
                 }
                 scanned.lock().expect("lock").push(Scanned {
                     drive,
                     index,
                     complete,
-                    rules: options.rules,
+                    options,
                 });
                 changed.store(true, Ordering::SeqCst);
             });
@@ -2274,7 +2292,7 @@ impl Engine {
         };
         let scanned = std::mem::take(&mut *self.scanned.lock().expect("lock"));
         for s in scanned.into_iter().filter(|s| s.complete) {
-            let _ = save_partial(env, &s.drive, &s.index, &s.rules);
+            let _ = save_partial(env, &s.drive, &s.index, &s.options);
         }
     }
 }
@@ -2358,39 +2376,45 @@ fn save_drive(env: &DriveEnv, index: &Index, v: &mut Volume) -> std::io::Result<
     };
     let (drive, _) = index.extract(&[root]);
     v.info.entries = drive.len() as u64;
-    persist::save_with_rules(
+    persist::save_with_fingerprint(
         &drive,
         &[name.to_path_buf()],
-        &v.rules.spec(),
+        fingerprint(&v.options),
         &env.index_path(&v.info.uuid),
     )?;
     v.info.save(env)
 }
 
-/// Saves the part of `drive` read so far (`index`, read with `rules`), for
-/// the next scan to go on from.
+/// The identity of an index built with `options`: its rules and whether
+/// file sizes and times were read (see [`persist::index_fingerprint`]).
+fn fingerprint(options: &ScanOptions) -> u64 {
+    persist::index_fingerprint(&options.rules.spec(), options.with_metadata)
+}
+
+/// Saves the part of `drive` read so far (`index`, read with `options`),
+/// for the next scan to go on from.
 fn save_partial(
     env: &DriveEnv,
     drive: &Drive,
     index: &Index,
-    rules: &IndexRules,
+    options: &ScanOptions,
 ) -> std::io::Result<()> {
-    persist::save_with_rules(
+    persist::save_with_fingerprint(
         index,
         std::slice::from_ref(&drive.mount_point),
-        &rules.spec(),
+        fingerprint(options),
         &env.partial_path(&drive.uuid),
     )
 }
 
 /// The part of `drive` that an earlier scan read, if it was read with
-/// `rules`, with its root renamed to where the drive is mounted now.
-fn load_partial(env: &DriveEnv, drive: &Drive, rules: &IndexRules) -> Option<Index> {
+/// `options`, with its root renamed to where the drive is mounted now.
+fn load_partial(env: &DriveEnv, drive: &Drive, options: &ScanOptions) -> Option<Index> {
     let path = env.partial_path(&drive.uuid);
     let saved = persist::load(&path).ok()?;
     let mut index = saved.index;
     let roots = index.roots();
-    if saved.rules_hash != Some(persist::rules_fingerprint(&rules.spec())) || roots.len() > 1 {
+    if saved.rules_hash != Some(fingerprint(options)) || roots.len() > 1 {
         let _ = std::fs::remove_file(&path);
         return None;
     }
@@ -2465,12 +2489,12 @@ mod partial_tests {
                 ..meta
             },
         );
-        save_partial(&env, &drive, &index, &options.rules).unwrap();
+        save_partial(&env, &drive, &index, &options).unwrap();
 
         // Connected again elsewhere.
         std::fs::rename(&first, &second).unwrap();
         drive.mount_point = second.clone();
-        let mut resumed = load_partial(&env, &drive, &options.rules).unwrap();
+        let mut resumed = load_partial(&env, &drive, &options).unwrap();
         resume_scan(
             &mut resumed,
             std::slice::from_ref(&second),
@@ -2489,11 +2513,14 @@ mod partial_tests {
         let (found, expected) = (paths(&resumed), paths(&Index::new(fresh)));
 
         // Read with other rules, it is not used, and it is gone.
-        let other = IndexRules::new(RuleSpec {
-            exclude_files: "*.txt".into(),
-            ..RuleSpec::default()
-        })
-        .unwrap();
+        let other = ScanOptions {
+            rules: IndexRules::new(RuleSpec {
+                exclude_files: "*.txt".into(),
+                ..RuleSpec::default()
+            })
+            .unwrap(),
+            ..ScanOptions::default()
+        };
         let with_other_rules = load_partial(&env, &drive, &other).is_none();
         let removed = !env.partial_path(&drive.uuid).exists();
         let _ = std::fs::remove_dir_all(&base);
@@ -2630,7 +2657,11 @@ mod tests {
                     let _ = stopped_tx.lock().unwrap().send(s);
                 }),
             };
-            let engine = Engine::start(roots, folders(exclude), watch, Some(index), drives, hooks);
+            let options = ScanOptions {
+                rules: folders(exclude),
+                ..ScanOptions::default()
+            };
+            let engine = Engine::start(roots, options, watch, Some(index), drives, hooks);
             let _ = slot.set(Arc::downgrade(&engine));
             Self {
                 engine,
@@ -2695,6 +2726,48 @@ mod tests {
     }
 
     #[test]
+    fn an_index_without_file_details_is_saved_apart_and_not_loaded_with_them() {
+        let dir = Scratch::new("file-details");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "12345").unwrap();
+        let index_file = dir.0.join("index.bin");
+        let roots = normalize_roots(std::slice::from_ref(&a));
+        let size_of = |probe: &Probe| {
+            let index = probe.engine.index.read().unwrap();
+            let root = index.roots()[0];
+            let id = index.find_child(Some(root), b"one.txt").unwrap();
+            index.store().meta(id).size
+        };
+
+        let probe = Probe::start(roots.clone(), Vec::new(), index_file.clone());
+        probe.wait_for(IndexState::Watching);
+        assert!(probe.engine.file_details());
+        assert_eq!(size_of(&probe), 5);
+        probe.engine.set_file_details(false);
+        probe.engine.reindex(&roots, IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert!(!probe.engine.file_details());
+        assert_eq!(size_of(&probe), 0, "sizes were read");
+        probe.engine.shutdown();
+        let saved = persist::load(&index_file).unwrap();
+        let plain = RuleSpec::default();
+        assert_eq!(
+            saved.rules_hash,
+            Some(persist::index_fingerprint(&plain, false))
+        );
+
+        // A window that reads file details builds it again.
+        let probe = Probe::start(roots.clone(), Vec::new(), index_file.clone());
+        assert!(scanned_at_start(&probe), "loaded an index without details");
+        assert_eq!(size_of(&probe), 5);
+        probe.engine.shutdown();
+        let saved = persist::load(&index_file).unwrap();
+        assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&plain)));
+    }
+
+    #[test]
     fn reindex_takes_new_roots_and_excludes_and_saves() {
         let dir = Scratch::new("reindex");
         let root = |p: &str| dir.0.join(p);
@@ -2751,7 +2824,7 @@ mod tests {
         };
         let engine = Engine::start(
             vec![root.clone()],
-            IndexRules::default(),
+            ScanOptions::default(),
             true,
             Some(dir.0.join("index.bin")),
             None,

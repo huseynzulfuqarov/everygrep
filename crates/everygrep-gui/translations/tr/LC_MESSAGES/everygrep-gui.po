@@ -2199,3 +2199,11 @@ msgstr "Dizin"
 #: ui/app.slint
 msgid "Pause index updates"
 msgstr "Dizin güncellemelerini duraklat"
+
+#: ui/settings.slint
+msgid "Index file sizes and modification times"
+msgstr "Dosya boyutlarını ve değiştirme tarihlerini dizine ekle"
+
+#: ui/settings.slint
+msgid "Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."
+msgstr "Kapalıyken yalnızca adlar okunur ve dizin oluşturma daha hızlıdır, ancak dosyalar için Boyut ve Değiştirme tarihi sütunları boş kalır, klasörler toplam boyut göstermez, size: ve modified: hiçbir dosya bulmaz. Oluşturma tarihi, Erişim tarihi ve Öznitelikler her durumda diskten okunur. Değiştirmek dizini yeniden oluşturur."

@@ -2199,3 +2199,11 @@ msgstr "İndeks"
 #: ui/app.slint
 msgid "Pause index updates"
 msgstr "İndeksin yenilənməsinə fasilə ver"
+
+#: ui/settings.slint
+msgid "Index file sizes and modification times"
+msgstr "Faylların ölçüsünü və dəyişmə tarixini indeksə yaz"
+
+#: ui/settings.slint
+msgid "Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."
+msgstr "Söndürülsə, yalnız adlar oxunur və indeksləmə daha tez gedir, amma fayllar üçün Ölçü və Dəyişmə tarixi sütunları boş qalır, qovluqlar ümumi ölçünü göstərmir, size: və modified: heç bir fayl tapmır. Yaradılma tarixi, Açılma tarixi və Atributlar hər halda diskdən oxunur. Dəyişdirmək indeksi yenidən qurur."

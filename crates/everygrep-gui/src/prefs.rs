@@ -544,6 +544,11 @@ impl Prefs {
     /// the Indexing page and the settings file follow, so the next start
     /// does not index the cancelled ones.
     pub fn rescan_stopped(&self) {
+        let details = self.engine.file_details();
+        if details != self.settings.borrow().index_file_details {
+            self.keep_file_details(details);
+            self.refresh();
+        }
         let (roots, rules) = self.engine.setup();
         let path = self.index_path();
         let result = self
@@ -606,6 +611,29 @@ impl Prefs {
         self.engine.set_watching(on);
         self.apply_watch_changes();
         self.refresh();
+    }
+
+    /// Reads file sizes and times into the index, or only names, and
+    /// indexes again. Saved only for the window over the default index, as
+    /// the folders are.
+    fn set_file_details(&self, on: bool) {
+        if self.settings.borrow().index_file_details == on {
+            return;
+        }
+        self.keep_file_details(on);
+        self.engine.set_file_details(on);
+        self.rebuild();
+        self.refresh();
+    }
+
+    /// Takes `on` as the file details setting, saving it when the folders
+    /// are saved ones.
+    fn keep_file_details(&self, on: bool) {
+        if self.index.borrow().saved && self.index_path().is_some() {
+            self.change(move |s| s.index_file_details = on);
+        } else {
+            self.settings.borrow_mut().index_file_details = on;
+        }
     }
 
     /// Shows in the Index menu whether updates are paused.
@@ -718,6 +746,7 @@ impl Prefs {
         w.set_excludes_count(labels::folder_count(index.rules.folders.len()).into());
         w.set_use_excludes(index.rules.enabled);
         w.set_watch_changes(self.settings.borrow().watch_changes);
+        w.set_file_details(self.settings.borrow().index_file_details);
         w.set_rule_error(self.rule_error.borrow().as_str().into());
         w.set_index_note(if index.saved {
             "".into()
@@ -1157,6 +1186,12 @@ impl Prefs {
         }));
         w.on_rules_changed(on(|p| p.rules_changed()));
         w.on_watch_changed(on(|p| p.watch_changed()));
+        w.on_file_details_changed(on(|p| {
+            let on = p.window.borrow().as_ref().map(|w| w.get_file_details());
+            if let Some(on) = on {
+                p.set_file_details(on);
+            }
+        }));
         w.on_add_exclude_pattern({
             let me = me.clone();
             move |text| {
@@ -1668,8 +1703,10 @@ impl Prefs {
             self.change(move |s| {
                 s.drives = Default::default();
                 s.watch_changes = true;
+                s.index_file_details = true;
             });
             self.engine.set_watching(true);
+            self.engine.set_file_details(true);
             self.apply_watch_changes();
             self.engine
                 .set_drive_settings(self.settings.borrow().drives.clone());

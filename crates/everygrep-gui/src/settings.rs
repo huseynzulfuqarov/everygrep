@@ -220,6 +220,9 @@ pub struct Settings {
     pub exclude_files: String,
     /// Whether file changes are applied to the index as they happen.
     pub watch_changes: bool,
+    /// Whether the index holds the size and modification time of every
+    /// file; off reads only names (folders keep their times for catch-up).
+    pub index_file_details: bool,
     /// Filter and matching modes for a new start.
     pub options: QueryOptions,
     /// Whether the results follow every change of the search; off searches
@@ -308,6 +311,7 @@ impl Default for Settings {
             include_files: String::new(),
             exclude_files: String::new(),
             watch_changes: true,
+            index_file_details: true,
             options: QueryOptions::default(),
             as_you_type: true,
             show_mode_badges: true,
@@ -449,6 +453,7 @@ impl Settings {
             }
             "use-exclude-list" => put_flag(&mut self.use_excludes),
             "watch-changes" => put_flag(&mut self.watch_changes),
+            "index-file-details" => put_flag(&mut self.index_file_details),
             "include-only-files" | "exclude-files" => {
                 let Some(text) = unescape(value).and_then(|b| String::from_utf8(b).ok()) else {
                     return false;
@@ -650,6 +655,12 @@ impl Settings {
             "watch-changes",
             self.watch_changes,
             d.watch_changes,
+        );
+        flag(
+            &mut out,
+            "index-file-details",
+            self.index_file_details,
+            d.index_file_details,
         );
         flag(
             &mut out,
@@ -940,6 +951,7 @@ impl Settings {
                 self.include_files = d.include_files;
                 self.exclude_files = d.exclude_files;
                 self.watch_changes = d.watch_changes;
+                self.index_file_details = d.index_file_details;
                 self.drives = d.drives;
             }
             Page::Search => {
@@ -1457,6 +1469,7 @@ pub(crate) mod tests {
             excludes: vec!["/home/u/.cache".into(), "regex:^te?mp$".into()],
             use_excludes: false,
             watch_changes: false,
+            index_file_details: false,
             include_files: "*.mp3; \"a;b\"".into(),
             exclude_files: "*.tmp;~*".into(),
             options: QueryOptions {

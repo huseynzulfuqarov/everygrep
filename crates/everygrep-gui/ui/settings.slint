@@ -126,6 +126,8 @@ export component SettingsWindow inherits Window {
     callback rules-changed();
     in-out property <bool> watch-changes;
     callback watch-changed();
+    in-out property <bool> file-details;
+    callback file-details-changed();
     callback rebuild();
     // Removable drives (shown when the program can keep drive indexes).
     in property <bool> drives-enabled;
@@ -353,6 +355,15 @@ export component SettingsWindow inherits Window {
                                     toggled => { root.watch-changed(); }
                                 }
                                 Note { text: @tr("Off: files added, removed or renamed while EveryGrep runs are not seen, and the status line says so. Turning it on again catches up with the changes, then watches."); }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                CheckBox {
+                                    text: @tr("Index file sizes and modification times");
+                                    checked <=> root.file-details;
+                                    toggled => { root.file-details-changed(); }
+                                }
+                                Note { text: @tr("Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."); }
                             }
                             CheckBox {
                                 text: @tr("Use the exclude list");

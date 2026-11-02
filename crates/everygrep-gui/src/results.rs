@@ -51,6 +51,9 @@ pub struct ResultsModel {
     indexed: Cell<usize>,
     took: Cell<Duration>,
     folder_size: Cell<FolderSize>,
+    /// Whether the index shown holds file sizes (see
+    /// [`Engine::indexed_file_details`]); without them sizes are empty.
+    sizes_known: Cell<bool>,
     /// Whether the status line describes the selected items.
     details: Cell<bool>,
     /// Which of the columns read from the file system are shown.
@@ -220,6 +223,7 @@ impl ResultsModel {
             indexed: Cell::new(0),
             took: Cell::new(Duration::ZERO),
             folder_size: Cell::new(FolderSize::default()),
+            sizes_known: Cell::new(true),
             details: Cell::new(true),
             detail_columns: Cell::new(DetailColumns::default()),
             detail_cache: RefCell::new(HashMap::new()),
@@ -745,6 +749,7 @@ impl ResultsModel {
                 meta.size,
                 store.items(id),
                 self.folder_size.get(),
+                self.sizes_known.get(),
             );
             let modified = format::timestamp(meta.mtime_ns, &self.zone);
             let path = store.path(id);
@@ -782,6 +787,10 @@ impl ResultsModel {
     pub fn set_state(&self, state: IndexState, indexed: usize) {
         self.state.set(state);
         self.indexed.set(indexed);
+        let known = self.engine.indexed_file_details();
+        if self.sizes_known.replace(known) != known {
+            self.relabel();
+        }
     }
 
     pub fn state(&self) -> IndexState {
@@ -921,7 +930,14 @@ impl Model for ResultsModel {
         Some(ResultRow {
             name: marked(&name, &name_spans),
             folder,
-            size: size_text(is_dir, meta.size, store.items(id), self.folder_size.get()).into(),
+            size: size_text(
+                is_dir,
+                meta.size,
+                store.items(id),
+                self.folder_size.get(),
+                self.sizes_known.get(),
+            )
+            .into(),
             modified: format::date(meta.mtime_ns, now, &self.zone).into(),
             modified_full: format::timestamp(meta.mtime_ns, &self.zone).into(),
             type_name,
@@ -1003,9 +1019,11 @@ pub fn widest(texts: Vec<String>, n: usize) -> Vec<String> {
 }
 
 /// Text of the Size column. A folder's size is the total of the files below
-/// it.
-fn size_text(is_dir: bool, size: u64, items: u32, folders: FolderSize) -> String {
+/// it. Without `known` sizes (an index without file details) only the
+/// number of items is shown.
+fn size_text(is_dir: bool, size: u64, items: u32, folders: FolderSize, known: bool) -> String {
     match (is_dir, folders) {
+        (false, _) | (true, FolderSize::Total) if !known => String::new(),
         (false, _) | (true, FolderSize::Total) => format::size(size),
         (true, FolderSize::Items) => labels::items(items as usize),
         (true, FolderSize::None) => String::new(),
@@ -1173,18 +1191,24 @@ pub(crate) mod tests {
     #[test]
     fn folder_size_column_follows_the_setting() {
         let gb = 3 << 30;
-        assert_eq!(size_text(true, gb, 12, FolderSize::Total), "3.0 GB");
-        assert_eq!(size_text(true, gb, 12, FolderSize::Items), "12 items");
-        assert_eq!(size_text(true, gb, 1, FolderSize::Items), "1 item");
-        assert_eq!(size_text(true, gb, 0, FolderSize::Items), "0 items");
-        assert_eq!(size_text(true, gb, 12, FolderSize::None), "");
+        assert_eq!(size_text(true, gb, 12, FolderSize::Total, true), "3.0 GB");
+        assert_eq!(size_text(true, gb, 12, FolderSize::Items, true), "12 items");
+        assert_eq!(size_text(true, gb, 1, FolderSize::Items, true), "1 item");
+        assert_eq!(size_text(true, gb, 0, FolderSize::Items, true), "0 items");
+        assert_eq!(size_text(true, gb, 12, FolderSize::None, true), "");
         for f in FolderSize::ALL {
-            assert_eq!(size_text(false, 512, 0, f), "512 B");
+            assert_eq!(size_text(false, 512, 0, f, true), "512 B");
         }
         assert_eq!(
-            size_text(true, 0, 12_345, FolderSize::Items),
+            size_text(true, 0, 12_345, FolderSize::Items, true),
             "12\u{2009}345 items"
         );
+        // An index without file details: no sizes, only item counts.
+        for f in FolderSize::ALL {
+            assert_eq!(size_text(false, 0, 0, f, false), "");
+        }
+        assert_eq!(size_text(true, 0, 12, FolderSize::Total, false), "");
+        assert_eq!(size_text(true, 0, 12, FolderSize::Items, false), "12 items");
     }
 
     #[test]

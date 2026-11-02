@@ -417,6 +417,10 @@ First version, 0.1.0, not released yet.
   them again before the right column gets room. Folder still takes the
   spare room; the width it keeps while the columns are too wide is saved as
   `folder-width`.
+- "Index file sizes and modification times" (Indexing page, on): off reads
+  names only, which indexes faster; the Size column is then empty for files
+  and folder totals, and an index of either kind is never loaded for the
+  other (drives included), so changing it indexes again.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

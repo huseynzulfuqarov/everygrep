@@ -322,6 +322,7 @@ the program behaves as before, except that folders show their total size.
 |---|---|---|
 | Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
 | | watch for changes (off: nothing is watched and the status line says so; on again catches up) | on |
+| | index file sizes and modification times (off: only names are read, which is faster; Size and Modified are empty for files, folders have no total size, `size:` and `modified:` find no files; changing it indexes again) | on |
 | | use the exclude list (excluded folders and file filters) | on |
 | | excluded folders, by path (folder chooser) or pattern; left out of the index with all they hold | none |
 | | include only files / exclude files: pattern lists (see [Excluded folders and files](#excluded-folders-and-files)) | empty |
@@ -489,7 +490,8 @@ size-width = 120
 `content-max-size-mb`, `content-code-page` (`windows-1250` … `windows-1257`)
 and `content-pdf` set how files are read for `content:`; `hash-cache-max-mb`
 the size of the hash cache.
-`watch-changes` turns watching off (`false`), `search-as-you-type` the
+`watch-changes` turns watching off (`false`), `index-file-details` (`false`)
+indexes names only, `search-as-you-type` the
 search at every key press, and `rename-in-dialog` chooses the rename editor.
 `context-search-new-window`, `context-search-subfolders` and
 `context-search-exact-name` control context searches.

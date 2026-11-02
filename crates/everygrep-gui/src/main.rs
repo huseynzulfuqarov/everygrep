@@ -188,7 +188,10 @@ fn main() -> Result<(), slint::PlatformError> {
         everygrep_core::drives::DriveEnv::from_env().map(|env| (env, settings.drives.clone()));
     let engine = Engine::start(
         setup.roots.clone(),
-        setup.rules(),
+        everygrep_core::scan::ScanOptions {
+            rules: setup.rules(),
+            with_metadata: settings.index_file_details,
+        },
         settings.watch_changes,
         args.index_file,
         drives,
