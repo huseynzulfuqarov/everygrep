@@ -37,6 +37,11 @@
 //! nospace:"my file"   whitespace is ignored: "myfile", "my  file"
 //! regex:^img_\d+$     a regular expression (to the next space)
 //! limit:100           only the first 100 results (after sorting)
+//! content:invoice     files whose contents hold the text (read from disk;
+//!                     see crate::content); content:<a b> = both texts,
+//!                     regex:content:^foo, case:content:, wholeword:content:;
+//!                     content-utf8: content-utf16le: content-utf16be: content-codepage:
+//!                     read in that encoding
 //! ```
 //!
 //! Dates use the local time zone (see [`crate::localtime`]); a day starts at
@@ -58,10 +63,14 @@ use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::sync::Arc;
+
+use crate::content::{ContentEncoding, ContentOptions, ContentTerm};
 use crate::filter::Filter;
 use crate::fold::{fold, strip_diacritics_into};
 use crate::kind::{FileKind, classify};
 use crate::localtime::{Zone, civil_from_days, days_from_civil, days_in_month};
+use crate::progress::Progress;
 use crate::store::{NodeId, NodeStore};
 
 /// Visibility of dotfiles and descendants of dot-prefixed folders in results.
@@ -150,6 +159,22 @@ pub struct Query {
     uses_path: bool,
     /// Largest number of results (`limit:`), applied after sorting.
     limit: Option<usize>,
+    /// The `content:` terms, by their slot.
+    content: Vec<Arc<ContentTerm>>,
+}
+
+/// Most `content:` terms in one query (see [`Query::stage`]).
+pub const MAX_CONTENT_TERMS: usize = 6;
+
+/// What the index alone says about an entry (see [`Query::stage`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    No,
+    Yes,
+    /// The contents of the file decide. Bit `a` of the table is the answer
+    /// when the answers of the content terms are the bits of `a` (bit `i`
+    /// for slot `i`).
+    Contents(u64),
 }
 
 #[derive(Clone, Debug)]
@@ -196,6 +221,8 @@ enum Pred {
         min: i64,
         max: i64,
     },
+    /// A `content:` term: its slot in [`Query::content_terms`].
+    Content(usize, Arc<ContentTerm>),
 }
 
 /// A time of an entry that is read from disk while searching.
@@ -301,6 +328,9 @@ pub struct EvalScratch {
     /// Roots whose drive is not there: their saved paths may now belong to
     /// other files, so entries below them are not looked up on disk.
     offline: Vec<NodeId>,
+    /// The answers of the content terms, one bit per slot, while
+    /// [`Query::stage`] makes its table; `None` reads the file.
+    content_bits: Option<u64>,
 }
 
 impl EvalScratch {
@@ -346,6 +376,8 @@ impl Query {
             now_ns,
             zone,
             depth: 0,
+            content: Vec::new(),
+            content_scope: None,
         };
         let mut root = p.parse_expression(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
@@ -357,6 +389,7 @@ impl Query {
             // The executable filter may read the path of a node.
             uses_path: p.uses_path || p.reads_disk || options.filter == Filter::Executable,
             limit: p.limit,
+            content: p.content,
         })
     }
 
@@ -379,6 +412,7 @@ impl Query {
             root,
             uses_path,
             limit: None,
+            content: Vec::new(),
         })
     }
 
@@ -401,13 +435,96 @@ impl Query {
         matches!(self.root, Node::All)
     }
 
-    /// Tests one node.
+    /// Tests one node. `content:` terms read the file now, with the
+    /// default [`ContentOptions`]; searches use [`Query::stage`] instead.
     pub fn matches(&self, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
         if self.uses_path {
             scratch.for_node = None;
             scratch.folded_for_node = None;
         }
+        scratch.content_bits = None;
         eval(&self.root, store, id, scratch)
+    }
+
+    /// The `content:` terms; empty when the index alone answers the query.
+    pub fn content_terms(&self) -> &[Arc<ContentTerm>] {
+        &self.content
+    }
+
+    /// Tests one node without reading files: whether it matches, does not,
+    /// or the answers of its content terms decide, and how (a table over
+    /// them). Folders and entries of offline drives never match a content
+    /// term.
+    pub fn stage(&self, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> Stage {
+        if self.uses_path {
+            scratch.for_node = None;
+            scratch.folded_for_node = None;
+        }
+        scratch.content_bits = None;
+        match eval_staged(&self.root, store, id, scratch) {
+            Tri::No => return Stage::No,
+            Tri::Yes => return Stage::Yes,
+            Tri::Maybe => {}
+        }
+        let mut table = 0u64;
+        for bits in 0..1u64 << self.content.len() {
+            scratch.content_bits = Some(bits);
+            if eval(&self.root, store, id, scratch) {
+                table |= 1 << bits;
+            }
+        }
+        scratch.content_bits = None;
+        Stage::Contents(table)
+    }
+}
+
+/// A three-valued answer: content terms are not known yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tri {
+    No,
+    Yes,
+    Maybe,
+}
+
+fn eval_staged(node: &Node, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> Tri {
+    let tri = |b: bool| if b { Tri::Yes } else { Tri::No };
+    match node {
+        Node::All => Tri::Yes,
+        Node::And(items) => {
+            let mut out = Tri::Yes;
+            for item in items {
+                match eval_staged(item, store, id, scratch) {
+                    Tri::No => return Tri::No,
+                    Tri::Maybe => out = Tri::Maybe,
+                    Tri::Yes => {}
+                }
+            }
+            out
+        }
+        Node::Or(items) => {
+            let mut out = Tri::No;
+            for item in items {
+                match eval_staged(item, store, id, scratch) {
+                    Tri::Yes => return Tri::Yes,
+                    Tri::Maybe => out = Tri::Maybe,
+                    Tri::No => {}
+                }
+            }
+            out
+        }
+        Node::Not(inner) => match eval_staged(inner, store, id, scratch) {
+            Tri::Yes => Tri::No,
+            Tri::No => Tri::Yes,
+            Tri::Maybe => Tri::Maybe,
+        },
+        Node::Leaf(Pred::Content(..)) => {
+            if store.is_dir(id) || !scratch.on_disk(store, id) {
+                Tri::No
+            } else {
+                Tri::Maybe
+            }
+        }
+        Node::Leaf(pred) => tri(eval_pred(pred, store, id, scratch)),
     }
 }
 
@@ -529,6 +646,22 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                 DiskTime::Accessed => details.accessed_ns,
             };
             t.is_some_and(|t| *min <= t && t <= *max)
+        }
+        Pred::Content(slot, term) => {
+            if store.is_dir(id) || !scratch.on_disk(store, id) {
+                return false;
+            }
+            if let Some(bits) = scratch.content_bits {
+                return bits >> slot & 1 == 1;
+            }
+            let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
+            crate::content::search_file(
+                std::path::Path::new(path),
+                term,
+                &ContentOptions::default(),
+                &Progress::new(),
+            )
+            .is_ok_and(|outcome| outcome.is_match())
         }
         Pred::Regex(r) => {
             if r.on_path {
@@ -1473,6 +1606,10 @@ struct Parser {
     zone: Option<Zone>,
     /// Current nesting of groups, negations and `file:`/`folder:` terms.
     depth: usize,
+    /// The `content:` terms so far.
+    content: Vec<Arc<ContentTerm>>,
+    /// Inside `content:<...>`: the settings of its words.
+    content_scope: Option<TermMods>,
 }
 
 /// Deepest nesting of groups, negations and `file:`/`folder:` terms. Each
@@ -1613,7 +1750,10 @@ impl Parser {
             }
             Some(Token::Word(w)) => {
                 self.pos += 1;
-                self.parse_word(&w, TermMods::new(&self.options))
+                let mods = self
+                    .content_scope
+                    .unwrap_or_else(|| TermMods::new(&self.options));
+                self.parse_word(&w, mods)
             }
             Some(Token::Close) => Err(ParseError("unexpected '>'".into())),
             Some(Token::And | Token::Or) | None => Ok(None),
@@ -1627,9 +1767,19 @@ impl Parser {
         let mut rest = raw;
         // Modifiers can be stacked: case:path:Src/Main
         while let Some((head, tail)) = split_modifier(rest) {
+            // In a content term only these modifiers apply; any other word
+            // with a colon is text to look for (`content:http://`).
+            if m.content.is_some() && !CONTENT_MODIFIERS.contains(&head.as_str()) {
+                break;
+            }
             // Quotes inside a value (`ext:"pdf"`) only group; drop their markers.
             let value: String = tail.chars().filter(|&c| c != '\u{0}').collect();
             match head.as_str() {
+                "content" => m.content = Some(ContentEncoding::Auto),
+                "content-utf8" => m.content = Some(ContentEncoding::Utf8),
+                "content-utf16le" => m.content = Some(ContentEncoding::Utf16Le),
+                "content-utf16be" => m.content = Some(ContentEncoding::Utf16Be),
+                "content-codepage" => m.content = Some(ContentEncoding::Ansi),
                 "case" => m.case = true,
                 "nocase" => m.case = false,
                 "path" => m.on_path = true,
@@ -1701,6 +1851,9 @@ impl Parser {
             }
         }
         let text: String = rest.chars().filter(|&c| c != '\u{0}').collect();
+        if let Some(encoding) = m.content {
+            return self.parse_content(&text, m, encoding);
+        }
         if text.is_empty() {
             return Ok(None);
         }
@@ -1753,6 +1906,43 @@ impl Parser {
             },
             pattern,
         }))))
+    }
+
+    /// The text of a `content:` term; without one, a group that follows
+    /// (`content:<a b>`) holds the terms. `*` and `?` are literal.
+    fn parse_content(
+        &mut self,
+        text: &str,
+        m: TermMods,
+        encoding: ContentEncoding,
+    ) -> Result<Option<Node>, ParseError> {
+        if text.is_empty() {
+            if self.peek() != Some(&Token::Open) || self.content_scope.is_some() {
+                return Ok(None);
+            }
+            self.content_scope = Some(m);
+            let group = self.parse_unary();
+            self.content_scope = None;
+            return group;
+        }
+        if self.content.len() == MAX_CONTENT_TERMS {
+            return Err(ParseError(format!(
+                "a query can have at most {MAX_CONTENT_TERMS} content terms"
+            )));
+        }
+        if m.regex {
+            // The same reasons as for names when it is not valid.
+            build_regex(text, m.case)?;
+        }
+        let term = ContentTerm::new(text, m.regex, m.case, m.whole_word, encoding)
+            .map_err(|e| ParseError(format!("bad regular expression: {e}")))?;
+        let term = Arc::new(term);
+        self.content.push(Arc::clone(&term));
+        self.reads_disk = true;
+        Ok(Some(Node::Leaf(Pred::Content(
+            self.content.len() - 1,
+            term,
+        ))))
     }
 
     /// `modified:<7d` (an age) or `modified:2026-10-25` (calendar dates).
@@ -1841,6 +2031,8 @@ struct TermMods {
     suffix: bool,
     squeeze: Squeeze,
     regex: bool,
+    /// A `content:` term, read in this encoding.
+    content: Option<ContentEncoding>,
 }
 
 impl TermMods {
@@ -1859,6 +2051,7 @@ impl TermMods {
                 whitespace: options.ignore_whitespace,
             },
             regex: false,
+            content: None,
         }
     }
 }
@@ -1875,6 +2068,8 @@ fn cost(node: &Node) -> u8 {
         // last.
         Node::Leaf(Pred::Kind(Filter::Executable)) => 5,
         Node::Leaf(Pred::DiskTime { .. }) => 6,
+        // Files are read: only for entries that passed all the other terms.
+        Node::Leaf(Pred::Content(..)) => 7,
         // Classifying looks at the name; let text terms narrow first.
         Node::Leaf(Pred::Kind(_)) => 2,
         // Hidden status walks parent names; let cheap name terms narrow first.
@@ -1956,6 +2151,27 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "regex",
     "noregex",
     "limit",
+    "content",
+    "content-utf8",
+    "content-utf16le",
+    "content-utf16be",
+    "content-codepage",
+];
+
+/// The modifiers that apply to a `content:` term (and the content
+/// functions, which may follow each other).
+const CONTENT_MODIFIERS: &[&str] = &[
+    "case",
+    "nocase",
+    "wholeword",
+    "nowholeword",
+    "regex",
+    "noregex",
+    "content",
+    "content-utf8",
+    "content-utf16le",
+    "content-utf16be",
+    "content-codepage",
 ];
 
 /// `limit:100`: a number of results.
@@ -4718,5 +4934,92 @@ mod tests {
             spans_with("IMG_7.png", "7", with(|o| o.regex = true), false),
             [(4, 5)]
         );
+    }
+
+    #[test]
+    fn content_terms_parse_with_their_modifiers_and_groups() {
+        let q = |text: &str| Query::parse(text, QueryOptions::default());
+        let keys = |text: &str| -> Vec<String> {
+            q(text)
+                .unwrap()
+                .content_terms()
+                .iter()
+                .map(|t| t.key().to_owned())
+                .collect()
+        };
+        assert_eq!(keys("content:invoice"), ["Auto/0/0/0/invoice"]);
+        assert_eq!(keys("case:wholeword:content:Total"), ["Auto/0/1/1/Total"]);
+        assert_eq!(keys("regex:content:^foo|bar"), ["Auto/1/0/0/^foo|bar"]);
+        assert_eq!(keys("content:regex:a|b"), ["Auto/1/0/0/a|b"]);
+        // Wildcards and other function words are text in a content term.
+        assert_eq!(keys("content:*.rs"), ["Auto/0/0/0/*.rs"]);
+        assert_eq!(keys("content:http://x"), ["Auto/0/0/0/http://x"]);
+        assert_eq!(keys("content:size:1"), ["Auto/0/0/0/size:1"]);
+        assert_eq!(keys("content:\"two words\""), ["Auto/0/0/0/two words"]);
+        assert_eq!(keys("content:<a !b>"), ["Auto/0/0/0/a", "Auto/0/0/0/b"]);
+        assert_eq!(
+            keys("content-utf8:a content-utf16le:b content-utf16be:c content-codepage:d"),
+            [
+                "Utf8/0/0/0/a",
+                "Utf16Le/0/0/0/b",
+                "Utf16Be/0/0/0/c",
+                "Ansi/0/0/0/d"
+            ]
+        );
+        assert_eq!(
+            keys("content:<case:A content-utf8:b>"),
+            ["Auto/0/1/0/A", "Utf8/0/0/0/b"]
+        );
+        // The window's options apply as to names.
+        let options = QueryOptions {
+            case_sensitive: true,
+            whole_words: true,
+            ..QueryOptions::default()
+        };
+        let term = Query::parse("content:X", options).unwrap();
+        assert_eq!(term.content_terms()[0].key(), "Auto/0/1/1/X");
+        // Nothing to look for: no term.
+        assert!(keys("content:").is_empty());
+        assert!(keys("content:<>").is_empty());
+        assert!(q("content:a content:b content:c content:d content:e content:f").is_ok());
+        let too_many = q("content:<a b c d e f g>").unwrap_err();
+        assert!(too_many.0.contains("at most 6"), "{too_many}");
+        let bad = q("regex:content:(").unwrap_err();
+        assert!(bad.0.starts_with("bad regular expression"), "{bad}");
+        // A name term next to a content group stays a name term.
+        assert_eq!(keys("content:<a> b").len(), 1);
+    }
+
+    #[test]
+    fn stage_decides_by_name_and_tables_the_content_terms() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/nowhere", true, Meta::default());
+        let report = s.add(Some(root), b"report.txt", false, Meta::default());
+        let notes = s.add(Some(root), b"notes.md", false, Meta::default());
+        let folder = s.add(Some(root), b"docs", true, Meta::default());
+        let stage = |text: &str, id| {
+            Query::parse(text, QueryOptions::default()).unwrap().stage(
+                &s,
+                id,
+                &mut EvalScratch::default(),
+            )
+        };
+        assert_eq!(stage("ext:txt content:a", notes), Stage::No);
+        assert_eq!(stage("ext:txt content:a", report), Stage::Contents(0b10));
+        assert_eq!(stage("report | content:a", report), Stage::Yes);
+        assert_eq!(stage("report | content:a", notes), Stage::Contents(0b10));
+        assert_eq!(stage("!content:a", notes), Stage::Contents(0b01));
+        // Folders never match a content term, so the rest decides.
+        assert_eq!(stage("content:a", folder), Stage::No);
+        assert_eq!(stage("!content:a", folder), Stage::Yes);
+        // a | b over (a, b): bit (b<<1 | a).
+        assert_eq!(stage("content:<a|b>", notes), Stage::Contents(0b1110));
+        assert_eq!(stage("content:<a b>", notes), Stage::Contents(0b1000));
+        // A name query has no table.
+        assert_eq!(stage("notes", notes), Stage::Yes);
+        assert_eq!(stage("notes", report), Stage::No);
+        // Matching directly reads the file; it does not exist here.
+        let q = Query::parse("content:a", QueryOptions::default()).unwrap();
+        assert!(!q.matches(&s, report, &mut EvalScratch::default()));
     }
 }

@@ -185,6 +185,13 @@ First version, 0.1.0, not released yet.
 - Regular expressions with `regex:` or for the whole query in regex mode,
   compiled once per query; case is ignored unless matched, invalid
   expressions are reported in one line.
+- `content:` finds files whose contents hold a text (`content:invoice`,
+  `content:"two words"`, `content:<a b>` for both, `regex:content:^foo`,
+  `case:` and `wholeword:` too). Contents are read from disk after the other terms
+  narrowed the list: regular files up to 100 MB, not binary files, not
+  links; UTF-8, UTF-16 with a byte order mark, else Windows-1254.
+  `content-utf8:`, `content-utf16le:`, `content-utf16be:` and `content-codepage:` read
+  in one encoding. Diacritics are matched as written in contents.
 
 ### Command line
 

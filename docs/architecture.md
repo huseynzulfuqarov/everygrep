@@ -82,6 +82,20 @@ birth time) for the rows on screen, on a thread of the window's own
 (`DetailReader`: the rows are shown at once and updated when the values
 come), and the sort reads them for every result on several threads.
 
+Contents (`content.rs`) are not indexed. A query with `content:` terms is
+searched in two stages: `search_staged` evaluates every node with the
+content terms unknown (three-valued: an AND with a false term is false, an
+OR with a true one true) and keeps the matches and the nodes the contents
+decide, with their path, size and time and a truth table of the query over
+the answers of its content terms (at most 6, so 64 bits). `decide_all`
+then reads those files on worker threads in name order, without the index,
+asking for the answer of a term only while it can still change the result,
+and records each decision as it comes. `search_file` opens a regular file
+without following links (`O_NOFOLLOW`, and `O_NONBLOCK` so a FIFO swapped in
+never blocks), reads it with `grep-searcher` in 64 KiB buffers and stops at
+the first match, a NUL byte (binary) or a cancel. A `ContentCache` keeps the
+answers by term, path, size and time.
+
 A `DetailCache` keeps the creation times or attributes one sort read, by
 node id, for the next sort of the same results (the refresh after file
 changes). The index logs every node whose details may have changed: new

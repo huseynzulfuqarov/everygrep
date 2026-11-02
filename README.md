@@ -104,6 +104,7 @@ and saves the index; later starts load it and catch up in a moment.
 | `modified:>2026-10-25`, `modified:2026-10-01..2026-10-25` | after a day; ranges are inclusive |
 | `modified:lastweek`, `modified:thismonth`, `modified:tomorrow` | calendar weeks (from Monday), months, years |
 | `created:today`, `accessed:>30d` | created / accessed (read from disk while searching) |
+| `content:invoice`, `content:<total "due date">`, `regex:content:^From:` | files whose contents hold the text (read from disk while searching) |
 
 The full syntax, with every modifier and edge case, is in
 [docs/query-language.md](docs/query-language.md).

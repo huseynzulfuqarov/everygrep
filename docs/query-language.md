@@ -118,6 +118,7 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `modified:` | modification time, see below |
 | `created:` / `accessed:` | creation / access time, see below |
 | `limit:` | the number of results, see below |
+| `content:`, `content-utf8:`, `content-utf16le:`, `content-utf16be:`, `content-codepage:` | file contents, see below |
 
 The `no…:` forms (and `punct:`, `space:`) turn off a mode that the window's
 toggles or the command line options turned on, for one term.
@@ -324,6 +325,40 @@ other terms on large indexes (`created:today ext:pdf` is cheaper than `created:t
   another drive is mounted at its folder.
 - The access time is coarse on most systems (`relatime` updates it at most
   once a day); entries that cannot be read never match `accessed:`.
+
+## File contents
+
+`content:invoice` finds files whose contents hold `invoice`. The index keeps
+names only, so contents are read from disk while searching, and only for the
+entries that the other terms let through: the content terms are checked last.
+Combine them with other terms (`content:invoice ext:pdf;txt modified:thisyear`);
+a content term alone reads every file of the index.
+
+- The text is literal: `*`, `?` and words with a colon (`content:http://`)
+  are text to look for. Quote spaces and operators: `content:"due date"`,
+  `content:"a<b"`.
+- `content:<a b>` holds both texts, `content:<a|b>` either, `content:<a !b>`
+  `a` without `b`. Outside a group `|` and `!` work as usual:
+  `content:invoice|bill` is a content term or a name term.
+- `case:` and `wholeword:` (and the window's Match case and Match whole words) apply,
+  `regex:content:^From:` is a regular expression (to the next space). Other
+  modifiers (`path:`, `prefix:`, the ignore modes, `diacritics:`) do not
+  apply: diacritics are matched as written in contents, `ş` does not find
+  `s`.
+- Matching works line by line: a phrase does not match across a line break,
+  and `^` and `$` match at the start and end of every line.
+- Folders never match, and neither do links (the target is not read),
+  FIFOs, sockets, devices, files that cannot be read, and entries of an
+  offline drive.
+- Files over 100 MB are not read, and neither are binary files: a NUL byte
+  before the first match ends the search of a file.
+- Encoding: UTF-8; UTF-16 (little or big endian) when the file starts with a
+  byte order mark; a file that is not valid UTF-8 is read again as
+  Windows-1254 (Turkish and Azerbaijani Latin). `content-utf8:`,
+  `content-utf16le:` (little endian), `content-utf16be:` and `content-codepage:`
+  (Windows-1254) read every file in that one encoding, without looking for
+  a byte order mark.
+- A query can have at most 6 content terms.
 
 ## Number of results
 

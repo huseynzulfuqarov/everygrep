@@ -3,9 +3,12 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use std::os::unix::ffi::OsStringExt;
+
+use crate::content::{ContentOptions, Decisions, Pending, decide_all};
 use crate::index::Index;
 use crate::progress::{Cancelled, Progress};
-use crate::query::{EvalScratch, Query};
+use crate::query::{EvalScratch, Query, Stage};
 use crate::store::NodeId;
 
 /// Number of name-order blocks handed to a worker at a time.
@@ -15,7 +18,8 @@ const BLOCKS_PER_TASK: usize = 16;
 ///
 /// The name order is split into groups of blocks that worker threads take one by
 /// one, so fast and slow groups balance out. Group results are joined in group
-/// order, which keeps the name order of the index.
+/// order, which keeps the name order of the index. A query with `content:`
+/// terms then reads the files the index cannot decide (see [`search_staged`]).
 pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
     search_with_progress(index, query, threads, &Progress::new()).unwrap_or_default()
 }
@@ -24,7 +28,38 @@ pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
 /// set to the size of the index) and stopping when it is cancelled. The
 /// cancel is seen before each group of blocks and before returning results,
 /// including when the query matches every name or the index is empty.
+///
+/// With `content:` terms the files are read on `threads` threads, with the
+/// default [`ContentOptions`], while `index` stays borrowed; the progress
+/// then starts again and counts files. The window reads them without
+/// holding the index (see [`search_staged`] and
+/// [`crate::content::decide_all`]).
 pub fn search_with_progress(
+    index: &Index,
+    query: &Query,
+    threads: usize,
+    progress: &Progress,
+) -> Result<Vec<NodeId>, Cancelled> {
+    if query.content_terms().is_empty() {
+        return search_names(index, query, threads, progress);
+    }
+    let staged = search_staged(index, query, threads, progress)?;
+    progress.restart(Some(staged.pending.len() as u64));
+    let decisions = Decisions::new(staged.pending.len());
+    decide_all(
+        &staged.pending,
+        query.content_terms(),
+        &ContentOptions::default(),
+        None,
+        threads,
+        progress,
+        &decisions,
+        || {},
+    )?;
+    Ok(staged.results(&decisions))
+}
+
+fn search_names(
     index: &Index,
     query: &Query,
     threads: usize,
@@ -45,25 +80,123 @@ pub fn search_with_progress(
         progress.check()?;
         return Ok(out);
     }
+    let parts = scan_groups(index, threads, progress, |scratch, id| {
+        query.matches(index.store(), id, scratch).then_some(id)
+    })?;
+    Ok(parts.into_iter().flatten().collect())
+}
+
+/// The first stage of a query with `content:` terms: what the index alone
+/// decides, without reading any file.
+#[derive(Debug, Default)]
+pub struct Staged {
+    /// In name order: the matches and the entries whose contents decide.
+    pub ids: Vec<NodeId>,
+    /// The places in `ids` of the entries whose contents decide.
+    pub places: Vec<usize>,
+    /// Those entries, in the same order: what to read.
+    pub pending: Vec<Pending>,
+}
+
+impl Staged {
+    /// The matches: the entries the index decided, and those `decisions`
+    /// accepted so far, in name order.
+    pub fn results(&self, decisions: &Decisions) -> Vec<NodeId> {
+        let mut out = Vec::with_capacity(self.ids.len() - self.places.len() + decisions.matched());
+        let mut next = self.places.iter().enumerate().peekable();
+        for (at, &id) in self.ids.iter().enumerate() {
+            match next.peek() {
+                Some(&(i, &place)) if place == at => {
+                    next.next();
+                    if decisions.get(i) == Some(true) {
+                        out.push(id);
+                    }
+                }
+                _ => out.push(id),
+            }
+        }
+        out
+    }
+}
+
+/// Runs the index part of `query` (see [`Query::stage`]): entries it
+/// rejects are left out, and for those whose contents decide, the path,
+/// size and modification time are taken while `index` is borrowed, so the
+/// files can be read after it is released. Progress counts names, as in
+/// [`search_with_progress`].
+pub fn search_staged(
+    index: &Index,
+    query: &Query,
+    threads: usize,
+    progress: &Progress,
+) -> Result<Staged, Cancelled> {
+    progress.set_total(Some(index.order().len() as u64));
+    progress.check()?;
+    let store = index.store();
+    let parts = scan_groups(index, threads, progress, |scratch, id| {
+        match query.stage(store, id, scratch) {
+            Stage::No => None,
+            Stage::Yes => Some((id, None)),
+            Stage::Contents(table) => {
+                let meta = store.meta(id);
+                Some((
+                    id,
+                    Some(Pending {
+                        path: store.path(id).into_os_string().into_vec(),
+                        size: meta.size,
+                        mtime_ns: meta.mtime_ns,
+                        table,
+                    }),
+                ))
+            }
+        }
+    })?;
+    let mut staged = Staged::default();
+    for (id, pending) in parts.into_iter().flatten() {
+        if let Some(pending) = pending {
+            staged.places.push(staged.ids.len());
+            staged.pending.push(pending);
+        }
+        staged.ids.push(id);
+    }
+    Ok(staged)
+}
+
+/// Evaluates `test` for every live node on `threads` threads, a group of
+/// blocks at a time, and returns what it kept per group, in name order.
+fn scan_groups<T: Send>(
+    index: &Index,
+    threads: usize,
+    progress: &Progress,
+    test: impl Fn(&mut EvalScratch, NodeId) -> Option<T> + Sync,
+) -> Result<Vec<Vec<T>>, Cancelled> {
+    let order = index.order();
+    progress.set_total(Some(order.len() as u64));
+    progress.check()?;
     let groups: Vec<&[Vec<NodeId>]> = order.blocks().chunks(BLOCKS_PER_TASK).collect();
     let threads = threads.clamp(1, groups.len().max(1));
-    let scan_group = |group: &[Vec<NodeId>]| -> Result<Vec<NodeId>, Cancelled> {
+    let scan_group = |group: &[Vec<NodeId>]| -> Result<Vec<T>, Cancelled> {
         progress.check()?;
-        let found = scan(index, query, group);
+        let mut scratch = EvalScratch::with_offline_roots(index.offline_roots());
+        let found = group
+            .iter()
+            .flatten()
+            .filter_map(|&id| test(&mut scratch, id))
+            .collect();
         progress.add(group.iter().map(|b| b.len() as u64).sum());
         Ok(found)
     };
     if threads == 1 {
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(groups.len());
         for group in &groups {
-            out.extend(scan_group(group)?);
+            out.push(scan_group(group)?);
         }
         progress.check()?;
         return Ok(out);
     }
 
     let next = AtomicUsize::new(0);
-    let parts: Mutex<Vec<(usize, Vec<NodeId>)>> = Mutex::new(Vec::with_capacity(groups.len()));
+    let parts: Mutex<Vec<(usize, Vec<T>)>> = Mutex::new(Vec::with_capacity(groups.len()));
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
@@ -82,24 +215,8 @@ pub fn search_with_progress(
     progress.check()?;
     let mut parts = parts.into_inner().expect("search worker panicked");
     parts.sort_unstable_by_key(|(n, _)| *n);
-    let total = parts.iter().map(|(_, v)| v.len()).sum();
-    let mut out = Vec::with_capacity(total);
-    for (_, part) in parts {
-        out.extend(part);
-    }
     progress.check()?;
-    Ok(out)
-}
-
-fn scan(index: &Index, query: &Query, blocks: &[Vec<NodeId>]) -> Vec<NodeId> {
-    let store = index.store();
-    let mut scratch = EvalScratch::with_offline_roots(index.offline_roots());
-    blocks
-        .iter()
-        .flatten()
-        .copied()
-        .filter(|&id| query.matches(store, id, &mut scratch))
-        .collect()
+    Ok(parts.into_iter().map(|(_, part)| part).collect())
 }
 
 #[cfg(test)]
@@ -390,5 +507,150 @@ mod tests {
                 eprintln!("{text:?}, {t} threads: {n} results, {best:.1} ms");
             }
         }
+    }
+
+    /// A folder with files of these names and contents, indexed with a
+    /// subfolder `sub` holding `inner.txt`.
+    struct Tree {
+        dir: std::path::PathBuf,
+        index: Index,
+    }
+
+    impl Tree {
+        fn new(name: &str, files: &[(&str, &str)]) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("everygrep-search-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("sub")).unwrap();
+            let mut s = NodeStore::new();
+            let root = s.add(
+                None,
+                dir.as_os_str().as_encoded_bytes(),
+                true,
+                Meta::default(),
+            );
+            for (name, text) in files {
+                std::fs::write(dir.join(name), text).unwrap();
+                s.add(Some(root), name.as_bytes(), false, Meta::default());
+            }
+            let sub = s.add(Some(root), b"sub", true, Meta::default());
+            std::fs::write(dir.join("sub/inner.txt"), "needle in a folder\n").unwrap();
+            s.add(Some(sub), b"inner.txt", false, Meta::default());
+            Self {
+                dir,
+                index: Index::new(s),
+            }
+        }
+
+        fn names(&self, q: &str) -> Vec<String> {
+            let query = Query::parse(q, QueryOptions::default()).unwrap();
+            let mut out: Vec<String> = search(&self.index, &query, 4)
+                .into_iter()
+                .map(|id| String::from_utf8_lossy(self.index.store().name(id)).into_owned())
+                .collect();
+            out.sort();
+            out
+        }
+    }
+
+    impl Drop for Tree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[test]
+    fn content_terms_combine_with_names_and_each_other() {
+        let tree = Tree::new(
+            "content",
+            &[
+                ("a.txt", "alpha needle\n"),
+                ("b.txt", "beta\nhaystack\n"),
+                ("c.md", "Needle and haystack\n"),
+                ("needle.log", "nothing here\n"),
+            ],
+        );
+        assert_eq!(tree.names("content:needle"), ["a.txt", "c.md", "inner.txt"]);
+        assert_eq!(tree.names("content:needle ext:txt"), ["a.txt", "inner.txt"]);
+        assert_eq!(tree.names("content:<needle haystack>"), ["c.md"]);
+        assert_eq!(
+            tree.names("content:<needle|haystack>"),
+            ["a.txt", "b.txt", "c.md", "inner.txt"]
+        );
+        // `|` outside a group joins the content term and a name term.
+        assert_eq!(
+            tree.names("content:haystack|needle"),
+            ["b.txt", "c.md", "needle.log"]
+        );
+        assert_eq!(tree.names("!content:needle file:"), ["b.txt", "needle.log"]);
+        assert_eq!(tree.names("case:content:Needle"), ["c.md"]);
+        assert_eq!(tree.names("regex:content:^hay"), ["b.txt"]);
+        assert_eq!(tree.names("content:\"and hay\""), ["c.md"]);
+        assert!(tree.names("content:missing").is_empty());
+        // Folders never match a content term.
+        assert_eq!(
+            tree.names("content:needle|sub"),
+            ["a.txt", "c.md", "inner.txt", "sub"]
+        );
+    }
+
+    #[test]
+    fn staged_search_leaves_the_files_to_read_and_shows_decided_matches() {
+        let tree = Tree::new("staged", &[("a.txt", "needle\n"), ("b.txt", "other\n")]);
+        let query = Query::parse("content:needle | a.txt", QueryOptions::default()).unwrap();
+        let staged = search_staged(&tree.index, &query, 2, &Progress::new()).unwrap();
+        let name = |id: NodeId| String::from_utf8_lossy(tree.index.store().name(id)).into_owned();
+        // a.txt matches by its name; b.txt and inner.txt need their contents.
+        assert_eq!(
+            staged.ids.iter().map(|&id| name(id)).collect::<Vec<_>>(),
+            ["a.txt", "b.txt", "inner.txt"]
+        );
+        assert_eq!(staged.places, [1, 2]);
+        assert!(staged.pending[0].path.ends_with(b"/b.txt"));
+        let decisions = Decisions::new(staged.pending.len());
+        // Nothing read yet: only what the index decided.
+        assert_eq!(staged.results(&decisions).len(), 1);
+        decide_all(
+            &staged.pending,
+            query.content_terms(),
+            &ContentOptions::default(),
+            None,
+            1,
+            &Progress::new(),
+            &decisions,
+            || {},
+        )
+        .unwrap();
+        assert_eq!(decisions.get(0), Some(false));
+        assert_eq!(decisions.get(1), Some(true));
+        assert_eq!(
+            staged
+                .results(&decisions)
+                .into_iter()
+                .map(name)
+                .collect::<Vec<_>>(),
+            ["a.txt", "inner.txt"]
+        );
+    }
+
+    #[test]
+    fn content_search_reads_nothing_of_offline_drives_and_stops_when_cancelled() {
+        let mut tree = Tree::new("content-offline", &[("a.txt", "needle\n")]);
+        let root = tree.index.roots()[0];
+        tree.index.set_offline(root, true);
+        assert!(tree.names("content:needle").is_empty());
+        tree.index.set_offline(root, false);
+        let query = Query::parse("content:needle", QueryOptions::default()).unwrap();
+        let progress = Progress::new();
+        progress.cancel();
+        assert_eq!(
+            search_with_progress(&tree.index, &query, 2, &progress),
+            Err(Cancelled)
+        );
+        // The progress counts the files read in the end.
+        let progress = Progress::new();
+        let found = search_with_progress(&tree.index, &query, 2, &progress).unwrap();
+        assert_eq!(found.len(), 2);
+        assert_eq!((progress.done(), progress.total()), (2, Some(2)));
     }
 }

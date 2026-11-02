@@ -26,11 +26,25 @@
 //!
 //! The access time of a file is not changed when the file belongs to the
 //! user (`O_NOATIME`).
+//!
+//! A search runs in two stages. The index decides what it can
+//! ([`crate::search::search_staged`]); for the rest it gives the paths and a
+//! table of how the answers of the content terms decide
+//! ([`crate::query::Stage`]). [`decide_all`] then reads those files on
+//! worker threads, in name order, each file only for the terms that still
+//! matter, and records every answer in [`Decisions`] as it comes, so the
+//! matches found so far can be shown while it runs. A [`ContentCache`]
+//! keeps the answers for the next search of the same terms.
 
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek};
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{BinaryDetection, Encoding, Searcher, SearcherBuilder, Sink, SinkMatch};
@@ -265,6 +279,280 @@ pub fn search_file(
         progress,
     )
     .map(|(outcome, _)| outcome)
+}
+
+/// An entry whose contents decide whether it matches, taken from the index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pending {
+    pub path: Vec<u8>,
+    /// Size and modification time in the index: with the path, they say
+    /// whether a cached answer is still good.
+    pub size: u64,
+    pub mtime_ns: i64,
+    /// See [`crate::query::Stage::Contents`].
+    pub table: u64,
+}
+
+/// The answers for a list of [`Pending`] entries, filled in by the workers
+/// of [`decide_all`] and read by anyone meanwhile.
+#[derive(Debug)]
+pub struct Decisions {
+    /// 0: not known yet, 1: no, 2: yes.
+    states: Vec<AtomicU8>,
+    matched: AtomicUsize,
+    decided: AtomicUsize,
+}
+
+impl Decisions {
+    pub fn new(len: usize) -> Self {
+        Self {
+            states: (0..len).map(|_| AtomicU8::new(0)).collect(),
+            matched: AtomicUsize::new(0),
+            decided: AtomicUsize::new(0),
+        }
+    }
+
+    /// The answer for entry `i`, once it is known.
+    pub fn get(&self, i: usize) -> Option<bool> {
+        match self.states[i].load(Ordering::Acquire) {
+            1 => Some(false),
+            2 => Some(true),
+            _ => None,
+        }
+    }
+
+    /// How many entries matched so far.
+    pub fn matched(&self) -> usize {
+        self.matched.load(Ordering::Acquire)
+    }
+
+    /// How many entries are decided so far.
+    pub fn decided(&self) -> usize {
+        self.decided.load(Ordering::Acquire)
+    }
+
+    fn set(&self, i: usize, matched: bool) {
+        if matched {
+            self.matched.fetch_add(1, Ordering::AcqRel);
+        }
+        self.states[i].store(if matched { 2 } else { 1 }, Ordering::Release);
+        self.decided.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// Whether an entry matches, from its `table` over `terms` content terms,
+/// asking `answer` for the answer of a term only while it still matters: a
+/// term matters when some answers still possible for the others make the
+/// result depend on it.
+pub fn decide(
+    table: u64,
+    terms: usize,
+    mut answer: impl FnMut(usize) -> Result<bool, Cancelled>,
+) -> Result<bool, Cancelled> {
+    let (mut known, mut bits) = (0u64, 0u64);
+    loop {
+        let open = || (0..1u64 << terms).filter(move |a| a & known == bits);
+        if open().all(|a| table >> a & 1 == 1) {
+            return Ok(true);
+        }
+        if open().all(|a| table >> a & 1 == 0) {
+            return Ok(false);
+        }
+        let Some(term) = (0..terms).find(|&t| {
+            let flip = 1u64 << t;
+            known & flip == 0 && open().any(|a| table >> a & 1 != table >> (a ^ flip) & 1)
+        }) else {
+            // Unreachable: an undecided table depends on some open term.
+            return Ok(false);
+        };
+        if answer(term)? {
+            bits |= 1 << term;
+        }
+        known |= 1 << term;
+    }
+}
+
+/// How often [`decide_all`] calls its `tick`.
+pub const TICK_EVERY: Duration = Duration::from_millis(100);
+
+/// Decides every entry of `pending` by reading its file for the content
+/// `terms`, on `threads` threads in the order of the list, and records the
+/// answers in `decisions` (made for this list) as they come. `progress`
+/// counts the entries done; a cancel is seen before each buffer read. The
+/// calling thread waits and calls `tick` about every [`TICK_EVERY`] meanwhile
+/// (to show the matches so far). Answers are taken from `cache` and kept
+/// there when one is given.
+#[allow(clippy::too_many_arguments)]
+pub fn decide_all(
+    pending: &[Pending],
+    terms: &[Arc<ContentTerm>],
+    options: &ContentOptions,
+    cache: Option<&Mutex<ContentCache>>,
+    threads: usize,
+    progress: &Progress,
+    decisions: &Decisions,
+    mut tick: impl FnMut(),
+) -> Result<(), Cancelled> {
+    if let Some(cache) = cache {
+        cache.lock().expect("content cache").use_options(options);
+    }
+    let next = AtomicUsize::new(0);
+    let threads = threads.clamp(1, pending.len().max(1));
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            let done_tx = done_tx.clone();
+            let next = &next;
+            scope.spawn(move || {
+                // Says it is done also when a read panics.
+                let _done = Defer(Some(move || {
+                    let _ = done_tx.send(());
+                }));
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(entry) = pending.get(i) else { break };
+                    if progress.is_cancelled() {
+                        break;
+                    }
+                    let answer = |t: usize| answer(entry, &terms[t], options, cache, progress);
+                    match decide(entry.table, terms.len(), answer) {
+                        Ok(matched) => decisions.set(i, matched),
+                        Err(Cancelled) => break,
+                    }
+                    progress.add(1);
+                }
+            });
+        }
+        drop(done_tx);
+        let mut running = threads;
+        while running > 0 {
+            match done_rx.recv_timeout(TICK_EVERY) {
+                Ok(()) => running -= 1,
+                Err(mpsc::RecvTimeoutError::Timeout) => tick(),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+    progress.check()
+}
+
+/// Runs a closure when dropped.
+struct Defer<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> Drop for Defer<F> {
+    fn drop(&mut self) {
+        if let Some(f) = self.0.take() {
+            f();
+        }
+    }
+}
+
+/// The answer of one term for one entry, from the cache or the file.
+fn answer(
+    entry: &Pending,
+    term: &ContentTerm,
+    options: &ContentOptions,
+    cache: Option<&Mutex<ContentCache>>,
+    progress: &Progress,
+) -> Result<bool, Cancelled> {
+    if let Some(found) = cache.and_then(|c| c.lock().expect("content cache").get(term, entry)) {
+        return Ok(found);
+    }
+    let path = Path::new(std::ffi::OsStr::from_bytes(&entry.path));
+    let outcome = search_file(path, term, options, progress)?;
+    // A file that could not be read may be readable next time.
+    match cache {
+        Some(cache) if outcome != Outcome::Unreadable => {
+            let mut cache = cache.lock().expect("content cache");
+            cache.put(term, entry, outcome.is_match());
+        }
+        _ => {}
+    }
+    Ok(outcome.is_match())
+}
+
+/// Most answers a [`ContentCache`] keeps (about 100 bytes each with the path).
+pub const CACHE_ENTRIES: usize = 200_000;
+/// Most terms a [`ContentCache`] keeps answers for.
+const CACHE_TERMS: usize = 8;
+
+/// Answers of content terms for files, by the term's key and the file's
+/// path, size and modification time in the index, so a search of the same
+/// terms again (another order, file changes elsewhere) does not read the
+/// files again. Answers for other [`ContentOptions`] are dropped. The terms
+/// used longest ago are dropped first; when one term has
+/// [`CACHE_ENTRIES`], all of its answers go.
+#[derive(Debug, Default)]
+pub struct ContentCache {
+    options: Option<ContentOptions>,
+    /// Per term key, most recently used last.
+    terms: VecDeque<(String, Answers)>,
+}
+
+/// Path → (size, modification time, answer).
+type Answers = HashMap<Vec<u8>, (u64, i64, bool)>;
+
+impl ContentCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Forgets every answer.
+    pub fn clear(&mut self) {
+        self.terms.clear();
+    }
+
+    /// Number of answers kept.
+    pub fn len(&self) -> usize {
+        self.terms.iter().map(|(_, m)| m.len()).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn use_options(&mut self, options: &ContentOptions) {
+        if self.options != Some(*options) {
+            self.clear();
+            self.options = Some(*options);
+        }
+    }
+
+    fn get(&mut self, term: &ContentTerm, entry: &Pending) -> Option<bool> {
+        let at = self.terms.iter().position(|(k, _)| k == term.key())?;
+        let found = match self.terms[at].1.get(entry.path.as_slice()) {
+            Some(&(size, mtime_ns, matched))
+                if (size, mtime_ns) == (entry.size, entry.mtime_ns) =>
+            {
+                Some(matched)
+            }
+            _ => None,
+        };
+        if at + 1 != self.terms.len() {
+            let used = self.terms.remove(at)?;
+            self.terms.push_back(used);
+        }
+        found
+    }
+
+    fn put(&mut self, term: &ContentTerm, entry: &Pending, matched: bool) {
+        let at = match self.terms.iter().position(|(k, _)| k == term.key()) {
+            Some(at) => at,
+            None => {
+                if self.terms.len() == CACHE_TERMS {
+                    self.terms.pop_front();
+                }
+                self.terms
+                    .push_back((term.key().to_owned(), HashMap::new()));
+                self.terms.len() - 1
+            }
+        };
+        let answers = &mut self.terms[at].1;
+        if answers.len() >= CACHE_ENTRIES {
+            answers.clear();
+        }
+        answers.insert(entry.path.clone(), (entry.size, entry.mtime_ns, matched));
+    }
 }
 
 /// Opens `path` for reading when it is a regular file, without following a
@@ -677,5 +965,145 @@ mod tests {
         }
         assert_eq!(CodePage::default().id(), "windows-1254");
         assert_eq!(CodePage::from_id("utf-8"), None);
+    }
+
+    #[test]
+    fn decide_asks_only_for_terms_that_still_matter() {
+        // a | b: table over (a, b) bits is true unless both are false.
+        let or = 0b1110;
+        let mut asked = Vec::new();
+        let yes = decide(or, 2, |t| {
+            asked.push(t);
+            Ok(true)
+        });
+        assert_eq!((yes, asked.as_slice()), (Ok(true), &[0][..]));
+        let mut asked = Vec::new();
+        let no = decide(or, 2, |t| {
+            asked.push(t);
+            Ok(false)
+        });
+        assert_eq!((no, asked.as_slice()), (Ok(false), &[0, 1][..]));
+        // A table that does not depend on term 0 (name decided its branch)
+        // never asks for it: here the answer is term 1.
+        let only_b = 0b1100;
+        let mut asked = Vec::new();
+        assert_eq!(
+            decide(only_b, 2, |t| {
+                asked.push(t);
+                Ok(t == 1)
+            }),
+            Ok(true)
+        );
+        assert_eq!(asked, [1]);
+        // !a
+        assert_eq!(decide(0b01, 1, |_| Ok(false)), Ok(true));
+        assert_eq!(decide(0b01, 1, |_| Err(Cancelled)), Err(Cancelled));
+    }
+
+    #[test]
+    fn the_cache_answers_again_until_the_file_or_the_options_change() {
+        let dir = Dir::new("cache");
+        let path = dir.file("a.txt", b"needle\n");
+        let entry = Pending {
+            path: path.as_os_str().as_bytes().to_vec(),
+            size: 7,
+            mtime_ns: 1,
+            table: 0b10,
+        };
+        let terms = [Arc::new(term("needle"))];
+        let cache = Mutex::new(ContentCache::new());
+        let run = |entry: &Pending, options: &ContentOptions| {
+            let decisions = Decisions::new(1);
+            decide_all(
+                std::slice::from_ref(entry),
+                &terms,
+                options,
+                Some(&cache),
+                2,
+                &Progress::new(),
+                &decisions,
+                || {},
+            )
+            .unwrap();
+            decisions.get(0).unwrap()
+        };
+        let options = ContentOptions::default();
+        assert!(run(&entry, &options));
+        assert_eq!(cache.lock().unwrap().len(), 1);
+        // The file changed on disk; the index has not seen it yet: the
+        // cached answer stays.
+        std::fs::write(&path, b"other\n").unwrap();
+        assert!(run(&entry, &options));
+        // Once the index has the new time, the file is read again.
+        let changed = Pending {
+            mtime_ns: 2,
+            ..entry.clone()
+        };
+        assert!(!run(&changed, &options));
+        assert_eq!(cache.lock().unwrap().len(), 1);
+        // Other options read every file again.
+        std::fs::write(&path, b"needle\n").unwrap();
+        let other = ContentOptions {
+            max_size: 0,
+            ..options
+        };
+        assert!(run(&changed, &other));
+        // Files that cannot be read are not kept.
+        let gone = Pending {
+            path: dir.0.join("gone").as_os_str().as_bytes().to_vec(),
+            ..entry.clone()
+        };
+        cache.lock().unwrap().clear();
+        assert!(!run(&gone, &other));
+        assert!(cache.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn decide_all_calls_tick_while_it_waits_and_records_every_answer() {
+        let dir = Dir::new("decide-all");
+        let pending: Vec<Pending> = (0..20)
+            .map(|i| {
+                let text = if i % 3 == 0 { "needle\n" } else { "hay\n" };
+                let path = dir.file(&format!("{i}.txt"), text.as_bytes());
+                Pending {
+                    path: path.as_os_str().as_bytes().to_vec(),
+                    size: 0,
+                    mtime_ns: 0,
+                    table: 0b10,
+                }
+            })
+            .collect();
+        let decisions = Decisions::new(pending.len());
+        let progress = Progress::new();
+        decide_all(
+            &pending,
+            &[Arc::new(term("needle"))],
+            &ContentOptions::default(),
+            None,
+            3,
+            &progress,
+            &decisions,
+            || {},
+        )
+        .unwrap();
+        assert_eq!(decisions.decided(), 20);
+        assert_eq!(decisions.matched(), 7);
+        assert_eq!(progress.done(), 20);
+        assert!((0..20).all(|i| decisions.get(i) == Some(i % 3 == 0)));
+        // Cancelled before it starts: nothing is decided.
+        let progress = Progress::new();
+        progress.cancel();
+        let decisions = Decisions::new(pending.len());
+        let result = decide_all(
+            &pending,
+            &[Arc::new(term("needle"))],
+            &ContentOptions::default(),
+            None,
+            3,
+            &progress,
+            &decisions,
+            || {},
+        );
+        assert_eq!((result, decisions.decided()), (Err(Cancelled), 0));
     }
 }

@@ -117,6 +117,29 @@ fn filter_limits_results_to_a_kind() {
 }
 
 #[test]
+fn content_search_reads_the_files_the_names_leave() {
+    let dir = temp_dir("content");
+    let tree = dir.join("tree");
+    fs::write(tree.join("notes.txt"), "Meeting at noon\n").unwrap();
+    fs::write(tree.join("sub/plan.txt"), "nothing\n").unwrap();
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+    let found = run(&[
+        "search",
+        "--root",
+        tree_s,
+        "--index-file",
+        index_s,
+        "content:meeting ext:txt",
+    ]);
+    fs::remove_dir_all(&dir).unwrap();
+
+    assert!(found.status.success());
+    let stdout = String::from_utf8(found.stdout).unwrap();
+    assert_eq!(stdout.trim(), tree.join("notes.txt").to_str().unwrap());
+}
+
+#[test]
 fn unknown_command_fails_with_usage() {
     let out = run(&["frobnicate"]);
     assert_eq!(out.status.code(), Some(2));
