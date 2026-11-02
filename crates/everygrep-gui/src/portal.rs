@@ -122,11 +122,34 @@ pub fn choose_folder(title: &str, accept: &str) -> Result<Option<PathBuf>, Strin
 
 /// Asks for one file to read; `Ok(None)` when the dialog was cancelled.
 pub fn choose_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
-    let options = vec![
+    open_file(title, accept, &[])
+}
+
+/// A file type offered by the save dialog: its name and a glob pattern.
+pub struct SaveFilter<'a> {
+    pub name: &'a str,
+    pub pattern: &'a str,
+}
+
+/// Chooses one local file for importing data. Cancellation changes nothing.
+pub fn open_file(
+    title: &str,
+    accept: &str,
+    filters: &[SaveFilter],
+) -> Result<Option<PathBuf>, String> {
+    let list: Vec<(&str, Vec<(u32, &str)>)> = filters
+        .iter()
+        .map(|f| (f.name, vec![(0u32, f.pattern)]))
+        .collect();
+    let mut options = vec![
         ("accept_label", Value::from(accept)),
         ("modal", Value::from(true)),
         ("multiple", Value::from(false)),
+        ("directory", Value::from(false)),
     ];
+    if !list.is_empty() {
+        options.push(("filters", Value::from(list)));
+    }
     let Some(results) = file_chooser("OpenFile", title, options)? else {
         return Ok(None);
     };
@@ -135,12 +158,6 @@ pub fn choose_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String>
         .and_then(|u| file_path(u))
         .map(Some)
         .ok_or_else(|| "the file chooser gave no local file".into())
-}
-
-/// A file type offered by the save dialog: its name and a glob pattern.
-pub struct SaveFilter<'a> {
-    pub name: &'a str,
-    pub pattern: &'a str,
 }
 
 /// Asks the user where to save a file, suggesting `current_name` and

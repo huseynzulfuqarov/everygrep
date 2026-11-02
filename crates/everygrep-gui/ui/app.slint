@@ -4,6 +4,7 @@ import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
+export { HistoryWindow } from "history.slint";
 export { StalledDialog } from "stalled.slint";
 
 // A text with up to four highlighted runs: plain and bold pieces in turn,
@@ -964,6 +965,7 @@ export component AppWindow inherits Window {
     callback history-list-requested();
     callback history-sort-changed(int);
     callback history-picked(string);
+    callback organize-history();
 
     function choose-history(index: int) {
         if (index >= 0 && index < root.history-rows.length) {
@@ -977,7 +979,8 @@ export component AppWindow inherits Window {
     function history-key(event: KeyEvent) -> bool {
         if (!root.history-open) { return false; }
         if (event.text == Key.Escape) { root.history-open = false; return true; }
-        if (event.text == Key.DownArrow || event.text == Key.UpArrow) {
+        if (!event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
+                && (event.text == Key.DownArrow || event.text == Key.UpArrow)) {
             root.history-current = max(-1, min(root.history-rows.length - 1,
                 root.history-current + (event.text == Key.DownArrow ? 1 : -1)));
             return true;
@@ -1714,6 +1717,9 @@ export component AppWindow inherits Window {
             root.history-list-requested();
             root.history-open = !root.history-open;
             search.focus-and-select();
+        } else if (c == Command.organize-history) {
+            root.history-open = false;
+            root.organize-history();
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -3400,6 +3406,11 @@ export component AppWindow inherits Window {
                 title: @tr("Show search history");
                 shortcut: root.menu-keys.show-history;
                 activated => { root.run(Command.show-history); }
+            }
+            MenuItem {
+                title: @tr("Organize search history…");
+                shortcut: root.menu-keys.organize-history;
+                activated => { root.run(Command.organize-history); }
             }
         }
         Menu {

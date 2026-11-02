@@ -10,6 +10,10 @@ First version, 0.1.0, not released yet.
 
 ### Search history
 
+- Organize search history in a filterable table, delete individual searches or
+  all entries, and import/export UTF-8 CSV with counts and UTC dates. Imports
+  validate all rows and merge idempotently before applying retention.
+
 - A search-field dropdown (F4) sorts history by date, count or text; optional
   prefix suggestions support arrow keys, Enter and Esc. A History menu holds
   Back and Forward.

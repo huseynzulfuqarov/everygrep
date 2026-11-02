@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::settings;
 
 pub const MAX_ENTRIES: usize = 10_000;
+pub const MAX_TIMESTAMP: u64 = 253_402_300_799;
 
 const HEADER: &str = "EveryGrep search history 1";
 
@@ -82,6 +83,7 @@ impl Searches {
     }
 
     pub fn record(&mut self, search: &str, time: u64) {
+        let time = time.min(MAX_TIMESTAMP);
         if search.trim().is_empty() {
             return;
         }
@@ -116,6 +118,26 @@ impl Searches {
             let cutoff = time.saturating_sub(u64::from(days) * 86_400);
             self.0.retain(|e| e.last >= cutoff);
         }
+    }
+
+    pub fn merge(&mut self, other: &Searches) {
+        let mut index: HashMap<_, _> = self
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.search.clone(), i))
+            .collect();
+        for incoming in &other.0 {
+            if let Some(&i) = index.get(&incoming.search) {
+                let entry = &mut self.0[i];
+                entry.count = entry.count.max(incoming.count);
+                entry.last = entry.last.max(incoming.last);
+            } else {
+                index.insert(incoming.search.clone(), self.0.len());
+                self.0.push(incoming.clone());
+            }
+        }
+        self.limit();
     }
 
     /// Fold each candidate once, before sorting. Prefix suggestions do not
@@ -212,7 +234,10 @@ impl Searches {
                 .next()
                 .and_then(|s| s.parse::<u64>().ok())
                 .filter(|n| *n > 0);
-            let last = parts.next().and_then(|s| s.parse::<u64>().ok());
+            let last = parts
+                .next()
+                .and_then(|s| s.parse::<u64>().ok())
+                .filter(|n| *n <= MAX_TIMESTAMP);
             let search = parts.next().map(decode).transpose()?;
             let (Some(count), Some(last), Some(search)) = (count, last, search) else {
                 return Err(invalid());
@@ -438,6 +463,10 @@ mod tests {
         })
         .unwrap();
         assert_eq!(Searches::load(&path).unwrap(), entries);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         assert_eq!(entries.0.len(), 3);
         assert_eq!(entries.0[0].count, 2);
         std::fs::write(&path, "old\\nquery\nold\\nquery\n").unwrap();

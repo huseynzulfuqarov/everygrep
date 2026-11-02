@@ -17,6 +17,7 @@ mod format;
 mod hash_columns;
 mod hashes;
 mod history;
+mod history_csv;
 mod i18n;
 mod instance;
 mod labels;
@@ -359,9 +360,15 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
     });
+    window.on_organize_history({
+        let prefs = prefs.clone();
+        move || prefs.open_history()
+    });
     window.on_history_list_requested({
         let prefs = prefs.clone();
-        move || prefs.change_searches(|_| {})
+        move || {
+            prefs.change_searches(|_| {});
+        }
     });
     window.on_history_sort_changed({
         let prefs = prefs.clone();

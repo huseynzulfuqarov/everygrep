@@ -2507,3 +2507,51 @@ msgstr "Axtarış mətni"
 
 msgid "No search history"
 msgstr "Axtarış tarixçəsi boşdur"
+
+msgid "Organize search history"
+msgstr "Axtarış tarixçəsini idarə et"
+
+msgid "Organize search history…"
+msgstr "Axtarış tarixçəsini idarə et…"
+
+msgid "Filter history"
+msgstr "Tarixçədə süzgəc"
+
+msgid "CSV exports all searches. Import merges counts and dates without adding duplicate visits."
+msgstr "CSV bütün axtarışları ixrac edir. İdxal zamanı saylar və tarixlər təkrar qeydlər əlavə edilmədən birləşdirilir."
+
+msgid "Delete all search history?"
+msgstr "Bütün axtarış tarixçəsi silinsin?"
+
+msgid "Delete all"
+msgstr "Hamısını sil"
+
+msgid "Import CSV…"
+msgstr "CSV idxal et…"
+
+msgid "Export CSV…"
+msgstr "CSV ixrac et…"
+
+msgid "Could not update search history: {}"
+msgstr "Axtarış tarixçəsini yeniləmək mümkün olmadı: {}"
+
+msgid "Import search history"
+msgstr "Axtarış tarixçəsinin idxalı"
+
+msgid "Export search history"
+msgstr "Axtarış tarixçəsinin ixracı"
+
+msgid "CSV files"
+msgstr "CSV faylları"
+
+msgid "Search history imported."
+msgstr "Axtarış tarixçəsi idxal edildi."
+
+msgid "Search history exported."
+msgstr "Axtarış tarixçəsi ixrac edildi."
+
+msgid "History file operation failed: {}"
+msgstr "Tarixçə faylı ilə əməliyyat alınmadı: {}"
+
+msgid "Invalid history CSV (expected query,times_used,last_used_utc with UTC dates)."
+msgstr "Tarixçə CSV-si yanlışdır (query,times_used,last_used_utc başlığı və UTC tarixləri gözlənilir)."

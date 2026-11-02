@@ -554,7 +554,16 @@ existing entries; Clear now clears the saved and session histories. The search
 field’s ▼ button (`F4`) lists searches, sorted by date, count or text. While
 typing, optional prefix suggestions show at most 12 matches; use Up/Down and
 Enter to choose, or Esc to dismiss them. History → Back/Forward uses the
-session navigation trail.
+session navigation trail. CSV exports prefix formula starters (`=`, `+`, `-`, `@`)
+with an apostrophe and double existing leading apostrophes; import reverses
+this convention. Blank CSV records are ignored. History → Organize search history (`Ctrl+Shift+H`)
+opens a filterable table with search text, visit count and last local date.
+Delete removes the selected search; Delete all asks before clearing the full
+history. Import/Export CSV uses the desktop file chooser; export includes all
+entries regardless of the table filter. CSV headers are
+`query,times_used,last_used_utc`, with UTC timestamps such as
+`2026-11-02T12:30:00Z`. Imports merge the greater count and later date, so
+repeated imports are safe; expired imported entries are removed immediately.
 
 ### Removable drives
 

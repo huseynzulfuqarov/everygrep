@@ -63,6 +63,18 @@ impl History {
         }
     }
 
+    /// Delete every occurrence while keeping the cursor on the same entry,
+    /// or the nearest earlier entry when the current one is removed.
+    pub fn remove(&mut self, query: &str) {
+        let through_current = self
+            .pos
+            .map(|pos| self.entries[..=pos].iter().filter(|e| *e != query).count());
+        self.entries.retain(|e| e != query);
+        self.pos = through_current
+            .and_then(|n| n.checked_sub(1))
+            .or((!self.entries.is_empty()).then_some(0));
+    }
+
     /// Records `query` as the newest entry after the current one. Returns
     /// whether the entries changed.
     pub fn record(&mut self, query: &str) -> bool {
@@ -163,6 +175,19 @@ mod tests {
         h.record("x");
         assert_eq!(h.entries, ["a", "x"]);
         assert_eq!(h.forward("x"), None);
+    }
+
+    #[test]
+    fn deleting_entries_keeps_navigation_valid() {
+        let mut h = with(&["a", "b", "a", "c"]);
+        h.back("c");
+        h.remove("a");
+        assert_eq!(h.current(), Some("b"));
+        assert_eq!(h.forward("b"), Some("c"));
+        h.remove("c");
+        assert_eq!(h.current(), Some("b"));
+        h.remove("b");
+        assert_eq!(h.current(), None);
     }
 
     #[test]

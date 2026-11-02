@@ -1,0 +1,109 @@
+import { Button, LineEdit, Palette, StandardTableView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component HistoryWindow inherits Window {
+    title: @tr("Organize search history");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 760px;
+    preferred-height: 520px;
+    min-width: 620px;
+    min-height: 380px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    forward-focus: filter;
+
+    in property <[[StandardListViewItem]]> rows;
+    in-out property <int> current <=> table.current-row;
+    in-out property <string> filter-text <=> filter.text;
+    in property <bool> busy;
+    in property <string> notice;
+    in property <bool> notice-error;
+    property <bool> confirming;
+    callback filter-changed();
+    callback sort-changed(int, bool);
+    callback delete-entry(int);
+    callback clear-history();
+    callback transfer(bool);
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (root.confirming) { root.confirming = false; }
+                else { root.close-window(); }
+                return accept;
+            }
+            if (event.modifiers.control && (event.text == "f" || event.text == "F")) {
+                filter.focus(); return accept;
+            }
+            if (event.text == Key.Delete && table.has-focus && root.current >= 0 && !root.confirming && !root.busy) {
+                root.delete-entry(root.current); return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.s4;
+            spacing: Theme.s3;
+            HorizontalLayout {
+                Text { text: @tr("Filter history"); color: Theme.text; vertical-alignment: center; }
+                filter := LineEdit {
+                    accessible-label: @tr("Filter history");
+                    edited => { root.filter-changed(); }
+                }
+            }
+            table := StandardTableView {
+                accessible-label: @tr("Search history");
+                rows: root.rows;
+                columns: [
+                    { title: @tr("Search"), width: 330px, min-width: 120px, horizontal-stretch: 1 },
+                    { title: @tr("Times used"), width: 110px, min-width: 80px },
+                    { title: @tr("Last used"), width: 180px, min-width: 150px, sort-order: SortOrder.descending },
+                ];
+                sort-ascending(column) => { root.sort-changed(column, false); }
+                sort-descending(column) => { root.sort-changed(column, true); }
+                enabled: !root.confirming && !root.busy;
+            }
+            if root.rows.length == 0: Text {
+                text: @tr("No search history"); color: Theme.text-muted;
+            }
+            Text {
+                text: @tr("CSV exports all searches. Import merges counts and dates without adding duplicate visits.");
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if root.notice != "": Text {
+                text: root.notice;
+                color: root.notice-error ? Theme.danger : Theme.text-muted;
+                wrap: word-wrap;
+            }
+            if root.confirming: HorizontalLayout {
+                spacing: Theme.s2;
+                Text { text: @tr("Delete all search history?"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+                Button { text: @tr("Delete all"); clicked => { root.confirming = false; root.clear-history(); } }
+                Button { text: @tr("Cancel"); clicked => { root.confirming = false; } }
+            }
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Button {
+                    text: @tr("Delete");
+                    enabled: root.current >= 0 && root.current < root.rows.length && !root.confirming && !root.busy;
+                    clicked => { root.delete-entry(root.current); }
+                }
+                Button {
+                    text: @tr("Delete all");
+                    enabled: !root.confirming && !root.busy;
+                    clicked => { root.confirming = true; }
+                }
+                Button { text: @tr("Import CSV…"); enabled: !root.busy && !root.confirming && !root.busy; clicked => { root.transfer(true); } }
+                Button { text: @tr("Export CSV…"); enabled: !root.busy && !root.confirming && !root.busy; clicked => { root.transfer(false); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Close"); clicked => { root.close-window(); } }
+            }
+        }
+    }
+}

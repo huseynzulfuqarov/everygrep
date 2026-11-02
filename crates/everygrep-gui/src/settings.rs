@@ -1931,6 +1931,10 @@ pub(crate) mod tests {
         assert_eq!(s.history_days, 0);
         assert_eq!(Settings::parse(&s.to_text()), s);
         assert_eq!(Settings::parse("history-days = 36501\n").problems.len(), 1);
+        assert_eq!(
+            Settings::parse("history-sort = invalid\n").problems.len(),
+            1
+        );
         for order in Order::ALL {
             s.history_sort = order;
             s.always_suggestions = true;

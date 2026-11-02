@@ -389,7 +389,14 @@ updates skip writes.
 Retention drafts apply only after the explicit Apply action. Every mutation reloads
 the latest file under `search-history.lock`, prunes expired entries and replaces it via
 `settings::create_temp`. The data file is private (0600). An unreadable or
-malformed file is preserved and reported in Settings.
+malformed file is preserved and reported in Settings. An explicit Clear now
+can replace a malformed file with an empty history.
+
+`history_csv.rs` validates UTF-8 CSV with quoted multiline fields before a
+merge. Its fixed header is `query,times_used,last_used_utc`; UTC dates use
+`YYYY-MM-DDTHH:MM:SSZ`. A merge is idempotent (maximum count and last date).
+The organizer uses a standard Slint table; its file chooser and CSV file I/O
+run on a helper thread. A cancelled chooser changes nothing.
 
 ### Translations (`i18n.rs`, `translations/`)
 

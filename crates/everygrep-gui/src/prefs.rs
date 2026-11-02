@@ -24,6 +24,7 @@ use crate::commands::{self, COMMANDS, Chord, Keymap, Scope};
 use crate::engine::{Engine, IndexState};
 use crate::format::{self, SizeStandard, SizeUnit};
 use crate::history::History;
+use crate::history_csv;
 use crate::i18n;
 use crate::look::{self, Scheme};
 use crate::portal::ColorScheme;
@@ -32,7 +33,7 @@ use crate::search_history::{self, Order, Searches};
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
-use crate::{AppWindow, Command, DriveRow, SettingsWindow, ShortcutCommand, labels};
+use crate::{AppWindow, Command, DriveRow, HistoryWindow, SettingsWindow, ShortcutCommand, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
 pub const PAGES: [&str; 6] = [
@@ -203,6 +204,10 @@ pub struct Prefs {
     history_revision: Cell<u64>,
     retention: Cell<search_history::Retention>,
     window: RefCell<Option<SettingsWindow>>,
+    history_window: RefCell<Option<HistoryWindow>>,
+    history_listed: RefCell<Vec<String>>,
+    history_order: Cell<(Order, bool)>,
+    history_busy: Cell<bool>,
     /// The desktop's light or dark setting, once the portal told it.
     desktop_scheme: Cell<Option<ColorScheme>>,
     /// Whether the windows were given colors; until then they follow the
@@ -318,6 +323,10 @@ impl Prefs {
             engine,
             main: main.as_weak(),
             window: RefCell::default(),
+            history_window: RefCell::default(),
+            history_listed: RefCell::default(),
+            history_order: Cell::new((Order::Date, true)),
+            history_busy: Cell::new(false),
             desktop_scheme: Cell::new(None),
             scheme_set: Cell::new(false),
             language_set: Cell::new(false),
@@ -497,6 +506,7 @@ impl Prefs {
             done(self, true);
         }
         self.fill_history();
+        self.fill_history_window();
     }
 
     pub fn fill_history(&self) {
@@ -533,17 +543,28 @@ impl Prefs {
         }
     }
 
+    fn history_failure(&self, e: &std::io::Error) {
+        let text = i18n::fill(i18n::tr("Could not update search history: {}"), &[e]);
+        self.history_message(&text, true);
+        if let Some(w) = self.main.upgrade() {
+            w.set_notice(text.as_str().into());
+            w.set_notice_error(true);
+        }
+        self.set_error(Some(text));
+    }
+
     fn finish_history(&self, revision: u64, result: std::io::Result<Searches>) -> bool {
         match result {
             Ok(entries) => {
                 if self.history_revision.get() == revision {
                     *self.searches.borrow_mut() = entries;
                     self.fill_history();
+                    self.fill_history_window();
                 }
                 true
             }
             Err(e) => {
-                self.set_error(Some(labels::cannot_save(&e)));
+                self.history_failure(&e);
                 false
             }
         }
@@ -561,7 +582,7 @@ impl Prefs {
                 with(|p| {
                     if p.history_epoch.get() == epoch {
                         if let Err(e) = result {
-                            p.set_error(Some(labels::cannot_save(&e)));
+                            p.history_failure(&e);
                         }
                     }
                 })
@@ -572,14 +593,211 @@ impl Prefs {
     pub fn clear_history(&self) {
         self.history_epoch
             .set(self.history_epoch.get().wrapping_add(1));
-        self.history.borrow_mut().set_max(0);
         let s = self.settings.borrow();
         let max = if s.history_enabled { s.history_size } else { 0 };
         drop(s);
+        self.history.borrow_mut().set_max(0);
         self.history.borrow_mut().set_max(max);
         self.searches.borrow_mut().0.clear();
         self.clear_saved_history();
         self.fill_history();
+        self.fill_history_window();
+        self.history_message("", false);
+        self.set_error(None);
+    }
+
+    pub fn open_history(self: &Rc<Self>) {
+        if self.history_window.borrow().is_none() {
+            let w = match HistoryWindow::new() {
+                Ok(w) => w,
+                Err(e) => {
+                    self.set_error(Some(e.to_string()));
+                    return;
+                }
+            };
+            w.on_filter_changed(|| with(|p| p.fill_history_window()));
+            w.on_sort_changed(|column, descending| {
+                with(|p| {
+                    let order = match column {
+                        0 => Order::Text,
+                        1 => Order::Count,
+                        _ => Order::Date,
+                    };
+                    p.history_order.set((order, descending));
+                    p.fill_history_window();
+                })
+            });
+            w.on_delete_entry(|index| with(|p| p.delete_history_entry(index)));
+            w.on_clear_history(|| with(|p| p.clear_history()));
+            w.on_transfer(|import| with(|p| p.transfer_history(import)));
+            w.on_close_window({
+                let weak = w.as_weak();
+                move || {
+                    if let Some(w) = weak.upgrade() {
+                        let _ = w.hide();
+                    }
+                }
+            });
+            *self.history_window.borrow_mut() = Some(w);
+        }
+        self.change_searches(|_| {});
+        let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
+        if let Some(w) = self.history_window.borrow().as_ref() {
+            w.invoke_set_color_scheme(scheme as i32);
+            let _ = w.show();
+        }
+    }
+
+    fn fill_history_window(&self) {
+        let window = self.history_window.borrow();
+        let Some(w) = window.as_ref() else { return };
+        let entries = self.searches.borrow();
+        let (order, descending) = self.history_order.get();
+        let mut rows = entries.sorted(order, &w.get_filter_text());
+        if descending == (order == Order::Text) {
+            rows.reverse();
+        }
+        let zone = everygrep_core::localtime::Zone::local();
+        let mut listed = Vec::with_capacity(rows.len());
+        let rows: Vec<ModelRc<StandardListViewItem>> = rows
+            .into_iter()
+            .map(|e| {
+                listed.push(e.search.clone());
+                let time = e.last.min(search_history::MAX_TIMESTAMP) as i64;
+                let (y, m, d) = zone.local_date(time);
+                let secs = zone.to_local(time).rem_euclid(86_400);
+                let date = format!(
+                    "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
+                    secs / 3600,
+                    secs % 3600 / 60,
+                    secs % 60
+                );
+                let cells = vec![e.search.clone(), e.count.to_string(), date];
+                ModelRc::new(VecModel::from(
+                    cells
+                        .into_iter()
+                        .map(|text| StandardListViewItem::from(SharedString::from(text)))
+                        .collect::<Vec<_>>(),
+                ))
+            })
+            .collect();
+        w.set_rows(ModelRc::new(VecModel::from(rows)));
+        w.set_current(-1);
+        *self.history_listed.borrow_mut() = listed;
+    }
+
+    fn history_message(&self, text: &str, error: bool) {
+        if let Some(w) = self.history_window.borrow().as_ref() {
+            w.set_notice(text.into());
+            w.set_notice_error(error);
+        }
+    }
+
+    fn delete_history_entry(&self, index: i32) {
+        let query = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.history_listed.borrow().get(i).cloned());
+        let Some(query) = query else { return };
+        self.history_epoch
+            .set(self.history_epoch.get().wrapping_add(1));
+        self.history.borrow_mut().remove(&query);
+        let removed = query.clone();
+        self.change_searches_with(
+            move |entries| entries.0.retain(|e| e.search != removed),
+            move |p, ok| {
+                if ok {
+                    p.history_message("", false);
+                }
+            },
+        );
+    }
+
+    fn transfer_history(&self, import: bool) {
+        if self.history_busy.replace(true) {
+            return;
+        }
+        self.history_message("", false);
+        if let Some(w) = self.history_window.borrow().as_ref() {
+            w.set_busy(true);
+        }
+        let mut snapshot = self.searches.borrow().clone();
+        snapshot.retain_days(self.settings.borrow().history_days, search_history::now());
+        let epoch = self.history_epoch.get();
+        let title = if import {
+            i18n::tr("Import search history")
+        } else {
+            i18n::tr("Export search history")
+        };
+        let accept = if import {
+            i18n::tr("Import")
+        } else {
+            i18n::tr("Export")
+        };
+        let filter_name = i18n::tr("CSV files");
+        std::thread::spawn(move || {
+            enum Outcome {
+                Cancelled,
+                Imported(Searches),
+                Exported,
+            }
+            let filters = [crate::portal::SaveFilter {
+                name: filter_name,
+                pattern: "*.csv",
+            }];
+            let result: Result<Outcome, String> = (|| {
+                if import {
+                    let Some(path) = crate::portal::open_file(title, accept, &filters)? else {
+                        return Ok(Outcome::Cancelled);
+                    };
+                    history_csv::import(&path)
+                        .map(Outcome::Imported)
+                        .map_err(|e| e.to_string())
+                } else {
+                    let Some((path, _)) =
+                        crate::portal::save_file(title, accept, "search-history.csv", &filters)?
+                    else {
+                        return Ok(Outcome::Cancelled);
+                    };
+                    history_csv::export(&path, &snapshot)
+                        .map(|_| Outcome::Exported)
+                        .map_err(|e| e.to_string())
+                }
+            })();
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    p.history_busy.set(false);
+                    if let Some(w) = p.history_window.borrow().as_ref() {
+                        w.set_busy(false);
+                    }
+                    match result {
+                        Ok(Outcome::Cancelled) => {}
+                        Ok(Outcome::Imported(entries)) => {
+                            if p.history_epoch.get() != epoch {
+                                return;
+                            }
+                            p.change_searches_with(
+                                move |s| s.merge(&entries),
+                                |p, ok| {
+                                    if ok {
+                                        p.history_message(
+                                            i18n::tr("Search history imported."),
+                                            false,
+                                        );
+                                    }
+                                },
+                            );
+                        }
+                        Ok(Outcome::Exported) => {
+                            p.history_message(i18n::tr("Search history exported."), false)
+                        }
+                        Err(e) => p.history_message(
+                            &i18n::fill(i18n::tr("History file operation failed: {}"), &[&e]),
+                            true,
+                        ),
+                    }
+                })
+            });
+        });
     }
 
     /// Notes the index state for the Indexing page.
@@ -606,6 +824,9 @@ impl Prefs {
         self.scheme_set.set(true);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
+        }
+        if let Some(w) = self.history_window.borrow().as_ref() {
+            w.invoke_set_color_scheme(scheme as i32);
         }
         if let Ok(window) = self.window.try_borrow() {
             if let Some(w) = window.as_ref() {
