@@ -1287,6 +1287,11 @@ impl Prefs {
         }
         self.apply_look();
         self.apply_as_you_type();
+        // The days to keep shown in Search settings follow; the history on
+        // disk follows "keep the history on disk" as when it is switched.
+        self.retention
+            .set(search_history::Retention::new(new.history_days));
+        self.history_storage_changed(old.history_on_disk);
         self.apply_history();
         self.apply_content();
         self.apply_folder_size();
@@ -2449,21 +2454,7 @@ impl Prefs {
             s.history_enabled = enabled;
             s.always_suggestions = suggestions;
         });
-        if on_disk && !was_on_disk {
-            let memory = self.searches.borrow().clone();
-            self.change_searches(move |entries| {
-                let mut seen: std::collections::HashSet<_> =
-                    entries.0.iter().map(|e| e.search.clone()).collect();
-                for e in &memory.0 {
-                    if seen.insert(e.search.clone()) {
-                        entries.0.push(e.clone());
-                    }
-                }
-            });
-        }
-        if was_on_disk && !on_disk {
-            self.clear_saved_history();
-        }
+        self.history_storage_changed(was_on_disk);
         self.apply_history();
         self.apply_as_you_type();
         self.apply_behaviour();
@@ -2666,6 +2657,28 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Follows a change of "keep the history on disk": turned on, the
+    /// searches in memory join those on disk; turned off, the saved history
+    /// is deleted (memory keeps it).
+    fn history_storage_changed(&self, was_on_disk: bool) {
+        let on_disk = self.settings.borrow().history_on_disk;
+        if on_disk && !was_on_disk {
+            let memory = self.searches.borrow().clone();
+            self.change_searches(move |entries| {
+                let mut seen: std::collections::HashSet<_> =
+                    entries.0.iter().map(|e| e.search.clone()).collect();
+                for e in &memory.0 {
+                    if seen.insert(e.search.clone()) {
+                        entries.0.push(e.clone());
+                    }
+                }
+            });
+        }
+        if was_on_disk && !on_disk {
+            self.clear_saved_history();
+        }
+    }
+
     /// Apply recording and retention without writing a stale snapshot.
     fn apply_history(&self) {
         let s = self.settings.borrow();
@@ -2811,9 +2824,7 @@ impl Prefs {
             self.retention.set(search_history::Retention::new(
                 self.settings.borrow().history_days,
             ));
-            if was_on_disk && !self.settings.borrow().history_on_disk {
-                self.clear_saved_history();
-            }
+            self.history_storage_changed(was_on_disk);
             self.apply_history();
             self.apply_as_you_type();
             self.apply_content();
