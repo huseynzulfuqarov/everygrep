@@ -43,7 +43,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, Vec
 use engine::{Engine, Hooks, IndexState, SearchResult, Stopped};
 use i18n::{fill, tr, trn};
 use prefs::{IndexSetup, Prefs};
-use results::{DetailColumns, ResultsModel};
+use results::{DetailColumns, Offline, ResultsModel, Targets};
 use settings::{Density, ThemeChoice};
 
 slint::include_modules!();
@@ -845,11 +845,12 @@ const MAX_OPEN: usize = 20;
 /// Moving more items than this to the trash asks first.
 const TRASH_CONFIRM: usize = 50;
 
-/// What the confirmation dialog will do when accepted.
+/// What the confirmation dialog will do when accepted. The items are
+/// checked again then (see [`ResultsModel::recheck`]).
 enum Pending {
-    Open(Vec<PathBuf>),
-    Trash(Vec<PathBuf>),
-    Delete(Vec<PathBuf>),
+    Open(Targets),
+    Trash(Targets),
+    Delete(Targets),
 }
 
 /// Open, copy, rename, trash and delete.
@@ -863,37 +864,36 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_activate({
         let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move |r| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(targets) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
-            let paths = model.targets(row(r));
+            };
             let Some(w) = weak.upgrade() else { return };
             w.invoke_history_record();
             let mut over = settings::DEFAULT_OPEN_CONFIRM;
             prefs::with(|p| over = p.open_confirm_over());
-            if actions::open_needs_confirm(paths.len(), over) {
+            let count = targets.paths.len();
+            if actions::open_needs_confirm(count, over) {
                 ask(
                     &w,
                     fill(
-                        trn("Open {} item?", "Open {} items?", paths.len()),
-                        &[&format::count(paths.len())],
+                        trn("Open {} item?", "Open {} items?", count),
+                        &[&format::count(count)],
                     ),
                     tr("Each one opens in its own application."),
                     tr("Open"),
                 );
-                *pending.borrow_mut() = Some(Pending::Open(paths));
+                *pending.borrow_mut() = Some(Pending::Open(targets));
                 return;
             }
-            paths.iter().for_each(|p| open::open(p));
+            targets.paths.iter().for_each(|p| open::open(p));
         }
     });
     window.on_open_with({
         let (weak, model) = (weak.clone(), model.clone());
         move |r| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(Targets { paths, .. }) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
-            let paths = model.targets(row(r));
+            };
             let Some(w) = weak.upgrade() else { return };
             let [path] = paths.as_slice() else {
                 if !paths.is_empty() {
@@ -918,10 +918,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_open_folder({
         let (weak, model) = (weak.clone(), model.clone());
         move |r| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(Targets { paths, .. }) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
-            let paths = model.targets(row(r));
+            };
             open::show_in_folder(&paths[..paths.len().min(MAX_OPEN)]);
         }
     });
@@ -1023,53 +1022,78 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_trash({
         let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move |r| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(targets) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
-            let paths = model.targets(row(r));
+            };
             let Some(w) = weak.upgrade() else { return };
-            if paths.len() > TRASH_CONFIRM {
+            if targets.paths.len() > TRASH_CONFIRM {
                 ask(
                     &w,
-                    fill(tr("Move {} to the trash?"), &[&actions::describe(&paths)]),
+                    fill(
+                        tr("Move {} to the trash?"),
+                        &[&actions::describe(&targets.paths)],
+                    ),
                     tr("You can restore them from the trash."),
                     tr("Move to trash"),
                 );
-                *pending.borrow_mut() = Some(Pending::Trash(paths));
-            } else if !paths.is_empty() {
-                run_trash(&w, paths);
+                *pending.borrow_mut() = Some(Pending::Trash(targets));
+            } else if !targets.paths.is_empty() {
+                run_trash(&w, targets.paths);
             }
         }
     });
     window.on_delete_request({
         let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move |r| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(targets) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
-            let paths = model.targets(row(r));
+            };
             let Some(w) = weak.upgrade() else { return };
-            if paths.is_empty() {
+            if targets.paths.is_empty() {
                 return;
             }
             ask(
                 &w,
-                fill(tr("Delete {} permanently?"), &[&actions::describe(&paths)]),
+                fill(
+                    tr("Delete {} permanently?"),
+                    &[&actions::describe(&targets.paths)],
+                ),
                 tr("This cannot be undone. Folders are deleted with all their contents."),
                 tr("Delete"),
             );
-            *pending.borrow_mut() = Some(Pending::Delete(paths));
+            *pending.borrow_mut() = Some(Pending::Delete(targets));
         }
     });
     window.on_confirm_accepted({
-        let (weak, pending) = (weak.clone(), pending.clone());
+        let (weak, model, pending) = (weak.clone(), model.clone(), pending.clone());
         move || {
             let Some(w) = weak.upgrade() else { return };
             w.set_confirm_open(false);
-            match pending.borrow_mut().take() {
-                Some(Pending::Open(paths)) => paths.iter().for_each(|p| open::open(p)),
-                Some(Pending::Trash(paths)) => run_trash(&w, paths),
-                Some(Pending::Delete(paths)) => run_delete(&w, paths),
+            let taken = pending.borrow_mut().take();
+            // A drive may have been disconnected while the dialog was open.
+            let checked = |targets| match model.recheck(targets) {
+                Ok(paths) => Some(paths),
+                Err(Offline) => {
+                    info(&w, labels::offline_refused().into());
+                    None
+                }
+            };
+            match taken {
+                Some(Pending::Open(t)) => {
+                    if let Some(paths) = checked(t) {
+                        paths.iter().for_each(|p| open::open(p));
+                    }
+                }
+                Some(Pending::Trash(t)) => {
+                    if let Some(paths) = checked(t) {
+                        run_trash(&w, paths);
+                    }
+                }
+                Some(Pending::Delete(t)) => {
+                    if let Some(paths) = checked(t) {
+                        run_delete(&w, paths);
+                    }
+                }
                 None => {}
             }
             w.invoke_focus_list();
@@ -1141,10 +1165,9 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
     let put = {
         let (weak, model) = (weak.clone(), model.clone());
         move |r: i32, op: clipboard::Operation| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(Targets { paths, .. }) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
-            let paths = model.targets(row(r));
+            };
             let Some(w) = weak.upgrade() else { return };
             if paths.is_empty() {
                 return;
@@ -1171,11 +1194,10 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
     window.on_paste_items({
         let (weak, model) = (weak.clone(), model.clone());
         move |r| {
-            if refuse_offline(&weak, &model, row(r)) {
+            let Some(Targets { paths: targets, .. }) = online_targets(&weak, &model, row(r)) else {
                 return;
-            }
+            };
             let Some(w) = weak.upgrade() else { return };
-            let targets = model.targets(row(r));
             let dest = match targets.as_slice() {
                 [] => return,
                 [one] if one.is_dir() => one.clone(),
@@ -1370,17 +1392,23 @@ fn write_export(
     out.finish().map_err(failed)
 }
 
-/// Refuses a file action on items of a drive that is not connected: their
-/// paths may now belong to other files, or to nothing. Returns whether it
-/// refused.
-fn refuse_offline(weak: &slint::Weak<AppWindow>, model: &ResultsModel, row: Option<usize>) -> bool {
-    if !model.targets_offline(row) {
-        return false;
+/// The items of a file action on `row`, checked and taken at once; none,
+/// with a notice, when a drive that is not connected holds any of them:
+/// their paths may now belong to other files, or to nothing.
+fn online_targets(
+    weak: &slint::Weak<AppWindow>,
+    model: &ResultsModel,
+    row: Option<usize>,
+) -> Option<Targets> {
+    match model.checked_targets(row) {
+        Ok(targets) => Some(targets),
+        Err(Offline) => {
+            if let Some(w) = weak.upgrade() {
+                info(&w, labels::offline_refused().into());
+            }
+            None
+        }
     }
-    if let Some(w) = weak.upgrade() {
-        info(&w, labels::offline_refused().into());
-    }
-    true
 }
 
 fn info(w: &AppWindow, text: String) {

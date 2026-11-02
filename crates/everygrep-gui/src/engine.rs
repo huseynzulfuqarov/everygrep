@@ -3479,6 +3479,52 @@ mod tests {
     }
 
     #[test]
+    fn an_action_confirmed_after_its_drive_went_away_is_refused() {
+        let dir = Scratch::new("drives-confirm");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let usb = dir.0.join("media/USB");
+        fs::create_dir_all(&usb).unwrap();
+        fs::write(usb.join("photo.jpg"), "").unwrap();
+        let probe = Probe::start_with(
+            vec![home],
+            Vec::new(),
+            dir.0.join("index.bin"),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        probe.wait_for(IndexState::Watching);
+        let e = &probe.engine;
+        fake.mount("CONF-1", "sdx1", "USB");
+        until(e, "the drive", |i| {
+            find(i, &usb.join("photo.jpg")).is_some()
+        });
+        while probe.results.try_recv().is_ok() {}
+        e.set_query("photo", QueryOptions::default());
+        let r = loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if r.query == "photo" && !r.ids.is_empty() {
+                break r;
+            }
+        };
+        let model = crate::results::ResultsModel::new(Arc::clone(e));
+        model.set_result(&r);
+        let asked = model.checked_targets(Some(0)).unwrap();
+        assert_eq!(asked.paths, [usb.join("photo.jpg")]);
+        let again = model.checked_targets(Some(0)).unwrap();
+        assert_eq!(model.recheck(again).unwrap(), [usb.join("photo.jpg")]);
+
+        // Removed while the confirmation was open.
+        fake.unmount_all();
+        until(e, "the drive offline", |i| {
+            find(i, &usb.join("photo.jpg")).is_some_and(|id| i.is_offline(id))
+        });
+        assert_eq!(model.recheck(asked).unwrap_err(), crate::results::Offline);
+        assert!(model.checked_targets(Some(0)).is_err());
+        e.shutdown();
+    }
+
+    #[test]
     fn removed_drives_can_be_forgotten_or_never_indexed() {
         let dir = Scratch::new("drives-forget");
         let fake = FakeDrives::new(&dir.0);

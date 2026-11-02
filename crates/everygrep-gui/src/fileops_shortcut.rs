@@ -149,10 +149,11 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>) {
         let busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         move |row| {
             let row = usize::try_from(row).ok();
-            if crate::refuse_offline(&weak, &model, row) {
+            let Some(crate::Targets { paths: sources, .. }) =
+                crate::online_targets(&weak, &model, row)
+            else {
                 return;
-            }
-            let sources = model.targets(row);
+            };
             let Some(w) = weak.upgrade() else { return };
             if sources.is_empty() || busy.swap(true, std::sync::atomic::Ordering::SeqCst) {
                 return;

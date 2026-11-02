@@ -57,6 +57,20 @@ pub struct ResultsModel {
     notify: ModelNotify,
 }
 
+/// A file action was refused: a drive that is not connected holds some of
+/// its items, whose paths may now belong to other files, or to nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Offline;
+
+/// The items of a file action, as [`ResultsModel::checked_targets`] took
+/// them.
+#[derive(Debug)]
+pub struct Targets {
+    ids: Vec<NodeId>,
+    epoch: u64,
+    pub paths: Vec<PathBuf>,
+}
+
 /// The columns whose values are not in the index (see
 /// [`everygrep_core::details`]). Nothing is read while all are hidden.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -287,6 +301,72 @@ impl ResultsModel {
         picked
             .into_iter()
             .any(|id| id.index() < store.len() && store.is_live(id) && index.is_offline(id))
+    }
+
+    /// The items an action on `row` applies to (see
+    /// [`targets`](Self::targets)), checked and taken under one look at the
+    /// index: an error when a drive that is not connected holds any of them.
+    pub fn checked_targets(&self, row: Option<usize>) -> Result<Targets, Offline> {
+        let picked = self.picked(row);
+        let epoch = self.epoch.get();
+        let mut targets = Targets {
+            ids: Vec::new(),
+            epoch,
+            paths: Vec::new(),
+        };
+        let Ok(index) = self.engine.index.read() else {
+            return Ok(targets);
+        };
+        if self.engine.epoch() != epoch {
+            return Ok(targets);
+        }
+        let store = index.store();
+        targets.ids = picked
+            .into_iter()
+            .filter(|id| id.index() < store.len() && store.is_live(*id))
+            .collect();
+        if targets.ids.iter().any(|&id| index.is_offline(id)) {
+            return Err(Offline);
+        }
+        targets.paths = targets.ids.iter().map(|&id| store.path(id)).collect();
+        Ok(targets)
+    }
+
+    /// The paths of `targets` when their action runs later, after a
+    /// confirmation: where the items are now, or an error when a drive
+    /// holding any of them was disconnected meanwhile. After a new index
+    /// (other ids) the paths taken before are kept, unless they lie on a
+    /// drive that is not connected.
+    pub fn recheck(&self, targets: Targets) -> Result<Vec<PathBuf>, Offline> {
+        let Ok(index) = self.engine.index.read() else {
+            return Ok(targets.paths);
+        };
+        let store = index.store();
+        if self.engine.epoch() == targets.epoch {
+            let live: Vec<NodeId> = targets
+                .ids
+                .into_iter()
+                .filter(|id| id.index() < store.len() && store.is_live(*id))
+                .collect();
+            if live.iter().any(|&id| index.is_offline(id)) {
+                return Err(Offline);
+            }
+            return Ok(live.into_iter().map(|id| store.path(id)).collect());
+        }
+        let offline: Vec<PathBuf> = index
+            .offline_roots()
+            .iter()
+            .filter(|r| r.index() < store.len() && store.is_live(**r))
+            .map(|&r| store.path(r))
+            .collect();
+        if targets
+            .paths
+            .iter()
+            .any(|p| offline.iter().any(|r| p.starts_with(r)))
+        {
+            return Err(Offline);
+        }
+        Ok(targets.paths)
     }
 
     /// The ids of the rows an action on `row` applies to.
