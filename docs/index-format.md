@@ -113,14 +113,17 @@ After reading:
 
 - the checksum must match;
 - every parent link must point to an existing folder (or be 0), names must lie
-  inside the pool, and no node may be marked removed;
+  inside the pool, no two names may share bytes of the pool (their lengths
+  add up to at most the pool's size), and no node may be marked removed;
 - parent chains must end at a root without loops;
 - the name order must be a permutation of the nodes; if it is not sorted by
   the current rules (a version 4 file, or rules that changed with an update
   of the program) it is sorted again, on one thread per CPU (about 0.05 s
   for 260 000 nodes on 20 threads), and the index is saved with the new order at the next save; two
   nodes with the same parent and name make the file invalid;
-- the folded names used for matching are computed again, not read.
+- the folded names used for matching are computed again, not read; a name
+  longer than 65 535 bytes once folded (folding can make it longer) makes the
+  file invalid.
 
 Any failure gives an `InvalidData` error ("not an index file", "unsupported
 version", "checksum mismatch", …) and the programs scan again instead. A file

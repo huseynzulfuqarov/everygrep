@@ -579,6 +579,13 @@ impl NodeStore {
                 return Err("name out of range");
             }
         }
+        // Each node has name bytes of its own in a saved index. Names that
+        // share bytes would let a small file ask for much folding work and
+        // memory below.
+        let total: u64 = c.name_len.iter().map(|&l| u64::from(l)).sum();
+        if total > c.name_pool.len() as u64 {
+            return Err("names share bytes");
+        }
         // A parent chain must end at a root; walking it must not loop.
         let mut state = vec![0u8; n]; // 0 = unknown, 1 = on current walk, 2 = reaches a root
         let mut walk = Vec::new();
@@ -625,8 +632,15 @@ impl NodeStore {
             let (fs, fl) = if store.scratch == name {
                 (SAME_AS_RAW, store.name_len[i])
             } else {
-                let (fs, fl) = push(&mut store.folded_pool, &store.scratch);
-                (fs, fl)
+                // Folding can make a name longer (`İ` takes 2 bytes, its
+                // folded form 3).
+                if store.scratch.len() > usize::from(u16::MAX) {
+                    return Err("name too long");
+                }
+                if u32::try_from(store.folded_pool.len() + store.scratch.len()).is_err() {
+                    return Err("names too long");
+                }
+                push(&mut store.folded_pool, &store.scratch)
             };
             store.folded_start.push(fs);
             store.folded_len.push(fl);
@@ -760,15 +774,67 @@ mod tests {
         assert!(s.is_dir(root) && !s.is_dir(lower));
     }
 
+    /// Columns of nodes with these parent words; roots are named `/n<i>`,
+    /// other nodes `n<i>`.
     fn columns_with_parents(parent_kind: Vec<u32>) -> Columns {
+        let names: Vec<String> = parent_kind
+            .iter()
+            .enumerate()
+            .map(|(i, &word)| {
+                if word & PARENT_MASK == 0 {
+                    format!("/n{i}")
+                } else {
+                    format!("n{i}")
+                }
+            })
+            .collect();
+        columns_named(parent_kind, &names)
+    }
+
+    fn columns_named(parent_kind: Vec<u32>, names: &[impl AsRef<[u8]>]) -> Columns {
         let n = parent_kind.len();
-        Columns {
+        let mut c = Columns {
             parent_kind,
-            name_start: vec![0; n],
-            name_len: vec![1; n],
+            name_start: Vec::with_capacity(n),
+            name_len: Vec::with_capacity(n),
             meta: vec![Meta::default(); n],
-            name_pool: b"x".to_vec(),
+            name_pool: Vec::new(),
+        };
+        for name in names {
+            let name = name.as_ref();
+            c.name_start.push(c.name_pool.len() as u32);
+            c.name_len.push(name.len() as u16);
+            c.name_pool.extend_from_slice(name);
         }
+        c
+    }
+
+    #[test]
+    fn names_that_fold_too_long_or_share_bytes_are_refused() {
+        // 22 000 x `İ`: 44 001 bytes, 66 001 once folded.
+        let long = format!("/{}", "İ".repeat(22_000));
+        let c = columns_named(vec![DIR_BIT], &[long.as_bytes()]);
+        assert_eq!(NodeStore::from_columns(c).err(), Some("name too long"));
+        // Three children made of the same bytes of the pool.
+        let mut c = columns_named(vec![DIR_BIT, 1, 1, 1], &["/r", "AAAA", "", ""]);
+        c.name_start[2..].fill(2);
+        c.name_len[2..].fill(4);
+        assert_eq!(NodeStore::from_columns(c).err(), Some("names share bytes"));
+        // What a save writes is still accepted.
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        store.add(Some(root), "İİ".as_bytes(), false, Meta::default());
+        store.add(Some(root), b"AAAA", false, Meta::default());
+        let c = store.columns();
+        let loaded = NodeStore::from_columns(Columns {
+            parent_kind: c.parent_kind.to_vec(),
+            name_start: c.name_start.to_vec(),
+            name_len: c.name_len.to_vec(),
+            meta: c.meta.to_vec(),
+            name_pool: c.name_pool.to_vec(),
+        })
+        .unwrap();
+        assert_eq!(loaded.name(NodeId(1)), "İİ".as_bytes());
     }
 
     #[test]
