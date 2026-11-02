@@ -191,8 +191,10 @@ pub fn rename_target(old: &Path, new_name: &str) -> Result<Option<PathBuf>, Rena
 }
 
 /// Whether renaming `old` to `target` only changes the case of its name on a
-/// case-insensitive file system: `target` finds the item itself. A hard link
-/// under another name is the same item too, but a clash.
+/// case-insensitive file system: `target` finds the item itself, and the
+/// folder has no entry of exactly that name. A hard link under another
+/// name, also one that differs only in case, is the same item too, but a
+/// clash.
 fn case_only(old: &Path, target: &Path) -> bool {
     let (Some(a), Some(b)) = (old.file_name(), target.file_name()) else {
         return false;
@@ -202,6 +204,19 @@ fn case_only(old: &Path, target: &Path) -> bool {
         && std::fs::symlink_metadata(old)
             .and_then(|m| Ok((m, std::fs::symlink_metadata(target)?)))
             .is_ok_and(|(m, t)| m.dev() == t.dev() && m.ino() == t.ino())
+        && !has_entry(target)
+}
+
+/// Whether the folder of `path` lists an entry named exactly (byte for
+/// byte) like it. An unreadable folder counts as having it.
+fn has_entry(path: &Path) -> bool {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return true;
+    };
+    match std::fs::read_dir(dir) {
+        Ok(entries) => entries.flatten().any(|e| e.file_name() == name),
+        Err(_) => true,
+    }
 }
 
 /// Renames `old` to `new_name` in the same folder. Returns the new path, or
@@ -505,16 +520,21 @@ mod tests {
     }
 
     #[test]
-    fn a_change_of_case_renames_but_another_link_to_the_file_clashes() {
+    fn another_link_to_the_file_clashes_even_under_another_case() {
         let dir = TempDir::new("rename-case");
         let (x, upper) = (dir.0.join("x.txt"), dir.0.join("X.txt"));
         fs::write(&x, "x").unwrap();
-        // A hard link under the other case stands in for a case-insensitive
-        // file system, where "X.txt" finds "x.txt" itself.
+        // A hard link under the other case: on a case-sensitive file system
+        // "X.txt" is an entry of its own, not "x.txt" found again, so it is
+        // taken (a rename onto it would change nothing and say "renamed").
         fs::hard_link(&x, &upper).unwrap();
-        assert_eq!(rename_target(&x, "X.txt").unwrap(), Some(upper.clone()));
-        assert_eq!(rename(&x, "X.txt").unwrap(), Some(upper.clone()));
-        assert_eq!(fs::read_to_string(&upper).unwrap(), "x");
+        assert!(matches!(
+            rename_target(&x, "X.txt"),
+            Err(RenameError::Exists(_))
+        ));
+        assert!(matches!(rename(&x, "X.txt"), Err(RenameError::Exists(_))));
+        assert!(x.exists() && upper.exists());
+        assert!(has_entry(&upper) && !has_entry(&dir.0.join("x.TXT")));
         // The same file under an unrelated name is a different entry.
         let other = dir.0.join("other.txt");
         fs::hard_link(&upper, &other).unwrap();
