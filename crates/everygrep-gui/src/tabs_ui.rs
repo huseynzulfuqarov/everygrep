@@ -4,7 +4,7 @@ use crate::i18n::fill;
 use crate::i18n::tr;
 use crate::prefs::Prefs;
 use crate::results::ResultsModel;
-use crate::session::{self, Session, Writer};
+use crate::session::{self, Ask, Saver, Session};
 use crate::settings::Columns;
 use crate::tabs::{SearchState, Tab, Tabs, tab_options};
 use crate::{AppWindow, Command, TabEntry, TabsWindow};
@@ -25,7 +25,7 @@ struct State {
     poll: Timer,
     last_submitted: RefCell<SearchState>,
     scope: String,
-    writer: RefCell<Writer>,
+    saver: Saver,
     started: Instant,
     session_error: RefCell<Option<String>>,
 }
@@ -77,7 +77,7 @@ pub fn connect(
         poll: Timer::default(),
         last_submitted: RefCell::new(read(w)),
         scope: start.scope,
-        writer: RefCell::new(Writer::new(path)),
+        saver: Saver::new(path),
         started: Instant::now(),
         session_error: RefCell::new(None),
     });
@@ -183,11 +183,11 @@ pub fn flush() {
         let Some(w) = s.main.upgrade() else { return };
         s.observe_search(&w);
         let snapshot = Session::capture(&s.scope, &s.tabs.borrow());
-        let result = s
-            .writer
-            .borrow_mut()
-            .finish(s.prefs.restore_session(), snapshot);
-        s.report_write(result);
+        // Saved before the program ends: `main` waits for the saving thread.
+        s.save(Ask::Finish {
+            enabled: s.prefs.restore_session(),
+            snapshot,
+        });
     });
 }
 
@@ -327,20 +327,32 @@ fn title(tab: &Tab) -> String {
 
 impl State {
     fn forget_session(&self) {
-        let result = self.writer.borrow_mut().forget();
-        self.report_write(result);
+        self.save(Ask::Forget);
+    }
+
+    /// Hands `ask` to the saving thread; a failure is shown when it comes.
+    fn save(&self, ask: Ask) {
+        if let Some(job) = self.saver.ask(ask) {
+            self.prefs.save_in_order(move || {
+                let result = job();
+                if result.is_err() {
+                    let _ = slint::invoke_from_event_loop(move || {
+                        with(|s| s.report_write(result));
+                    });
+                }
+            });
+        }
     }
 
     fn observe(&self) {
         let Some(w) = self.main.upgrade() else { return };
         self.observe_search(&w);
         let snapshot = Session::capture(&self.scope, &self.tabs.borrow());
-        let result = self.writer.borrow_mut().observe(
-            self.prefs.restore_session(),
+        self.save(Ask::Observe {
+            enabled: self.prefs.restore_session(),
             snapshot,
-            self.started.elapsed(),
-        );
-        self.report_write(result);
+            now: self.started.elapsed(),
+        });
     }
 
     fn observe_search(&self, w: &AppWindow) {
@@ -361,7 +373,7 @@ impl State {
         if let Err(e) = result {
             let message = fill(
                 tr("Cannot save tabs: {}"),
-                &[&session_detail(self.writer.borrow().path(), &e)],
+                &[&session_detail(self.saver.path(), &e)],
             );
             if self.session_error.borrow().as_ref() != Some(&message) {
                 eprintln!("everygrep-gui: cannot save tabs: {e}");

@@ -470,10 +470,6 @@ impl Writer {
             disabled_clean: false,
         }
     }
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
     pub fn observe(&mut self, enabled: bool, snapshot: Session, now: Duration) -> io::Result<()> {
         if !enabled {
             if !self.disabled_clean {
@@ -539,6 +535,92 @@ impl Writer {
             }
         }
         Ok(())
+    }
+}
+
+/// What the window asks of its session file (see [`Saver::ask`]).
+pub enum Ask {
+    /// [`Writer::observe`]: saves now or later, or deletes when disabled.
+    Observe {
+        enabled: bool,
+        snapshot: Session,
+        now: Duration,
+    },
+    /// [`Writer::finish`]: the last save of the window.
+    Finish { enabled: bool, snapshot: Session },
+    /// [`Writer::forget`]: deletes the file (history cleared, restore off).
+    Forget,
+}
+
+/// Asks not run yet: a deletion, then the newest other ask.
+#[derive(Default)]
+struct Queued {
+    forget: bool,
+    latest: Option<Ask>,
+    /// A job that takes them is waiting on the saving thread.
+    scheduled: bool,
+}
+
+/// Keeps the session's disk work (lock wait, read of the old file, fsync,
+/// rename, delete) off the window's thread: the [`Writer`] runs in jobs on
+/// the settings saving thread, in order with the settings and history
+/// saves. While a job waits, a newer snapshot replaces the one it would
+/// save; a deletion asked meanwhile is never dropped, and drops the
+/// snapshots asked before it.
+pub struct Saver {
+    path: Option<PathBuf>,
+    writer: std::sync::Arc<std::sync::Mutex<Writer>>,
+    queued: std::sync::Arc<std::sync::Mutex<Queued>>,
+}
+
+impl Saver {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            writer: std::sync::Arc::new(std::sync::Mutex::new(Writer::new(path.clone()))),
+            path,
+            queued: std::sync::Arc::default(),
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Notes `ask`. Returns the job to run on the saving thread when none is
+    /// waiting already (the waiting one takes `ask` too); the job returns
+    /// how the disk work went.
+    pub fn ask(&self, ask: Ask) -> Option<impl FnOnce() -> io::Result<()> + Send + 'static> {
+        let mut q = self.queued.lock().unwrap_or_else(|e| e.into_inner());
+        match ask {
+            Ask::Forget => {
+                q.forget = true;
+                q.latest = None;
+            }
+            ask => q.latest = Some(ask),
+        }
+        if std::mem::replace(&mut q.scheduled, true) {
+            return None;
+        }
+        let (writer, queued) = (self.writer.clone(), self.queued.clone());
+        Some(move || {
+            let (forget, latest) = {
+                let mut q = queued.lock().unwrap_or_else(|e| e.into_inner());
+                q.scheduled = false;
+                (std::mem::take(&mut q.forget), q.latest.take())
+            };
+            let mut writer = writer.lock().unwrap_or_else(|e| e.into_inner());
+            let forgot = if forget { writer.forget() } else { Ok(()) };
+            let saved = match latest {
+                Some(Ask::Observe {
+                    enabled,
+                    snapshot,
+                    now,
+                }) => writer.observe(enabled, snapshot, now),
+                Some(Ask::Finish { enabled, snapshot }) => writer.finish(enabled, snapshot),
+                Some(Ask::Forget) | None => Ok(()),
+            };
+            forgot.and(saved)
+        })
     }
 }
 
@@ -870,6 +952,62 @@ mod tests {
         assert!(window.changed(Duration::from_secs(16)));
         assert!(!window.due(Duration::from_secs(31))); // No trailing write if unchanged.
     }
+    #[test]
+    fn saves_run_later_on_the_saving_thread_newest_first_and_keep_deletions() {
+        let dir = Scratch::new("session-saver");
+        let path = dir.0.join("session");
+        let saver = Saver::new(Some(path.clone()));
+        let observe = |n: usize, now: u64| Ask::Observe {
+            enabled: true,
+            snapshot: sample(n),
+            now: Duration::from_secs(now),
+        };
+        // Nothing is written by asking; a newer snapshot replaces a waiting one.
+        let job = saver.ask(observe(1, 0)).expect("a job");
+        assert!(
+            saver.ask(observe(2, 0)).is_none(),
+            "taken by the waiting job"
+        );
+        assert!(!path.exists());
+        let writer = settings::Writer::start();
+        let (done, results) = std::sync::mpsc::channel();
+        let caller = std::thread::current().id();
+        let send = done.clone();
+        writer.run(move || {
+            assert_ne!(std::thread::current().id(), caller);
+            send.send(job()).unwrap();
+        });
+        results
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        assert_eq!(Session::load(&path).unwrap(), Some(sample(2)));
+        // A deletion asked after a snapshot drops it and still deletes.
+        let job = saver.ask(observe(3, 1)).expect("a job");
+        assert!(saver.ask(Ask::Forget).is_none());
+        job().unwrap();
+        assert!(!path.exists());
+        // A snapshot asked after a deletion is saved after it.
+        let job = saver.ask(Ask::Forget).expect("a job");
+        assert!(saver.ask(observe(4, 2)).is_none());
+        job().unwrap();
+        assert_eq!(Session::load(&path).unwrap(), Some(sample(4)));
+        // The last save of the window, and its error, come back from the job.
+        std::fs::write(&path, "EveryGrep session 99\n").unwrap();
+        let job = saver
+            .ask(Ask::Finish {
+                enabled: true,
+                snapshot: sample(5),
+            })
+            .expect("a job");
+        assert!(job().is_err(), "a newer file is kept");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "EveryGrep session 99\n"
+        );
+        assert!(writer.wait_done(Duration::from_secs(5)));
+    }
+
     #[test]
     fn writer_coalesces_changes_and_flushes_latest_at_exit() {
         let dir = Scratch::new("session-writer");

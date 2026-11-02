@@ -578,6 +578,9 @@ skip restoring. Restore, history recording and history disk storage must all be
 enabled for reading/writing. Disabling deletes the session. Clear/delete also
 invalidate the writer cache and disk file; runtime tombstones redact those
 queries from later captures without destroying visible open-tab work.
+The window only captures the tabs; the saves and deletions run on the settings
+saving thread (`session::Saver`), in order with the settings and history saves, a
+newer snapshot replacing one still waiting, and are waited for at quit.
 Each save holds `session.lock`, validates existing data, creates a unique file
 with `settings::create_temp`, sets 0600, syncs and renames it. Malformed/newer
 files are preserved. Readers are bounded to 8 MiB / 1,000 records, skip unknown

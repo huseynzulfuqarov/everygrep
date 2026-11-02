@@ -428,6 +428,13 @@ impl Prefs {
         });
     }
 
+    /// Runs `job` on the saving thread, after the settings and history
+    /// saves asked before it (the session file of the tabs uses it). It
+    /// must not write the settings file.
+    pub fn save_in_order(&self, job: impl FnOnce() + Send + 'static) {
+        self.writer.run_apart(job);
+    }
+
     /// Waits at most `wait` for the settings and the history to be saved,
     /// before the program ends.
     pub fn finish_saving(&self, wait: std::time::Duration) -> bool {
