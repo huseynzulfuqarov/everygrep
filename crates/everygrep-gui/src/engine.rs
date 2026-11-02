@@ -3183,6 +3183,12 @@ mod tests {
             took >= Duration::from_millis(300) && took < Duration::from_secs(3),
             "{took:?}"
         );
+        // Let go, the scan ends (cancelled) before the scratch folder goes.
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while probe.engine.scanned.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline, "the scan never ended");
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     /// Quit delays for larger drives: `cargo test -p everygrep-gui --release
