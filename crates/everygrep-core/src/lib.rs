@@ -6,6 +6,7 @@ pub mod details;
 pub mod drives;
 pub mod filter;
 pub mod fold;
+pub mod hash;
 pub mod index;
 pub mod inotify;
 pub mod kind;

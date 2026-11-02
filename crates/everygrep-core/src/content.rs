@@ -669,7 +669,7 @@ impl Read for Piped<'_> {
 /// Opens `path` for reading when it is a regular file, without following a
 /// link and without waiting on a FIFO, and without changing its access time
 /// when that is allowed (the file belongs to the user).
-fn open_regular(path: &Path) -> Result<File, Outcome> {
+pub(crate) fn open_regular(path: &Path) -> Result<File, Outcome> {
     use rustix::fs::{Mode, OFlags};
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.is_file() => {}

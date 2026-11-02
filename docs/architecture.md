@@ -16,7 +16,9 @@ connections, has no telemetry and runs no service besides the window itself.
 The core uses the standard library, the `regex` crate for regular expressions
 in queries, `rustix` for opening files and folders without following links,
 the line searcher and matcher of ripgrep (`grep-searcher`, `grep-regex`) with
-`encoding_rs` for reading file contents (`content.rs`), and hand-written
+`encoding_rs` for reading file contents (`content.rs`), `md-5`, `sha2`,
+`crc32fast` and `twox-hash` (XXH3-128) for hashes of file contents
+(`hash.rs`), and hand-written
 bindings for the few Linux calls it needs (`inotify.rs`). The window adds Slint (UI toolkit) and
 zbus (session bus); see `THIRD-PARTY-LICENSES.md` for the full list.
 

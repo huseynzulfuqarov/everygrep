@@ -43,7 +43,8 @@ XDG_CONFIG_HOME=/tmp/eg-config cargo run -p everygrep-gui -- \
 `everygrep-core` depends on `regex` (regular expressions in queries),
 `rustix` (opening files and folders without following links), and
 `grep-searcher`, `grep-regex` and `encoding_rs` (reading file contents for
-`content:`); keep that list short. The window uses Slint and zbus. **Do not add a crate, or a feature that pulls in new
+`content:`), and `md-5`, `sha2`, `crc32fast` and `twox-hash` (hashes of file
+contents); keep that list short. The window uses Slint and zbus. **Do not add a crate, or a feature that pulls in new
 crates, without discussing it first**; `git diff Cargo.lock` should normally
 be empty. When the dependencies do change, regenerate the license list:
 
