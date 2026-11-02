@@ -2,9 +2,11 @@
 
 use std::cmp::Ordering;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 
 use crate::collate::collate;
 use crate::fold::fold;
+use crate::frequency::Frequencies;
 use crate::order::{Position, SortedIds};
 use crate::store::{Meta, NodeId, NodeStore};
 
@@ -26,6 +28,11 @@ pub struct Index {
     changes: ChangeLog,
     /// Different for every index built; see [`stamp`](Index::stamp).
     stamp: u64,
+    /// Counts the changes of names, sizes and times; see
+    /// [`version`](Index::version).
+    version: u64,
+    /// The last frequency counts built (see [`Index::frequencies`]).
+    frequencies: Mutex<Option<Arc<Frequencies>>>,
 }
 
 /// Most entries the change log holds; one more resets it.
@@ -118,6 +125,8 @@ impl Index {
             offline: Vec::new(),
             changes: ChangeLog::default(),
             stamp: next_stamp(),
+            version: 0,
+            frequencies: Mutex::new(None),
         }
     }
 
@@ -158,6 +167,8 @@ impl Index {
             offline: Vec::new(),
             changes: ChangeLog::default(),
             stamp: next_stamp(),
+            version: 0,
+            frequencies: Mutex::new(None),
         };
         Ok((index, reordered))
     }
@@ -196,6 +207,39 @@ impl Index {
     /// stamp; under another stamp the same ids may mean other nodes.
     pub fn stamp(&self) -> u64 {
         self.stamp
+    }
+
+    /// A number that grows with every node added, removed, renamed or moved
+    /// and every change of a size or time, so a value computed from the
+    /// whole index is still right while it and [`stamp`](Self::stamp) are
+    /// unchanged.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Name, extension and size frequencies of every node (see
+    /// [`crate::frequency`]), built now when the index changed since they
+    /// were built last.
+    pub fn frequencies(&self) -> Arc<Frequencies> {
+        let mut last = self.frequencies.lock().expect("frequencies");
+        if let Some(f) = last.as_ref().filter(|f| f.is_for(self)) {
+            return Arc::clone(f);
+        }
+        let built = Arc::new(Frequencies::build(self));
+        *last = Some(Arc::clone(&built));
+        built
+    }
+
+    /// The frequencies built last for this index, even when it changed
+    /// since (they are then a little out of date, and nodes added since
+    /// count 0), without building any.
+    pub fn last_frequencies(&self) -> Option<Arc<Frequencies>> {
+        self.frequencies
+            .lock()
+            .expect("frequencies")
+            .as_ref()
+            .filter(|f| f.stamp() == self.stamp)
+            .cloned()
     }
 
     /// The sequence number the next entry of the change log gets. Pass it to
@@ -288,6 +332,8 @@ impl Index {
             offline,
             changes: ChangeLog::default(),
             stamp: next_stamp(),
+            version: 0,
+            frequencies: Mutex::new(None),
         };
         (index, remap)
     }
@@ -309,6 +355,7 @@ impl Index {
                 "graft: a root of that name exists"
             );
         }
+        self.version += 1;
         let base = self.store.append(&other.store);
         let shift = |id: NodeId| NodeId(base + id.0);
         let mut merged = Vec::with_capacity(self.by_name.len() + other.by_name.len());
@@ -379,6 +426,7 @@ impl Index {
         is_dir: bool,
         meta: Meta,
     ) -> NodeId {
+        self.version += 1;
         if let Some(existing) = self.find_child(parent, name) {
             if self.store.is_dir(existing) == is_dir {
                 self.store.set_meta(existing, meta);
@@ -395,6 +443,7 @@ impl Index {
     /// Replaces the metadata of a live node.
     pub fn set_meta(&mut self, id: NodeId, meta: Meta) {
         if self.store.is_live(id) {
+            self.version += 1;
             self.store.set_meta(id, meta);
             self.changes.push(id);
         }
@@ -406,6 +455,7 @@ impl Index {
         if !self.store.is_live(id) {
             return Vec::new();
         }
+        self.version += 1;
         let doomed = if self.store.is_dir(id) {
             self.subtree(id)
         } else {
@@ -465,6 +515,7 @@ impl Index {
             }
             self.remove(target);
         }
+        self.version += 1;
         let pos = self
             .position_of(id)
             .expect("live node is in the name order");
@@ -539,6 +590,8 @@ impl Index {
             offline,
             changes: ChangeLog::default(),
             stamp: next_stamp(),
+            version: 0,
+            frequencies: Mutex::new(None),
         };
         (index, remap)
     }

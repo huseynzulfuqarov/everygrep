@@ -98,6 +98,14 @@ never blocks), reads it with `grep-searcher` in 64 KiB buffers and stops at
 the first match, a NUL byte (binary) or a cancel. A `ContentCache` keeps the
 answers by term, path, size and time.
 
+`frequency.rs` counts, over the whole index, how many entries share each
+name (by kind, ignoring case), how many files each extension and how many
+files (or folders) each size, in one pass with three hash maps that borrow
+the names; the counts are kept by node id (12 bytes per node).
+`Index::frequencies` builds them when the index changed since the last
+ones (`Index::version` grows with every change of names, sizes and times)
+and keeps them; `sort.rs` sorts by them.
+
 A query with a duplicate term (`dupe.rs`) groups its matches: `group`
 sorts them by the values of the properties and compares neighbours, so it
 costs one sort. For contents it gives files of the same size, with their

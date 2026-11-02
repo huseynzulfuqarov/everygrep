@@ -7,6 +7,7 @@ pub mod drives;
 pub mod dupe;
 pub mod filter;
 pub mod fold;
+pub mod frequency;
 pub mod hash;
 pub mod hashcache;
 pub mod index;

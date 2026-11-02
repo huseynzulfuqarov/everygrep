@@ -1765,6 +1765,9 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         6 => SortKey::Created,
         7 => SortKey::Accessed,
         8 => SortKey::Attributes,
+        12 => SortKey::NameFrequency,
+        13 => SortKey::ExtensionFrequency,
+        14 => SortKey::SizeFrequency,
         _ => SortKey::Name,
     };
     Sort {
@@ -1787,6 +1790,9 @@ fn column_of(key: SortKey) -> i32 {
         SortKey::Created => 6,
         SortKey::Accessed => 7,
         SortKey::Attributes => 8,
+        SortKey::NameFrequency => 12,
+        SortKey::ExtensionFrequency => 13,
+        SortKey::SizeFrequency => 14,
     }
 }
 

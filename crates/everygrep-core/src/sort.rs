@@ -63,6 +63,13 @@ pub enum SortKey {
     /// Attribute bits (see [`crate::details::Attributes`]), read from the
     /// file system.
     Attributes,
+    /// How many entries of the index share the name (see
+    /// [`crate::frequency`]).
+    NameFrequency,
+    /// How many files of the index share the extension.
+    ExtensionFrequency,
+    /// How many files (or folders) of the index share the size.
+    SizeFrequency,
 }
 
 /// What a folder's size is when sorting by [`SortKey::Size`] (and what the
@@ -419,6 +426,16 @@ fn sort_ordered(
         SortKey::Attributes => {
             let kept = cache.map(|c| &mut c.attributes);
             let k = detail_keys(index, ids, threads, progress, |d| d.attributes, kept)?;
+            sort_directed(ids, threads, desc, k, progress)?;
+        }
+        SortKey::NameFrequency | SortKey::ExtensionFrequency | SortKey::SizeFrequency => {
+            let f = index.frequencies();
+            progress.check()?;
+            let k = keys_of(ids, progress, |_, id| match sort.key {
+                SortKey::NameFrequency => f.name(id),
+                SortKey::ExtensionFrequency => f.extension(id),
+                _ => f.size(id),
+            })?;
             sort_directed(ids, threads, desc, k, progress)?;
         }
     }
