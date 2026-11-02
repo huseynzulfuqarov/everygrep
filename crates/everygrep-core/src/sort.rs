@@ -1699,10 +1699,12 @@ mod tests {
     impl Drop for Live {
         fn drop(&mut self) {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                self.base.join("files"),
-                std::fs::Permissions::from_mode(0o755),
-            );
+            for dir in ["files", "locked"] {
+                let _ = std::fs::set_permissions(
+                    self.base.join(dir),
+                    std::fs::Permissions::from_mode(0o755),
+                );
+            }
             let _ = std::fs::remove_dir_all(&self.base);
         }
     }
@@ -1797,6 +1799,30 @@ mod tests {
         )
         .unwrap();
         live.settle(|i| i.changed_since(seq).is_none_or(|c| c.contains(&files)));
+        live.check(&mut caches);
+    }
+
+    #[test]
+    fn a_folder_moved_where_it_cannot_be_read_drops_cached_details_below_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut live = Live::new("moved", 12);
+        let locked = live.base.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        let root = live.index.roots()[0];
+        live.settle(|i| i.find_child(Some(root), b"locked").is_some());
+        let mut caches: [DetailCache; 3] = Default::default();
+        live.check(&mut caches);
+        assert!(!caches[1].is_empty());
+        // Another user moves the folder into one this user cannot search.
+        // Only the move reaches the index (the permission change of
+        // `locked` is not applied), as when `locked` belongs to that user.
+        std::fs::rename(live.base.join("files"), locked.join("files")).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let (files, into) = (
+            live.files(),
+            live.index.find_child(Some(root), b"locked").unwrap(),
+        );
+        live.index.rename(files, Some(into), b"files").unwrap();
         live.check(&mut caches);
     }
 

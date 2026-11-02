@@ -229,7 +229,7 @@ impl Index {
 
     /// Logs a live folder and every node below it as changed, for a change
     /// of the folder that can change what can be read below it (its
-    /// permissions). A subtree larger than the log resets it, which says
+    /// permissions, or a move to another folder). A subtree larger than the log resets it, which says
     /// that any node may have changed.
     pub fn note_subtree_changed(&mut self, dir: NodeId) {
         if !self.store.is_live(dir) {
@@ -469,11 +469,18 @@ impl Index {
             .position_of(id)
             .expect("live node is in the name order");
         self.by_name.remove_at(pos);
+        let moved = self.store.parent(id) != new_parent;
         self.store.set_parent(id, new_parent);
         self.store.set_name(id, new_name);
         self.insert_into_order(id);
-        // The name decides the hidden attribute.
-        self.changes.push(id);
+        // The name decides the hidden attribute. A folder moved elsewhere
+        // can take all entries below it where they cannot be read (a folder
+        // without search permission for this user, moved there by another).
+        if moved && self.store.is_dir(id) {
+            self.note_subtree_changed(id);
+        } else {
+            self.changes.push(id);
+        }
         Ok(())
     }
 
@@ -1363,6 +1370,28 @@ mod tests {
         let seq = index.change_seq();
         index.note_subtree_changed(y);
         assert_eq!(changed(&index, seq), Some(vec![y]));
+    }
+
+    #[test]
+    fn a_folder_moved_to_another_folder_logs_all_nodes_below_it() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/r", true, Meta::default());
+        let a = store.add(Some(root), b"a", true, Meta::default());
+        let x = store.add(Some(a), b"x", false, Meta::default());
+        let other = store.add(Some(root), b"other", true, Meta::default());
+        let mut index = Index::new(store);
+        // A new name in the same folder: only the folder.
+        let seq = index.change_seq();
+        index.rename(a, Some(root), b"b").unwrap();
+        assert_eq!(changed(&index, seq), Some(vec![a]));
+        // Into another folder: the folder and all below it.
+        let seq = index.change_seq();
+        index.rename(a, Some(other), b"b").unwrap();
+        assert_eq!(changed(&index, seq), Some(vec![a, x]));
+        // A file moved: only the file.
+        let seq = index.change_seq();
+        index.rename(x, Some(root), b"x").unwrap();
+        assert_eq!(changed(&index, seq), Some(vec![x]));
     }
 
     #[test]
