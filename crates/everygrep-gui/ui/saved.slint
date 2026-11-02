@@ -4,6 +4,9 @@ import { Theme } from "theme.slint";
 export component SavedWindow inherits Window {
     title: root.bookmarks ? @tr("Manage bookmarks") : @tr("Manage filters");
     in property <bool> bookmarks;
+    in property <string> shortcut-text;
+    callback capture-shortcut(string, bool, bool, bool, bool);
+    callback clear-shortcut();
     in property <[string]> sort-names;
     in-out property <int> sort-column;
     in-out property <bool> descending;
@@ -117,6 +120,37 @@ export component SavedWindow inherits Window {
                     ComboBox { enabled: root.editing; accessible-label: @tr("Sort by"); model: root.sort-names; current-index <=> root.sort-column; }
                     CheckBox { enabled: root.editing; text: @tr("Descending"); checked <=> root.descending; }
                 }
+                HorizontalLayout {
+                    Text { text: @tr("Keyboard shortcut"); color: Theme.text; vertical-alignment: center; }
+                    capture := FocusScope {
+                        height: 36px; min-width: 160px; horizontal-stretch: 1;
+                        accessible-role: text-input;
+                        accessible-label: @tr("Keyboard shortcut");
+                        accessible-value: root.shortcut-text;
+                        key-pressed(event) => {
+                            if (!root.editing || event.text == Key.Tab || event.text == Key.Backtab || event.text == Key.Escape) { return reject; }
+                            if (!event.repeat) {
+                                root.capture-shortcut(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+                            }
+                            accept
+                        }
+                        Rectangle {
+                            background: Theme.field; border-radius: Theme.radius;
+                            border-width: capture.has-focus ? 2px : 1px;
+                            border-color: capture.has-focus ? Theme.accent : Theme.field-line;
+                            Text {
+                                x: Theme.s2; width: parent.width - 2 * Theme.s2; height: parent.height;
+                                vertical-alignment: center;
+                                text: root.shortcut-text != "" ? root.shortcut-text : @tr("Press a new keyboard shortcut.");
+                                color: root.shortcut-text != "" ? Theme.text : Theme.text-muted;
+                                overflow: elide;
+                            }
+                            TouchArea { enabled: root.editing; clicked => { capture.focus(); } }
+                        }
+                    }
+                    Button { enabled: root.editing; text: @tr("Clear shortcut"); clicked => { root.clear-shortcut(); } }
+                }
+                Text { text: @tr("Shortcuts use the active keyboard layout."); color: Theme.text-muted; wrap: word-wrap; }
                 HorizontalLayout {
                     Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; }
                     ComboBox { enabled: root.editing; accessible-label: @tr("Hidden files"); model: root.hidden-names; current-index <=> root.hidden-mode; }

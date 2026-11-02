@@ -523,3 +523,10 @@ that differs from its live filter becomes a transient entry in the existing
 selector; the manager continues to edit only the persisted filter collection.
 Reloading or editing the library preserves the selected identity and respects
 search-as-you-type when its effective filter changes.
+
+Optional item shortcuts are separate records in the same library transaction.
+They are global, checked against every scope of the active keymap and all
+default command keys, and cannot use typing/navigation keys. Keyboard settings
+checks library ownership before applying a command binding. Commands retain
+priority if an external settings edit introduces a collision. Deleted entries
+lose their keys; restoring filters clears built-in keys and keeps custom keys.

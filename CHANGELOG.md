@@ -10,6 +10,9 @@ First version, 0.1.0, not released yet.
 
 ### Saved searches
 
+- Optional per-filter and per-bookmark shortcuts reject conflicts with saved
+  items and command keys; keyboard settings checks saved keys too.
+
 - Save complete search bookmarks, open them from a Bookmarks menu and manage
   their names, search options, sort and order. Saved filters remain reproducible
   after editing or removing the original.

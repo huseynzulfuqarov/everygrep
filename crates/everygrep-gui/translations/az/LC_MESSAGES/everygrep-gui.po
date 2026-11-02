@@ -2674,3 +2674,18 @@ msgstr "Saxlanmış axtarışın sıralaması yanlışdır."
 
 msgid "Invalid bookmark."
 msgstr "Əlfəcin yanlışdır."
+
+msgid "Keyboard shortcut"
+msgstr "Klaviatura qısayolu"
+
+msgid "Shortcut already used by {}."
+msgstr "Bu qısayol artıq {} üçün istifadə olunur."
+
+msgid "Clear shortcut"
+msgstr "Qısayolu sil"
+
+msgid "Shortcuts use the active keyboard layout."
+msgstr "Qısayollar aktiv klaviatura düzülüşündən istifadə edir."
+
+msgid "Invalid saved shortcut."
+msgstr "Saxlanmış qısayol yanlışdır."

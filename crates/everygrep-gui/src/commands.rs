@@ -263,12 +263,12 @@ impl Key {
     }
 }
 
-/// The capital of `c` when it is one character, else `c` itself: `ß` would
+/// The capital of `c` when it is one character and folds back to `c`, else `c`: `ß` would
 /// become `SS` and `ŉ` `ʼN`, which no longer read back as one key.
 fn capital(c: char) -> char {
     let mut upper = c.to_uppercase();
     match (upper.next(), upper.next()) {
-        (Some(u), None) => u,
+        (Some(u), None) if u.to_lowercase().eq(std::iter::once(c)) => u,
         _ => c,
     }
 }
@@ -1126,7 +1126,6 @@ impl Keymap {
         true
     }
 
-    #[cfg(test)]
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings
     }
@@ -1340,6 +1339,21 @@ mod tests {
     /// The commands of the table, in order.
     fn all_commands() -> Vec<Command> {
         COMMANDS.iter().map(|s| s.cmd).collect()
+    }
+
+    #[test]
+    fn captured_shortcuts_round_trip_shifted_symbols_and_layout_characters() {
+        for text in ["!", "@", "+", "Ü", "ı", "ς", "ſ", "ə", "ж"] {
+            let captured = Chord::from_event(text, true, false, true, false).unwrap();
+            let stored = captured.to_string();
+            let loaded = Chord::parse(&stored).unwrap();
+            assert_eq!(loaded, captured, "{text}: {stored}");
+            assert_eq!(
+                Some(loaded),
+                Chord::from_event(text, true, false, true, false)
+            );
+        }
+        assert!(Chord::parse("Ctrl+ı").unwrap().to_string().ends_with('ı'));
     }
 
     #[test]

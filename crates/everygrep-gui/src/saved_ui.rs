@@ -9,9 +9,10 @@ use everygrep_core::filter::Filter;
 use everygrep_core::query::{HiddenFiles, QueryOptions};
 use slint::{ComponentHandle, ModelRc, StandardListViewItem, VecModel};
 
+use crate::commands::{self, Chord};
 use crate::engine::Engine;
 use crate::i18n::{fill, tr};
-use crate::saved_searches::{self, Bookmark, Library, NamedFilter};
+use crate::saved_searches::{self, Bookmark, Library, NamedFilter, Target};
 use crate::{AppWindow, MenuChoice, SavedWindow, labels, settings};
 
 struct State {
@@ -23,6 +24,7 @@ struct State {
     bookmarks: Cell<bool>,
     editing: Cell<Option<u64>>,
     draft: RefCell<QueryOptions>,
+    draft_shortcut: Cell<Option<Chord>>,
     pending_delete: RefCell<Option<u64>>,
     draft_bookmark: RefCell<Option<Bookmark>>,
     // A frozen bookmark filter, shown in the same selector while in use.
@@ -50,6 +52,7 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
         bookmarks: Cell::new(false),
         editing: Cell::new(None),
         draft: RefCell::new(QueryOptions::default()),
+        draft_shortcut: Cell::new(None),
         pending_delete: RefCell::new(None),
         draft_bookmark: RefCell::new(None),
         snapshot: RefCell::new(None),
@@ -91,6 +94,51 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
                 s.activate(&entry);
             }
         });
+    });
+    w.on_saved_key(|text, ctrl, alt, shift, meta| {
+        let Some(chord) = Chord::from_event(&text, ctrl, alt, shift, meta) else {
+            return false;
+        };
+        with(|s| {
+            // Command bindings have priority even after an external settings edit.
+            if commands::with_current(|k| k.bindings().iter().any(|b| b.chord == chord)) {
+                return false;
+            }
+            let target = s
+                .library
+                .borrow()
+                .shortcuts
+                .iter()
+                .find(|key| key.chord == chord)
+                .map(|key| key.target);
+            match target {
+                Some(Target::Filter(id)) => {
+                    if let Some(w) = s.main.upgrade() {
+                        let i = s.library.borrow().filters.iter().position(|f| f.id == id);
+                        if let Some(i) = i {
+                            w.set_filter_index(i as i32);
+                            w.invoke_options_changed();
+                        }
+                    }
+                    true
+                }
+                Some(Target::Bookmark(id)) => {
+                    let b = s
+                        .library
+                        .borrow()
+                        .bookmarks
+                        .iter()
+                        .find(|b| b.id == id)
+                        .cloned();
+                    if let Some(b) = b {
+                        s.activate(&b);
+                    }
+                    true
+                }
+                None => false,
+            }
+        })
+        .unwrap_or(false)
     });
     if let Some(e) = error {
         crate::error(w, fill(tr("Cannot read saved searches: {}"), &[&e]));
@@ -142,7 +190,7 @@ pub fn fill_filters(w: &AppWindow) {
                 .iter()
                 .enumerate()
                 .map(|(i, f)| MenuChoice {
-                    title: f.title().into(),
+                    title: item_label(&f.title(), l.shortcut(Target::Filter(f.id))).into(),
                     checked: i as i32 == w.get_filter_index(),
                 })
                 .collect::<Vec<_>>(),
@@ -150,10 +198,41 @@ pub fn fill_filters(w: &AppWindow) {
         w.set_bookmark_names(ModelRc::new(VecModel::from(
             l.bookmarks
                 .iter()
-                .map(|b| b.name.as_str().into())
+                .map(|b| item_label(&b.name, l.shortcut(Target::Bookmark(b.id))).into())
                 .collect::<Vec<_>>(),
         )));
     });
+}
+
+fn item_label(name: &str, chord: Option<Chord>) -> String {
+    chord.map_or_else(|| name.into(), |c| format!("{name} ({})", c.display()))
+}
+
+/// Also used by keyboard settings, so conflicts are checked in both directions.
+pub fn shortcut_owner(chord: Chord) -> Option<String> {
+    with(|s| {
+        let disk = s.path.as_deref().and_then(|p| Library::load(p).ok());
+        disk.as_ref()
+            .unwrap_or(&s.library.borrow())
+            .shortcut_owner(None, chord)
+    })
+    .flatten()
+}
+
+pub fn shortcut_rows() -> Vec<crate::ShortcutRow> {
+    with(|s| {
+        let l = s.library.borrow();
+        l.shortcuts
+            .iter()
+            .filter_map(|key| {
+                l.target_name(key.target).map(|name| crate::ShortcutRow {
+                    keys: key.chord.display().into(),
+                    action: name.into(),
+                })
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn apply_scheme(scheme: i32) {
@@ -178,6 +257,24 @@ impl State {
             };
             w.on_begin_edit(|new| {
                 with(|s| s.begin(new));
+            });
+            w.on_capture_shortcut(|text, ctrl, alt, shift, meta| {
+                with(|s| {
+                    if let Some(chord) = Chord::from_event(&text, ctrl, alt, shift, meta) {
+                        s.draft_shortcut.set(Some(chord));
+                        if let Some(w) = s.window.borrow().as_ref() {
+                            w.set_shortcut_text(chord.display().into());
+                        }
+                    }
+                });
+            });
+            w.on_clear_shortcut(|| {
+                with(|s| {
+                    s.draft_shortcut.set(None);
+                    if let Some(w) = s.window.borrow().as_ref() {
+                        w.set_shortcut_text("".into());
+                    }
+                });
             });
             w.on_save_entry(|| {
                 with(State::save);
@@ -484,6 +581,16 @@ impl State {
         self.fill();
         let window = self.window.borrow();
         let Some(w) = window.as_ref() else { return };
+        let target = id.map(|id| {
+            if self.bookmarks.get() {
+                Target::Bookmark(id)
+            } else {
+                Target::Filter(id)
+            }
+        });
+        let key = target.and_then(|t| self.library.borrow().shortcut(t));
+        self.draft_shortcut.set(key);
+        w.set_shortcut_text(key.map_or_else(String::new, |c| c.display()).into());
         w.set_entry_name(name.into());
         w.set_search_text(search.into());
         w.set_kind(kind);
@@ -547,6 +654,7 @@ impl State {
                 w.get_descending(),
             )
         };
+        let shortcut = self.draft_shortcut.get();
         let id = self.editing.get();
         let mut saved = None;
         let bookmark = if self.bookmarks.get() {
@@ -576,6 +684,12 @@ impl State {
             } else {
                 l.put_filter(id, &name, &text, o)?
             });
+            let target = if self.bookmarks.get() {
+                Target::Bookmark(saved.expect("saved identity"))
+            } else {
+                Target::Filter(saved.expect("saved identity"))
+            };
+            commands::with_current(|k| l.set_shortcut(target, shortcut, k))?;
             Ok(())
         }) {
             if let Some(id) = saved {
@@ -696,6 +810,9 @@ impl State {
             Ok((library, ())) => {
                 self.replace(library);
                 self.fill();
+                if let Some(w) = self.main.upgrade() {
+                    crate::apply_keys(&w);
+                }
                 self.message(String::new(), false);
                 true
             }

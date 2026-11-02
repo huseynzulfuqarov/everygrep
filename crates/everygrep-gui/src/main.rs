@@ -657,13 +657,14 @@ pub fn apply_keys(w: &AppWindow) {
 
 /// The keyboard shortcuts dialog, from the keys in use.
 fn set_shortcuts(w: &AppWindow) {
-    let shortcuts: Vec<ShortcutRow> = commands::with_current(|k| k.help_rows())
+    let mut shortcuts: Vec<ShortcutRow> = commands::with_current(|k| k.help_rows())
         .into_iter()
         .map(|(keys, action)| ShortcutRow {
             keys: keys.into(),
             action: action.into(),
         })
         .collect();
+    shortcuts.extend(saved_ui::shortcut_rows());
     w.set_shortcuts(ModelRc::new(VecModel::from(shortcuts)));
 }
 

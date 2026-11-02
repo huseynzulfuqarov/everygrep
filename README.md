@@ -786,3 +786,10 @@ of its filter. If that filter was changed or removed, its saved version appears
 in the existing selector for this window. Opening a bookmark reveals a hidden
 sort column when necessary. After using saved query parse options, the next
 manual edit restores the policy shown in Search settings.
+
+Filters and bookmarks accept an optional global keyboard shortcut in their
+editor by pressing the key combination in the active keyboard layout; Clear
+shortcut removes it. Conflicts with another
+saved item or any active/default command key are refused. Keyboard settings
+also refuses keys owned by saved items. Item keys appear in menus and keyboard
+help; the organizer's Alt+Up/Down remains local to the organizer.

@@ -1528,6 +1528,7 @@ export component AppWindow inherits Window {
     callback organize-bookmarks();
     in property <[string]> bookmark-names;
     callback open-bookmark(int);
+    callback saved-key(string, bool, bool, bool, bool) -> bool;
     callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
 
     // File actions that are refused, with a note, for an item on a drive
@@ -1826,7 +1827,8 @@ export component AppWindow inherits Window {
         let c = root.resolve-key(scope, event.text, event.modifiers.control, event.modifiers.alt,
             event.modifiers.shift, event.modifiers.meta);
         if (c == Command.none) {
-            return false;
+            if (root.confirm-open || root.fileops-rename-open) { return false; }
+            return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
         }
         if (root.can-run(c) || (!root.confirm-open && root.current >= 0 && root.needs-online(c))) {
             root.run(c);

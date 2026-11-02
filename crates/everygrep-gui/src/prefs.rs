@@ -2023,7 +2023,8 @@ impl Prefs {
                 )
             }),
         };
-        w.set_key_can_apply(d.chord.is_some() && refused.is_none());
+        let saved_owner = d.chord.and_then(crate::saved_ui::shortcut_owner);
+        w.set_key_can_apply(d.chord.is_some() && refused.is_none() && saved_owner.is_none());
         w.set_key_captured(captured.into());
         w.set_key_used_by(
             if refused.is_some() {
@@ -2041,7 +2042,12 @@ impl Prefs {
             }
             .into(),
         );
-        w.set_key_refused(refused.unwrap_or("").into());
+        w.set_key_refused(
+            saved_owner
+                .map(|owner| i18n::fill(i18n::tr("Shortcut already used by {}."), &[&owner]))
+                .unwrap_or_else(|| refused.unwrap_or("").into())
+                .into(),
+        );
     }
 
     /// OK in the dialog: gives the command the key.
@@ -2052,6 +2058,10 @@ impl Prefs {
         let Some(chord) = d.chord.filter(|&c| commands::refusal(d.scope, c).is_none()) else {
             return;
         };
+        if crate::saved_ui::shortcut_owner(chord).is_some() {
+            self.refresh();
+            return;
+        }
         let mut keymap = commands::with_current(Keymap::clone);
         keymap.put(d.cmd, d.scope, chord, d.replacing);
         self.key_dialog.set(None);

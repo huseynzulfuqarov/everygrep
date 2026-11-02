@@ -2674,3 +2674,18 @@ msgstr "Kayıtlı aramanın sıralaması geçersiz."
 
 msgid "Invalid bookmark."
 msgstr "Yer imi geçersiz."
+
+msgid "Keyboard shortcut"
+msgstr "Klavye kısayolu"
+
+msgid "Shortcut already used by {}."
+msgstr "Bu kısayol zaten {} için kullanılıyor."
+
+msgid "Clear shortcut"
+msgstr "Kısayolu temizle"
+
+msgid "Shortcuts use the active keyboard layout."
+msgstr "Kısayollar etkin klavye düzenini kullanır."
+
+msgid "Invalid saved shortcut."
+msgstr "Kayıtlı kısayol geçersiz."

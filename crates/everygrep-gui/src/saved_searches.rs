@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use crate::commands::{self, Chord, Keymap, Scope};
 use crate::i18n::{fill, tr};
 use crate::{labels, settings};
 use everygrep_core::filter::Filter;
@@ -61,10 +62,23 @@ impl Bookmark {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Filter(u64),
+    Bookmark(u64),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub target: Target,
+    pub chord: Chord,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Library {
     pub filters: Vec<NamedFilter>,
     pub bookmarks: Vec<Bookmark>,
+    pub shortcuts: Vec<Shortcut>,
     next_id: u64,
 }
 
@@ -73,6 +87,7 @@ impl Default for Library {
         Self {
             filters: defaults(),
             bookmarks: Vec::new(),
+            shortcuts: Vec::new(),
             next_id: 10,
         }
     }
@@ -108,6 +123,8 @@ impl Library {
 
     /// Restoring replaces the built-ins and their order, keeping user entries.
     pub fn restore_filters(&mut self) {
+        self.shortcuts
+            .retain(|s| !matches!(s.target, Target::Filter(1..=9)));
         self.filters.retain(|f| f.id > 9);
         self.filters.splice(..0, defaults());
     }
@@ -159,6 +176,7 @@ impl Library {
             .iter()
             .position(|f| f.id == id)
             .ok_or_else(missing)?;
+        self.shortcuts.retain(|s| s.target != Target::Filter(id));
         self.filters.remove(i);
         Ok(())
     }
@@ -202,12 +220,84 @@ impl Library {
             .iter()
             .position(|b| b.id == id)
             .ok_or_else(missing)?;
+        self.shortcuts.retain(|s| s.target != Target::Bookmark(id));
         self.bookmarks.remove(i);
         Ok(())
     }
 
     pub fn move_bookmark(&mut self, id: u64, step: i32) -> io::Result<()> {
         move_entry(&mut self.bookmarks, |b| b.id == id, step)
+    }
+
+    pub fn shortcut(&self, target: Target) -> Option<Chord> {
+        self.shortcuts
+            .iter()
+            .find(|s| s.target == target)
+            .map(|s| s.chord)
+    }
+
+    pub fn shortcut_owner(&self, except: Option<Target>, chord: Chord) -> Option<String> {
+        self.shortcuts
+            .iter()
+            .find(|s| Some(s.target) != except && s.chord == chord)
+            .and_then(|s| self.target_name(s.target))
+    }
+
+    pub fn target_name(&self, target: Target) -> Option<String> {
+        match target {
+            Target::Filter(id) => self
+                .filters
+                .iter()
+                .find(|f| f.id == id)
+                .map(NamedFilter::title),
+            Target::Bookmark(id) => self
+                .bookmarks
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| b.name.clone()),
+        }
+    }
+
+    /// Global item keys never steal an active or default command key, in any
+    /// scope. Reserving defaults also makes Restore keyboard defaults safe.
+    pub fn set_shortcut(
+        &mut self,
+        target: Target,
+        chord: Option<Chord>,
+        keymap: &Keymap,
+    ) -> io::Result<()> {
+        if self.target_name(target).is_none() {
+            return Err(missing());
+        }
+        if let Some(chord) = chord {
+            if let Some(reason) = commands::refusal(Scope::Global, chord) {
+                return Err(invalid(reason));
+            }
+            let defaults = Keymap::default();
+            if let Some(binding) = keymap
+                .bindings()
+                .iter()
+                .chain(defaults.bindings())
+                .find(|b| b.chord == chord)
+            {
+                let owner = commands::spec(binding.cmd).map_or("", |s| (s.label)());
+                return Err(invalid(&fill(
+                    tr("Shortcut already used by {}."),
+                    &[&owner],
+                )));
+            }
+            if let Some(owner) = self.shortcut_owner(Some(target), chord) {
+                return Err(invalid(&fill(
+                    tr("Shortcut already used by {}."),
+                    &[&owner],
+                )));
+            }
+        }
+        self.shortcuts.retain(|s| s.target != target);
+        if let Some(chord) = chord {
+            self.shortcuts.push(Shortcut { target, chord });
+        }
+        Ok(())
     }
 
     pub fn load(path: &Path) -> io::Result<Self> {
@@ -228,10 +318,36 @@ impl Library {
         let mut library = Self {
             filters: Vec::new(),
             bookmarks: Vec::new(),
+            shortcuts: Vec::new(),
             next_id,
         };
         for line in lines {
             let parts: Vec<_> = line.split('\t').collect();
+            if parts.first() == Some(&"K") {
+                if parts.len() != 4 {
+                    return Err(invalid(tr("Invalid saved shortcut.")));
+                }
+                let id = parts[2]
+                    .parse()
+                    .map_err(|_| invalid(tr("Invalid saved search identity.")))?;
+                let target = match parts[1] {
+                    "F" => Target::Filter(id),
+                    "B" => Target::Bookmark(id),
+                    _ => return Err(invalid(tr("Invalid saved shortcut."))),
+                };
+                let chord =
+                    Chord::parse(parts[3]).ok_or_else(|| invalid(tr("Invalid saved shortcut.")))?;
+                if commands::refusal(Scope::Global, chord).is_some()
+                    || library
+                        .shortcuts
+                        .iter()
+                        .any(|s| s.target == target || s.chord == chord)
+                {
+                    return Err(invalid(tr("Invalid saved shortcut.")));
+                }
+                library.shortcuts.push(Shortcut { target, chord });
+                continue;
+            }
             if parts.first() == Some(&"B") {
                 if parts.len() != 15 {
                     return Err(invalid(tr("Invalid saved search record.")));
@@ -302,6 +418,13 @@ impl Library {
                 options,
             });
         }
+        if library
+            .shortcuts
+            .iter()
+            .any(|s| library.target_name(s.target).is_none())
+        {
+            return Err(invalid(tr("Invalid saved shortcut.")));
+        }
         Ok(library)
     }
 
@@ -331,6 +454,13 @@ impl Library {
                 settings::escape(f.search.as_bytes()),
                 encode_options(f.options)
             ));
+        }
+        for s in &self.shortcuts {
+            let (kind, id) = match s.target {
+                Target::Filter(id) => ("F", id),
+                Target::Bookmark(id) => ("B", id),
+            };
+            text.push_str(&format!("K\t{kind}\t{id}\t{}\n", s.chord));
         }
         text
     }
@@ -527,6 +657,101 @@ mod tests {
         b.filter.search = "ext:rs".into();
         update(&path, |l| l.put_bookmark(Some(b.id), b)).unwrap();
         assert_eq!(Library::load(&path).unwrap().bookmarks[0].search, "ext:md");
+    }
+
+    #[test]
+    fn item_shortcuts_reject_commands_scopes_defaults_and_duplicates() {
+        let mut l = Library::default();
+        let map = Keymap::with_overrides(&[(
+            "file.new-window".into(),
+            vec![(Scope::List, Chord::parse("Ctrl+Shift+9").unwrap())],
+        )]);
+        let target = Target::Filter(1);
+        for text in [
+            "Ctrl+N",
+            "Ctrl+Shift+9",
+            "Ctrl+C",
+            "F2",
+            "Alt+Up",
+            "A",
+            "Tab",
+            "Esc",
+        ] {
+            assert!(
+                l.set_shortcut(target, Chord::parse(text), &map).is_err(),
+                "{text}"
+            );
+        }
+        let key = Chord::parse("Ctrl+Shift+1").unwrap();
+        l.set_shortcut(target, Some(key), &map).unwrap();
+        l.set_shortcut(target, Some(key), &map).unwrap();
+        assert_eq!(l.shortcuts.len(), 1);
+        assert_eq!(l.shortcut_owner(None, key), Some(l.filters[0].title()));
+        assert!(l.set_shortcut(Target::Filter(2), Some(key), &map).is_err());
+        let id = l.put_bookmark(None, bookmark(&l, "work")).unwrap();
+        assert!(
+            l.set_shortcut(Target::Bookmark(id), Some(key), &map)
+                .is_err()
+        );
+        l.set_shortcut(target, None, &map).unwrap();
+        l.set_shortcut(Target::Bookmark(id), Some(key), &map)
+            .unwrap();
+        assert!(l.shortcut_owner(None, key).is_some());
+        l.remove_bookmark(id).unwrap();
+        assert!(l.shortcut_owner(None, key).is_none());
+    }
+
+    #[test]
+    fn shortcut_storage_round_trip_and_restore_cleanup() {
+        let d = Scratch::new("shortcut-roundtrip");
+        let path = d.0.join("saved-searches");
+        let map = Keymap::default();
+        let (l, ()) = update(&path, |l| {
+            let id = l.put_filter(None, "custom", "", QueryOptions::default())?;
+            l.set_shortcut(Target::Filter(1), Chord::parse("Ctrl+Shift+1"), &map)?;
+            l.set_shortcut(Target::Filter(id), Chord::parse("Ctrl+Shift+2"), &map)?;
+            let id = l.put_bookmark(None, bookmark(l, "saved"))?;
+            l.set_shortcut(Target::Bookmark(id), Chord::parse("Ctrl+Shift+3"), &map)
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        let (mut l, ()) = update(&path, |l| {
+            l.restore_filters();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(l.shortcuts.len(), 2);
+        let id = l.filters.last().unwrap().id;
+        l.remove_filter(id).unwrap();
+        assert_eq!(l.shortcuts.len(), 1);
+        let before = std::fs::read(&path).unwrap();
+        assert!(
+            update(&path, |l| l.set_shortcut(
+                Target::Filter(2),
+                Chord::parse("Ctrl+Shift+2"),
+                &map
+            ))
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn malformed_or_dangling_shortcuts_are_preserved_on_failure() {
+        let d = Scratch::new("shortcut-invalid");
+        let path = d.0.join("saved-searches");
+        let l = Library::default();
+        for suffix in [
+            "K\tF\t1\tNope\n",
+            "K\tF\t99\tCtrl+Shift+1\n",
+            "K\tF\t1\tCtrl+Shift+1\nK\tF\t2\tCtrl+Shift+1\n",
+            "K\tF\t1\tTab\n",
+        ] {
+            let text = format!("{}{suffix}", l.text());
+            std::fs::write(&path, &text).unwrap();
+            assert!(update(&path, |_| Ok(())).is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        }
     }
 
     #[test]
