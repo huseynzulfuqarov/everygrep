@@ -2083,3 +2083,39 @@ msgstr "PDF dosyaları ayrı bir süreçte pdftotext ile okunur. Office belgeler
 #: src/content_settings.rs
 msgid "pdftotext was not found. Install the poppler package (it provides pdftotext) to search inside PDF files."
 msgstr "pdftotext bulunamadı. PDF dosyalarının içinde aramak için poppler paketini kurun (pdftotext onunla gelir)."
+
+#: src/labels.rs
+msgid "Comparing files: {}%"
+msgstr "Dosyalar karşılaştırılıyor: {}%"
+
+#: src/commands.rs
+msgid "Find duplicates by contents"
+msgstr "Yinelenenleri içeriğe göre bul"
+
+#: src/commands.rs
+msgid "Find duplicates by name"
+msgstr "Yinelenenleri ada göre bul"
+
+#: src/commands.rs
+msgid "Find duplicates by size"
+msgstr "Yinelenenleri boyuta göre bul"
+
+#: src/commands.rs
+msgid "Stop finding duplicates"
+msgstr "Yinelenen aramayı bitir"
+
+#: ui/app.slint
+msgid "Find duplicates"
+msgstr "Yinelenenleri bul"
+
+#: ui/app.slint
+msgid "By contents"
+msgstr "İçeriğe göre"
+
+#: ui/app.slint
+msgid "By name"
+msgstr "Ada göre"
+
+#: ui/app.slint
+msgid "By size"
+msgstr "Boyuta göre"

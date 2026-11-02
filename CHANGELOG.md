@@ -233,6 +233,11 @@ First version, 0.1.0, not released yet.
   42%" in the status line, and can be cancelled; a cancel keeps the
   matches found so far. File changes during the reading search again
   afterwards, reading only the files that changed.
+- Duplicate searches compare files without holding the index too
+  ("Comparing files: 42%", cancellable; a cancel keeps the previous
+  results), with the hashes kept in `hashes.bin` next to the index so a
+  second search reads only changed files. Search → Find duplicates puts
+  `duplicates:`, `duplicates:name` or `duplicates:size` in the query or takes it out.
 - Settings → Search → File contents: the largest file to search (100 MB;
   0 for any size), the code page of files that are not UTF-8
   (Windows-1250 to 1257, Windows-1254 by default) and "Search inside PDF

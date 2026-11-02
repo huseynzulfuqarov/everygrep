@@ -130,6 +130,13 @@ impl HashCache {
         self.changed
     }
 
+    /// Says whether the cache differs from its file, for a caller that
+    /// writes [`to_bytes`](Self::to_bytes) itself (a failed write leaves
+    /// it changed).
+    pub fn set_changed(&mut self, changed: bool) {
+        self.changed = changed;
+    }
+
     /// Changes the size limit, dropping entries when it is now exceeded.
     pub fn set_max_bytes(&mut self, max_bytes: u64) {
         self.max_bytes = max_bytes;

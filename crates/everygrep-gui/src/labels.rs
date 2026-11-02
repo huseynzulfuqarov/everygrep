@@ -464,6 +464,7 @@ pub fn busy(b: &Busy) -> String {
         (TaskKind::SearchingContent, p) => {
             fill(tr("Searching file contents: {}%"), &[&p.unwrap_or(0)])
         }
+        (TaskKind::ComparingFiles, p) => fill(tr("Comparing files: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::Copying, Some(p)) => fill(tr("Copying: {}%"), &[&p]),
         (TaskKind::Copying, None) => tr("Copying…").to_owned(),

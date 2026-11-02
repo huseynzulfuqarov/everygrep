@@ -605,6 +605,60 @@ fn par_map<T: Sync, R: Send>(
     Ok(parts.into_iter().map(|(_, r)| r).collect())
 }
 
+/// Names of the duplicate terms, lowercase.
+const TERMS: [&str; 4] = ["duplicates", "extra-copies", "distinct", "unique"];
+
+/// `query` with its duplicate terms (with any modifiers stacked before
+/// them, as in `case:duplicates:name`) taken out and `term` added at the end, for
+/// the window's Find duplicates commands. Words in double quotes are left
+/// alone, and so are all other words and the spacing, except that the
+/// spaces before a removed word go with it (or after it, at the start).
+pub fn replace_term(query: &str, term: Option<&str>) -> String {
+    let mut out = String::with_capacity(query.len() + term.map_or(0, str::len) + 1);
+    let mut rest = query;
+    let mut removed = false;
+    while !rest.is_empty() {
+        let blank = rest.len() - rest.trim_start().len();
+        let (space, tail) = rest.split_at(blank);
+        let mut quoted = false;
+        let end = tail
+            .char_indices()
+            .find(|&(_, c)| {
+                if c == '"' {
+                    quoted = !quoted;
+                }
+                c.is_whitespace() && !quoted
+            })
+            .map_or(tail.len(), |(i, _)| i);
+        let (word, after) = tail.split_at(end);
+        let mut parts: Vec<&str> = word.split(':').collect();
+        parts.pop();
+        let is_dupe = !word.starts_with('"')
+            && parts
+                .iter()
+                .any(|p| TERMS.contains(&p.to_ascii_lowercase().as_str()));
+        if is_dupe {
+            removed = true;
+        } else {
+            // A word that is first now loses the spaces before it.
+            if !(removed && out.is_empty()) {
+                out.push_str(space);
+            }
+            out.push_str(word);
+        }
+        rest = after;
+    }
+    if let Some(term) = term {
+        let kept = out.trim_end().len();
+        out.truncate(kept);
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(term);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -683,6 +737,37 @@ mod tests {
         let mut v: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8 ^ seed).collect();
         v[50_000] = middle;
         v
+    }
+
+    #[test]
+    fn a_duplicate_term_replaces_the_one_in_the_query() {
+        let set = |q: &str, t: &str| replace_term(q, Some(t));
+        assert_eq!(set("", "duplicates:"), "duplicates:");
+        assert_eq!(set("ext:jpg", "duplicates:"), "ext:jpg duplicates:");
+        assert_eq!(
+            set("ext:jpg duplicates:name  ~/Pictures", "duplicates:size"),
+            "ext:jpg  ~/Pictures duplicates:size"
+        );
+        assert_eq!(
+            set("case:duplicates:name a UNIQUE: b", "duplicates:"),
+            "a b duplicates:"
+        );
+        assert_eq!(set("distinct:size;name|x", "duplicates:"), "duplicates:");
+        assert_eq!(
+            set("extra-copies: report  ", "duplicates:name"),
+            "report duplicates:name"
+        );
+        // Text in quotes and words that only look alike stay.
+        assert_eq!(
+            set("\"duplicates: x\" dupes", "duplicates:"),
+            "\"duplicates: x\" dupes duplicates:"
+        );
+        assert_eq!(
+            set("content:\"a duplicates:\"", "duplicates:"),
+            "content:\"a duplicates:\" duplicates:"
+        );
+        assert_eq!(replace_term("pdf duplicates:size  ", None), "pdf  ");
+        assert_eq!(replace_term("duplicates:", None), "");
     }
 
     #[test]

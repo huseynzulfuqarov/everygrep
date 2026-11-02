@@ -128,7 +128,9 @@ stops with an error instead of opening the window. Type to search; `↓` moves i
 search field limits results to one kind (folders, documents, pictures, …); the
 toggles inside the field switch match case, whole words, full path,
 diacritics and regular expressions; the Search menu also has match prefix,
-match suffix, ignore punctuation and ignore whitespace; the modes that are on
+match suffix, ignore punctuation and ignore whitespace, and Find duplicates
+(by contents, name or size), which puts a `duplicates:` term at the end of the
+query (or takes it out again); the modes that are on
 show in the status line. Results come in natural name order: numbers by value
 (`file2` before `file10`), case and diacritics ignored (`Çay` next to `cay`),
 `ə` after `e`, hyphens and apostrophes skipped. Right-click the
@@ -415,7 +417,8 @@ index now", indexes again), a cancelled rescan keeps the previous index,
 folders and rules (the settings go back to them; a newer change of the
 folders or rules cancels the older rescan without a message), a cancelled sort or search keeps the results and order shown (a content
 search shows its matches while it reads files, about once a second, and a
-cancel keeps the matches found so far), and
+cancel keeps the matches found so far; a duplicate search shows "Comparing
+files: 42%" while it reads files and its results only at the end), and
 a drive whose first reading was cancelled goes on where it stopped when it
 is plugged in again (also after it was removed while being read, or the
 program quit while it was read: quitting cancels the reading and waits up to
@@ -652,6 +655,10 @@ collects nothing. It stores:
   reading read,
   and `<uuid>.info` with its label, last mount point, when it was last
   connected and its number of entries;
+- hashes of files that a duplicate search compared, in
+  `~/.cache/everygrep/hashes.bin` next to the window's index (device and
+  inode numbers, sizes, modification times and hashes, never names or
+  paths), at most 512 MB;
 - the settings, in `~/.config/everygrep/settings` (and an empty
   `settings.lock` next to it, which windows lock while they save);
 - the search history, in `~/.config/everygrep/history`, only when "Keep the

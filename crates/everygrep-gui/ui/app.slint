@@ -861,6 +861,9 @@ export component AppWindow inherits Window {
     // Search history: step -1 goes back, 1 forward; the handler sets the
     // query. history-record() keeps the current query.
     callback history-step(int);
+    // Puts a duplicate term in the query (0 contents, 1 name, 2 size) or
+    // takes it out (-1).
+    callback dupe-term(int);
     callback history-record();
     // Search as you type is off and the search field changed: Enter runs
     // the search (search-now) instead of opening the current row.
@@ -1432,6 +1435,18 @@ export component AppWindow inherits Window {
             root.history-go(-1);
         } else if (c == Command.next-search) {
             root.history-go(1);
+        } else if (c == Command.find-duplicates) {
+            root.dupe-term(0);
+            root.results-replaced();
+        } else if (c == Command.find-name-duplicates) {
+            root.dupe-term(1);
+            root.results-replaced();
+        } else if (c == Command.find-size-duplicates) {
+            root.dupe-term(2);
+            root.results-replaced();
+        } else if (c == Command.clear-duplicates) {
+            root.dupe-term(-1);
+            root.results-replaced();
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -2814,6 +2829,31 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.next-filter;
                 enabled: root.can-run(Command.next-filter);
                 activated => { root.run(Command.next-filter); }
+            }
+            MenuSeparator { }
+            Menu {
+                title: @tr("Find duplicates");
+                MenuItem {
+                    title: @tr("By contents");
+                    shortcut: root.menu-keys.find-duplicates;
+                    activated => { root.run(Command.find-duplicates); }
+                }
+                MenuItem {
+                    title: @tr("By name");
+                    shortcut: root.menu-keys.find-name-duplicates;
+                    activated => { root.run(Command.find-name-duplicates); }
+                }
+                MenuItem {
+                    title: @tr("By size");
+                    shortcut: root.menu-keys.find-size-duplicates;
+                    activated => { root.run(Command.find-size-duplicates); }
+                }
+                MenuSeparator { }
+                MenuItem {
+                    title: @tr("Stop finding duplicates");
+                    shortcut: root.menu-keys.clear-duplicates;
+                    activated => { root.run(Command.clear-duplicates); }
+                }
             }
             MenuSeparator { }
             MenuItem {

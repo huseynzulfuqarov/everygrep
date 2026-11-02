@@ -286,6 +286,15 @@ content settings change) means only changed files are read again; a new
 order is searched the same way. A cancel keeps the matches shown so far,
 and file changes then leave them alone until the next search.
 
+A query with a duplicate term runs the same way: its matches are found
+(with the reading above for `content:` terms), grouped under the read
+lock, and when contents are compared, the files are read with the lock
+released ("Comparing files: 42%"), the hashes kept in the engine's
+`HashStore` (`hashes.rs`). That store reads `hashes.bin` (next to the
+index file) only when a search first needs it, and is saved with the
+index and when the program ends. The matches are then sorted in the
+window's order and `Dupes::arrange` keeps each group together.
+
 ### Result model (`results.rs`)
 
 The table holds only the list of matching ids. Rows (name split around the

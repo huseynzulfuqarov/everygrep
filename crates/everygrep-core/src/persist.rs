@@ -187,7 +187,7 @@ fn save_impl(
 /// Writes `bytes` to a new file next to `path` and renames it over `path`,
 /// so readers see the old file or the new one, never a part of it. Creates
 /// the folder when it is missing.
-pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }

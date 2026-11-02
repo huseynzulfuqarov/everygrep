@@ -378,7 +378,9 @@ order shown, and its members follow in that order.
 - Contents are compared as fast as possible: files of a size no other file
   has are not read; files of the same size are compared by their first and
   last 16 KiB, and only files that still agree are read in full (XXH3-128,
-  a 128-bit hash).
+  a 128-bit hash). The window keeps the hashes in a cache, so a second
+  search reads only files that changed; the command line reads them every
+  time.
 - Folders, empty files, links, FIFOs, devices and files that cannot be read
   are left out. Hard links are one file: of several paths to the same file
   only the first is listed, and it is not its own duplicate.

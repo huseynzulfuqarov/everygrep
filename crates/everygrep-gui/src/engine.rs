@@ -35,6 +35,8 @@ use std::time::{Duration, Instant};
 
 use everygrep_core::content::{ContentCache, ContentOptions, Decisions, decide_all};
 use everygrep_core::drives::{self, Drive, DriveEnv, DriveInfo, MountWatch};
+use everygrep_core::dupe;
+use everygrep_core::hashcache::DEFAULT_MAX_BYTES;
 use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::progress::{self, Progress};
@@ -46,6 +48,8 @@ use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::sync::{folders_below, resume_scan};
 use everygrep_core::watch::Watcher;
+
+use crate::hashes::HashStore;
 
 /// What the index is doing, for the status line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +108,8 @@ pub enum TaskKind {
     Searching,
     /// Reading files for the `content:` terms of the search.
     SearchingContent,
+    /// Reading files to compare their contents for a duplicate search.
+    ComparingFiles,
     Sorting,
     /// Pasting files that were copied.
     Copying,
@@ -245,7 +251,10 @@ impl Tasks {
             let kind = task.kind.lock().expect("lock");
             if matches!(
                 *kind,
-                TaskKind::Searching | TaskKind::SearchingContent | TaskKind::Sorting
+                TaskKind::Searching
+                    | TaskKind::SearchingContent
+                    | TaskKind::ComparingFiles
+                    | TaskKind::Sorting
             ) {
                 task.progress.cancel();
             }
@@ -432,12 +441,15 @@ pub struct Engine {
     /// changes) reads only what changed.
     content_cache: Mutex<ContentCache>,
     content_state: Mutex<ContentState>,
+    /// Hashes of files, for duplicate searches and the hash columns.
+    pub hashes: Arc<HashStore>,
 }
 
 /// The reading of file contents for a search.
 #[derive(Debug, Default)]
 struct ContentState {
-    /// Files are being read now.
+    /// Files are being read now (for `content:` terms or a duplicate
+    /// search).
     running: bool,
     /// Files changed meanwhile: search again when the reading is done.
     refresh: bool,
@@ -504,6 +516,9 @@ impl Engine {
             Some((env, settings)) => (Some(env), settings),
             None => (None, DriveSettings::default()),
         };
+        let index_file = index_file.or_else(persist::default_path);
+        // Next to the index file, like the saved drives.
+        let hash_file = index_file.as_ref().map(|f| f.with_file_name("hashes.bin"));
         let engine = Arc::new(Self {
             index: RwLock::new(Index::new(NodeStore::new())),
             roots: Mutex::new(normalize_roots(&roots)),
@@ -514,7 +529,7 @@ impl Engine {
             rescan: AtomicBool::new(false),
             reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
-            index_file: index_file.or_else(persist::default_path),
+            index_file,
             generation: AtomicU64::new(0),
             query: Mutex::new(QueryState::default()),
             epoch: AtomicU64::new(0),
@@ -543,6 +558,7 @@ impl Engine {
             content_options: Mutex::new(ContentOptions::default()),
             content_cache: Mutex::new(ContentCache::new()),
             content_state: Mutex::new(ContentState::default()),
+            hashes: Arc::new(HashStore::new(hash_file, DEFAULT_MAX_BYTES)),
         });
         // Watched from before the index thread first looks at the drives, so
         // a drive mounted after that look is never missed, however late the
@@ -833,7 +849,7 @@ impl Engine {
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
             let (ids, error) = match Query::parse(&state.text, state.options) {
-                Ok(query) if !query.content_terms().is_empty() => {
+                Ok(query) if !query.content_terms().is_empty() || query.dupes().is_some() => {
                     terms = query.highlight_terms();
                     let terms = Arc::new(std::mem::take(&mut terms));
                     let found = self.search_contents(generation, &state, &query, started, &terms);
@@ -982,7 +998,8 @@ impl Engine {
                                 && decisions.matched() != matched
                         }
                     };
-                    if due {
+                    // Duplicates are known only at the end.
+                    if due && query.dupes().is_none() {
                         last = Some((now, decisions.matched()));
                         shown |= self.show_partial(
                             generation, state, query, &staged, &decisions, epoch, started, terms,
@@ -993,26 +1010,72 @@ impl Engine {
             self.content_state.lock().expect("lock").running = false;
             read.map_err(|_| self.why_stopped(generation, shown))?;
         }
-        let index = self.index.read().expect("index lock");
-        if self.stop.load(Ordering::SeqCst) {
+        let Some(mut index) = self.read_again(epoch)? else {
             return Ok(None);
-        }
-        if self.epoch() != epoch {
-            // Ids changed meaning while the files were read: search again;
-            // the answers are cached.
-            drop(index);
-            self.request_search();
-            return Err(Stopped::Search);
-        }
+        };
         let mut ids = staged.results(&decisions);
+        let dupes = match query.dupes() {
+            None => None,
+            Some(spec) => {
+                let grouped = dupe::group(&index, &ids, spec);
+                if grouped.candidates.is_empty() {
+                    Some(grouped.dupes)
+                } else {
+                    // The files are compared without the index, like
+                    // contents are read.
+                    drop(index);
+                    task.set_kind(TaskKind::ComparingFiles);
+                    self.content_state.lock().expect("lock").running = true;
+                    let compared = dupe::compare_contents(
+                        grouped,
+                        Some(self.hashes.cache()),
+                        threads.min(CONTENT_THREADS),
+                        task.progress(),
+                    );
+                    self.content_state.lock().expect("lock").running = false;
+                    let dupes = compared.map_err(|_| Stopped::Search)?;
+                    let Some(again) = self.read_again(epoch)? else {
+                        return Ok(None);
+                    };
+                    index = again;
+                    Some(dupes)
+                }
+            }
+        };
+        if let Some(dupes) = &dupes {
+            ids = dupes.to_sort();
+        }
         if self.is_current(generation) {
             task.set_kind(TaskKind::Sorting);
             task.progress().restart(None);
             self.sort(&index, &mut ids, state.sort, threads, task.progress())
                 .map_err(|_| self.why_stopped(generation, shown))?;
+            if let Some(dupes) = &dupes {
+                ids = dupes.arrange(&ids);
+            }
             query.apply_limit(&mut ids);
         }
         Ok(Some((ids, epoch)))
+    }
+
+    /// The index again after files were read without it: `None` when
+    /// quitting began; when ids changed meaning meanwhile, the search is
+    /// asked for again (the answers and hashes are cached) and this one
+    /// stops.
+    fn read_again(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<std::sync::RwLockReadGuard<'_, Index>>, Stopped> {
+        let index = self.index.read().expect("index lock");
+        if self.stop.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        if self.epoch() != epoch {
+            drop(index);
+            self.request_search();
+            return Err(Stopped::Search);
+        }
+        Ok(Some(index))
     }
 
     /// Why a content search for `generation` was cancelled: the user stopped
@@ -1625,6 +1688,8 @@ impl Engine {
     /// index stay locked until then (a catch-up holds the index while it
     /// reads folders); the index then stays to be saved.
     fn save_by(&self, deadline: Option<Instant>) {
+        // A cache: a failed save is tried again with the next one.
+        let _ = self.hashes.save();
         if !self.dirty.swap(false, Ordering::SeqCst) {
             return;
         }
@@ -2587,6 +2652,13 @@ mod tests {
         }
 
         fn names(&self, query: &str) -> Vec<String> {
+            let mut names = self.listed(query);
+            names.sort();
+            names
+        }
+
+        /// The names of the results of `query` in their order.
+        fn listed(&self, query: &str) -> Vec<String> {
             while self.results.try_recv().is_ok() {}
             self.engine.set_query(query, QueryOptions::default());
             loop {
@@ -2598,13 +2670,11 @@ mod tests {
                     continue;
                 }
                 let index = self.engine.index.read().unwrap();
-                let mut names: Vec<String> = r
+                return r
                     .ids
                     .iter()
                     .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
                     .collect();
-                names.sort();
-                return names;
             }
         }
     }
@@ -3585,6 +3655,79 @@ mod tests {
                 .recv_timeout(Duration::from_millis(200))
                 .is_err()
         );
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn duplicates_are_compared_off_the_lock_kept_in_groups_and_their_hashes_saved() {
+        let dir = Scratch::new("dupes");
+        let root = dir.0.join("files");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("a.txt"), "same").unwrap();
+        fs::write(root.join("sub/b.txt"), "same").unwrap();
+        fs::write(root.join("c.txt"), "diff").unwrap();
+        let big = vec![7u8; 100_000];
+        fs::write(root.join("big1"), &big).unwrap();
+        fs::write(root.join("big2"), &big).unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(
+            probe.listed("duplicates:"),
+            ["a.txt", "b.txt", "big1", "big2"]
+        );
+        // Groups stay together in the window's order.
+        probe.engine.set_sort(Sort {
+            key: everygrep_core::sort::SortKey::Size,
+            descending: true,
+            ..Sort::default()
+        });
+        assert_eq!(
+            probe.listed("duplicates:"),
+            ["big1", "big2", "a.txt", "b.txt"]
+        );
+        assert_eq!(probe.listed("extra-copies:"), ["big2", "b.txt"]);
+        assert_eq!(probe.listed("unique: file:"), ["c.txt"]);
+        // Without contents nothing is read.
+        assert_eq!(
+            probe.listed("duplicates:ext txt"),
+            ["a.txt", "b.txt", "c.txt"]
+        );
+        assert_eq!(
+            probe.listed("duplicates:name limit:1"),
+            Vec::<String>::new()
+        );
+        // Ends of the four of size 4 and the two large files, and the whole
+        // of those two.
+        assert_eq!(probe.engine.hashes.cache().lock().unwrap().len(), 5);
+        assert!(!probe.engine.content_state.lock().unwrap().running);
+        probe.engine.shutdown();
+        assert!(dir.0.join("hashes.bin").exists());
+    }
+
+    #[test]
+    fn a_cancelled_duplicate_search_keeps_the_previous_results() {
+        let dir = Scratch::new("dupes-cancel");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "same").unwrap();
+        fs::write(root.join("two.txt"), "same").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("one"), ["one.txt"]);
+        while probe.results.try_recv().is_ok() {}
+        probe.armed.store(true, Ordering::SeqCst);
+        probe
+            .engine
+            .set_query("duplicates:", QueryOptions::default());
+        assert_eq!(probe.wait_stopped(), Stopped::Search);
+        assert_eq!(probe.engine.query.lock().unwrap().text, "one");
+        assert!(
+            probe
+                .results
+                .recv_timeout(Duration::from_millis(200))
+                .is_err()
+        );
+        assert_eq!(probe.names("duplicates:"), ["one.txt", "two.txt"]);
         probe.engine.shutdown();
     }
 

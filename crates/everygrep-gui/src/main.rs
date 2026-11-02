@@ -14,6 +14,7 @@ mod fileops_settings;
 mod fileops_shortcut;
 mod filetype;
 mod format;
+mod hashes;
 mod history;
 mod i18n;
 mod instance;
@@ -354,6 +355,26 @@ fn main() -> Result<(), slint::PlatformError> {
                 w.set_search_pending(false);
                 w.set_notice("".into());
             }
+        }
+    });
+    window.on_dupe_term({
+        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
+        move |kind| {
+            let Some(w) = weak.upgrade() else { return };
+            pause.stop();
+            let term = match kind {
+                0 => Some("duplicates:"),
+                1 => Some("duplicates:name"),
+                2 => Some("duplicates:size"),
+                _ => None,
+            };
+            let text = everygrep_core::dupe::replace_term(&w.get_query(), term);
+            w.set_query(text.as_str().into());
+            w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
+            engine.set_query(&text, options(&w));
+            typing::with(|t| t.searched());
+            w.set_search_pending(false);
+            w.set_notice("".into());
         }
     });
     window.on_open_settings({
