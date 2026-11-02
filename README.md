@@ -543,6 +543,12 @@ indexes names only, `rescan` (`never`, `hours`, `daily`) with `rescan-hours`
 and `rescan-time` (`HH:MM`) scans the folders again by themselves,
 `search-as-you-type` the
 search at every key press, and `rename-in-dialog` chooses the rename editor.
+`history-enabled` (`false`) stops recording searches, `history-days` keeps them
+that many days (`0` for ever; 90 by default), `history-sort` (`date`, `count`,
+`text`) orders the history list, and `always-search-suggestions` shows
+suggestions while searching as you type too. `open-searches-in-tabs`,
+`switch-to-new-tab` and `restore-session` hold the tab choices of the Window
+page.
 `context-search-new-window`, `context-search-subfolders` and
 `context-search-exact-name` control context searches.
 `shortcut-kind` (`symlink` or `desktop`) and `shortcut-collision` (`number`
