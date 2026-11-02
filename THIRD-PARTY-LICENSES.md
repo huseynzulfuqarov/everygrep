@@ -10,28 +10,29 @@ The window uses the [Slint](https://slint.dev) toolkit under its
 royalty-free license (`LicenseRef-Slint-Royalty-free-2.0`), whose
 attribution is shown in Help → About EveryGrep.
 
-Crates: 336 (269 linked into the programs). Distinct license texts: 183.
+Crates: 342 (275 linked into the programs). Distinct license texts: 187.
 
 ## License expressions
 
 | Expression | Crates |
 |---|---|
-| MIT OR Apache-2.0 | 140 |
+| MIT OR Apache-2.0 | 142 |
 | MIT | 68 |
 | Apache-2.0 OR MIT | 42 |
 | Unicode-3.0 | 25 |
 | Apache-2.0 | 9 |
 | GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0 | 9 |
 | MIT OR Apache-2.0 OR Zlib | 6 |
+| Unlicense OR MIT | 6 |
 | MIT/Apache-2.0 | 5 |
 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | 4 |
 | BSD-3-Clause | 4 |
-| Unlicense OR MIT | 3 |
 | Zlib | 3 |
 | Zlib OR Apache-2.0 OR MIT | 3 |
 | BSD-3-Clause OR Apache-2.0 | 2 |
 | BSD-3-Clause OR MIT OR Apache-2.0 | 2 |
 | MIT OR Zlib OR Apache-2.0 | 2 |
+| (Apache-2.0 OR MIT) AND BSD-3-Clause | 1 |
 | (MIT OR Apache-2.0) AND Unicode-3.0 | 1 |
 | 0BSD OR MIT OR Apache-2.0 | 1 |
 | Apache-2.0 / MIT | 1 |
@@ -82,6 +83,7 @@ procedural macros and their dependencies, which run only while building.
 | base64 | 0.23.1 | MIT OR Apache-2.0 | linked | https://github.com/marshallpierce/rust-base64 | [954f335b8baf](#license-954f335b8baf), [2ff8d9734312](#license-2ff8d9734312) |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 | linked | https://github.com/bitflags/bitflags | [954f335b8baf](#license-954f335b8baf), [14435fbcd271](#license-14435fbcd271) |
 | blocking | 1.7.0 | Apache-2.0 OR MIT | linked | https://github.com/smol-rs/blocking | [954f335b8baf](#license-954f335b8baf), [30fefc3a7d6a](#license-30fefc3a7d6a) |
+| bstr | 1.13.1 | MIT OR Apache-2.0 | linked | https://github.com/BurntSushi/bstr | [8649bf6c5eca](#license-8649bf6c5eca), [954f335b8baf](#license-954f335b8baf), [ffea24dba8d2](#license-ffea24dba8d2) |
 | by_address | 1.2.1 | MIT OR Apache-2.0 | compile time | https://github.com/mbrubeck/by_address | [954f335b8baf](#license-954f335b8baf), [44739c315806](#license-44739c315806) |
 | bytemuck | 1.25.2 | Zlib OR Apache-2.0 OR MIT | linked | https://github.com/Lokathor/bytemuck | [0e3cbff251c1](#license-0e3cbff251c1), [dfbd1c2a36dc](#license-dfbd1c2a36dc), [943f36fd309f](#license-943f36fd309f) |
 | bytemuck_derive | 1.12.1 | Zlib OR Apache-2.0 OR MIT | compile time | https://github.com/Lokathor/bytemuck | [0e3cbff251c1](#license-0e3cbff251c1), [dfbd1c2a36dc](#license-dfbd1c2a36dc), [943f36fd309f](#license-943f36fd309f) |
@@ -111,6 +113,8 @@ procedural macros and their dependencies, which run only while building.
 | downcast-rs | 1.2.1 | MIT/Apache-2.0 | linked | https://github.com/marcianx/downcast-rs | [7e1b38c60796](#license-7e1b38c60796), [32979a7dea17](#license-32979a7dea17) |
 | dpi | 0.1.2 | Apache-2.0 AND MIT | linked | https://github.com/rust-windowing/winit | [6dc0e068dcf3](#license-6dc0e068dcf3), [e07664cb9e31](#license-e07664cb9e31) |
 | either | 1.19.0 | MIT OR Apache-2.0 | linked | https://github.com/rayon-rs/either | [954f335b8baf](#license-954f335b8baf), [fdd1c2117bcf](#license-fdd1c2117bcf) |
+| encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | linked | https://github.com/hsivonen/encoding_rs | [283ea6cc2997](#license-283ea6cc2997), [7dc2f6402447](#license-7dc2f6402447), [b1d6d97b0476](#license-b1d6d97b0476) |
+| encoding_rs_io | 0.1.8 | MIT OR Apache-2.0 | linked | https://github.com/BurntSushi/encoding_rs_io | [28ebbb31ea7b](#license-28ebbb31ea7b), [954f335b8baf](#license-954f335b8baf), [154c1af2b38e](#license-154c1af2b38e) |
 | endi | 1.1.1 | MIT | linked | https://github.com/zeenix/endi | [30fefc3a7d6a](#license-30fefc3a7d6a) |
 | enumflags2 | 0.7.12 | MIT OR Apache-2.0 | linked | https://github.com/meithecatte/enumflags2 | [632c2870a923](#license-632c2870a923), [de561d2b653a](#license-de561d2b653a) |
 | enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 | compile time | https://github.com/meithecatte/enumflags2 | [e3efb29e4942](#license-e3efb29e4942), [12a9724e2927](#license-12a9724e2927) |
@@ -151,6 +155,9 @@ procedural macros and their dependencies, which run only while building.
 | glutin | 0.32.3 | Apache-2.0 | linked | https://github.com/rust-windowing/glutin | [1fc3bc7f4a1b](#license-1fc3bc7f4a1b) |
 | glutin-winit | 0.5.0 | MIT | linked | https://github.com/rust-windowing/glutin | [77ef4dd0b88b](#license-77ef4dd0b88b) |
 | glutin_egl_sys | 0.7.1 | Apache-2.0 | linked | https://github.com/rust-windowing/glutin | [1fc3bc7f4a1b](#license-1fc3bc7f4a1b) |
+| grep-matcher | 0.1.9 | Unlicense OR MIT | linked | https://github.com/BurntSushi/ripgrep/tree/master/crates/matcher | [154c1af2b38e](#license-154c1af2b38e), [ca2abdf69588](#license-ca2abdf69588) |
+| grep-regex | 0.1.14 | Unlicense OR MIT | linked | https://github.com/BurntSushi/ripgrep/tree/master/crates/regex | [154c1af2b38e](#license-154c1af2b38e), [ca2abdf69588](#license-ca2abdf69588) |
+| grep-searcher | 0.1.17 | Unlicense OR MIT | linked | https://github.com/BurntSushi/ripgrep/tree/master/crates/searcher | [154c1af2b38e](#license-154c1af2b38e), [ca2abdf69588](#license-ca2abdf69588) |
 | harfrust | 0.12.0 | MIT | linked | https://github.com/harfbuzz/harfrust | [31b628c2f6d7](#license-31b628c2f6d7) |
 | hashbrown | 0.14.5 | MIT OR Apache-2.0 | compile time | https://github.com/rust-lang/hashbrown | [954f335b8baf](#license-954f335b8baf), [ae9791f02f2b](#license-ae9791f02f2b) |
 | hashbrown | 0.15.5 | MIT OR Apache-2.0 | linked | https://github.com/rust-lang/hashbrown | [954f335b8baf](#license-954f335b8baf), [ae9791f02f2b](#license-ae9791f02f2b) |
@@ -655,6 +662,38 @@ Used by: aho-corasick 1.1.5, memchr 2.8.3
 This project is dual-licensed under the Unlicense and MIT licenses.
 
 You may use this code under the terms of either license.
+```
+
+<a id="license-28ebbb31ea7b"></a>
+### COPYING: This project is licensed under either of
+
+Used by: encoding_rs_io 0.1.8
+
+```text
+This project is licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   http://opensource.org/licenses/MIT)
+
+at your option.
+```
+
+<a id="license-8649bf6c5eca"></a>
+### COPYING: This project is licensed under either of
+
+Used by: bstr 1.13.1
+
+```text
+This project is licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   https://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   https://opensource.org/licenses/MIT)
+
+at your option.
 ```
 
 <a id="license-2a58a6bf3089"></a>
@@ -1355,7 +1394,7 @@ Apache License
 <a id="license-283ea6cc2997"></a>
 ### LICENSE-APACHE2.txt: Apache License
 
-Used by: atspi 0.29.0, atspi-common 0.13.0, atspi-proxies 0.13.0, imgref 1.12.3, kurbo 0.13.1, polycool 0.4.0, siphasher 1.0.4, static_assertions 1.1.0, sys-locale 0.3.2, tinyvec 1.13.3, unicode-linebreak 0.1.5, utf8_iter 1.0.4, x11rb 0.13.2, x11rb-protocol 0.13.2, zune-core 0.5.3, zune-jpeg 0.5.15
+Used by: atspi 0.29.0, atspi-common 0.13.0, atspi-proxies 0.13.0, encoding_rs 0.8.35, imgref 1.12.3, kurbo 0.13.1, polycool 0.4.0, siphasher 1.0.4, static_assertions 1.1.0, sys-locale 0.3.2, tinyvec 1.13.3, unicode-linebreak 0.1.5, utf8_iter 1.0.4, x11rb 0.13.2, x11rb-protocol 0.13.2, zune-core 0.5.3, zune-jpeg 0.5.15
 
 ```text
 Apache License
@@ -3764,7 +3803,7 @@ END OF TERMS AND CONDITIONS
 <a id="license-954f335b8baf"></a>
 ### LICENSE-APACHE: Apache License
 
-Used by: ahash 0.8.12, arrayvec 0.7.8, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, atomic-waker 1.1.2, base64 0.23.1, bitflags 2.13.2, blocking 1.7.0, by_address 1.2.1, cfg-if 1.0.5, concurrent-queue 2.5.0, countme 3.0.1, critical-section 1.2.0, crossbeam-deque 0.8.8, crossbeam-epoch 0.9.21, crossbeam-utils 0.8.23, data-url 0.3.2, displaydoc 0.2.7, either 1.19.0, equivalent 1.0.3, errno 0.3.14, euclid 0.22.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, fixedbitset 0.5.7, flate2 1.1.10, fnv 1.0.7, fontique 0.11.1, form_urlencoded 1.2.2, futures-lite 2.6.1, gethostname 1.1.0, gif 0.14.2, glow 0.18.0, hashbrown 0.14.5, hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.1, heck 0.5.0, htmlparser 0.2.1, idna 1.1.0, idna_adapter 1.2.1, indexmap 2.14.2, itertools 0.15.0, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lock_api 0.4.14, log 0.4.34, num-traits 0.2.19, once_cell 1.21.4, ordered-stream 0.2.0, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, parlance 0.1.1, parley 0.11.1, parley_data 0.11.1, percent-encoding 2.3.2, petgraph 0.8.3, piper 0.2.5, png 0.18.1, polling 3.11.0, rayon 1.12.0, rayon-core 1.13.0, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, rowan 0.17.0, roxmltree 0.21.2, rustc-hash 1.1.0, rustix 0.38.44, rustix 1.1.5, scoped-tls 1.0.1, scoped-tls-hkt 0.1.5, scopeguard 1.2.0, signal-hook-registry 1.4.8, simplecss 0.2.2, smallvec 1.16.4, smol_str 0.2.2, smol_str 0.3.2, spin_on 0.1.1, stable_deref_trait 1.2.1, svgtypes 0.16.1, swash 0.2.10, text-size 1.1.1, ttf-parser 0.25.1, unicase 2.10.0, unicode-bidi 0.3.18, unicode-segmentation 1.13.3, unicode-vo 0.1.0, unicode-width 0.2.2, unicode-xid 0.2.6, url 2.5.8, uuid 1.26.1, weezl 0.1.12, wl-clipboard-rs 0.9.4, yazi 0.2.1, zeno 0.3.3
+Used by: ahash 0.8.12, arrayvec 0.7.8, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, atomic-waker 1.1.2, base64 0.23.1, bitflags 2.13.2, blocking 1.7.0, bstr 1.13.1, by_address 1.2.1, cfg-if 1.0.5, concurrent-queue 2.5.0, countme 3.0.1, critical-section 1.2.0, crossbeam-deque 0.8.8, crossbeam-epoch 0.9.21, crossbeam-utils 0.8.23, data-url 0.3.2, displaydoc 0.2.7, either 1.19.0, encoding_rs_io 0.1.8, equivalent 1.0.3, errno 0.3.14, euclid 0.22.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, fixedbitset 0.5.7, flate2 1.1.10, fnv 1.0.7, fontique 0.11.1, form_urlencoded 1.2.2, futures-lite 2.6.1, gethostname 1.1.0, gif 0.14.2, glow 0.18.0, hashbrown 0.14.5, hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.1, heck 0.5.0, htmlparser 0.2.1, idna 1.1.0, idna_adapter 1.2.1, indexmap 2.14.2, itertools 0.15.0, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lock_api 0.4.14, log 0.4.34, num-traits 0.2.19, once_cell 1.21.4, ordered-stream 0.2.0, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, parlance 0.1.1, parley 0.11.1, parley_data 0.11.1, percent-encoding 2.3.2, petgraph 0.8.3, piper 0.2.5, png 0.18.1, polling 3.11.0, rayon 1.12.0, rayon-core 1.13.0, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, rowan 0.17.0, roxmltree 0.21.2, rustc-hash 1.1.0, rustix 0.38.44, rustix 1.1.5, scoped-tls 1.0.1, scoped-tls-hkt 0.1.5, scopeguard 1.2.0, signal-hook-registry 1.4.8, simplecss 0.2.2, smallvec 1.16.4, smol_str 0.2.2, smol_str 0.3.2, spin_on 0.1.1, stable_deref_trait 1.2.1, svgtypes 0.16.1, swash 0.2.10, text-size 1.1.1, ttf-parser 0.25.1, unicase 2.10.0, unicode-bidi 0.3.18, unicode-segmentation 1.13.3, unicode-vo 0.1.0, unicode-width 0.2.2, unicode-xid 0.2.6, url 2.5.8, uuid 1.26.1, weezl 0.1.12, wl-clipboard-rs 0.9.4, yazi 0.2.1, zeno 0.3.3
 
 ```text
 Apache License
@@ -7851,7 +7890,7 @@ DEALINGS IN THE SOFTWARE.
 <a id="license-7dc2f6402447"></a>
 ### LICENSE-MIT: Copyright Mozilla Foundation
 
-Used by: utf8_iter 1.0.4
+Used by: encoding_rs 0.8.35, utf8_iter 1.0.4
 
 ```text
 Copyright Mozilla Foundation
@@ -8223,7 +8262,7 @@ SOFTWARE.
 <a id="license-154c1af2b38e"></a>
 ### LICENSE-MIT: The MIT License (MIT)
 
-Used by: aho-corasick 1.1.5, byteorder-lite 0.1.0, memchr 2.8.3
+Used by: aho-corasick 1.1.5, byteorder-lite 0.1.0, encoding_rs_io 0.1.8, grep-matcher 0.1.9, grep-regex 0.1.14, grep-searcher 0.1.17, memchr 2.8.3
 
 ```text
 The MIT License (MIT)
@@ -8493,6 +8532,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+<a id="license-ffea24dba8d2"></a>
+### LICENSE-MIT: The MIT License (MIT)
+
+Used by: bstr 1.13.1
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2018-2019 Andrew Gallant
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 <a id="license-20746cc8a2fd"></a>
 ### LICENSE-THIRD-PARTY: Copyright (c) 2016 Alex Crichton
 
@@ -8608,6 +8676,40 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+```
+
+<a id="license-b1d6d97b0476"></a>
+### LICENSE-WHATWG: Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
+
+Used by: encoding_rs 0.8.35
+
+```text
+Copyright © WHATWG (Apple, Google, Mozilla, Microsoft).
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 <a id="license-81976b4834c3"></a>
@@ -11151,7 +11253,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 <a id="license-ca2abdf69588"></a>
 ### UNLICENSE: This is free and unencumbered software released into the public domain
 
-Used by: aho-corasick 1.1.5, byteorder-lite 0.1.0, memchr 2.8.3
+Used by: aho-corasick 1.1.5, byteorder-lite 0.1.0, grep-matcher 0.1.9, grep-regex 0.1.14, grep-searcher 0.1.17, memchr 2.8.3
 
 ```text
 This is free and unencumbered software released into the public domain.

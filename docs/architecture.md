@@ -9,13 +9,15 @@ connections, has no telemetry and runs no service besides the window itself.
 
 | Crate | Kind | Role |
 |---|---|---|
-| `everygrep-core` | library, one dependency (`regex`) | index, scanner, watcher, query language, search, sorting, saved index |
+| `everygrep-core` | library | index, scanner, watcher, query language, search, sorting, saved index, file contents |
 | `everygrep-cli` | binary `everygrep` | `index`, `search` and `shell` commands over the core |
 | `everygrep-gui` | binary `everygrep-gui` | the window: Slint UI, settings, single instance, file actions |
 
 The core uses the standard library, the `regex` crate for regular expressions
-in queries, and hand-written bindings for the few Linux calls it needs
-(`inotify.rs`). The window adds Slint (UI toolkit) and
+in queries, `rustix` for opening files and folders without following links,
+the line searcher and matcher of ripgrep (`grep-searcher`, `grep-regex`) with
+`encoding_rs` for reading file contents (`content.rs`), and hand-written
+bindings for the few Linux calls it needs (`inotify.rs`). The window adds Slint (UI toolkit) and
 zbus (session bus); see `THIRD-PARTY-LICENSES.md` for the full list.
 
 ## Core

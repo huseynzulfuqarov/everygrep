@@ -8,6 +8,14 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+# Searching file contents (`content:`): the line searcher of ripgrep with
+# binary detection, BOM sniffing and transcoding (it brings bstr,
+# encoding_rs_io and grep-matcher), its regular expression matcher, and
+# encoding_rs for the legacy code pages. 0.8.35 is the newest encoding_rs
+# for Rust 1.85.
+encoding_rs = "0.8.35"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
 # Regular expressions in queries. The locked version and default features
 # add no crates that were not in Cargo.lock already.
 regex = "1.13.1"
