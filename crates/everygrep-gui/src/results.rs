@@ -14,7 +14,7 @@ use everygrep_core::localtime::Zone;
 use std::ops::Range;
 
 use everygrep_core::query::{HighlightTerm, highlight_spans, merge_spans};
-use everygrep_core::sort::FolderSize;
+use everygrep_core::sort::{FolderSize, Sort};
 use everygrep_core::store::NodeId;
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
@@ -118,6 +118,17 @@ impl ResultsModel {
     /// selected items it lists.
     pub fn set_clear_on_search(&self, on: bool) {
         self.clear_on_search.set(on);
+    }
+
+    /// Whether `result` answers the newest request. An older one is not
+    /// shown: the newer request's result follows.
+    pub fn is_current(&self, result: &SearchResult) -> bool {
+        self.engine.is_current(result.generation)
+    }
+
+    /// The result order the engine runs (see [`Engine::asked_sort`]).
+    pub fn asked_sort(&self) -> Sort {
+        self.engine.asked_sort()
     }
 
     /// Replaces the rows with a search result. The selection stays on the

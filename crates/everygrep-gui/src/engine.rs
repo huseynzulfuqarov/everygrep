@@ -66,6 +66,10 @@ pub struct SearchResult {
     /// [`Engine::epoch`] when the ids were taken; they are valid only while
     /// it is unchanged.
     pub epoch: u64,
+    /// The request it answers (as [`Engine::set_query`] returns it). It is
+    /// handed to the window later; a newer request may have come by then,
+    /// whose own result follows (see [`Engine::is_current`]).
+    pub generation: u64,
 }
 
 /// Callbacks into the UI. They are called from engine threads and must hand
@@ -711,6 +715,12 @@ impl Engine {
         self.request_search()
     }
 
+    /// The result order asked for last: after a cancelled sort the order of
+    /// the results shown, unless a newer order was asked for meanwhile.
+    pub fn asked_sort(&self) -> Sort {
+        self.query.lock().expect("lock").sort
+    }
+
     /// The current id epoch. Read it under an index lock to pair it with ids.
     pub fn epoch(&self) -> u64 {
         self.epoch.load(Ordering::SeqCst)
@@ -795,6 +805,7 @@ impl Engine {
                     error,
                     query: state.text,
                     epoch,
+                    generation,
                 });
             }
         }
@@ -2881,6 +2892,7 @@ mod tests {
             error: None,
             query: String::new(),
             epoch: e.epoch().wrapping_sub(1),
+            generation: 0,
         });
         // Enough entries go to compact the index.
         for f in 0..12_000 {
@@ -2893,6 +2905,30 @@ mod tests {
         assert_eq!(probe.names("keep"), ["keep.txt"]);
         assert!(epoch > 1, "compacted (or built again) after the deletes");
         e.shutdown();
+    }
+
+    #[test]
+    fn results_name_the_request_they_answer() {
+        let dir = Scratch::new("result-generation");
+        fs::create_dir_all(dir.0.join("a")).unwrap();
+        fs::write(dir.0.join("a/one.txt"), "").unwrap();
+        let probe = Probe::start(vec![dir.0.join("a")], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        while probe.results.try_recv().is_ok() {}
+        let asked = probe.engine.set_query("one", QueryOptions::default());
+        let r = loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if r.query == "one" {
+                break r;
+            }
+        };
+        assert_eq!(r.generation, asked);
+        let model = crate::results::ResultsModel::new(Arc::clone(&probe.engine));
+        assert!(model.is_current(&r));
+        // A newer request came before the window took it: it is dropped.
+        let newer = probe.engine.set_query("two", QueryOptions::default());
+        assert!(newer > asked && !model.is_current(&r));
+        probe.engine.shutdown();
     }
 
     #[test]

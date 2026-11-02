@@ -664,9 +664,11 @@ fn watch_progress(
 }
 
 /// Says in the status line what a cancel kept; a cancelled sort puts the
-/// column header back to the order shown.
+/// column header back to the order shown, or to a newer order asked for
+/// before this was handled.
 fn show_stopped(w: &AppWindow, stopped: &Stopped) {
-    if let Stopped::Sort(sort) = stopped {
+    if let Stopped::Sort(mut sort) = *stopped {
+        with_model(w, |m| sort = m.asked_sort());
         w.set_sort_column(column_of(sort.key));
         w.set_sort_descending(sort.descending);
     }
@@ -1754,6 +1756,11 @@ fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
 }
 
 fn show_results(w: &AppWindow, result: SearchResult) {
+    let mut current = false;
+    with_model(w, |m| current = m.is_current(&result));
+    if !current {
+        return;
+    }
     let count = result.ids.len();
     let mut kept = None;
     with_model(w, |m| {
