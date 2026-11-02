@@ -78,6 +78,8 @@ pub struct Tab {
     pub history: History,
     pub current: i32,
     pub scroll_y: f32,
+    /// How far the result table was scrolled sideways (0 or less).
+    pub scroll_x: f32,
 }
 
 #[derive(Clone)]

@@ -1013,6 +1013,8 @@ export component AppWindow inherits Window {
     callback tab-closed(int);
     callback closed-tab-selected(int);
     in-out property <length> results-scroll-y <=> list.content-y;
+    // Sideways scroll of the result table (0 or less), kept per tab.
+    in-out property <length> results-scroll-x <=> list.content-x;
     in-out property <bool> open-searches-in-tabs;
     in-out property <bool> switch-to-new-tab;
     in-out property <bool> restore-session;
@@ -1229,7 +1231,7 @@ export component AppWindow inherits Window {
     // Width of all columns: the window's, or more when they do not fit.
     property <length> table-width: self.name-width + self.folder-width + self.fixed-width;
     // How far the list can scroll sideways.
-    property <length> scroll-room: max(0px, self.table-width - list.visible-width);
+    out property <length> scroll-room: max(0px, self.table-width - list.visible-width);
     changed scroll-room => {
         list.content-x = max(list.content-x, -self.scroll-room);
     }

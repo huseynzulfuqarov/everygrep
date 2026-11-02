@@ -475,7 +475,8 @@ The list dialog supports keyboard focus on every tab; multiple closure uses
 checkboxes. Closing the last tab leaves a blank search.
 
 Each tab retains its search, filter, matching modes, sort, columns, selection,
-scroll position and navigation trail in memory. Background results freeze;
+scroll positions (down and sideways) and navigation trail in memory. Background
+results freeze;
 activation restores the snapshot and updates the visible search. Unsubmitted
 text still waits for Enter. The last ten closed searches can be reopened from
 the Tabs menu. Searches requested in new windows can instead open background

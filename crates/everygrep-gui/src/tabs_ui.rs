@@ -386,6 +386,7 @@ impl State {
         tab.history = self.prefs.history.borrow().clone();
         tab.current = w.get_current();
         tab.scroll_y = w.get_results_scroll_y();
+        tab.scroll_x = w.get_results_scroll_x();
         tab.pending = w.get_search_pending();
         tab.submitted = Some(self.last_submitted.borrow().clone());
     }
@@ -415,6 +416,9 @@ impl State {
             tab.current.clamp(0, self.model.row_count() as i32 - 1)
         });
         w.set_results_scroll_y(tab.scroll_y);
+        // After the tab's columns, so the table has its width; kept within
+        // the room the table has now (the window may have changed since).
+        w.set_results_scroll_x(tab.scroll_x.clamp(-w.get_scroll_room(), 0.0));
         let mut history = tab.history.clone();
         history.set_max(self.prefs.history_limit());
         *self.prefs.history.borrow_mut() = history;

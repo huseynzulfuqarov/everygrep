@@ -550,8 +550,10 @@ one engine search serve the active tab. Switching freezes Arc-backed ids,
 highlight terms and selection; inactive tabs do not submit work. Restoring a
 snapshot checks the engine's id epoch before showing it, then submits a fresh
 search. Old queued responses still go through the generation check. Query,
-filter references, matching toggles, sort, column layout, navigation trail,
-cursor and scroll position belong to the tab. Enter-pending edits keep their
+filter references, matching toggles, sort, column layout (hash and frequency
+columns and Folder's own width too), navigation trail, cursor and both scroll
+positions belong to the tab; the sideways one is kept within the table's room
+when the tab is shown. Enter-pending edits keep their
 last submitted search separately. Hidden-file mode and the three parse policies
 follow Settings across all tabs. Filters resolve by live identity, falling back
 to their snapshot only after deletion; bookmarks retain their explicit snapshots.
