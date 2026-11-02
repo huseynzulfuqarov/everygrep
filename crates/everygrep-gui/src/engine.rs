@@ -92,6 +92,16 @@ pub struct Hooks {
     pub on_busy: Box<dyn Fn() + Send + Sync>,
     /// A task was cancelled.
     pub on_stopped: Box<dyn Fn(Stopped) + Send + Sync>,
+    /// Something the user should know that is not an error of a request.
+    pub on_notice: Box<dyn Fn(Notice) + Send + Sync>,
+}
+
+/// A note for the user from the engine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Notice {
+    /// The saved index could not be used and is built again: damaged or of
+    /// another version (`damaged`), or not readable (the error).
+    IndexRebuilt { damaged: bool, error: String },
 }
 
 /// A long operation, as the status line names it.
@@ -1276,23 +1286,35 @@ impl Engine {
     fn index_loop(&self) {
         self.report(IndexState::Loading);
         let mut loaded = false;
-        if let Some(path) = &self.index_file {
-            if let Ok(saved) = persist::load(path) {
-                let mut roots = self.roots.lock().expect("lock");
-                if roots.is_empty() || *roots == saved.roots {
-                    *roots = saved.roots;
-                    let options = self.scan_options();
-                    // An index built with other rules or file details, or
-                    // saved without them, is built again over its folders.
-                    if saved.rules_hash == Some(fingerprint(&options)) {
-                        *self.indexed_with.lock().expect("lock") = (roots.clone(), options);
-                        self.replace_index(saved.index);
-                        if saved.reordered {
-                            // Store the new order, so it is not sorted again.
-                            self.dirty.store(true, Ordering::SeqCst);
-                        }
-                        loaded = true;
+        let saved = self.index_file.as_ref().and_then(|path| {
+            persist::load(path)
+                .map_err(|e| {
+                    // A missing file is the first start; anything else is
+                    // said, since the index is then built again.
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        (self.hooks.on_notice)(Notice::IndexRebuilt {
+                            damaged: e.kind() == std::io::ErrorKind::InvalidData,
+                            error: e.to_string(),
+                        });
                     }
+                })
+                .ok()
+        });
+        if let Some(saved) = saved {
+            let mut roots = self.roots.lock().expect("lock");
+            if roots.is_empty() || *roots == saved.roots {
+                *roots = saved.roots;
+                let options = self.scan_options();
+                // An index built with other rules or file details, or
+                // saved without them, is built again over its folders.
+                if saved.rules_hash == Some(fingerprint(&options)) {
+                    *self.indexed_with.lock().expect("lock") = (roots.clone(), options);
+                    self.replace_index(saved.index);
+                    if saved.reordered {
+                        // Store the new order, so it is not sorted again.
+                        self.dirty.store(true, Ordering::SeqCst);
+                    }
+                    loaded = true;
                 }
             }
         }
@@ -2570,6 +2592,7 @@ mod tests {
         states: mpsc::Receiver<IndexState>,
         results: mpsc::Receiver<SearchResult>,
         stopped: mpsc::Receiver<Stopped>,
+        notices: mpsc::Receiver<Notice>,
         /// While set, the next task to begin when none runs is cancelled at
         /// once.
         armed: Arc<AtomicBool>,
@@ -2614,6 +2637,8 @@ mod tests {
             let (state_tx, states) = mpsc::channel();
             let (result_tx, results) = mpsc::channel();
             let (stopped_tx, stopped) = mpsc::channel();
+            let (notice_tx, notices) = mpsc::channel();
+            let notice_tx = Mutex::new(notice_tx);
             let state_tx = Mutex::new(state_tx);
             let result_tx = Mutex::new(result_tx);
             let stopped_tx = Mutex::new(stopped_tx);
@@ -2656,6 +2681,9 @@ mod tests {
                 on_stopped: Box::new(move |s| {
                     let _ = stopped_tx.lock().unwrap().send(s);
                 }),
+                on_notice: Box::new(move |n| {
+                    let _ = notice_tx.lock().unwrap().send(n);
+                }),
             };
             let options = ScanOptions {
                 rules: folders(exclude),
@@ -2668,6 +2696,7 @@ mod tests {
                 states,
                 results,
                 stopped,
+                notices,
                 armed,
                 hold,
                 held,
@@ -2811,6 +2840,7 @@ mod tests {
             on_results: Box::new(|_| {}),
             on_busy: Box::new(|| {}),
             on_stopped: Box::new(|_| {}),
+            on_notice: Box::new(|_| {}),
             on_state: Box::new(move |state, _| {
                 state_tx.send(state).unwrap();
                 if state == IndexState::Scanning {
@@ -3051,6 +3081,38 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    #[test]
+    fn a_damaged_index_is_said_and_built_again_but_a_missing_one_is_not() {
+        let dir = Scratch::new("damaged-index");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "").unwrap();
+        let index_file = dir.0.join("index.bin");
+        let roots = normalize_roots(std::slice::from_ref(&a));
+
+        let probe = Probe::start(roots.clone(), Vec::new(), index_file.clone());
+        assert!(scanned_at_start(&probe));
+        probe.engine.shutdown();
+        assert!(
+            probe.notices.try_recv().is_err(),
+            "a first start is no news"
+        );
+
+        let mut bytes = fs::read(&index_file).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        fs::write(&index_file, bytes).unwrap();
+        let probe = Probe::start(roots, Vec::new(), index_file.clone());
+        assert!(scanned_at_start(&probe), "used a damaged index");
+        assert_eq!(probe.names("one"), ["one.txt"]);
+        match probe.notices.try_recv() {
+            Ok(Notice::IndexRebuilt { damaged, .. }) => assert!(damaged),
+            other => panic!("no notice: {other:?}"),
+        }
+        probe.engine.shutdown();
+        assert!(persist::load(&index_file).is_ok(), "not saved again");
     }
 
     #[test]

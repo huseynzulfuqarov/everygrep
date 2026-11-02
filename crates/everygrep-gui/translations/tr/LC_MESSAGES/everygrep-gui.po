@@ -2207,3 +2207,11 @@ msgstr "Dosya boyutlarını ve değiştirme tarihlerini dizine ekle"
 #: ui/settings.slint
 msgid "Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."
 msgstr "Kapalıyken yalnızca adlar okunur ve dizin oluşturma daha hızlıdır, ancak dosyalar için Boyut ve Değiştirme tarihi sütunları boş kalır, klasörler toplam boyut göstermez, size: ve modified: hiçbir dosya bulmaz. Oluşturma tarihi, Erişim tarihi ve Öznitelikler her durumda diskten okunur. Değiştirmek dizini yeniden oluşturur."
+
+#: src/labels.rs
+msgid "The saved index is damaged or from another version, so it is built again. Nothing else is lost."
+msgstr "Kayıtlı dizin bozuk ya da başka bir sürüme ait, bu yüzden yeniden oluşturuluyor. Başka hiçbir şey kaybolmaz."
+
+#: src/labels.rs
+msgid "The saved index could not be read ({}), so it is built again."
+msgstr "Kayıtlı dizin okunamadı ({}), bu yüzden yeniden oluşturuluyor."

@@ -9,7 +9,7 @@ use everygrep_core::rules::{RuleError, RuleList};
 use everygrep_core::sort::FolderSize;
 
 use crate::clipboard::Operation;
-use crate::engine::{Busy, IndexState, Stopped, TaskKind, Unwatched};
+use crate::engine::{Busy, IndexState, Notice, Stopped, TaskKind, Unwatched};
 use crate::format::{self, SizeStandard, SizeUnit};
 use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
@@ -490,6 +490,20 @@ pub fn stopped(s: &Stopped) -> String {
             tr("Content search cancelled. The list shows the matches found so far.").to_owned()
         }
         Stopped::Sort(_) => tr("Sort cancelled. The previous order is kept.").to_owned(),
+    }
+}
+
+/// A note of the engine in the status line.
+pub fn notice(n: &Notice) -> String {
+    match n {
+        Notice::IndexRebuilt { damaged: true, .. } => tr(
+            "The saved index is damaged or from another version, so it is built again. Nothing else is lost.",
+        )
+        .to_owned(),
+        Notice::IndexRebuilt { error, .. } => fill(
+            tr("The saved index could not be read ({}), so it is built again."),
+            &[error],
+        ),
     }
 }
 

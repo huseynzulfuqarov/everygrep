@@ -2207,3 +2207,11 @@ msgstr "Faylların ölçüsünü və dəyişmə tarixini indeksə yaz"
 #: ui/settings.slint
 msgid "Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."
 msgstr "Söndürülsə, yalnız adlar oxunur və indeksləmə daha tez gedir, amma fayllar üçün Ölçü və Dəyişmə tarixi sütunları boş qalır, qovluqlar ümumi ölçünü göstərmir, size: və modified: heç bir fayl tapmır. Yaradılma tarixi, Açılma tarixi və Atributlar hər halda diskdən oxunur. Dəyişdirmək indeksi yenidən qurur."
+
+#: src/labels.rs
+msgid "The saved index is damaged or from another version, so it is built again. Nothing else is lost."
+msgstr "Saxlanmış indeks zədələnib və ya başqa versiyaya aiddir, ona görə yenidən qurulur. Başqa heç nə itmir."
+
+#: src/labels.rs
+msgid "The saved index could not be read ({}), so it is built again."
+msgstr "Saxlanmış indeksi oxumaq olmadı ({}), ona görə yenidən qurulur."

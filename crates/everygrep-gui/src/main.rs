@@ -44,7 +44,7 @@ use everygrep_core::query::{HiddenFiles, QueryOptions};
 use everygrep_core::sort::{FolderSize, Sort, SortKey};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
-use engine::{Engine, Hooks, IndexState, SearchResult, Stopped};
+use engine::{Engine, Hooks, IndexState, Notice, SearchResult, Stopped};
 use i18n::{fill, tr, trn};
 use prefs::{IndexSetup, Prefs};
 use results::{DetailColumns, Offline, ResultsModel, Targets};
@@ -178,6 +178,17 @@ fn main() -> Result<(), slint::PlatformError> {
                     }
                     if stopped == Stopped::Rescan {
                         prefs::with(|p| p.rescan_stopped());
+                    }
+                });
+            }
+        }),
+        on_notice: Box::new({
+            let weak = weak.clone();
+            move |notice: Notice| {
+                let weak = weak.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = weak.upgrade() {
+                        info(&w, labels::notice(&notice));
                     }
                 });
             }

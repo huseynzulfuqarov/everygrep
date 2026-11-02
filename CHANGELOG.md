@@ -421,6 +421,9 @@ First version, 0.1.0, not released yet.
   names only, which indexes faster; the Size column is then empty for files
   and folder totals, and an index of either kind is never loaded for the
   other (drives included), so changing it indexes again.
+- A saved index that is damaged, of another version or cannot be read is
+  built again with a note in the status line saying why (a missing one, at
+  the first start, is not mentioned).
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

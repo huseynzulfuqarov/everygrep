@@ -13,7 +13,9 @@ programs, which usually index with different folders or rules, never replace
 each other's index. Both take `--index-file <path>` to use another file;
 giving both the same file shares it, and each then builds it again whenever
 the other saved it with other folders or rules. The file is a cache:
-deleting it only makes the next start scan again. An `index.bin` written by
+deleting it only makes the next start scan again. A file that is damaged,
+of another version or cannot be read is built again the same way, and the
+window says so in its status line. An `index.bin` written by
 an earlier command line tool is used by the window only if its rules match
 the window's; otherwise the window builds it again, and the command line
 tool builds its own file once.
