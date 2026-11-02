@@ -640,3 +640,18 @@ so stale responses cannot retarget a selected step. Recreating a copy updates
 the recorded identity of a later pending rename of that same copy. An identity
 check cannot eliminate changes made by other processes between the check and
 the filesystem syscall; strict destination creation still never overwrites.
+
+### Typed context searches (`fileops_value.rs`)
+
+A row's local x coordinate identifies the clicked column after resizing or
+horizontal scrolling. `ResultsModel::value_query` takes one index read and
+builds from raw bytes, indexed sizes and the model's cached local zone. It
+performs no filesystem reads and never parses translated or rounded cell text.
+The UI captures the query and matching/filter options before showing the menu.
+Unsupported or unavailable values omit that menu entry. Date values explicitly
+search a local day; folder values use exact direct-child path boundaries.
+
+Filename and stem commands use byte-safe literal regexes. Stem expressions
+separate files with a last extension, files without one, and folders; a word
+occurring only in the extension never satisfies a stem search. All context
+commands share one routing function for history, tabs and new search windows.

@@ -18,6 +18,7 @@ mod fileops_settings;
 mod fileops_shortcut;
 mod fileops_undo;
 mod fileops_undo_ui;
+mod fileops_value;
 mod filetype;
 mod format;
 mod hash_columns;

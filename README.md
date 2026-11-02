@@ -214,6 +214,22 @@ replaces the destination atomically after its identity is checked again. Links,
 folders and hard links to the source cannot be overwritten. Errors offer retry
 or skip. The worker waits for an answer while the window stays responsive.
 
+The result context menu can search the clicked Name, Folder, Size, Modified
+or Extension value. Name matches the whole literal name, Folder searches direct
+children of that exact folder, Size uses the exact indexed byte count, and
+Modified searches that local calendar day (the menu says "Search this day").
+Size searches are offered only when byte sizes are known and shown. The menu
+captures the query when it opens, so live index changes do not change its value.
+`Ctrl+Alt+V` searches the current row's Name value from the result list.
+
+Separate filename commands search a literal substring (`Ctrl+Alt+G`) or the
+exact name (`Ctrl+Alt+Shift+F`); two more commands search the name before
+its last extension, as a substring or as a whole. Dotfiles without another
+dot and folders keep their whole name. These commands follow the existing
+context-search window/tab setting, retain the current filter and case choice,
+and turn global regex mode off. The name-without-extension commands can have
+keys assigned in Keyboard settings and are also in the row context menu.
+
 File undo is off by default. Settings → Window → File operations enables a
 session-only history (100 steps by default, adjustable from 1 to 1000).
 A typed limit takes effect only with "Apply history limit".

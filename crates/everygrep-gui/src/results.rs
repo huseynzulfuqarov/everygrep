@@ -738,6 +738,67 @@ impl ResultsModel {
             })
     }
 
+    /// Build from one index read, retaining raw names and typed metadata.
+    /// This never stats a path or parses a rounded, translated cell string.
+    pub fn value_query(&self, row: usize, column: i32, case: bool) -> Option<String> {
+        use crate::fileops_value::{Value, build};
+        let id = self.id(row)?;
+        let index = self.engine.index.read().ok()?;
+        let store = index.store();
+        if self.engine.epoch() != self.epoch.get()
+            || id.index() >= store.len()
+            || !store.is_live(id)
+        {
+            return None;
+        }
+        let name = store.name(id);
+        let is_dir = store.is_dir(id);
+        let meta = store.meta(id);
+        match column {
+            0 => build(Value::Name(name), case),
+            1 => build(Value::Folder(&store.path(store.parent(id)?)), case),
+            2 if self.sizes_known.get()
+                && (!is_dir || self.folder_size.get() == FolderSize::Total) =>
+            {
+                build(Value::Size(meta.size), case)
+            }
+            3 if meta.mtime_ns != 0 => {
+                let (y, m, d) = self
+                    .zone
+                    .local_date(meta.mtime_ns.div_euclid(1_000_000_000));
+                build(Value::Day(y, m, d), case)
+            }
+            5 if !is_dir => {
+                let ext = name
+                    .iter()
+                    .rposition(|&b| b == b'.')
+                    .filter(|&i| i > 0)
+                    .map_or(&b""[..], |i| &name[i + 1..]);
+                build(Value::Extension(ext), case)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn filename_queries(&self, row: usize, case: bool) -> Option<[String; 4]> {
+        let id = self.id(row)?;
+        let index = self.engine.index.read().ok()?;
+        let store = index.store();
+        if self.engine.epoch() != self.epoch.get()
+            || id.index() >= store.len()
+            || !store.is_live(id)
+        {
+            return None;
+        }
+        Some(std::array::from_fn(|i| {
+            if i >= 2 {
+                crate::fileops_value::stem(store.name(id), store.is_dir(id), i % 2 == 1, case)
+            } else {
+                crate::fileops_value::filename(store.name(id), i % 2 == 1, case)
+            }
+        }))
+    }
+
     /// What the Size column shows for folders. Rows change with the next
     /// result.
     pub fn set_folder_size(&self, f: FolderSize) {

@@ -566,11 +566,21 @@ component Row inherits Rectangle {
     // extension).
     in property <int> edit-stem;
     callback pressed(KeyboardModifiers);
-    callback right-pressed(length, length);
+    callback right-pressed(length, length, int);
     // With the x position of the click in the row.
     callback double-clicked(length);
     callback edit-commit(string);
     callback edit-cancel();
+
+    function value-column-at(x: length) -> int {
+        if (x < 0px) { return -1; }
+        if (x < root.name-width) { return 0; }
+        if (x < root.name-width + root.folder-width) { return 1; }
+        if (x < root.name-width + root.folder-width + root.size-width) { return 2; }
+        if (x < root.type-x) { return 3; }
+        if (x >= root.type-x + root.type-width && x < root.type-x + root.type-width + root.ext-width) { return 5; }
+        return -1;
+    }
 
     property <bool> selected: root.data.selected;
     property <bool> offline: root.data.offline;
@@ -589,7 +599,7 @@ component Row inherits Rectangle {
                 if (event.button == PointerEventButton.left) {
                     root.pressed(event.modifiers);
                 } else if (event.button == PointerEventButton.right) {
-                    root.right-pressed(self.mouse-x, self.mouse-y);
+                    root.right-pressed(self.mouse-x, self.mouse-y, root.value-column-at(self.mouse-x));
                 }
             }
         }
@@ -1186,6 +1196,11 @@ export component AppWindow inherits Window {
     in-out property <string> fileops-rename-name;
     in property <int> fileops-rename-stem;
     in property <string> fileops-rename-error;
+    callback fileops-prepare-value(int, int) -> bool;
+    callback fileops-search-value();
+    callback fileops-search-filename(int, bool, bool);
+    property <bool> value-available;
+    property <int> value-column;
     callback fileops-rename-edited(string);
     callback fileops-rename-submit();
     callback fileops-rename-cancel();
@@ -1631,9 +1646,11 @@ export component AppWindow inherits Window {
             return root.current >= 0 && !root.current-offline
                 && (c != Command.rename || root.rename-row < 0);
         }
+        if (c == Command.search-property-value) { return root.current >= 0 && root.value-available; }
         if (c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
                 || c == Command.copy-path-quoted || c == Command.copy-full-path-quoted
                 || c == Command.search-in-program || c == Command.search-containing-folder
+                || c == Command.search-filename || c == Command.search-exact-name || c == Command.search-stem || c == Command.search-whole-stem
                 || c == Command.toggle-row || c == Command.context-menu) {
             return root.current >= 0;
         }
@@ -1689,6 +1706,10 @@ export component AppWindow inherits Window {
             root.fileops-search(root.current, c == Command.search-containing-folder);
         } else if (c == Command.create-shortcut) {
             root.fileops-shortcuts(root.current);
+        } else if (c == Command.search-property-value) {
+            root.fileops-search-value();
+        } else if (c == Command.search-filename || c == Command.search-exact-name || c == Command.search-stem || c == Command.search-whole-stem) {
+            root.fileops-search-filename(root.current, c == Command.search-exact-name || c == Command.search-whole-stem, c == Command.search-stem || c == Command.search-whole-stem);
         } else if (c == Command.undo-file || c == Command.redo-file) {
             root.file-undo(c == Command.redo-file);
         } else if (c == Command.file-undo-history) {
@@ -1929,6 +1950,10 @@ export component AppWindow inherits Window {
     function dispatch(scope: int, event: KeyEvent) -> bool {
         let c = root.resolve-key(scope, event.text, event.modifiers.control, event.modifiers.alt,
             event.modifiers.shift, event.modifiers.meta);
+        if (c == Command.search-property-value) {
+            root.value-column = 0;
+            root.value-available = root.fileops-prepare-value(root.current, 0);
+        }
         if (c == Command.none) {
             if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) { return false; }
             return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
@@ -1986,6 +2011,8 @@ export component AppWindow inherits Window {
     // Opens the context menu next to the current row.
     function show-menu-at-current() {
         if (root.current >= 0) {
+            root.value-column = 0;
+            root.value-available = root.fileops-prepare-value(root.current, 0);
             menu-area.show({
                 x: Theme.s3 + Theme.icon,
                 y: (root.current + 1) * Theme.row-height + list.content-y,
@@ -2610,8 +2637,34 @@ export component AppWindow inherits Window {
                 }
 
                 menu-area := ContextMenuArea {
-                    enabled: root.current >= 0;
+                    // Opened only by `show` (row right-click, menu key), which
+                    // first freezes the row's values for the menu items; on
+                    // its own it would open with the values of an older menu.
+                    enabled: false;
                     Menu {
+                        if root.value-available: MenuItem {
+                            title: root.value-column == 3 ? @tr("Search this day") : @tr("Search this value");
+                            enabled: root.can-run(Command.search-property-value);
+                            activated => { root.run(Command.search-property-value); }
+                        }
+                        MenuItem {
+                            title: @tr("Search for this name");
+                            enabled: root.can-run(Command.search-filename);
+                            activated => { root.fileops-search-filename(-1, false, false); }
+                        }
+                        MenuItem {
+                            title: @tr("Search for this exact name");
+                            enabled: root.can-run(Command.search-exact-name);
+                            activated => { root.fileops-search-filename(-1, true, false); }
+                        }
+                        MenuItem {
+                            title: @tr("Search name without extension"); enabled: root.can-run(Command.search-stem);
+                            activated => { root.fileops-search-filename(-1, false, true); }
+                        }
+                        MenuItem {
+                            title: @tr("Search whole name without extension"); enabled: root.can-run(Command.search-whole-stem);
+                            activated => { root.fileops-search-filename(-1, true, true); }
+                        }
                         MenuItem {
                             title: @tr("Open");
                             enabled: root.can-run(Command.open);
@@ -2731,9 +2784,11 @@ export component AppWindow inherits Window {
                             keys.focus();
                             root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
                         }
-                        right-pressed(x, y) => {
+                        right-pressed(x, y, column) => {
                             root.jump-reset();
                             root.current = i;
+                            root.value-column = column;
+                            root.value-available = root.fileops-prepare-value(i, column);
                             keys.focus();
                             if (!root.is-selected(i)) { root.select(i, 0); }
                             menu-area.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });

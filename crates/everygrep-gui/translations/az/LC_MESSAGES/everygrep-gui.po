@@ -3334,6 +3334,24 @@ msgstr "Kopyalama zamanı mənbə dəyişdi."
 msgid "A file operation is still running."
 msgstr "Fayl əməliyyatı hələ davam edir."
 
+msgid "Search this value"
+msgstr "Bu dəyəri axtar"
+
+msgid "Search this day"
+msgstr "Bu günü axtar"
+
+msgid "Search for this name"
+msgstr "Fayl adını axtar"
+
+msgid "Search for this exact name"
+msgstr "Tam fayl adını axtar"
+
+msgid "Search name without extension"
+msgstr "Uzantısız adı axtar"
+
+msgid "Search whole name without extension"
+msgstr "Uzantısız tam adı axtar"
+
 msgid "Size: {0} bytes; modified: {1}"
 msgstr "Ölçü: {0} bayt; dəyişdirilib: {1}"
 

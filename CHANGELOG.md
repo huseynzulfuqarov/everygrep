@@ -10,6 +10,11 @@ First version, 0.1.0, not released yet.
 
 ### File operations
 
+- Search typed values from the clicked Name, Folder, Size, Modified and
+  Extension cells, with literal escaping and a stable query while the menu is
+  open. Add explicit filename and name-without-extension search commands,
+  sharing current-window, new-window and new-tab routing.
+
 - Opt-in session file undo/redo for rename, copy and same-filesystem moves,
   with bounded history, filtering, undo through selection and CSV export.
   Changed items and occupied targets are protected; undoing a copy uses trash.

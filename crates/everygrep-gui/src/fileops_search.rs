@@ -115,6 +115,7 @@ pub fn connect(
     engine: &Arc<Engine>,
     base_args: Vec<OsString>,
 ) {
+    crate::fileops_value::connect(w, model, engine, base_args.clone());
     w.on_fileops_search({
         let (weak, model, engine) = (w.as_weak(), model.clone(), engine.clone());
         move |row, containing| {
@@ -138,31 +139,41 @@ pub fn connect(
             ) else {
                 return;
             };
-            let mut open_tabs = false;
-            prefs::with(|p| open_tabs = p.open_searches_in_tabs());
-            if settings.search_new_window && open_tabs {
-                crate::tabs_ui::open_search(&query, options, true, &Default::default());
-            } else if settings.search_new_window {
-                let result = std::env::current_exe().and_then(|exe| {
-                    launch(
-                        std::process::Command::new(exe)
-                            .args(window_args(&base_args, &query, options)),
-                    )
-                });
-                if let Err(e) = result {
-                    crate::error(&w, fill(tr("Cannot open a search window: {}"), &[&e]));
-                }
-            } else {
-                // Cancel any delayed history record before replacing the query.
-                w.invoke_history_record();
-                w.set_query(query.as_str().into());
-                crate::set_options(&w, options);
-                crate::typing::with(|t| t.searched());
-                crate::search_now(&w, &engine);
-                w.invoke_focus_search();
-            }
+            apply(&w, &engine, &base_args, &query, options);
         }
     });
+}
+
+/// Shared routing keeps filters, matching choices, tabs and history consistent.
+pub(crate) fn apply(
+    w: &AppWindow,
+    engine: &Arc<Engine>,
+    base_args: &[OsString],
+    query: &str,
+    options: QueryOptions,
+) {
+    let mut settings = crate::fileops_settings::Settings::default();
+    prefs::with(|p| settings = p.fileops_settings());
+    let mut open_tabs = false;
+    prefs::with(|p| open_tabs = p.open_searches_in_tabs());
+    if settings.search_new_window && open_tabs {
+        crate::tabs_ui::open_search(query, options, true, &Default::default());
+    } else if settings.search_new_window {
+        let result = std::env::current_exe().and_then(|exe| {
+            launch(std::process::Command::new(exe).args(window_args(base_args, query, options)))
+        });
+        if let Err(e) = result {
+            crate::error(w, fill(tr("Cannot open a search window: {}"), &[&e]));
+        }
+    } else {
+        // Cancel any delayed history record before replacing the query.
+        w.invoke_history_record();
+        w.set_query(query.into());
+        crate::set_options(w, options);
+        crate::typing::with(|t| t.searched());
+        crate::search_now(w, engine);
+        w.invoke_focus_search();
+    }
 }
 
 #[cfg(test)]
