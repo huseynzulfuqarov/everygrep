@@ -992,7 +992,7 @@ impl Engine {
     /// its watches are dropped on return. Returns whether a catch-up is
     /// still due.
     fn watch_once(&self, catch_up: bool, drives_to_catch_up: &mut Vec<NodeId>) -> bool {
-        let watcher = Watcher::new(
+        let watcher = self.new_watcher(
             &self.index.read().expect("index lock"),
             &self.scan_options(),
         );
@@ -1028,10 +1028,12 @@ impl Engine {
                     self.forget_details();
                     self.applying_changes.store(true, Ordering::SeqCst);
                 }
-                self.watch_loop(&mut watcher);
+                // Without a watcher for an index built again, nothing
+                // watched it since: a catch-up is due.
+                let lost = !self.watch_loop(&mut watcher);
                 self.applying_changes.store(false, Ordering::SeqCst);
                 self.note_unwatched(None);
-                false
+                lost
             }
             Err(_) => {
                 self.report(IndexState::Static);
@@ -1048,6 +1050,16 @@ impl Engine {
                 catch_up
             }
         }
+    }
+
+    /// A watcher of `index`. In tests it can be made to fail, as when no
+    /// more inotify instances are allowed.
+    fn new_watcher(&self, index: &Index, options: &ScanOptions) -> std::io::Result<Watcher> {
+        #[cfg(test)]
+        if tests::listed(&tests::FAILING_WATCHERS, self.index_file.as_deref()) {
+            return Err(std::io::Error::other("no watcher in this test"));
+        }
+        Watcher::new(index, options)
     }
 
     /// Builds the index from scratch over the current roots (the home
@@ -1108,8 +1120,11 @@ impl Engine {
         progress::estimate_scan(roots, &options.rules.excluded_paths())
     }
 
-    /// Applies file changes until the engine stops or a rescan is asked for.
-    fn watch_loop(&self, watcher: &mut Watcher) {
+    /// Applies file changes until the engine stops or a rescan is asked for
+    /// (then returns true), or until the index is built again after lost
+    /// events and no watcher could be made for it (then returns false: the
+    /// old one must not be used on the new index).
+    fn watch_loop(&self, watcher: &mut Watcher) -> bool {
         let mut last_refresh = Instant::now();
         let mut last_save = Instant::now();
         let mut last_recheck = Instant::now();
@@ -1124,7 +1139,12 @@ impl Engine {
             match watcher.wait(Some(Duration::from_millis(250))) {
                 Ok(events) if !events.is_empty() || watcher.has_pending() => {
                     let mut index = self.index.write().expect("index lock");
-                    let stats = watcher.apply(&mut index, &events);
+                    #[allow(unused_mut)]
+                    let mut stats = watcher.apply(&mut index, &events);
+                    #[cfg(test)]
+                    if tests::take(&tests::OVERFLOWS, self.index_file.as_deref()) {
+                        stats.overflow = true;
+                    }
                     if index.should_compact() {
                         let remap = watcher.compact(&mut index);
                         self.bump_epoch();
@@ -1137,7 +1157,10 @@ impl Engine {
                         // Events were lost: details may have changed unseen.
                         self.forget_details();
                         drop(index);
-                        self.rescan_after_overflow(watcher);
+                        if !self.rescan_after_overflow(watcher) {
+                            self.request_search();
+                            return false;
+                        }
                         pending_refresh = true;
                     } else if stats.added + stats.removed + stats.moved + stats.updated > 0 {
                         pending_refresh = true;
@@ -1178,6 +1201,7 @@ impl Engine {
                 last_save = Instant::now();
             }
         }
+        true
     }
 
     /// Reads again the folders whose file system was unmounted (see
@@ -1218,7 +1242,11 @@ impl Engine {
         changed
     }
 
-    fn rescan_after_overflow(&self, watcher: &mut Watcher) {
+    /// Builds the index again after lost events, with a new `watcher` for
+    /// it. Returns false when no watcher could be made: the index was
+    /// replaced, and the old watcher's folders are ids of the old one.
+    /// Cancelled, the old index stays with its watcher and is caught up.
+    fn rescan_after_overflow(&self, watcher: &mut Watcher) -> bool {
         self.report(IndexState::Scanning);
         let roots = self.roots.lock().expect("lock").clone();
         let options = self.scan_options();
@@ -1236,22 +1264,27 @@ impl Engine {
             if !self.rescan.load(Ordering::SeqCst) {
                 (self.hooks.on_stopped)(Stopped::Rescan);
             }
-            return;
+            return true;
         }
         drop(task);
         let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options.rules);
         let mut index = self.index.write().expect("index lock");
         *index = fresh;
         self.bump_epoch();
-        if let Ok(mut fresh) = Watcher::new(&index, &options) {
-            fresh.catch_up(&mut index);
-            *watcher = fresh;
-        }
+        let watched = match self.new_watcher(&index, &options) {
+            Ok(mut fresh) => {
+                fresh.catch_up(&mut index);
+                *watcher = fresh;
+                true
+            }
+            Err(_) => false,
+        };
         drop(index);
         self.read_drives_again(&left_out);
         // Saves record what this index was built with.
         *self.indexed_with.lock().expect("lock") = (roots, options.rules);
         *self.shown.lock().expect("lock") = Arc::new(Vec::new());
+        watched
     }
 
     /// Saves the index if it changed since the last save: the folders to
@@ -2713,6 +2746,51 @@ mod tests {
     }
 
     #[test]
+    fn no_old_watcher_is_used_on_the_index_built_after_lost_events() {
+        let dir = Scratch::new("overflow-no-watcher");
+        let root = dir.0.join("a");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "").unwrap();
+        let index = dir.0.join("index.bin");
+        let probe = Probe::start(vec![root.clone()], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        let root = fs::canonicalize(&root).unwrap();
+
+        // The next change comes with lost events, and the index built again
+        // after them gets no watcher of its own.
+        FAILING_WATCHERS.lock().unwrap().push(index.clone());
+        OVERFLOWS.lock().unwrap().push(index.clone());
+        fs::write(root.join("two.txt"), "").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut states = Vec::new();
+        while !states.contains(&IndexState::Static) && Instant::now() < deadline {
+            if let Ok(s) = probe.states.recv_timeout(Duration::from_millis(100)) {
+                states.push(s);
+            }
+        }
+        let gone = OVERFLOWS.lock().unwrap().is_empty();
+        let unwatched = probe.engine.index.read().unwrap().len();
+        // Not watched: a new file is not seen, and nothing else changes.
+        fs::write(root.join("three.txt"), "").unwrap();
+        std::thread::sleep(Duration::from_millis(600));
+        let after = probe.engine.index.read().unwrap().len();
+        FAILING_WATCHERS.lock().unwrap().retain(|p| p != &index);
+        assert!(gone, "no lost events seen");
+        assert!(states.contains(&IndexState::Static), "{states:?}");
+        assert_eq!(unwatched, after);
+        assert!(find(&probe.engine.index.read().unwrap(), &root.join("two.txt")).is_some());
+
+        // Watched again once it can be: the change is caught up.
+        probe.engine.set_watching(false);
+        probe.wait_for(IndexState::Unwatched);
+        probe.engine.set_watching(true);
+        until(&probe.engine, "the file made while nothing watched", |i| {
+            find(i, &root.join("three.txt")).is_some()
+        });
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn count_keeps_the_first_results_of_the_sort() {
         let dir = Scratch::new("count");
         let a = dir.0.join("a");
@@ -2937,6 +3015,26 @@ mod tests {
             mounts.retain(|l| !l.contains("/media/"));
             fs::write(&self.env.mountinfo, mounts.join("\n") + "\n").unwrap();
         }
+    }
+
+    /// Index files of engines whose next batch of file changes counts as
+    /// lost events (a queue overflow), and of engines that cannot make a
+    /// new watcher.
+    pub(super) static OVERFLOWS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    pub(super) static FAILING_WATCHERS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    /// Whether a test listed the engine with `index_file` in `list`.
+    pub(super) fn listed(list: &Mutex<Vec<PathBuf>>, index_file: Option<&Path>) -> bool {
+        let list = list.lock().unwrap();
+        index_file.is_some_and(|f| list.iter().any(|p| p == f))
+    }
+
+    /// Like [`listed`], taking the engine off the list.
+    pub(super) fn take(list: &Mutex<Vec<PathBuf>>, index_file: Option<&Path>) -> bool {
+        let mut list = list.lock().unwrap();
+        let before = list.len();
+        list.retain(|p| Some(p.as_path()) != index_file);
+        list.len() != before
     }
 
     /// Mount tables whose watching thread starts late, as it can on a busy
