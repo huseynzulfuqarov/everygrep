@@ -2311,3 +2311,77 @@ msgstr "Dizin dosyasının klasörünü seçin"
 #: src/labels.rs
 msgid "The index cannot be saved as {0}: {1}. It stays where it was."
 msgstr "Dizin {0} olarak kaydedilemiyor: {1}. Önceki yerinde kalıyor."
+
+#: ui/settings.slint
+msgid "Advanced"
+msgstr "Gelişmiş"
+
+#: ui/settings.slint
+msgid "Settings file"
+msgstr "Ayarlar dosyası"
+
+#: ui/settings.slint
+msgid "Export settings…"
+msgstr "Ayarları dışa aktar…"
+
+#: ui/settings.slint
+msgid "Import settings…"
+msgstr "Ayarları içe aktar…"
+
+#: ui/settings.slint
+msgid "Reset all settings…"
+msgstr "Tüm ayarları sıfırla…"
+
+#: ui/settings.slint
+msgid "Export writes the settings as they are saved: the settings that differ from the defaults, and your keys. Import replaces every setting with those of the chosen file; Reset all puts every setting back to its default. Both ask first, and both index again when the folders to index or their rules change. The search history is never part of the settings."
+msgstr "Dışa aktarma ayarları kaydedildikleri gibi yazar: varsayılandan farklı olan ayarları ve kısayol tuşlarınızı. İçe aktarma her ayarı seçilen dosyadakilerle değiştirir; “Tüm ayarları sıfırla” her ayarı varsayılanına döndürür. İkisi de önce sorar ve dizine eklenecek klasörler ya da kuralları değiştiğinde dizini yeniden oluşturur. Arama geçmişi hiçbir zaman ayarların parçası değildir."
+
+#: src/labels.rs
+msgid "Settings files"
+msgstr "Ayar dosyaları"
+
+#: src/labels.rs
+msgid "Export the settings"
+msgstr "Ayarları dışa aktar"
+
+#: src/labels.rs
+msgid "Import settings"
+msgstr "Ayarları içe aktar"
+
+#: src/labels.rs
+msgid "Import"
+msgstr "İçe aktar"
+
+#: src/labels.rs
+msgid "Replace every setting with those of {}? Settings the file does not list go back to their defaults."
+msgstr "Tüm ayarlar {} dosyasındakilerle değiştirilsin mi? Dosyada bulunmayan ayarlar varsayılanlarına döner."
+
+#: src/labels.rs
+msgid "Put every setting of every page back to its default, your keys included? The excluded folders and file filters are cleared too."
+msgstr "Tüm sayfalardaki her ayar, kısayol tuşlarınız da dahil, varsayılanına döndürülsün mü? Hariç tutulan klasörler ve dosya filtreleri de temizlenir."
+
+#: src/labels.rs
+msgid "Reset all"
+msgstr "Tümünü sıfırla"
+
+#: src/labels.rs
+msgid "The settings were exported to {}."
+msgstr "Ayarlar {} dosyasına dışa aktarıldı."
+
+#: src/labels.rs
+msgid "The settings of {} were imported."
+msgstr "{} dosyasının ayarları içe aktarıldı."
+
+#: src/labels.rs
+msgid "{} line could not be read and was left out."
+msgid_plural "{} lines could not be read and were left out."
+msgstr[0] "{} satır okunamadı ve atlandı."
+msgstr[1] "{} satır okunamadı ve atlandı."
+
+#: src/labels.rs
+msgid "Every setting is back to its default."
+msgstr "Tüm ayarlar varsayılanlarına döndü."
+
+#: src/labels.rs
+msgid "{} is not a settings file of EveryGrep: it sets nothing EveryGrep knows. Nothing was changed."
+msgstr "{} bir EveryGrep ayar dosyası değil: EveryGrep'in bildiği hiçbir ayarı içermiyor. Hiçbir şey değiştirilmedi."

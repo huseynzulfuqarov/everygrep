@@ -618,6 +618,85 @@ pub fn choose_excludes() -> &'static str {
     tr("Add folders to exclude")
 }
 
+pub fn settings_files() -> &'static str {
+    tr("Settings files")
+}
+
+pub fn export_settings_title() -> &'static str {
+    tr("Export the settings")
+}
+
+pub fn export_accept() -> &'static str {
+    tr("Export")
+}
+
+pub fn import_settings_title() -> &'static str {
+    tr("Import settings")
+}
+
+pub fn import_accept() -> &'static str {
+    tr("Import")
+}
+
+/// The Advanced page's question before an import.
+pub fn confirm_import(file: &std::path::Path) -> String {
+    fill(
+        tr(
+            "Replace every setting with those of {}? Settings the file does not list go back to their defaults.",
+        ),
+        &[&file.display()],
+    )
+}
+
+/// The button that agrees to an import.
+pub fn import_action() -> &'static str {
+    tr("Import")
+}
+
+pub fn confirm_reset_all() -> &'static str {
+    tr(
+        "Put every setting of every page back to its default, your keys included? The excluded folders and file filters are cleared too.",
+    )
+}
+
+pub fn reset_all_action() -> &'static str {
+    tr("Reset all")
+}
+
+pub fn settings_exported(file: &std::path::Path) -> String {
+    fill(tr("The settings were exported to {}."), &[&file.display()])
+}
+
+/// After an import, with the number of lines that could not be read.
+pub fn settings_imported(file: &std::path::Path, bad: usize) -> String {
+    let done = fill(tr("The settings of {} were imported."), &[&file.display()]);
+    if bad == 0 {
+        return done;
+    }
+    let skipped = fill(
+        trn(
+            "{} line could not be read and was left out.",
+            "{} lines could not be read and were left out.",
+            bad,
+        ),
+        &[&format::count(bad)],
+    );
+    format!("{done} {skipped}")
+}
+
+pub fn settings_reset() -> &'static str {
+    tr("Every setting is back to its default.")
+}
+
+pub fn not_a_settings_file(file: &std::path::Path) -> String {
+    fill(
+        tr(
+            "{} is not a settings file of EveryGrep: it sets nothing EveryGrep knows. Nothing was changed.",
+        ),
+        &[&file.display()],
+    )
+}
+
 pub fn choose_index_folder() -> &'static str {
     tr("Choose the folder of the index file")
 }
@@ -831,6 +910,19 @@ pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
 mod tests {
     use super::*;
     use everygrep_core::kind::classify;
+
+    #[test]
+    fn an_import_says_how_many_lines_were_left_out() {
+        let file = std::path::Path::new("/tmp/s.txt");
+        assert_eq!(
+            settings_imported(file, 0),
+            "The settings of /tmp/s.txt were imported."
+        );
+        assert_eq!(
+            settings_imported(file, 2),
+            "The settings of /tmp/s.txt were imported. 2 lines could not be read and were left out."
+        );
+    }
 
     #[test]
     fn index_details_name_every_fact() {

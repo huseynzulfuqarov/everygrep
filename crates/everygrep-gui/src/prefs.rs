@@ -34,7 +34,14 @@ use crate::settings::{
 use crate::{AppWindow, Command, DriveRow, SettingsWindow, ShortcutCommand, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
-pub const PAGES: [&str; 5] = ["indexing", "search", "appearance", "window", "keyboard"];
+pub const PAGES: [&str; 6] = [
+    "indexing",
+    "search",
+    "appearance",
+    "window",
+    "keyboard",
+    "advanced",
+];
 
 /// The page with the keyboard settings.
 pub const KEYBOARD_PAGE: usize = 4;
@@ -166,6 +173,10 @@ pub struct Prefs {
     rule_error: RefCell<String>,
     /// Why the typed rescan time was refused.
     rescan_error: RefCell<String>,
+    /// The Advanced page: a replacement of every setting waiting for the
+    /// user's answer, and the outcome of the last export or import.
+    pending: RefCell<Option<Pending>>,
+    settings_note: RefCell<String>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
     choosing: Cell<bool>,
@@ -189,6 +200,13 @@ pub struct Prefs {
     key_chosen: Cell<Option<Command>>,
     /// The open Add or Edit dialog of the Keyboard page.
     key_dialog: Cell<Option<KeyDialog>>,
+}
+
+/// A replacement of every setting that waits for the user to agree.
+enum Pending {
+    /// The settings read from this file.
+    Import(Box<Settings>, PathBuf),
+    ResetAll,
 }
 
 /// The Keyboard page's dialog: the command, which of its keys is changed
@@ -264,6 +282,8 @@ impl Prefs {
             writer: settings::Writer::start(),
             rule_error: RefCell::default(),
             rescan_error: RefCell::default(),
+            pending: RefCell::default(),
+            settings_note: RefCell::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
             engine,
@@ -673,6 +693,175 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Advanced → Export settings…: asks where on a helper thread and writes
+    /// the settings there as the settings file has them.
+    fn export_settings(&self) {
+        if self.choosing.replace(true) {
+            return;
+        }
+        let text = self.settings.borrow().to_text();
+        std::thread::spawn(move || {
+            let filters = [crate::portal::SaveFilter {
+                name: labels::settings_files(),
+                pattern: "*.txt",
+            }];
+            let chosen = crate::portal::save_file(
+                labels::export_settings_title(),
+                labels::export_accept(),
+                "everygrep-settings.txt",
+                &filters,
+            );
+            let outcome = match chosen {
+                Ok(Some((path, _))) => Some(
+                    settings::write_atomic(&path, text.as_bytes())
+                        .map(|()| path)
+                        .map_err(|e| labels::cannot_save(&e)),
+                ),
+                Ok(None) => None,
+                Err(e) => Some(Err(labels::chooser_failed(&e))),
+            };
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    p.choosing.set(false);
+                    match outcome {
+                        Some(Ok(path)) => p.note_settings(labels::settings_exported(&path)),
+                        Some(Err(e)) => p.set_error(Some(e)),
+                        None => {}
+                    }
+                });
+            });
+        });
+    }
+
+    /// Advanced → Import settings…: asks for a file and reads it on a
+    /// helper thread, then asks whether to replace every setting with it.
+    /// A file without a single known setting is refused.
+    fn import_settings(&self) {
+        if self.choosing.replace(true) {
+            return;
+        }
+        std::thread::spawn(move || {
+            let chosen = crate::portal::choose_file(
+                labels::import_settings_title(),
+                labels::import_accept(),
+            );
+            let outcome = match chosen {
+                Ok(Some(path)) => Some(match std::fs::read(&path) {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        let empty = text.lines().all(|l| {
+                            let l = l.trim_ascii();
+                            l.is_empty() || l.starts_with('#')
+                        });
+                        if settings::known_lines(&text) == 0 && !empty {
+                            Err(labels::not_a_settings_file(&path))
+                        } else {
+                            Ok((Settings::parse(&text), path))
+                        }
+                    }
+                    Err(e) => Err(labels::cannot_read(&path, &e)),
+                }),
+                Ok(None) => None,
+                Err(e) => Some(Err(labels::chooser_failed(&e))),
+            };
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    p.choosing.set(false);
+                    match outcome {
+                        Some(Ok((read, path))) => {
+                            *p.pending.borrow_mut() = Some(Pending::Import(Box::new(read), path));
+                            p.refresh();
+                        }
+                        Some(Err(e)) => p.set_error(Some(e)),
+                        None => {}
+                    }
+                });
+            });
+        });
+    }
+
+    /// The answer to the Advanced page's question.
+    fn pending_answered(&self, yes: bool) {
+        let Some(pending) = self.pending.borrow_mut().take() else {
+            return;
+        };
+        if !yes {
+            self.refresh();
+            return;
+        }
+        match pending {
+            Pending::Import(read, path) => {
+                let bad = read.problems.len();
+                self.replace_all(*read);
+                self.note_settings(labels::settings_imported(&path, bad));
+            }
+            Pending::ResetAll => {
+                self.replace_all(Settings::default());
+                self.note_settings(labels::settings_reset().to_owned());
+            }
+        }
+    }
+
+    fn note_settings(&self, text: String) {
+        *self.settings_note.borrow_mut() = text;
+        self.set_error(None);
+    }
+
+    /// Takes `new` as every setting (an import, a reset of all) and applies
+    /// it to the running program, saving it in place of the file. The
+    /// folders to index, their rules, file details and the index folder are
+    /// taken only by the window over the default index; when they change,
+    /// the index is built again. Column widths apply at the next start.
+    fn replace_all(&self, mut new: Settings) {
+        new.problems.clear();
+        let old = self.settings.borrow().clone();
+        let kept = new.clone();
+        self.change(move |s| *s = kept.clone());
+        commands::set_current(Keymap::with_overrides(&new.shortcuts));
+        if let Some(m) = self.main.upgrade() {
+            crate::apply_keys(&m);
+        }
+        self.apply_look();
+        self.apply_as_you_type();
+        self.apply_history();
+        self.apply_content();
+        self.apply_folder_size();
+        self.apply_schedule();
+        self.engine.set_watching(new.watch_changes);
+        self.apply_watch_changes();
+        self.engine.set_drive_settings(new.drives.clone());
+        if self.index.borrow().saved {
+            let roots = if new.roots.is_empty() {
+                self.engine.roots()
+            } else {
+                normalize_roots(&new.roots)
+            };
+            let rules = new.rule_spec();
+            let (indexed_roots, indexed_rules) = self.engine.setup();
+            let same = roots == indexed_roots
+                && rules == indexed_rules
+                && new.index_file_details == self.engine.file_details();
+            {
+                let mut index = self.index.borrow_mut();
+                index.roots = new.roots.clone();
+                index.rules = rules;
+            }
+            self.engine.set_file_details(new.index_file_details);
+            if !same {
+                self.rebuild();
+            }
+            if new.index_folder != old.index_folder {
+                self.set_index_folder(new.index_folder.clone());
+            }
+        }
+        self.rescan_error.borrow_mut().clear();
+        self.rule_error.borrow_mut().clear();
+        if let Some(w) = self.window.borrow().as_ref() {
+            self.fill_rule_texts(w);
+        }
+        self.refresh();
+    }
+
     /// Asks for the folder of the index file on a helper thread.
     fn choose_index_folder(&self) {
         if self.choosing.replace(true) {
@@ -736,7 +925,21 @@ impl Prefs {
                             p.set_error(None);
                             p.refresh_details();
                         }
-                        Err(e) => p.set_error(Some(labels::cannot_use_index_folder(&file, &e))),
+                        Err(e) => {
+                            // An import or the raw table may have saved the
+                            // folder already: the setting follows the index.
+                            let current = p
+                                .engine
+                                .index_file()
+                                .filter(|f| {
+                                    Some(f) != everygrep_core::persist::default_path().as_ref()
+                                })
+                                .and_then(|f| f.parent().map(Path::to_path_buf));
+                            if p.settings.borrow().index_folder != current {
+                                p.change(move |s| s.index_folder = current.clone());
+                            }
+                            p.set_error(Some(labels::cannot_use_index_folder(&file, &e)));
+                        }
                     });
                 });
             });
@@ -1088,6 +1291,28 @@ impl Prefs {
         w.set_commands(ModelRc::new(VecModel::from(commands)));
         w.set_shortcut_steps(labels::shortcut_steps().into());
         self.fill_keys(w);
+        w.set_settings_file(
+            self.path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default()
+                .into(),
+        );
+        w.set_settings_writable(self.path.is_some() && self.read_error.is_none());
+        let (text, action) = match &*self.pending.borrow() {
+            Some(Pending::Import(_, file)) => (
+                labels::confirm_import(file),
+                labels::import_action().to_owned(),
+            ),
+            Some(Pending::ResetAll) => (
+                labels::confirm_reset_all().to_owned(),
+                labels::reset_all_action().to_owned(),
+            ),
+            None => (String::new(), String::new()),
+        };
+        w.set_pending_text(text.into());
+        w.set_pending_action(action.into());
+        w.set_settings_note(self.settings_note.borrow().as_str().into());
         w.set_error(self.error.borrow().as_str().into());
     }
 
@@ -1468,6 +1693,20 @@ impl Prefs {
             }
         });
         w.on_reset_page(on_index(|p, i| p.reset(i)));
+        w.on_export_settings(on(|p| p.export_settings()));
+        w.on_import_settings(on(|p| p.import_settings()));
+        w.on_reset_all_settings(on(|p| {
+            *p.pending.borrow_mut() = Some(Pending::ResetAll);
+            p.refresh();
+        }));
+        w.on_pending_answered({
+            let me = me.clone();
+            move |yes| {
+                if let Some(p) = me.upgrade() {
+                    p.pending_answered(yes);
+                }
+            }
+        });
         w.on_close_window(on(|p| {
             if let Some(w) = p.window.borrow().as_ref() {
                 let _ = w.hide();

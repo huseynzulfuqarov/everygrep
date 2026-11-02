@@ -1238,6 +1238,19 @@ fn shortcut_line_id(line: &str) -> Option<&str> {
     (key.trim_ascii() == "shortcut").then(|| value.trim_ascii().split(' ').next().unwrap_or(""))
 }
 
+/// How many lines of a settings file's `text` set a setting this version
+/// knows (whether or not their values can be read), to tell a settings
+/// file from any other text.
+pub fn known_lines(text: &str) -> usize {
+    text.lines()
+        .filter_map(|l| l.trim_ascii().split_once('='))
+        .filter(|(k, _)| {
+            let k = k.trim_ascii();
+            !k.starts_with('#') && (k == "shortcut" || is_known(k))
+        })
+        .count()
+}
+
 fn is_known(key: &str) -> bool {
     let mut probe = Settings::default();
     // Every known key accepts at least one of these values.
@@ -1855,6 +1868,18 @@ pub(crate) mod tests {
         assert_eq!(bad.schedule(), Schedule::Never);
         assert_eq!(bad.rescan_hours, DEFAULT_RESCAN_HOURS);
         assert_eq!(bad.rescan_time, DEFAULT_RESCAN_TIME);
+    }
+
+    #[test]
+    fn known_lines_tell_a_settings_file_from_other_text() {
+        assert_eq!(known_lines("# EveryGrep settings\n"), 0);
+        assert_eq!(
+            known_lines("theme = dark\nmatch-case = maybe\nfuture = 1\n"),
+            2
+        );
+        assert_eq!(known_lines("shortcut = file.export-results\n"), 1);
+        assert_eq!(known_lines("[Desktop Entry]\nName = x\nExec=y\n"), 0);
+        assert_eq!(known_lines("# theme = dark\n"), 0);
     }
 
     #[test]

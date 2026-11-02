@@ -434,6 +434,9 @@ First version, 0.1.0, not released yet.
 - Index file location (Indexing page): choose the folder of the window's
   index file; the index and its hash cache move there at once, and the old
   file is removed once the new one is written.
+- Advanced settings page: export the settings file, import one in place of
+  every setting, or reset every setting, each after a question; the window
+  applies the new settings at once.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

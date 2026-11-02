@@ -98,7 +98,7 @@ export component SettingsWindow inherits Window {
     background: Theme.surface;
     default-font-size: Theme.body;
 
-    // 0 indexing, 1 search, 2 appearance, 3 window, 4 keyboard.
+    // 0 indexing, 1 search, 2 appearance, 3 window, 4 keyboard, 5 advanced.
     in-out property <int> page: 0;
     // A problem with the settings file or the last action; empty when fine.
     in property <string> error;
@@ -273,6 +273,19 @@ export component SettingsWindow inherits Window {
     in property <string> shortcut-steps;
     callback copy-command(int);
 
+    // Advanced: the settings file, exporting and importing it, putting
+    // every setting back to its default; a question waiting for an answer
+    // (its text and the button that agrees), and the last outcome.
+    in property <string> settings-file;
+    in property <bool> settings-writable;
+    callback export-settings();
+    callback import-settings();
+    callback reset-all-settings();
+    in property <string> pending-text;
+    in property <string> pending-action;
+    callback pending-answered(bool);
+    in property <string> settings-note;
+
     // Puts the settings of the page back to their defaults.
     callback reset-page(int);
     callback close-window();
@@ -307,7 +320,7 @@ export component SettingsWindow inherits Window {
                 return accept;
             }
             if (event.modifiers.control && (event.text == Key.PageDown || event.text == Key.PageUp)) {
-                root.page = Math.mod(root.page + (event.text == Key.PageDown ? 1 : -1), 5);
+                root.page = Math.mod(root.page + (event.text == Key.PageDown ? 1 : -1), 6);
                 return accept;
             }
             reject
@@ -328,6 +341,7 @@ export component SettingsWindow inherits Window {
                             { text: @tr("Appearance") },
                             { text: @tr("Window") },
                             { text: @tr("Keyboard") },
+                            { text: @tr("Advanced") },
                         ];
                         // Not bound to the page: the list keeps its own
                         // keyboard position, which set-current-item() moves.
@@ -1149,6 +1163,70 @@ export component SettingsWindow inherits Window {
                                 }
                                 Note { text: c.note; }
                             }
+                        }
+
+                        if root.page == 5: VerticalLayout {
+                            spacing: Theme.s3;
+                            alignment: start;
+                            vertical-stretch: 1;
+                            Heading { text: @tr("Settings file"); }
+                            Text {
+                                text: root.settings-file;
+                                color: Theme.text;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.s2;
+                                alignment: start;
+                                Button {
+                                    text: @tr("Export settings…");
+                                    clicked => { root.export-settings(); }
+                                }
+                                Button {
+                                    text: @tr("Import settings…");
+                                    enabled: root.settings-writable;
+                                    clicked => { root.import-settings(); }
+                                }
+                                Button {
+                                    text: @tr("Reset all settings…");
+                                    enabled: root.settings-writable;
+                                    clicked => { root.reset-all-settings(); }
+                                }
+                            }
+                            Note { text: @tr("Export writes the settings as they are saved: the settings that differ from the defaults, and your keys. Import replaces every setting with those of the chosen file; Reset all puts every setting back to its default. Both ask first, and both index again when the folders to index or their rules change. The search history is never part of the settings."); }
+                            if root.pending-text != "": Rectangle {
+                                border-radius: Theme.radius;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                background: Theme.field;
+                                HorizontalLayout {
+                                    padding: Theme.s3;
+                                    spacing: Theme.s2;
+                                    Text {
+                                        text: root.pending-text;
+                                        color: Theme.text;
+                                        wrap: word-wrap;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Button {
+                                            text: @tr("Cancel");
+                                            clicked => { root.pending-answered(false); }
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Button {
+                                            text: root.pending-action;
+                                            primary: true;
+                                            clicked => { root.pending-answered(true); }
+                                        }
+                                    }
+                                }
+                            }
+                            if root.settings-note != "": Note { text: root.settings-note; color: Theme.text; }
                         }
                     }
                 }

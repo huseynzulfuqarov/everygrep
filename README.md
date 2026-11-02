@@ -119,7 +119,7 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--ignore-whitespace] [--regex]
               [--columns type,extension,created,accessed,attributes]
               [--new-instance] [--new-window] [--toggle] [--background]
-              [--settings[=indexing|search|appearance|window|keyboard]] [query words...]
+              [--settings[=indexing|search|appearance|window|keyboard|advanced]] [query words...]
 ```
 
 Words after the options become the first query; it runs as soon as the index is
@@ -362,6 +362,7 @@ the program behaves as before, except that folders show their total size.
 | | sort dates newest first / sort sizes largest first: the direction of the first click on a date or Size header | off |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
 | Keyboard | the keys of the window's commands (see below), and how to open EveryGrep with a key | the keys listed above |
+| Advanced | the settings file: "Export settings…" writes it where you choose; "Import settings…" replaces every setting with those of a chosen file (after a question; a file that sets nothing known is refused); "Reset all settings…" puts every setting back to its default (after a question); folders, rules and file details are taken only by the window over the default index, and changing them indexes again; column widths of an import apply at the next start | — |
 
 On the Keyboard page, "Show commands containing:" filters the commands by
 name, menu or key (case and diacritics ignored). Choose a command to see its

@@ -2311,3 +2311,77 @@ msgstr "İndeks faylının qovluğunu seçin"
 #: src/labels.rs
 msgid "The index cannot be saved as {0}: {1}. It stays where it was."
 msgstr "İndeksi {0} kimi saxlamaq olmur: {1}. O, əvvəlki yerində qalır."
+
+#: ui/settings.slint
+msgid "Advanced"
+msgstr "Əlavə"
+
+#: ui/settings.slint
+msgid "Settings file"
+msgstr "Ayarlar faylı"
+
+#: ui/settings.slint
+msgid "Export settings…"
+msgstr "Ayarları ixrac et…"
+
+#: ui/settings.slint
+msgid "Import settings…"
+msgstr "Ayarları idxal et…"
+
+#: ui/settings.slint
+msgid "Reset all settings…"
+msgstr "Bütün ayarları sıfırla…"
+
+#: ui/settings.slint
+msgid "Export writes the settings as they are saved: the settings that differ from the defaults, and your keys. Import replaces every setting with those of the chosen file; Reset all puts every setting back to its default. Both ask first, and both index again when the folders to index or their rules change. The search history is never part of the settings."
+msgstr "İxrac ayarları saxlandığı kimi yazır: standartdan fərqlənən ayarları və sizin qısayol düymələrinizi. İdxal bütün ayarları seçilmiş faylın ayarları ilə əvəz edir; “Bütün ayarları sıfırla” hər ayarı standart dəyərinə qaytarır. Hər ikisi əvvəlcə soruşur və indekslənən qovluqlar və ya onların qaydaları dəyişəndə indeksi yenidən qurur. Axtarış tarixçəsi heç vaxt ayarlara daxil deyil."
+
+#: src/labels.rs
+msgid "Settings files"
+msgstr "Ayarlar faylları"
+
+#: src/labels.rs
+msgid "Export the settings"
+msgstr "Ayarları ixrac et"
+
+#: src/labels.rs
+msgid "Import settings"
+msgstr "Ayarları idxal et"
+
+#: src/labels.rs
+msgid "Import"
+msgstr "İdxal et"
+
+#: src/labels.rs
+msgid "Replace every setting with those of {}? Settings the file does not list go back to their defaults."
+msgstr "Bütün ayarlar {} faylındakılarla əvəz olunsun? Faylda olmayan ayarlar standart dəyərlərinə qayıdır."
+
+#: src/labels.rs
+msgid "Put every setting of every page back to its default, your keys included? The excluded folders and file filters are cleared too."
+msgstr "Bütün səhifələrin bütün ayarları, qısayol düymələriniz də daxil olmaqla, standart dəyərlərinə qaytarılsın? Xaric edilmiş qovluqlar və fayl filtrləri də təmizlənir."
+
+#: src/labels.rs
+msgid "Reset all"
+msgstr "Hamısını sıfırla"
+
+#: src/labels.rs
+msgid "The settings were exported to {}."
+msgstr "Ayarlar {} faylına ixrac edildi."
+
+#: src/labels.rs
+msgid "The settings of {} were imported."
+msgstr "{} faylının ayarları idxal edildi."
+
+#: src/labels.rs
+msgid "{} line could not be read and was left out."
+msgid_plural "{} lines could not be read and were left out."
+msgstr[0] "{} sətir oxuna bilmədi və nəzərə alınmadı."
+msgstr[1] "{} sətir oxuna bilmədi və nəzərə alınmadı."
+
+#: src/labels.rs
+msgid "Every setting is back to its default."
+msgstr "Bütün ayarlar standart dəyərlərinə qaytarıldı."
+
+#: src/labels.rs
+msgid "{} is not a settings file of EveryGrep: it sets nothing EveryGrep knows. Nothing was changed."
+msgstr "{} EveryGrep ayarlar faylı deyil: orada EveryGrep-in tanıdığı heç bir ayar yoxdur. Heç nə dəyişdirilmədi."

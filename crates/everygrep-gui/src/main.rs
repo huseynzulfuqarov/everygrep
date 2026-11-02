@@ -1663,7 +1663,7 @@ options:
                          (used when starting on login); nothing happens when
                          EveryGrep already runs
   --settings[=<page>]    open the settings window too, at a page: indexing,
-                         search, appearance, window, keyboard
+                         search, appearance, window, keyboard, advanced
   -h, --help             print this help
   -V, --version          print the version";
 
