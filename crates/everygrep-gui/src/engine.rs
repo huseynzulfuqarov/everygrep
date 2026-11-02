@@ -359,8 +359,6 @@ pub struct Engine {
     /// Bumped for every new query; older results are dropped.
     generation: AtomicU64,
     query: Mutex<QueryState>,
-    /// Ids currently shown, so they can be translated after a compaction.
-    shown: Mutex<Arc<Vec<NodeId>>>,
     /// Bumped, under the index write lock, whenever node ids change meaning
     /// (compaction, a new scan). Ids taken in an older epoch must not be used.
     epoch: AtomicU64,
@@ -474,7 +472,6 @@ impl Engine {
             index_file: index_file.or_else(persist::default_path),
             generation: AtomicU64::new(0),
             query: Mutex::new(QueryState::default()),
-            shown: Mutex::new(Arc::new(Vec::new())),
             epoch: AtomicU64::new(0),
             details: Mutex::new(DetailCache::new()),
             details_generation: AtomicU64::new(0),
@@ -714,11 +711,6 @@ impl Engine {
         self.request_search()
     }
 
-    /// Records the ids now shown in the table.
-    pub fn set_shown(&self, ids: Arc<Vec<NodeId>>) {
-        *self.shown.lock().expect("lock") = ids;
-    }
-
     /// The current id epoch. Read it under an index lock to pair it with ids.
     pub fn epoch(&self) -> u64 {
         self.epoch.load(Ordering::SeqCst)
@@ -948,7 +940,6 @@ impl Engine {
                 catch_up = true;
                 match self.scan_fresh(TaskKind::Rescanning) {
                     Ok(()) => {
-                        *self.shown.lock().expect("lock") = Arc::new(Vec::new());
                         self.request_search();
                         self.save();
                     }
@@ -1150,11 +1141,10 @@ impl Engine {
                         stats.overflow = true;
                     }
                     if index.should_compact() {
-                        let remap = watcher.compact(&mut index);
+                        // Ids held outside the index are dropped with the
+                        // epoch: results of the old one are searched again.
+                        watcher.compact(&mut index);
                         self.bump_epoch();
-                        let mut shown = self.shown.lock().expect("lock");
-                        *shown =
-                            Arc::new(shown.iter().filter_map(|id| remap[id.index()]).collect());
                         pending_refresh = true;
                     }
                     if stats.overflow {
@@ -1287,7 +1277,6 @@ impl Engine {
         self.read_drives_again(&left_out);
         // Saves record what this index was built with.
         *self.indexed_with.lock().expect("lock") = (roots, options.rules);
-        *self.shown.lock().expect("lock") = Arc::new(Vec::new());
         watched
     }
 
@@ -2867,6 +2856,43 @@ mod tests {
         assert!(took < Duration::from_millis(1500), "{took:?}");
         // Not saved: it still is to be saved.
         assert!(probe.engine.dirty.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_result_shown_after_its_index_changed_does_not_break_compaction() {
+        let dir = Scratch::new("stale-result");
+        let root = dir.0.join("a");
+        fs::create_dir_all(&root).unwrap();
+        for f in 0..12_000 {
+            fs::write(root.join(format!("f{f:05}")), "").unwrap();
+        }
+        fs::write(root.join("keep.txt"), "").unwrap();
+        let probe = Probe::start(vec![root.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        let e = &probe.engine;
+        // A result taken before the index changed reaches the table late:
+        // its ids lie past the index now.
+        let len = e.index.read().unwrap().len() as u32;
+        let model = crate::results::ResultsModel::new(Arc::clone(e));
+        model.set_result(&SearchResult {
+            ids: Arc::new(vec![NodeId(len + 100)]),
+            terms: Arc::new(Vec::new()),
+            took: Duration::ZERO,
+            error: None,
+            query: String::new(),
+            epoch: e.epoch().wrapping_sub(1),
+        });
+        // Enough entries go to compact the index.
+        for f in 0..12_000 {
+            fs::remove_file(root.join(format!("f{f:05}"))).unwrap();
+        }
+        until(e, "the files gone", |i| i.len() == 2);
+        let epoch = e.epoch();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!e.index.is_poisoned());
+        assert_eq!(probe.names("keep"), ["keep.txt"]);
+        assert!(epoch > 1, "compacted (or built again) after the deletes");
+        e.shutdown();
     }
 
     #[test]

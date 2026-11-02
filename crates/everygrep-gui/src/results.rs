@@ -130,7 +130,6 @@ impl ResultsModel {
         *self.terms.borrow_mut() = Arc::clone(&result.terms);
         self.now_ns.set(now_ns());
         self.took.set(result.took);
-        self.engine.set_shown(Arc::clone(&result.ids));
         {
             let mut selection = self.selection.borrow_mut();
             let mut query = self.query.borrow_mut();
