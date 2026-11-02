@@ -153,6 +153,15 @@ until the next full scan. In a folder that can be listed but not searched
 the listing, with unknown size and time, and the folder keeps its saved time
 so the next catch-up reads it again.
 
+The window's catch-ups (at start, when watching is turned on again, after a
+cancelled rebuild, and for a drive that is connected again) use
+`Watcher::catch_up_shared`: it holds the index's write lock for batches of
+about 15 ms (`CATCH_UP_BATCH`) and lets readers in between, so drawing rows,
+searching and saving on quit wait at most one batch. The folders still to
+check are ids of the index, so only the index thread changes it meanwhile.
+Quitting (or a new rebuild) ends a catch-up after the current batch; folders
+not checked keep their saved times and are checked by the next catch-up.
+
 While watching, removed slots and unused name bytes accumulate; when they
 make up more than a quarter of the store, it is compacted in place and the
 ids are renumbered (callers get the id map).

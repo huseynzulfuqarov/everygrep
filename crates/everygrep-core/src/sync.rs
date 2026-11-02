@@ -14,6 +14,7 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use crate::index::Index;
 use crate::listing::Tree;
@@ -112,22 +113,61 @@ pub(crate) fn catch_up_with(
     folders: &mut dyn Folders,
     progress: &Progress,
 ) -> CatchUpStats {
-    let mut stats = CatchUpStats::default();
+    let mut pending = Pending::new(index, roots);
+    pending.run(index, skip, folders, progress, None);
+    pending.stats
+}
 
-    let store = index.store();
-    let mut queue: VecDeque<NodeId> = roots
-        .iter()
-        .copied()
-        .filter(|&id| store.is_live(id) && store.parent(id).is_none() && store.is_dir(id))
-        .collect();
+/// A catch-up as [`catch_up_with`] does it, done in parts: the folders
+/// still to check. Between parts the index may be read, but not changed by
+/// anyone else, since the folders left are ids of it.
+pub(crate) struct Pending {
+    queue: VecDeque<NodeId>,
+    pub(crate) stats: CatchUpStats,
+}
 
-    while let Some(dir) = queue.pop_front() {
-        let mode = Mode::default();
-        queue.extend(check_dir(
-            index, dir, skip, mode, folders, progress, &mut stats,
-        ));
+impl Pending {
+    /// A catch-up of the folder roots in `roots`.
+    pub(crate) fn new(index: &Index, roots: &[NodeId]) -> Self {
+        let store = index.store();
+        let queue = roots
+            .iter()
+            .copied()
+            .filter(|&id| store.is_live(id) && store.parent(id).is_none() && store.is_dir(id))
+            .collect();
+        Self {
+            queue,
+            stats: CatchUpStats::default(),
+        }
     }
-    stats
+
+    /// Checks folders until none is left (then returns true) or, with a
+    /// `deadline`, until it passed; at least one folder is checked.
+    pub(crate) fn run(
+        &mut self,
+        index: &mut Index,
+        skip: &Skip,
+        folders: &mut dyn Folders,
+        progress: &Progress,
+        deadline: Option<Instant>,
+    ) -> bool {
+        while let Some(dir) = self.queue.pop_front() {
+            let mode = Mode::default();
+            self.queue.extend(check_dir(
+                index,
+                dir,
+                skip,
+                mode,
+                folders,
+                progress,
+                &mut self.stats,
+            ));
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                break;
+            }
+        }
+        self.queue.is_empty()
+    }
 }
 
 /// Finishes a scan that was interrupted: `index` holds what a cancelled

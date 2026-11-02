@@ -51,6 +51,10 @@ First version, 0.1.0, not released yet.
   again after a queue overflow, while other programs hold every instance),
   the index is shown as not watching changes and a watcher is tried again
   every 10 seconds; once one is made, what changed meanwhile is caught up.
+- A catch-up (at start, after watching was off, for a drive connected again)
+  locks the index for short batches of folders instead of for the whole
+  walk, so the window keeps drawing and searching while it runs, and
+  quitting no longer waits for it to finish.
 - Folders that could not be watched (watch limit reached) are tried again
   and checked for changes every 10 seconds; the status line counts them.
 - Catching up on start with changes made while nothing was watching, by

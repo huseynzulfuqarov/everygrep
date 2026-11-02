@@ -1018,20 +1018,28 @@ impl Engine {
         if catch_up || !drives_to_catch_up.is_empty() {
             self.report(IndexState::CatchingUp);
             let task = self.tasks.begin(TaskKind::Updating, false);
-            let mut index = self.index.write().expect("index lock");
             let roots = if catch_up {
-                online_roots(&index)
+                online_roots(&self.index.read().expect("index lock"))
             } else {
                 std::mem::take(drives_to_catch_up)
             };
-            task.progress()
-                .set_total(Some(folders_below(&index, &roots)));
-            let stats = watcher.catch_up_with_progress(&mut index, &roots, task.progress());
-            drop(index);
+            task.progress().set_total(Some(folders_below(
+                &self.index.read().expect("index lock"),
+                &roots,
+            )));
+            // The index is locked for short batches, so the window can draw
+            // rows and quitting can save in between.
+            let stats = watcher.catch_up_shared(&self.index, &roots, task.progress(), &|| {
+                self.interrupted(true)
+            });
             drop(task);
             if stats.added + stats.removed + stats.updated > 0 {
                 self.dirty.store(true, Ordering::SeqCst);
                 self.request_search();
+            }
+            if self.interrupted(true) {
+                // Cut short: what was not checked is caught up next time.
+                return true;
             }
         }
         drives_to_catch_up.clear();
@@ -1160,11 +1168,22 @@ impl Engine {
         let mut last_recheck = Instant::now();
         let mut pending_refresh = false;
         while !self.interrupted(true) {
-            if self.mounts_changed.swap(false, Ordering::SeqCst)
-                && self.sync_drives(Some(watcher)).0
-            {
-                self.dirty.store(true, Ordering::SeqCst);
-                pending_refresh = true;
+            if self.mounts_changed.swap(false, Ordering::SeqCst) {
+                let (changed, drives) = self.sync_drives(Some(watcher));
+                // Drives that came back (or were read) are watched already;
+                // what changed on them meanwhile is caught up here, outside
+                // the drive lock and a batch of folders at a time.
+                let stats = if drives.is_empty() {
+                    Default::default()
+                } else {
+                    watcher.catch_up_shared(&self.index, &drives, &Progress::new(), &|| {
+                        self.interrupted(true)
+                    })
+                };
+                if changed || stats.added + stats.removed + stats.updated > 0 {
+                    self.dirty.store(true, Ordering::SeqCst);
+                    pending_refresh = true;
+                }
             }
             match watcher.wait(Some(Duration::from_millis(250))) {
                 Ok(events) if !events.is_empty() || watcher.has_pending() => {
@@ -1287,7 +1306,10 @@ impl Engine {
             // The previous index stays and is caught up instead, which
             // finds added and removed entries.
             self.report(IndexState::CatchingUp);
-            watcher.catch_up(&mut self.index.write().expect("index lock"));
+            let roots = online_roots(&self.index.read().expect("index lock"));
+            watcher.catch_up_shared(&self.index, &roots, &Progress::new(), &|| {
+                self.interrupted(true)
+            });
             self.report(IndexState::Watching);
             // A request to index again cancels it too; that one runs next.
             if !self.rescan.load(Ordering::SeqCst) {
@@ -1481,9 +1503,10 @@ impl Engine {
 
     /// Brings the drives in the index in line with the mount table, the
     /// settings and the window's requests. With a watcher, drives that come
-    /// online are watched and caught up at once; without one (before
-    /// watching starts) their roots are returned for a catch-up. Returns
-    /// whether the index or the list of drives changed.
+    /// online are watched at once. Their roots are returned for a catch-up,
+    /// which the caller runs outside the drive lock: at once with a watcher,
+    /// otherwise when watching starts. Returns whether the index or the list
+    /// of drives changed.
     fn sync_drives(&self, mut watcher: Option<&mut Watcher>) -> (bool, Vec<NodeId>) {
         let Some(env) = &self.drive_env else {
             return (false, Vec::new());
@@ -1629,14 +1652,12 @@ impl Engine {
             let _ = v.info.save(env);
             let _ = std::fs::remove_file(env.partial_path(&drive.uuid));
             changed = true;
-            match watcher.as_deref_mut() {
-                Some(w) => {
-                    w.watch_root(&index, root);
-                    // Changes made while it was being read.
-                    w.catch_up_roots(&mut index, &[root]);
-                }
-                None => to_catch_up.push(root),
+            // Changes made while it was being read are caught up by the
+            // caller.
+            if let Some(w) = watcher.as_deref_mut() {
+                w.watch_root(&index, root);
             }
+            to_catch_up.push(root);
         }
 
         for drive in &mounted {
@@ -1688,13 +1709,10 @@ impl Engine {
                 index.set_offline(root, false);
                 v.info.path = drive.mount_point.clone();
                 let _ = v.info.save(env);
-                match watcher.as_deref_mut() {
-                    Some(w) => {
-                        w.watch_root(&index, root);
-                        w.catch_up_roots(&mut index, &[root]);
-                    }
-                    None => to_catch_up.push(root),
+                if let Some(w) = watcher.as_deref_mut() {
+                    w.watch_root(&index, root);
                 }
+                to_catch_up.push(root);
             } else if (settings.auto || env.info_path(&drive.uuid).exists())
                 && !self.not_now.lock().expect("lock").contains(&drive.uuid)
             {
@@ -2521,6 +2539,68 @@ mod tests {
         assert!(!again.reordered);
         assert_eq!(again.rules_hash, Some(persist::rules_fingerprint(&rules)));
         assert!(again.index.order().iter().eq(index.order().iter()));
+    }
+
+    #[test]
+    fn readers_wait_only_briefly_while_a_long_catch_up_runs() {
+        let dir = Scratch::new("catch-up-batches");
+        let a = dir.0.join("a");
+        const FOLDERS: usize = 10_000;
+        for i in 0..FOLDERS {
+            fs::create_dir_all(a.join(format!("d{i}"))).unwrap();
+            fs::write(a.join(format!("d{i}/one.txt")), "").unwrap();
+        }
+        let index_file = dir.0.join("index.bin");
+        let roots = normalize_roots(std::slice::from_ref(&a));
+        let mut store = NodeStore::new();
+        everygrep_core::scan::scan(&mut store, &roots, &ScanOptions::default());
+        let rules = everygrep_core::rules::RuleSpec::default();
+        persist::save_with_rules(&Index::new(store), &roots, &rules, &index_file).unwrap();
+        // Every folder changed while the program was not running.
+        for i in 0..FOLDERS {
+            fs::write(a.join(format!("d{i}/two.txt")), "").unwrap();
+        }
+
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index_file);
+        let engine = Arc::clone(&probe.engine);
+        let running = Arc::new(AtomicBool::new(true));
+        // Reads the index as the window does for each row on screen.
+        let reader = std::thread::spawn({
+            let running = Arc::clone(&running);
+            move || {
+                let mut longest = Duration::ZERO;
+                while running.load(Ordering::SeqCst) {
+                    let asked = Instant::now();
+                    let index = engine.index.read().unwrap();
+                    longest = longest.max(asked.elapsed());
+                    drop(index);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                longest
+            }
+        });
+        let mut caught_up = false;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < deadline {
+            match probe.states.recv_timeout(Duration::from_millis(100)) {
+                Ok(IndexState::CatchingUp) => caught_up = true,
+                Ok(IndexState::Watching) => break,
+                _ => {}
+            }
+        }
+        running.store(false, Ordering::SeqCst);
+        let longest = reader.join().unwrap();
+        assert!(caught_up, "no catch-up");
+        let last = a
+            .canonicalize()
+            .unwrap()
+            .join(format!("d{}/two.txt", FOLDERS - 1));
+        assert!(find(&probe.engine.index.read().unwrap(), &last).is_some());
+        assert!(
+            longest < Duration::from_millis(150),
+            "a reader waited {longest:?} for the catch-up"
+        );
+        probe.engine.shutdown();
     }
 
     /// Waits until the engine watches (or cannot) and returns whether it

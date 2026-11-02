@@ -23,14 +23,21 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::time::Duration;
+use std::sync::{PoisonError, RwLock};
+use std::time::{Duration, Instant};
 
 use crate::index::Index;
 use crate::inotify::{Event, Inotify, Mask, WatchId};
 use crate::progress::Progress;
 use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
-use crate::sync::{CatchUpStats, Folders, add_tree, catch_up_with, online_roots, recheck_dirs};
+use crate::sync::{
+    CatchUpStats, Folders, Pending, add_tree, catch_up_with, online_roots, recheck_dirs,
+};
+
+/// How long [`Watcher::catch_up_shared`] holds the index's write lock at a
+/// time (the last folder of a batch may take longer).
+pub const CATCH_UP_BATCH: Duration = Duration::from_millis(15);
 
 /// What happened while applying a batch of events.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -282,6 +289,43 @@ impl Watcher {
         self.watches.forget(&index.take_removed());
         self.keep_incomplete(index, incomplete);
         stats
+    }
+
+    /// Like [`catch_up_with_progress`](Self::catch_up_with_progress) on an
+    /// index that others read meanwhile: the write lock is held for a batch
+    /// of folders at a time, about [`CATCH_UP_BATCH`] long, so a reader waits
+    /// at most about that long instead of for the whole catch-up. Only
+    /// readers may use the index meanwhile: the folders left to check are ids
+    /// of it. Once `stop` says so after a batch, the catch-up ends early; the
+    /// folders not checked keep their saved times, so a later catch-up
+    /// checks them.
+    pub fn catch_up_shared(
+        &mut self,
+        index: &RwLock<Index>,
+        roots: &[NodeId],
+        progress: &Progress,
+        stop: &dyn Fn() -> bool,
+    ) -> CatchUpStats {
+        let write = || index.write().unwrap_or_else(PoisonError::into_inner);
+        let mut pending =
+            Pending::new(&index.read().unwrap_or_else(PoisonError::into_inner), roots);
+        let mut visit = Visit::new(&mut self.watches, &self.skip);
+        let mut guard = loop {
+            let mut guard = write();
+            let deadline = Instant::now() + CATCH_UP_BATCH;
+            let done = pending.run(&mut guard, &self.skip, &mut visit, progress, Some(deadline));
+            if done || stop() {
+                break guard;
+            }
+            drop(guard);
+            // Readers that waited get the lock before the next batch.
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        let incomplete = visit.incomplete;
+        self.watches.forget(&guard.take_removed());
+        self.keep_incomplete(&guard, incomplete);
+        drop(guard);
+        pending.stats
     }
 
     /// Number of active watches.
@@ -1674,6 +1718,120 @@ mod tests {
         }
         fs::remove_dir_all(&base).unwrap();
         assert!(has(&index, &later));
+    }
+
+    /// An index of `base/root` with `n` folders of one file each, after
+    /// which every folder gets a second file, one in ten is removed and a new
+    /// one is made, so a catch-up reads every folder again.
+    fn changed_tree(base: &Path, n: usize) -> Index {
+        let _ = fs::remove_dir_all(base);
+        let root = base.join("root");
+        for i in 0..n {
+            fs::create_dir_all(root.join(format!("d{i}"))).unwrap();
+            fs::write(root.join(format!("d{i}/a.txt")), b"a").unwrap();
+        }
+        let mut store = NodeStore::new();
+        scan(
+            &mut store,
+            std::slice::from_ref(&root),
+            &ScanOptions::default(),
+        );
+        for i in 0..n {
+            if i % 10 == 0 {
+                fs::remove_dir_all(root.join(format!("d{i}"))).unwrap();
+            } else {
+                fs::write(root.join(format!("d{i}/b.txt")), b"b").unwrap();
+            }
+        }
+        fs::create_dir_all(root.join("new/inner")).unwrap();
+        fs::write(root.join("new/inner/n.txt"), b"n").unwrap();
+        Index::new(store)
+    }
+
+    fn sorted_paths(index: &Index) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = index
+            .order()
+            .iter()
+            .map(|id| index.store().path(id))
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn a_shared_catch_up_lets_readers_in_between_batches() {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-shared-{}", std::process::id()));
+        let index = changed_tree(&base, 4000);
+        let options = ScanOptions::default();
+        let mut watcher = Watcher::new(&index, &options).unwrap();
+        let roots = index.roots();
+        let total = crate::sync::folders_below(&index, &roots);
+        let index = std::sync::Arc::new(RwLock::new(index));
+        let progress = std::sync::Arc::new(Progress::new());
+        progress.set_total(Some(total));
+        let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let reader = std::thread::spawn({
+            let (index, progress, running) = (index.clone(), progress.clone(), running.clone());
+            move || {
+                use std::sync::atomic::Ordering;
+                let mut seen = Vec::new();
+                while running.load(Ordering::SeqCst) {
+                    let index = index.read().unwrap();
+                    seen.push(progress.done());
+                    drop(index);
+                    std::thread::sleep(Duration::from_micros(200));
+                }
+                seen
+            }
+        });
+        let stats = watcher.catch_up_shared(&index, &roots, &progress, &|| false);
+        running.store(false, std::sync::atomic::Ordering::SeqCst);
+        let seen = reader.join().unwrap();
+        let done = progress.done();
+        assert!(
+            seen.iter().any(|&d| d > 0 && d < done),
+            "no read between the first and the last folder ({done} folders)"
+        );
+        assert!(stats.added > 0 && stats.removed > 0, "{stats:?}");
+
+        // The same result as a fresh scan, and new folders are watched.
+        let mut store = NodeStore::new();
+        scan(&mut store, &[base.join("root")], &options);
+        let Ok(index) = std::sync::Arc::try_unwrap(index) else {
+            panic!("the index is still shared");
+        };
+        let index = index.into_inner().unwrap();
+        assert_eq!(sorted_paths(&index), sorted_paths(&Index::new(store)));
+        let folders = index
+            .order()
+            .iter()
+            .filter(|&id| index.store().is_dir(id))
+            .count();
+        assert_eq!(watcher.watch_count(), folders);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_stopped_shared_catch_up_leaves_the_rest_to_the_next_one() {
+        let base =
+            std::env::temp_dir().join(format!("everygrep-watch-stopped-{}", std::process::id()));
+        let index = changed_tree(&base, 4000);
+        let options = ScanOptions::default();
+        let mut watcher = Watcher::new(&index, &options).unwrap();
+        let roots = index.roots();
+        let total = crate::sync::folders_below(&index, &roots);
+        let index = RwLock::new(index);
+        let progress = Progress::new();
+        watcher.catch_up_shared(&index, &roots, &progress, &|| true);
+        assert!(progress.done() < total, "{} of {total}", progress.done());
+
+        let mut index = index.into_inner().unwrap();
+        watcher.catch_up(&mut index);
+        let mut store = NodeStore::new();
+        scan(&mut store, &[base.join("root")], &options);
+        assert_eq!(sorted_paths(&index), sorted_paths(&Index::new(store)));
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
