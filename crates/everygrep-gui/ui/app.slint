@@ -2231,7 +2231,9 @@ export component AppWindow inherits Window {
         }
         Rectangle {
             width: min(420px, root.width - 2 * Theme.s5);
-            height: dialog-layout.preferred-height;
+            // Never taller than the window, so the buttons stay on screen.
+            height: min(dialog-layout.preferred-height, root.height - 2 * Theme.s5);
+            clip: true;
             background: Theme.surface;
             border-radius: 8px;
             border-width: 1px;
@@ -2252,6 +2254,8 @@ export component AppWindow inherits Window {
                     text: root.confirm-text;
                     color: Theme.text-muted;
                     wrap: word-wrap;
+                    overflow: elide;
+                    max-height: 8 * (Theme.body + 4px);
                 }
                 HorizontalLayout {
                     alignment: end;

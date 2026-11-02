@@ -24,7 +24,10 @@ export component FileopsRename inherits Rectangle {
             x: (parent.width - self.width) / 2;
             y: max(0px, (parent.height - self.height) / 2);
             width: min(480px, parent.width - 2 * Theme.s5);
-            height: layout.preferred-height;
+            // Never taller than the window, so the field and the buttons stay
+            // on screen.
+            height: min(layout.preferred-height, parent.height - 2 * Theme.s5);
+            clip: true;
             background: Theme.surface;
             border-radius: 8px;
             border-width: 1px;
@@ -36,7 +39,14 @@ export component FileopsRename inherits Rectangle {
                 spacing: Theme.s3;
                 Text { text: @tr("Rename"); color: Theme.text; font-size: Theme.body + 2px; font-weight: 600; }
                 Text { text: @tr("Location"); color: Theme.text-muted; }
-                Text { text: root.location; color: Theme.text; wrap: word-wrap; }
+                // A long location shows its first lines only.
+                Text {
+                    text: root.location;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    max-height: 3 * (Theme.body + 4px);
+                }
                 Text { text: @tr("New name"); color: Theme.text-muted; }
                 Rectangle {
                     height: Theme.field-height;
