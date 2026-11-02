@@ -285,6 +285,8 @@ mod tests {
 
     fn mount(dev: u32, at: &str, fs: &str) -> Mount {
         Mount {
+            id: dev,
+            parent: 1,
             dev: (0, dev),
             mount_point: PathBuf::from(at),
             fs_type: fs.to_owned(),

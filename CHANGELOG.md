@@ -264,7 +264,8 @@ First version, 0.1.0, not released yet.
   watched. Settings → Indexing lists the known drives with Forget and
   Don't index this drive. Mounts are noticed through `POLLPRI` on the mount
   table at no idle cost; fstab mounts are never indexed this way. A drive
-  hidden by another mount on its mount point is not indexed. A cancelled
+  hidden by another mount, on its mount point or on a folder above it, is
+  not indexed (found by mount IDs). A cancelled
   or interrupted first reading goes on where it stopped the next time, also
   when the program quit while it was read (quitting waits at most 5 seconds
   for that save).

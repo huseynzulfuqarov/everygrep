@@ -110,6 +110,10 @@ impl DriveEnv {
 /// One line of the mount table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mount {
+    /// The mount's ID (the one `statx` reports as `STATX_MNT_ID`).
+    pub id: u32,
+    /// The ID of the mount it is mounted on.
+    pub parent: u32,
     /// Device numbers of the mounted file system (major, minor).
     pub dev: (u32, u32),
     pub mount_point: PathBuf,
@@ -131,6 +135,10 @@ pub fn parse_mountinfo(text: &[u8]) -> Vec<Mount> {
         if dash < 6 || fields.len() < dash + 3 {
             continue;
         }
+        let number = |f: &[u8]| std::str::from_utf8(f).ok()?.parse::<u32>().ok();
+        let (Some(id), Some(parent)) = (number(fields[0]), number(fields[1])) else {
+            continue;
+        };
         let Some(dev) = std::str::from_utf8(fields[2])
             .ok()
             .and_then(|d| d.split_once(':'))
@@ -139,6 +147,8 @@ pub fn parse_mountinfo(text: &[u8]) -> Vec<Mount> {
             continue;
         };
         out.push(Mount {
+            id,
+            parent,
             dev,
             mount_point: PathBuf::from(OsString::from_vec(unescape_octal(fields[4]))),
             fs_type: String::from_utf8_lossy(fields[dash + 1]).into_owned(),
@@ -188,8 +198,9 @@ pub struct Drive {
 /// The removable drives in the mount table: mounts directly inside one of
 /// the media folders, of a file system that holds files, whose device has a
 /// UUID. A drive mounted twice is listed once (its first mount). A mount
-/// that another one covers (a later line with the same mount point) is not
-/// visible at its mount point, so it is not listed, whatever covers it.
+/// that is not what its mount point shows (see [`visible_at`]) is not
+/// listed, whatever covers it: another mount on the same folder or on a
+/// folder above it.
 pub fn removable_drives(env: &DriveEnv) -> io::Result<Vec<Drive>> {
     let table = fs::read(&env.mountinfo)?;
     let uuids = links(&env.by_uuid);
@@ -197,10 +208,9 @@ pub fn removable_drives(env: &DriveEnv) -> io::Result<Vec<Drive>> {
     let mounts = parse_mountinfo(&table);
     let mut out: Vec<Drive> = Vec::new();
     for (i, mount) in mounts.iter().enumerate() {
-        let covered = mounts[i + 1..]
-            .iter()
-            .any(|m| m.mount_point == mount.mount_point);
-        if covered || !is_media_mount(mount, &env.media_dirs) {
+        if !is_media_mount(mount, &env.media_dirs)
+            || visible_at(&mounts, &mount.mount_point) != Some(i)
+        {
             continue;
         }
         let Some(uuid) = device_name(&uuids, mount).filter(|u| is_safe_uuid(u)) else {
@@ -217,6 +227,42 @@ pub fn removable_drives(env: &DriveEnv) -> io::Result<Vec<Drive>> {
         });
     }
     Ok(out)
+}
+
+/// The mount (its index in `mounts`) that the absolute path `path` is on,
+/// found as the kernel walks the path: from the mounts that sit on no
+/// mount of the table (normally `/`), at each folder of the path into the
+/// newest mount on that folder whose parent is the mount reached so far,
+/// again for mounts stacked there. Comparing mount IDs and parent IDs,
+/// rather than only mount points, tells a covered mount from the one on top
+/// of it, also when the cover is on a folder above the mount point. `None`
+/// when no mount of the table holds the path.
+///
+/// `statx` with `STATX_MNT_ID` would ask the kernel directly, but only for
+/// the real mount table; this also works for the simulated ones of tests.
+pub fn visible_at(mounts: &[Mount], path: &Path) -> Option<usize> {
+    let listed = |id: u32| mounts.iter().any(|m| m.id == id);
+    let mut current: Option<usize> = None;
+    let mut prefix = PathBuf::new();
+    for component in path.components() {
+        prefix.push(component);
+        // At most one step per mount, so a damaged table cannot loop.
+        for _ in 0..mounts.len() {
+            let on_top = mounts.iter().enumerate().rev().find(|&(i, m)| {
+                Some(i) != current
+                    && m.mount_point == prefix
+                    && match current {
+                        Some(c) => m.parent == mounts[c].id,
+                        None => m.parent == m.id || !listed(m.parent),
+                    }
+            });
+            match on_top {
+                Some((i, _)) => current = Some(i),
+                None => break,
+            }
+        }
+    }
+    current
 }
 
 /// Whether a mount is a drive mounted by the desktop: its mount point is a
@@ -663,6 +709,48 @@ mod boundary_tests {
         let c = "53 22 8:2 / /run/media/u/OTHER rw shared:33 - ext4 $DEV/sdx2 rw";
         assert_eq!(only(stacked(&dir, &mut env, &[a, c, tmp])), ["BBBB-2222"]);
     }
+
+    #[test]
+    fn a_mount_covered_from_a_folder_above_is_not_a_drive() {
+        let (dir, mut env) = Volumes::new("above");
+        let only =
+            |drives: Vec<Drive>| -> Vec<String> { drives.into_iter().map(|d| d.uuid).collect() };
+        let root = "22 1 8:3 / / rw shared:1 - ext4 $DEV/sdx3 rw";
+        let run = "24 22 0:25 / /run rw shared:5 - tmpfs tmpfs rw";
+        let a = "50 24 8:1 / /run/media/u/USB rw shared:30 - vfat $DEV/sdx1 rw";
+        assert_eq!(
+            only(stacked(&dir, &mut env, &[root, run, a])),
+            ["AAAA-1111"]
+        );
+        // A memory file system mounted on the media folder afterwards hides
+        // the drive below it; so does one on a folder further up.
+        let media = "60 24 0:61 / /run/media/u rw shared:40 - tmpfs tmpfs rw";
+        assert!(stacked(&dir, &mut env, &[root, run, a, media]).is_empty());
+        let up = "61 22 0:62 / /run rw shared:41 - tmpfs tmpfs rw";
+        assert!(stacked(&dir, &mut env, &[root, run, a, up]).is_empty());
+        // A drive mounted inside such a cover is the one seen there.
+        let b = "62 60 8:2 / /run/media/u/USB rw shared:42 - ext4 $DEV/sdx2 rw";
+        assert_eq!(
+            only(stacked(&dir, &mut env, &[root, run, a, media, b])),
+            ["BBBB-2222"]
+        );
+        // A media folder mounted before the drive does not hide it.
+        let early = "45 24 0:63 / /run/media/u rw shared:43 - tmpfs tmpfs rw";
+        let on_it = "50 45 8:1 / /run/media/u/USB rw shared:30 - vfat $DEV/sdx1 rw";
+        assert_eq!(
+            only(stacked(&dir, &mut env, &[root, run, early, on_it])),
+            ["AAAA-1111"]
+        );
+        // Mount IDs decide, not the order of the lines: a mount put beneath
+        // the drive (listed after it, but the drive's parent) does not
+        // cover it.
+        let beneath = "51 24 8:2 / /run/media/u/USB rw shared:44 - ext4 $DEV/sdx2 rw";
+        let a_on_it = "50 51 8:1 / /run/media/u/USB rw shared:30 - vfat $DEV/sdx1 rw";
+        assert_eq!(
+            only(stacked(&dir, &mut env, &[root, run, a_on_it, beneath])),
+            ["AAAA-1111"]
+        );
+    }
 }
 
 #[cfg(test)]
@@ -784,6 +872,8 @@ garbage line
         }
         // Tricks with dots do not get out of the media folders.
         let sneaky = Mount {
+            id: 90,
+            parent: 1,
             dev: (8, 1),
             mount_point: "/run/media/u/../../../mnt/data".into(),
             fs_type: "ext4".into(),
