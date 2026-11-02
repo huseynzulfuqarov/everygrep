@@ -6,6 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::os::unix::ffi::OsStringExt;
 
 use crate::content::{ContentOptions, Decisions, Pending, decide_all};
+use crate::dupe;
+#[cfg(doc)]
+use crate::hashcache::HashCache;
 use crate::index::Index;
 use crate::progress::{Cancelled, Progress};
 use crate::query::{EvalScratch, Query, Stage};
@@ -34,7 +37,32 @@ pub fn search(index: &Index, query: &Query, threads: usize) -> Vec<NodeId> {
 /// then starts again and counts files. The window reads them without
 /// holding the index (see [`search_staged`] and
 /// [`crate::content::decide_all`]).
+///
+/// A duplicate term ([`Query::dupes`]) then groups the matches, reading the
+/// files when it compares contents (without a [`HashCache`]); groups stay
+/// together, in name order.
 pub fn search_with_progress(
+    index: &Index,
+    query: &Query,
+    threads: usize,
+    progress: &Progress,
+) -> Result<Vec<NodeId>, Cancelled> {
+    let ids = search_matches(index, query, threads, progress)?;
+    let Some(spec) = query.dupes() else {
+        return Ok(ids);
+    };
+    let grouped = dupe::group(index, &ids, spec);
+    let dupes = if grouped.candidates.is_empty() {
+        grouped.dupes
+    } else {
+        dupe::compare_contents(grouped, None, threads, progress)?
+    };
+    Ok(dupes.arrange(&dupes.to_sort()))
+}
+
+/// The matches of `query` in name order, without its duplicate term (see
+/// [`search_with_progress`]).
+pub fn search_matches(
     index: &Index,
     query: &Query,
     threads: usize,

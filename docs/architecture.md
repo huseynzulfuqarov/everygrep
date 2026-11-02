@@ -98,6 +98,16 @@ never blocks), reads it with `grep-searcher` in 64 KiB buffers and stops at
 the first match, a NUL byte (binary) or a cancel. A `ContentCache` keeps the
 answers by term, path, size and time.
 
+A query with a duplicate term (`dupe.rs`) groups its matches: `group`
+sorts them by the values of the properties and compares neighbours, so it
+costs one sort. For contents it gives files of the same size, with their
+paths, as candidates; `compare_contents` then works without the index, on
+worker threads: it looks at each candidate on disk (one path per device
+and inode), splits the groups by real size, by a hash of the first and last
+16 KiB and, for files over 32 KiB, by a hash of the whole file. `Dupes`
+keeps the groups; `arrange` puts the members of a group together where its
+first member is in the order shown.
+
 `hash.rs` hashes file contents: MD5, SHA-256 and CRC-32 for the hash
 columns, and XXH3-128 to compare contents. A file is opened like a content
 search opens it and read once for every hash asked for, in 256 KiB buffers

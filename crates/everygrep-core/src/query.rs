@@ -66,6 +66,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 
 use crate::content::{ContentEncoding, ContentOptions, ContentTerm};
+use crate::dupe::{DupeMode, DupeProperty, DupeSpec, MAX_PROPERTIES as MAX_DUPE_PROPERTIES};
 use crate::filter::Filter;
 use crate::fold::{fold, strip_diacritics_into};
 use crate::kind::{FileKind, classify};
@@ -161,6 +162,8 @@ pub struct Query {
     limit: Option<usize>,
     /// The `content:` terms, by their slot.
     content: Vec<Arc<ContentTerm>>,
+    /// The duplicate term (`duplicates:` and its relatives).
+    dupe: Option<DupeSpec>,
 }
 
 /// Most `content:` terms in one query (see [`Query::stage`]).
@@ -378,6 +381,7 @@ impl Query {
             depth: 0,
             content: Vec::new(),
             content_scope: None,
+            dupe: None,
         };
         let mut root = p.parse_expression(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
@@ -390,6 +394,7 @@ impl Query {
             uses_path: p.uses_path || p.reads_disk || options.filter == Filter::Executable,
             limit: p.limit,
             content: p.content,
+            dupe: p.dupe,
         })
     }
 
@@ -413,6 +418,7 @@ impl Query {
             uses_path,
             limit: None,
             content: Vec::new(),
+            dupe: None,
         })
     }
 
@@ -428,6 +434,12 @@ impl Query {
         if let Some(limit) = self.limit {
             results.truncate(limit);
         }
+    }
+
+    /// The duplicate term: the results are its groups (see
+    /// [`crate::dupe`]), applied before `limit:`.
+    pub fn dupes(&self) -> Option<&DupeSpec> {
+        self.dupe.as_ref()
     }
 
     /// Whether the query accepts every node.
@@ -1610,6 +1622,8 @@ struct Parser {
     content: Vec<Arc<ContentTerm>>,
     /// Inside `content:<...>`: the settings of its words.
     content_scope: Option<TermMods>,
+    /// The duplicate term so far.
+    dupe: Option<DupeSpec>,
 }
 
 /// Deepest nesting of groups, negations and `file:`/`folder:` terms. Each
@@ -1802,6 +1816,17 @@ impl Parser {
                 "noregex" => m.regex = false,
                 "file" | "files" => {
                     return Ok(Some(self.with_rest(Pred::IsFile, tail, m)?));
+                }
+                "duplicates" | "extra-copies" | "distinct" | "unique" => {
+                    // Like `limit:`, it applies to the whole result list.
+                    let spec = parse_dupe(&head, &value, m.case)?;
+                    if self.dupe.replace(spec).is_some() {
+                        return Err(ParseError(
+                            "only one of duplicates:, extra-copies:, distinct: and unique: per query"
+                                .into(),
+                        ));
+                    }
+                    return Ok(None);
                 }
                 "limit" => {
                     // A setting for the whole result list, not a condition.
@@ -2151,6 +2176,10 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "regex",
     "noregex",
     "limit",
+    "duplicates",
+    "extra-copies",
+    "distinct",
+    "unique",
     "content",
     "content-utf8",
     "content-utf16le",
@@ -2173,6 +2202,45 @@ const CONTENT_MODIFIERS: &[&str] = &[
     "content-utf16be",
     "content-codepage",
 ];
+
+/// `duplicates:name;size` and its relatives (`head`): the properties to compare,
+/// separated by `;` or `,`; none compares the contents.
+fn parse_dupe(head: &str, value: &str, case: bool) -> Result<DupeSpec, ParseError> {
+    let mode = match head {
+        "extra-copies" => DupeMode::Extra,
+        "distinct" => DupeMode::Distinct,
+        "unique" => DupeMode::Unique,
+        _ => DupeMode::All,
+    };
+    let mut properties = Vec::new();
+    for word in value
+        .split([';', ','])
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+    {
+        let Some(p) = DupeProperty::from_word(word) else {
+            return Err(ParseError(format!(
+                "unknown property for {head}: {word} (use content, name, stem, ext, size or modified)"
+            )));
+        };
+        if !properties.contains(&p) {
+            properties.push(p);
+        }
+    }
+    if properties.len() > MAX_DUPE_PROPERTIES {
+        return Err(ParseError(format!(
+            "{head}: compares at most {MAX_DUPE_PROPERTIES} properties"
+        )));
+    }
+    if properties.is_empty() {
+        properties.push(DupeProperty::Contents);
+    }
+    Ok(DupeSpec {
+        mode,
+        properties,
+        case,
+    })
+}
 
 /// `limit:100`: a number of results.
 fn parse_limit(value: &str) -> Result<usize, ParseError> {

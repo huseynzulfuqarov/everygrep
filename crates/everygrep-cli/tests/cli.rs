@@ -140,6 +140,36 @@ fn content_search_reads_the_files_the_names_leave() {
 }
 
 #[test]
+fn duplicates_are_listed_by_contents_group_after_group() {
+    let dir = temp_dir("dupe");
+    let tree = dir.join("tree");
+    fs::write(tree.join("a.txt"), "same words\n").unwrap();
+    fs::write(tree.join("sub/b.txt"), "same words\n").unwrap();
+    fs::write(tree.join("c.txt"), "other word\n").unwrap();
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+    let search = |q: &str| {
+        let out = run(&["search", "--root", tree_s, "--index-file", index_s, q]);
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let dupes = search("duplicates: ext:txt");
+    let unique = search("unique: ext:txt");
+    fs::remove_dir_all(&dir).unwrap();
+
+    let path = |p: &str| tree.join(p).to_str().unwrap().to_owned();
+    assert_eq!(
+        dupes.lines().collect::<Vec<_>>(),
+        [path("a.txt"), path("sub/b.txt")]
+    );
+    // `notes.txt` of every test tree has a size of its own.
+    assert_eq!(
+        unique.lines().collect::<Vec<_>>(),
+        [path("c.txt"), path("notes.txt")]
+    );
+}
+
+#[test]
 fn unknown_command_fails_with_usage() {
     let out = run(&["frobnicate"]);
     assert_eq!(out.status.code(), Some(2));

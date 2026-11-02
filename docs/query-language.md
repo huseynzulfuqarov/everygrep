@@ -118,6 +118,7 @@ a known modifier is plain text (`http://x` searches for `http://x`).
 | `modified:` | modification time, see below |
 | `created:` / `accessed:` | creation / access time, see below |
 | `limit:` | the number of results, see below |
+| `duplicates:`, `extra-copies:`, `distinct:`, `unique:` | duplicates, see below |
 | `content:`, `content-utf8:`, `content-utf16le:`, `content-utf16be:`, `content-codepage:` | file contents, see below |
 
 The `no…:` forms (and `punct:`, `space:`) turn off a mode that the window's
@@ -365,6 +366,36 @@ a content term alone reads every file of the index.
   endian), `content-utf16be:` and `content-codepage:` (that code page) read every
   file in that one encoding, without looking for a byte order mark.
 - A query can have at most 6 content terms.
+
+## Duplicates
+
+`duplicates:` lists the files whose contents another result has too: copies of the
+same file. The results are compared among themselves, so combine it with
+other terms to say where to look (`duplicates: ~/Pictures ext:jpg;png`). Each
+group of equal files stays together, at the place of its first member in the
+order shown, and its members follow in that order.
+
+- Contents are compared as fast as possible: files of a size no other file
+  has are not read; files of the same size are compared by their first and
+  last 16 KiB, and only files that still agree are read in full (XXH3-128,
+  a 128-bit hash).
+- Folders, empty files, links, FIFOs, devices and files that cannot be read
+  are left out. Hard links are one file: of several paths to the same file
+  only the first is listed, and it is not its own duplicate.
+- Other properties are named after the colon, separated by `;` or `,`:
+  `duplicates:name` (the same name in different folders), `duplicates:stem` (the name
+  without its extension), `duplicates:ext`, `duplicates:size`, `duplicates:modified` (`dm`)
+  and `duplicates:content` (the default). With several, all must be equal:
+  `duplicates:name;size`. Only `content` reads files. Size, extension and contents
+  apply to files only; for the others, files and folders form groups of
+  their own. Names, stems and extensions ignore case unless `case:` is set
+  (`case:duplicates:name`) or Match case is on.
+- What is listed: `duplicates:` every member of every group; `extra-copies:` every
+  member but the first (the extra copies, as sorted); `distinct:` one of each
+  (the first of each group and every result without a duplicate);
+  `unique:` only the results without a duplicate.
+- Like `limit:`, the term applies to the whole query wherever it is written,
+  and `limit:` applies after it. A query can have one.
 
 ## Number of results
 

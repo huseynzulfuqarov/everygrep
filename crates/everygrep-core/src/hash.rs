@@ -122,8 +122,7 @@ pub struct Hashes {
 }
 
 /// Reads `file` from its start to its end once and computes the `wanted`
-/// hashes, adding the bytes read to `progress`. A cancel is seen before each
-/// buffer; a file that is not as long as when it was opened is
+/// hashes. A cancel of `progress` is seen before each buffer; a file that is not as long as when it was opened is
 /// [`HashError::Unreadable`] (it changed meanwhile).
 pub fn hash_file(
     file: &mut OpenFile,
@@ -160,7 +159,6 @@ pub fn hash_file(
             h.write(bytes);
         }
         read += n as u64;
-        progress.add(n as u64);
     }
     if read != file.key.size {
         return Err(HashError::Unreadable);
@@ -370,7 +368,6 @@ mod tests {
         assert_eq!(ends_hash(&file, &progress), Err(HashError::Cancelled));
         let progress = Progress::new();
         hash_file(&mut open(&path).unwrap(), ALL, &progress).unwrap();
-        assert_eq!(progress.done(), (BUFFER * 4) as u64);
     }
 
     #[test]

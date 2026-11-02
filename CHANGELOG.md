@@ -193,6 +193,13 @@ First version, 0.1.0, not released yet.
   `content-utf8:`, `content-utf16le:`, `content-utf16be:` and `content-codepage:` read
   in one encoding. Diacritics are matched as written in contents.
 
+- `duplicates:` lists files with the same contents (size first, then a hash of
+  the first and last 16 KiB, then of the whole file; hard links count as one
+  file), `duplicates:name`, `duplicates:stem`, `duplicates:ext`, `duplicates:size`, `duplicates:modified`
+  and combinations (`duplicates:name;size`) compare those; `extra-copies:` lists
+  the extra copies, `distinct:` one of each, `unique:` the results without
+  a duplicate. Groups stay together in the order shown.
+
 ### Command line
 
 - `everygrep index`, `search` and `shell` (with `--watch`), reusing the saved
