@@ -304,6 +304,9 @@ day starts at local midnight, so days with a daylight saving change are 23 or
 25 hours long. The zone comes from `$TZ` or `/etc/localtime` (see
 `crates/everygrep-core/src/localtime.rs`). 
 Invalid dates (`2026-02-30`) are errors.
+Entries whose modification time is not known (shown empty: indexed without
+file details, not readable, or a folder that could not be listed and is
+read again later) never match `modified:`.
 
 ## Creation and access time
 

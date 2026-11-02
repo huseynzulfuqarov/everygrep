@@ -511,8 +511,9 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             *min <= size && size <= *max
         }
         Pred::Modified { min, max } => {
+            // 0 is an unknown time (see `Meta::mtime_ns`), not 1970.
             let t = store.meta(id).mtime_ns;
-            *min <= t && t <= *max
+            t != 0 && *min <= t && t <= *max
         }
         Pred::DiskTime { field, min, max } => {
             if !scratch.on_disk(store, id) {
@@ -3723,6 +3724,33 @@ mod tests {
             .collect();
         out.sort();
         out
+    }
+
+    #[test]
+    fn an_unknown_modification_time_matches_no_date() {
+        let now = at(2026, 10, 25, 12, 0, 1);
+        let entries = [
+            ("unknown", 0),
+            ("y1960", at(1960, 6, 1, 0, 0, 1)),
+            ("y2025", at(2025, 6, 1, 0, 0, 1)),
+        ];
+        for q in [
+            "modified:<2000",
+            "modified:1970",
+            "modified:<=1970-01-01",
+            "modified:>30d",
+            "modified:<today",
+        ] {
+            assert!(
+                !find_at(&entries, now, q).contains(&"unknown".to_owned()),
+                "{q}"
+            );
+        }
+        assert_eq!(find_at(&entries, now, "modified:<2000"), ["y1960"]);
+        assert_eq!(
+            find_at(&entries, now, "!modified:<2000"),
+            ["unknown", "y2025"]
+        );
     }
 
     #[test]

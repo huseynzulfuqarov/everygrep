@@ -39,7 +39,10 @@ pub struct Meta {
     /// Size in bytes. For a folder in a [`NodeStore`] this is the total size
     /// of all files below it, kept by the store.
     pub size: u64,
-    /// Modification time in nanoseconds since the Unix epoch.
+    /// Modification time in nanoseconds since the Unix epoch; 0 when it is
+    /// not known (not read, or a folder whose listing failed and that is
+    /// read again by the next catch-up). It is shown empty and matches no
+    /// date.
     pub mtime_ns: i64,
 }
 

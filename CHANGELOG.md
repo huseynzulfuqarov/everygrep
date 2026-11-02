@@ -127,6 +127,9 @@ First version, 0.1.0, not released yet.
 - An age without a comparison, `modified:7d`, means within the last 7 days, like
   `modified:<7d`; it used to be an error. Ages end now: a time in the future no
   longer matches `modified:7d` or `modified:<7d`, as with `modified:last7days`.
+  An unknown modification time (shown empty) matches no date; it used to
+  count as 1 January 1970 (`modified:<2000` found folders that could not be
+  listed and files indexed without details).
 - `limit:100` keeps only the first 100 results, after sorting in the window
   and in name order on the command line.
 - Filter words in the query, the filter names with a colon: `audio:`,
