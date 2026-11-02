@@ -17,7 +17,11 @@
 //! - in the encoding of the term. [`ContentEncoding::Auto`] reads UTF-8,
 //!   UTF-16 when the file starts with its byte order mark, and a file that
 //!   is not valid UTF-8 again in the legacy code page of the options
-//!   ([`CodePage`], Windows-1254 by default).
+//!   ([`CodePage`], Windows-1254 by default);
+//! - with [`ContentOptions::pdf`], a file named `*.pdf` as the text that
+//!   `pdftotext` (poppler) prints for it, in a child process that is killed
+//!   on cancel or after [`PDF_TIMEOUT`], so a broken file cannot take the
+//!   program down or hang the search.
 //!
 //! Matching works line by line, so a phrase does not match across a line
 //! break; `^` and `$` match at the start and end of every line. Case is
@@ -53,6 +57,12 @@ use crate::progress::{Cancelled, Progress};
 
 /// The largest file read by default: 100 MiB.
 pub const DEFAULT_MAX_SIZE: u64 = 100 * 1024 * 1024;
+
+/// Longest time `pdftotext` may take for one file.
+pub const PDF_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The program that prints the text of a PDF file.
+pub const PDF_READER: &str = "pdftotext";
 
 /// Longest line kept in memory while searching a file (a minified file can
 /// be one line); a file with a longer line is not searched further.
@@ -134,6 +144,8 @@ pub struct ContentOptions {
     pub max_size: u64,
     /// The code page of files that are not UTF-8.
     pub code_page: CodePage,
+    /// Read the text of PDF files with [`PDF_READER`].
+    pub pdf: bool,
 }
 
 impl Default for ContentOptions {
@@ -141,6 +153,7 @@ impl Default for ContentOptions {
         Self {
             max_size: DEFAULT_MAX_SIZE,
             code_page: CodePage::default(),
+            pdf: false,
         }
     }
 }
@@ -224,7 +237,8 @@ pub enum Outcome {
     /// A link, folder, FIFO, socket or device; not read.
     NotAFile,
     /// It could not be opened or read (permissions, gone, a line longer
-    /// than 64 MiB).
+    /// than 64 MiB; for a PDF file: no [`PDF_READER`], or it failed or took
+    /// longer than [`PDF_TIMEOUT`]).
     Unreadable,
 }
 
@@ -253,6 +267,9 @@ pub fn search_file(
     };
     if options.max_size != 0 && size > options.max_size {
         return Ok(Outcome::TooLarge);
+    }
+    if options.pdf && is_pdf_name(path) {
+        return search_pdf(path, term, progress);
     }
     let forced = match term.encoding {
         ContentEncoding::Auto => None,
@@ -552,6 +569,100 @@ impl ContentCache {
             answers.clear();
         }
         answers.insert(entry.path.clone(), (entry.size, entry.mtime_ns, matched));
+    }
+}
+
+/// Whether the name of `path` ends with `.pdf`, in any case.
+fn is_pdf_name(path: &Path) -> bool {
+    let name = path.file_name().map_or(&b""[..], |n| n.as_bytes());
+    name.len() > 4 && name[name.len() - 4..].eq_ignore_ascii_case(b".pdf")
+}
+
+/// Whether [`PDF_READER`] is an executable file in a folder of `PATH`.
+pub fn pdf_reader_available() -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        std::fs::metadata(dir.join(PDF_READER))
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    })
+}
+
+/// Searches the text `pdftotext` prints for the PDF file at `path`. The
+/// child is killed when the search ends early (a match, a cancel, the
+/// timeout) and always waited for.
+fn search_pdf(path: &Path, term: &ContentTerm, progress: &Progress) -> Result<Outcome, Cancelled> {
+    use std::process::{Command, Stdio};
+    let child = Command::new(PDF_READER)
+        .args(["-q", "-enc", "UTF-8"])
+        .arg(path)
+        .arg("-")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let Ok(mut child) = child else {
+        return Ok(Outcome::Unreadable);
+    };
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(Outcome::Unreadable);
+    };
+    let nonblocking = rustix::fs::fcntl_getfl(&stdout)
+        .and_then(|flags| rustix::fs::fcntl_setfl(&stdout, flags | rustix::fs::OFlags::NONBLOCK));
+    let result = if nonblocking.is_ok() {
+        let reader = Piped {
+            inner: stdout,
+            progress,
+            deadline: std::time::Instant::now() + PDF_TIMEOUT,
+            timed_out: false,
+        };
+        let mut sink = Found::default();
+        let mut reader = reader;
+        let read = searcher(None).search_reader(&term.matcher, &mut reader, &mut sink);
+        Some((sink.matched, read.is_ok() && !reader.timed_out))
+    } else {
+        None
+    };
+    let _ = child.kill();
+    let status = child.wait();
+    progress.check()?;
+    Ok(match result {
+        Some((true, _)) => Outcome::Match,
+        Some((false, true)) if status.is_ok_and(|s| s.success()) => Outcome::NoMatch,
+        _ => Outcome::Unreadable,
+    })
+}
+
+/// The output of a child, read without blocking so a cancel or the
+/// deadline is seen within a few milliseconds.
+struct Piped<'a> {
+    inner: std::process::ChildStdout,
+    progress: &'a Progress,
+    deadline: std::time::Instant,
+    timed_out: bool,
+}
+
+impl Read for Piped<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            if self.progress.is_cancelled() {
+                return Err(io::Error::other("cancelled"));
+            }
+            match self.inner.read(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= self.deadline {
+                        self.timed_out = true;
+                        return Err(io::Error::from(io::ErrorKind::TimedOut));
+                    }
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                other => return other,
+            }
+        }
     }
 }
 
@@ -1105,5 +1216,87 @@ mod tests {
             || {},
         );
         assert_eq!((result, decisions.decided()), (Err(Cancelled), 0));
+    }
+
+    /// A one-page PDF file with `text` in Helvetica, written as a hex
+    /// string, so the raw file does not hold the text.
+    fn tiny_pdf(text: &str) -> Vec<u8> {
+        let hex: String = text.bytes().map(|b| format!("{b:02X}")).collect();
+        let stream = format!("BT /F1 18 Tf 20 100 Td <{hex}> Tj ET");
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R \
+             /Resources << /Font << /F1 5 0 R >> >> >>"
+                .to_owned(),
+            format!(
+                "<< /Length {} >>\nstream\n{stream}\nendstream",
+                stream.len()
+            ),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        ];
+        let mut out = "%PDF-1.4\n".to_owned();
+        let mut offsets = Vec::new();
+        for (i, object) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.push_str(&format!("{} 0 obj\n{object}\nendobj\n", i + 1));
+        }
+        let xref = out.len();
+        out.push_str(&format!(
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len() + 1
+        ));
+        for offset in offsets {
+            out.push_str(&format!("{offset:010} 00000 n \n"));
+        }
+        out.push_str(&format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        ));
+        out.into_bytes()
+    }
+
+    #[test]
+    fn pdf_files_are_read_through_the_reader_only_when_asked() {
+        if !pdf_reader_available() {
+            eprintln!("{PDF_READER} is not installed; skipped");
+            return;
+        }
+        let dir = Dir::new("pdf");
+        let pdf = dir.file("Report.PDF", &tiny_pdf("Quarterly needle report"));
+        let with_pdf = ContentOptions {
+            pdf: true,
+            ..ContentOptions::default()
+        };
+        let read = |options: &ContentOptions, text: &str| {
+            search_file(&pdf, &term(text), options, &Progress::new()).unwrap()
+        };
+        assert_eq!(read(&with_pdf, "needle report"), Outcome::Match);
+        assert_eq!(read(&with_pdf, "missing"), Outcome::NoMatch);
+        // Off: the raw file, where the text is not written as such.
+        assert_eq!(
+            read(&ContentOptions::default(), "needle report"),
+            Outcome::NoMatch
+        );
+        // Not a PDF inside: the reader fails.
+        let broken = dir.file("broken.pdf", b"not a pdf at all\n");
+        let outcome = search_file(&broken, &term("pdf"), &with_pdf, &Progress::new()).unwrap();
+        assert_eq!(outcome, Outcome::Unreadable);
+        // Cancelled: the child is stopped.
+        let progress = Progress::new();
+        progress.cancel();
+        assert_eq!(
+            search_file(&pdf, &term("needle"), &with_pdf, &progress),
+            Err(Cancelled)
+        );
+    }
+
+    #[test]
+    fn pdf_files_are_known_by_their_name() {
+        assert!(is_pdf_name(Path::new("/a/b.pdf")));
+        assert!(is_pdf_name(Path::new("/a/B.Pdf")));
+        assert!(!is_pdf_name(Path::new("/a/.pdf")));
+        assert!(!is_pdf_name(Path::new("/a/pdf")));
+        assert!(!is_pdf_name(Path::new("/a/b.pdf.txt")));
     }
 }
