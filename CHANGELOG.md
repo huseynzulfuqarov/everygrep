@@ -40,7 +40,9 @@ First version, 0.1.0, not released yet.
 - Failed directory listings are retried after access returns; saved roots
   that were absent during scanning are revisited on load. A folder that can
   be listed but not searched still gets its added and removed entries by
-  name.
+  name, also while it is watched; it is listed again when it gets an event
+  (such as the permission change that makes it searchable) until all its
+  entries could be looked at.
 - In-memory compaction during long watch sessions.
 - Saved index (format version 6) with full validation and a checksum,
   decoded while it is read. It is written to an exclusively created

@@ -564,8 +564,10 @@ system supports syncing a directory).
 
 Failed or partial directory listings remain eligible for catch-up even when
 permissions change without changing the directory mtime. In a folder that
-can be listed but not searched, catch-up still adds and removes entries by
-name, without sizes or times until it can look at them. Roots absent during
+can be listed but not searched, catch-up and the watcher still add and
+remove entries by name, without sizes or times until they can look at them;
+the watcher lists such a folder again on its next event (a permission change
+included), and its time is not saved until then. Roots absent during
 a scan are retried when the saved index is loaded.
 
 ## Languages

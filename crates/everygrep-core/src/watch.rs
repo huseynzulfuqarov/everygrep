@@ -153,6 +153,11 @@ pub struct Watcher {
     /// Moves whose `MOVED_TO` was not in the last batch: the node, back at
     /// its old name, and that name.
     waiting_moves: HashMap<MoveKey, (NodeId, Vec<u8>)>,
+    /// Folders with an entry that could not be looked at (readable but not
+    /// searchable). Their time is not kept, so a catch-up reads them again,
+    /// and they are listed again when they get an event, until a listing
+    /// is complete.
+    incomplete: HashSet<NodeId>,
 }
 
 impl Watcher {
@@ -174,6 +179,7 @@ impl Watcher {
             recheck_from: 0,
             unmounted: Vec::new(),
             waiting_moves: HashMap::new(),
+            incomplete: HashSet::new(),
         };
         for root in online_roots(index) {
             w.watch_root(index, root);
@@ -361,6 +367,10 @@ impl Watcher {
                 Some((key, (remap.get(node.index()).copied().flatten()?, name)))
             })
             .collect();
+        self.incomplete = std::mem::take(&mut self.incomplete)
+            .into_iter()
+            .filter_map(|dir| remap.get(dir.index()).copied().flatten())
+            .collect();
         remap
     }
 
@@ -394,6 +404,8 @@ impl Watcher {
         let mut missed: Vec<(NodeId, Vec<u8>)> = Vec::new();
         let mut incomplete: HashSet<NodeId> = HashSet::new();
         let mut unmounted: HashSet<NodeId> = HashSet::new();
+        // Folders that had an event about one of their entries.
+        let mut event_dirs: HashSet<NodeId> = HashSet::new();
         for ev in events {
             if ev.mask.contains(Mask::Q_OVERFLOW) {
                 stats.overflow = true;
@@ -438,6 +450,7 @@ impl Watcher {
                     }
                     continue;
                 };
+                event_dirs.insert(dir);
 
                 if ev
                     .mask
@@ -535,9 +548,38 @@ impl Watcher {
                 }
             }
         }
+        // A folder where an entry could not be looked at is listed again
+        // when it has an event (in this batch: the one that could not be
+        // looked at; later, say, the permission change that makes it
+        // searchable again). The listing gives names and types even where
+        // entries cannot be looked at; the folder stays marked until a
+        // listing is complete.
+        self.incomplete.retain(|&dir| index.store().is_live(dir));
+        self.incomplete.extend(incomplete);
+        let relist: Vec<NodeId> = self
+            .incomplete
+            .iter()
+            .copied()
+            .filter(|dir| event_dirs.contains(dir) || touched.contains(dir))
+            .collect();
+        for dir in relist {
+            let watches = &mut self.watches;
+            let skip = &self.skip;
+            let listed = recheck_dirs(index, &[dir], skip, true, &mut |idx: &Index, new| {
+                watches.watch(idx, new, skip)
+            });
+            stats.added += listed.added;
+            stats.removed += listed.removed;
+            stats.updated += listed.updated;
+            if listed.errors == 0 {
+                self.incomplete.remove(&dir);
+            }
+        }
         // The times read at the end of the previous batch: every event queued
         // before them has now been read and applied. Only a watched folder
-        // reports its changes; one without a watch keeps its older time.
+        // reports its changes; one without a watch keeps its older time, and
+        // so does one still marked incomplete.
+        let incomplete = &self.incomplete;
         let keeps_time = |index: &Index, watches: &Watches, dir: NodeId| {
             index.store().is_live(dir)
                 && !incomplete.contains(&dir)
@@ -1011,6 +1053,58 @@ mod tests {
             .unwrap();
         let on_disk = Meta::from_metadata(&fs::symlink_metadata(&docs).unwrap());
         assert_eq!(f.index.store().meta(id).mtime_ns, on_disk.mtime_ns);
+    }
+
+    #[test]
+    fn a_folder_that_cannot_be_searched_keeps_its_entries_and_is_listed_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = Fixture::new("unsearchable");
+        let docs = f.root().join("docs");
+        let new = docs.join("new.txt");
+        /// Gives the folder its permissions back, also when the test fails.
+        struct Searchable(PathBuf);
+        impl Drop for Searchable {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+            }
+        }
+        let _restore = Searchable(docs.clone());
+        // Created, and the folder loses its search permission before the
+        // event is applied: the new file cannot be looked at.
+        fs::write(&new, b"new").unwrap();
+        fs::set_permissions(&docs, fs::Permissions::from_mode(0o644)).unwrap();
+        if fs::symlink_metadata(&new).is_ok() {
+            fs::set_permissions(&docs, fs::Permissions::from_mode(0o755)).unwrap();
+            panic!("test requires an unprivileged user");
+        }
+        assert!(f.settle(|i| i.len() == 4));
+        // Known by name, without size or time.
+        assert_eq!(
+            f.index.store().meta(node_in(&f.index, &new)),
+            Meta::default()
+        );
+        f.settle(|_| false);
+        // The folder keeps an older time, so a catch-up reads it.
+        let time = |f: &Fixture| {
+            let stored = f.index.store().meta(node_in(&f.index, &docs)).mtime_ns;
+            let on_disk = Meta::from_metadata(&fs::symlink_metadata(&docs).unwrap()).mtime_ns;
+            stored == on_disk
+        };
+        assert!(!time(&f));
+        // Searchable again: its permission change lists it again.
+        fs::set_permissions(&docs, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(f.settle(|i| i.store().meta(node_in(i, &new)).size == 3));
+        f.settle(|_| false);
+        assert!(time(&f));
+        assert_eq!(f.watcher.catch_up(&mut f.index).dirs_rescanned, 0);
+    }
+
+    fn node_in(index: &Index, path: &Path) -> NodeId {
+        index
+            .order()
+            .iter()
+            .find(|&id| index.store().path(id) == path)
+            .unwrap()
     }
 
     #[test]
