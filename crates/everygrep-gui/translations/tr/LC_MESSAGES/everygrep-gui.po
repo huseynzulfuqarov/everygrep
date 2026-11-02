@@ -1243,6 +1243,10 @@ msgid "copied, but the original could not be removed: {}"
 msgstr "copied, but the original could not be removed: {}"
 
 #: src/transfer.rs
+msgid "“{}” changed after it was copied"
+msgstr "“{}” kopyalandıktan sonra değişti"
+
+#: src/transfer.rs
 msgid "the partial copy “{}” could not be removed: {}"
 msgstr "kısmi kopya “{}” silinemedi: {}"
 

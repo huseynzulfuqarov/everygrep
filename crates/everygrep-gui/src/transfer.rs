@@ -9,7 +9,8 @@
 //! A move is a rename when the folder is on the same file
 //! system; otherwise the item is copied the same way and only the entries
 //! that were copied are removed from the source afterwards, so the source
-//! is never deleted when the move fails. Links are copied as links; special
+//! is never deleted when the move fails; an entry changed or replaced since
+//! it was read for the copy stays too. Links are copied as links; special
 //! files (sockets, pipes, devices) are skipped and stay in the source.
 
 use std::collections::HashMap;
@@ -260,16 +261,60 @@ fn move_in(
     }
 }
 
+/// A source entry that was copied, as it was when it was read.
+#[derive(Debug)]
+struct Copied {
+    path: PathBuf,
+    is_dir: bool,
+    dev: u64,
+    ino: u64,
+    len: u64,
+    /// Modification and status change times, in seconds and nanoseconds.
+    times: [(i64, i64); 2],
+}
+
+impl Copied {
+    fn new(path: &Path, meta: &Metadata) -> Self {
+        Self {
+            path: path.to_owned(),
+            is_dir: meta.is_dir(),
+            dev: meta.dev(),
+            ino: meta.ino(),
+            len: meta.len(),
+            times: [
+                (meta.mtime(), meta.mtime_nsec()),
+                (meta.ctime(), meta.ctime_nsec()),
+            ],
+        }
+    }
+
+    /// Whether `now` is still the entry that was copied. A folder only has
+    /// to be the same folder: whether it is empty is up to its removal.
+    fn unchanged(&self, now: &Metadata) -> bool {
+        let same = now.dev() == self.dev && now.ino() == self.ino;
+        if self.is_dir {
+            return same && now.is_dir();
+        }
+        let now = Copied::new(&self.path, now);
+        same && now.len == self.len && now.times == self.times
+    }
+}
+
 /// Removes the source entries that were copied, deepest first. A folder
 /// that still holds something (a special file, or a file added meanwhile)
-/// stays. Returns the first error.
-fn remove_copied(copied: &[(PathBuf, bool)]) -> Option<io::Error> {
+/// stays, and so does an entry that was changed or replaced after it was
+/// read for the copy. Returns the first error.
+fn remove_copied(copied: &[Copied]) -> Option<io::Error> {
     let mut first_error = None;
-    for (path, is_dir) in copied.iter().rev() {
-        let removed = if *is_dir {
-            fs::remove_dir(path)
-        } else {
-            fs::remove_file(path)
+    for c in copied.iter().rev() {
+        let removed = match fs::symlink_metadata(&c.path) {
+            Ok(now) if !c.unchanged(&now) => Err(io::Error::other(fill(
+                tr("“{}” changed after it was copied"),
+                &[&c.path.display()],
+            ))),
+            Ok(_) if c.is_dir => fs::remove_dir(&c.path),
+            Ok(_) => fs::remove_file(&c.path),
+            Err(e) => Err(e),
         };
         if let Err(e) = removed {
             first_error.get_or_insert(e);
@@ -279,8 +324,8 @@ fn remove_copied(copied: &[(PathBuf, bool)]) -> Option<io::Error> {
 }
 
 /// Copies `src` into `dest` under a temporary name, then gives it the first
-/// free name. Returns the new path and the source entries copied (with
-/// whether each is a folder), parents before their contents.
+/// free name. Returns the new path and the source entries copied, parents
+/// before their contents.
 fn copy_in(
     src: &Path,
     meta: &Metadata,
@@ -289,7 +334,7 @@ fn copy_in(
     progress: &Progress,
     sync: bool,
     run: &mut Run,
-) -> Result<(PathBuf, Vec<(PathBuf, bool)>), Stop> {
+) -> Result<(PathBuf, Vec<Copied>), Stop> {
     let mut copied = Vec::new();
     let mut buf = vec![0; CHUNK];
     let mut tries = 0;
@@ -392,7 +437,7 @@ struct Copier<'a> {
     /// whose source is removed afterwards).
     sync: bool,
     buf: &'a mut Vec<u8>,
-    copied: &'a mut Vec<(PathBuf, bool)>,
+    copied: &'a mut Vec<Copied>,
     special: &'a mut u64,
     /// Whether the copy's top entry was made, so there is something of
     /// ours to remove when it stops.
@@ -412,14 +457,14 @@ impl Copier<'_> {
         if kind.is_symlink() {
             std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
             self.made = true;
-            self.copied.push((src.to_owned(), false));
+            self.copied.push(Copied::new(src, meta));
         } else if kind.is_file() {
             self.file(src, meta, dst)?;
-            self.copied.push((src.to_owned(), false));
+            self.copied.push(Copied::new(src, meta));
         } else if kind.is_dir() {
             fs::create_dir(dst)?;
             self.made = true;
-            self.copied.push((src.to_owned(), true));
+            self.copied.push(Copied::new(src, meta));
             for entry in fs::read_dir(src)? {
                 let entry = entry?;
                 // DirEntry::metadata does not follow links.
@@ -1090,7 +1135,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(target, dest.join("tree"));
-        assert_eq!(copied, [(src.clone(), true), (src.join("f"), false)]);
+        let entries: Vec<_> = copied.iter().map(|c| (c.path.clone(), c.is_dir)).collect();
+        assert_eq!(entries, [(src.clone(), true), (src.join("f"), false)]);
         // A file added after the copy is not in the list and stays.
         write(&src.join("late"), "l");
         assert!(remove_copied(&copied).is_some());
@@ -1100,6 +1146,36 @@ mod tests {
         fs::remove_file(src.join("late")).unwrap();
         assert!(remove_copied(&copied[..1]).is_none());
         assert!(!src.exists());
+    }
+
+    #[test]
+    fn a_move_by_copy_keeps_a_source_changed_after_it_was_copied() {
+        let t = TempDir::new("move-changed");
+        let src = t.path("src/tree");
+        write(&src.join("f"), "v1");
+        write(&src.join("g"), "g");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let meta = fs::symlink_metadata(&src).unwrap();
+        let mut run = Run::default();
+        let (_, copied) = copy_in(
+            &src,
+            &meta,
+            &dest,
+            OsStr::new("tree"),
+            &Progress::new(),
+            true,
+            &mut run,
+        )
+        .unwrap();
+        // Another program writes a file after it was copied.
+        write(&src.join("f"), "v2, longer");
+        let e = remove_copied(&copied).expect("the change is reported");
+        assert!(e.to_string().contains("changed after it was copied"), "{e}");
+        assert_eq!(read(&src.join("f")), "v2, longer");
+        assert_eq!(read(&dest.join("tree/f")), "v1");
+        // The unchanged file still goes.
+        assert_eq!(names(&src), ["f"]);
     }
 
     #[test]
