@@ -9,7 +9,7 @@ use everygrep_core::rules::{RuleError, RuleList};
 use everygrep_core::sort::FolderSize;
 
 use crate::clipboard::Operation;
-use crate::engine::{Busy, IndexState, Notice, Stopped, TaskKind, Unwatched};
+use crate::engine::{Busy, IndexState, IndexStats, Notice, Stopped, TaskKind, Unwatched};
 use crate::format::{self, SizeStandard, SizeUnit};
 use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
@@ -435,6 +435,58 @@ pub fn index_status(state: IndexState, indexed: usize) -> String {
     fill(text, &[&entries])
 }
 
+/// The Indexing page's details of the index, one fact a line.
+pub fn index_details(s: &IndexStats, zone: &everygrep_core::localtime::Zone) -> String {
+    let count = |n: u64| format::count(usize::try_from(n).unwrap_or(usize::MAX));
+    let mut lines = vec![if s.file_details {
+        fill(
+            tr("Files: {0} · Folders: {1} · Size of the files: {2}"),
+            &[
+                &count(s.files),
+                &count(s.folders),
+                &format::size(s.file_bytes),
+            ],
+        )
+    } else {
+        fill(
+            tr("Files: {0} · Folders: {1} · File sizes are not indexed"),
+            &[&count(s.files), &count(s.folders)],
+        )
+    }];
+    lines.push(fill(
+        tr("Folders to index: {0} · Drives in the index: {1}, {2} connected"),
+        &[
+            &format::count(s.roots),
+            &format::count(s.drives),
+            &format::count(s.drives_online),
+        ],
+    ));
+    let memory = format::size(s.memory as u64);
+    lines.push(match (&s.index_file, s.index_file_bytes) {
+        (Some(file), Some(bytes)) => fill(
+            tr("Memory: about {0} · Index file: {1} ({2})"),
+            &[&memory, &file.display(), &format::size(bytes)],
+        ),
+        (Some(file), None) => fill(
+            tr("Memory: about {0} · Index file: {1} (not saved yet)"),
+            &[&memory, &file.display()],
+        ),
+        (None, _) => fill(tr("Memory: about {} · The index is not saved"), &[&memory]),
+    });
+    lines.push(match s.last_full_scan {
+        Some(at) => fill(
+            tr("Last full scan: {}"),
+            &[&format::timestamp(at.saturating_mul(1_000_000_000), zone)],
+        ),
+        None => tr("Last full scan: before this start; the saved index was loaded and caught up")
+            .to_owned(),
+    });
+    if s.unwatched.folders > 0 {
+        lines.push(unwatched(s.unwatched));
+    }
+    lines.join("\n")
+}
+
 /// The long operation in the status line: `Indexing: 42%`, or what has
 /// been done so far when the amount of work is not known.
 pub fn busy(b: &Busy) -> String {
@@ -767,6 +819,51 @@ pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
 mod tests {
     use super::*;
     use everygrep_core::kind::classify;
+
+    #[test]
+    fn index_details_name_every_fact() {
+        let zone = everygrep_core::localtime::Zone::utc();
+        let mut s = IndexStats {
+            files: 1500,
+            folders: 20,
+            file_bytes: 3 << 20,
+            roots: 1,
+            drives: 2,
+            drives_online: 1,
+            memory: 2 << 20,
+            index_file: Some("/c/index.bin".into()),
+            index_file_bytes: Some(1 << 20),
+            last_full_scan: Some(86_400 + 3600),
+            unwatched: Unwatched::default(),
+            file_details: true,
+        };
+        let text = index_details(&s, &zone);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines,
+            [
+                "Files: 1\u{2009}500 · Folders: 20 · Size of the files: 3.0 MB",
+                "Folders to index: 1 · Drives in the index: 2, 1 connected",
+                "Memory: about 2.0 MB · Index file: /c/index.bin (1.0 MB)",
+                "Last full scan: 1970-01-02 01:00",
+            ]
+        );
+        s.file_details = false;
+        s.index_file_bytes = None;
+        s.last_full_scan = None;
+        s.unwatched = Unwatched {
+            folders: 3,
+            limit_reached: true,
+        };
+        let text = index_details(&s, &zone);
+        assert!(text.contains("File sizes are not indexed"), "{text}");
+        assert!(text.contains("(not saved yet)"), "{text}");
+        assert!(text.contains("before this start"), "{text}");
+        assert!(
+            text.ends_with("3 folders not watched: watch limit reached"),
+            "{text}"
+        );
+    }
 
     fn type_of(name: &str, is_dir: bool) -> String {
         type_name(classify(name.as_bytes(), is_dir), extension(name, is_dir))

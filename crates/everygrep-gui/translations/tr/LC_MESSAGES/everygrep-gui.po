@@ -2247,3 +2247,43 @@ msgstr "Her gün şu saatte"
 #: src/labels.rs
 msgid "Type the time as HH:MM on the 24-hour clock, for example 03:00. The previous time is kept."
 msgstr "Saati 24 saat biçiminde SS:DD olarak yazın, örneğin 03:00. Önceki saat korunur."
+
+#: ui/settings.slint
+msgid "Index details"
+msgstr "Dizin ayrıntıları"
+
+#: ui/settings.slint
+msgid "Count again"
+msgstr "Yeniden say"
+
+#: src/labels.rs
+msgid "Files: {0} · Folders: {1} · Size of the files: {2}"
+msgstr "Dosyalar: {0} · Klasörler: {1} · Dosyaların boyutu: {2}"
+
+#: src/labels.rs
+msgid "Files: {0} · Folders: {1} · File sizes are not indexed"
+msgstr "Dosyalar: {0} · Klasörler: {1} · Dosya boyutları dizine eklenmiyor"
+
+#: src/labels.rs
+msgid "Folders to index: {0} · Drives in the index: {1}, {2} connected"
+msgstr "Dizine eklenecek klasörler: {0} · Dizindeki sürücüler: {1}, bağlı: {2}"
+
+#: src/labels.rs
+msgid "Memory: about {0} · Index file: {1} ({2})"
+msgstr "Bellek: yaklaşık {0} · Dizin dosyası: {1} ({2})"
+
+#: src/labels.rs
+msgid "Memory: about {0} · Index file: {1} (not saved yet)"
+msgstr "Bellek: yaklaşık {0} · Dizin dosyası: {1} (henüz kaydedilmedi)"
+
+#: src/labels.rs
+msgid "Memory: about {} · The index is not saved"
+msgstr "Bellek: yaklaşık {} · Dizin kaydedilmiyor"
+
+#: src/labels.rs
+msgid "Last full scan: {}"
+msgstr "Son tam tarama: {}"
+
+#: src/labels.rs
+msgid "Last full scan: before this start; the saved index was loaded and caught up"
+msgstr "Son tam tarama: bu açılıştan önce; kayıtlı dizin yüklendi ve değişikliklerle güncellendi"

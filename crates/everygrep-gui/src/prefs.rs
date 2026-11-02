@@ -673,6 +673,26 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Counts the index on a helper thread and shows the numbers on the
+    /// Indexing page when they come.
+    fn refresh_details(&self) {
+        let engine = Arc::clone(&self.engine);
+        let _ = std::thread::Builder::new()
+            .name("index details".into())
+            .spawn(move || {
+                let stats = engine.stats();
+                let zone = everygrep_core::localtime::Zone::local();
+                let text = labels::index_details(&stats, &zone);
+                let _ = slint::invoke_from_event_loop(move || {
+                    with(|p| {
+                        if let Some(w) = p.window.borrow().as_ref() {
+                            w.set_index_details(text.into());
+                        }
+                    });
+                });
+            });
+    }
+
     /// Gives the engine the rescan schedule.
     pub fn apply_schedule(&self) {
         self.engine.set_schedule(self.settings.borrow().schedule());
@@ -757,6 +777,7 @@ impl Prefs {
         }
         self.fill(w);
         self.fill_rule_texts(w);
+        self.refresh_details();
         // As for the main window (see `raise` in main.rs): showing again
         // gives a new surface, which GNOME brings to the front.
         let _ = w.hide();
@@ -1243,6 +1264,7 @@ impl Prefs {
         w.on_rules_changed(on(|p| p.rules_changed()));
         w.on_watch_changed(on(|p| p.watch_changed()));
         w.on_rescan_changed(on(|p| p.rescan_changed()));
+        w.on_refresh_details(on(|p| p.refresh_details()));
         w.on_file_details_changed(on(|p| {
             let on = p.window.borrow().as_ref().map(|w| w.get_file_details());
             if let Some(on) = on {

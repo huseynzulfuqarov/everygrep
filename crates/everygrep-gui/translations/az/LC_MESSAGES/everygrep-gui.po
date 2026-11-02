@@ -2247,3 +2247,43 @@ msgstr "Hər gün bu saatda"
 #: src/labels.rs
 msgid "Type the time as HH:MM on the 24-hour clock, for example 03:00. The previous time is kept."
 msgstr "Vaxtı 24 saatlıq formatda SS:DD kimi yazın, məsələn 03:00. Əvvəlki vaxt saxlanılır."
+
+#: ui/settings.slint
+msgid "Index details"
+msgstr "İndeks haqqında"
+
+#: ui/settings.slint
+msgid "Count again"
+msgstr "Yenidən say"
+
+#: src/labels.rs
+msgid "Files: {0} · Folders: {1} · Size of the files: {2}"
+msgstr "Fayllar: {0} · Qovluqlar: {1} · Faylların ölçüsü: {2}"
+
+#: src/labels.rs
+msgid "Files: {0} · Folders: {1} · File sizes are not indexed"
+msgstr "Fayllar: {0} · Qovluqlar: {1} · Fayl ölçüləri indeksə yazılmır"
+
+#: src/labels.rs
+msgid "Folders to index: {0} · Drives in the index: {1}, {2} connected"
+msgstr "İndekslənən qovluqlar: {0} · İndeksdəki disklər: {1}, qoşulu: {2}"
+
+#: src/labels.rs
+msgid "Memory: about {0} · Index file: {1} ({2})"
+msgstr "Yaddaş: təxminən {0} · İndeks faylı: {1} ({2})"
+
+#: src/labels.rs
+msgid "Memory: about {0} · Index file: {1} (not saved yet)"
+msgstr "Yaddaş: təxminən {0} · İndeks faylı: {1} (hələ saxlanmayıb)"
+
+#: src/labels.rs
+msgid "Memory: about {} · The index is not saved"
+msgstr "Yaddaş: təxminən {} · İndeks saxlanmır"
+
+#: src/labels.rs
+msgid "Last full scan: {}"
+msgstr "Son tam skan: {}"
+
+#: src/labels.rs
+msgid "Last full scan: before this start; the saved index was loaded and caught up"
+msgstr "Son tam skan: bu açılışdan əvvəl; saxlanmış indeks yükləndi və dəyişikliklərə uyğunlaşdırıldı"

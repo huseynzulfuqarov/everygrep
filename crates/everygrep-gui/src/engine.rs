@@ -97,6 +97,30 @@ pub struct Hooks {
     pub on_notice: Box<dyn Fn(Notice) + Send + Sync>,
 }
 
+/// Numbers about the index, for the Indexing page.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IndexStats {
+    pub files: u64,
+    pub folders: u64,
+    /// Sum of the sizes of the files (0 without file details).
+    pub file_bytes: u64,
+    /// Folders to index, and drives in the index with how many are
+    /// connected.
+    pub roots: usize,
+    pub drives: usize,
+    pub drives_online: usize,
+    /// Approximate memory of the index.
+    pub memory: usize,
+    pub index_file: Option<PathBuf>,
+    /// Size of the index file on disk, when it exists.
+    pub index_file_bytes: Option<u64>,
+    /// When the folders were last scanned from scratch while the program
+    /// ran (seconds since 1970); `None` when the saved index was used.
+    pub last_full_scan: Option<i64>,
+    pub unwatched: Unwatched,
+    pub file_details: bool,
+}
+
 /// A note for the user from the engine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
@@ -463,6 +487,8 @@ pub struct Engine {
     /// the index thread when first needed.
     schedule: Mutex<Schedule>,
     last_full_scan: AtomicI64,
+    /// Whether the folders were scanned from scratch since the start.
+    scanned_this_session: AtomicBool,
     schedule_checked: AtomicI64,
     zone: std::sync::OnceLock<everygrep_core::localtime::Zone>,
 }
@@ -581,6 +607,7 @@ impl Engine {
             frequency_columns: AtomicBool::new(false),
             schedule: Mutex::new(Schedule::Never),
             last_full_scan: AtomicI64::new(unix_now()),
+            scanned_this_session: AtomicBool::new(false),
             schedule_checked: AtomicI64::new(unix_now()),
             zone: std::sync::OnceLock::new(),
         });
@@ -735,6 +762,53 @@ impl Engine {
     /// first scan has started.
     pub fn roots(&self) -> Vec<PathBuf> {
         self.roots.lock().expect("lock").clone()
+    }
+
+    fn note_full_scan(&self) {
+        self.last_full_scan.store(unix_now(), Ordering::SeqCst);
+        self.scanned_this_session.store(true, Ordering::SeqCst);
+    }
+
+    /// Counts what the index holds. Walks every entry under the read lock
+    /// (about a millisecond for 100 000 entries) and reads the size of the
+    /// index file, so it is called off the window's thread.
+    pub fn stats(&self) -> IndexStats {
+        let mut stats = IndexStats {
+            index_file: self.index_file.clone(),
+            unwatched: self.unwatched(),
+            file_details: self.indexed_file_details(),
+            last_full_scan: self
+                .scanned_this_session
+                .load(Ordering::SeqCst)
+                .then(|| self.last_full_scan.load(Ordering::SeqCst)),
+            ..IndexStats::default()
+        };
+        {
+            let index = self.index.read().expect("index lock");
+            let store = index.store();
+            for id in (0..store.len()).map(|i| NodeId(i as u32)) {
+                if !store.is_live(id) {
+                    continue;
+                }
+                if store.is_dir(id) {
+                    stats.folders += 1;
+                } else {
+                    stats.files += 1;
+                    stats.file_bytes = stats.file_bytes.saturating_add(store.meta(id).size);
+                }
+            }
+            stats.memory = index.heap_bytes();
+        }
+        let drives: Vec<DriveStatus> = self.drives().into_iter().filter(|d| d.indexed).collect();
+        stats.drives = drives.len();
+        stats.drives_online = drives.iter().filter(|d| d.online).count();
+        stats.roots = self.indexed_with.lock().expect("lock").0.len();
+        stats.index_file_bytes = self
+            .index_file
+            .as_ref()
+            .and_then(|f| std::fs::metadata(f).ok())
+            .map(|m| m.len());
+        stats
     }
 
     /// Scans the folders to index again by themselves on `schedule` (see
@@ -1570,7 +1644,7 @@ impl Engine {
         }
         self.replace_index(fresh);
         self.read_drives_again(&left_out);
-        self.last_full_scan.store(unix_now(), Ordering::SeqCst);
+        self.note_full_scan();
         *self.indexed_with.lock().expect("lock") = (roots, options);
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
@@ -1774,7 +1848,7 @@ impl Engine {
         };
         drop(index);
         self.read_drives_again(&left_out);
-        self.last_full_scan.store(unix_now(), Ordering::SeqCst);
+        self.note_full_scan();
         // Saves record what this index was built with.
         *self.indexed_with.lock().expect("lock") = (roots, options);
         watched
@@ -2876,6 +2950,40 @@ mod tests {
         // Not due again right after.
         std::thread::sleep(Duration::from_millis(1500));
         assert!(probe.states.try_iter().all(|s| s != IndexState::Scanning));
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn stats_count_files_folders_and_sizes() {
+        let dir = Scratch::new("stats");
+        let a = dir.0.join("a");
+        fs::create_dir_all(a.join("sub")).unwrap();
+        fs::write(a.join("one.txt"), "123").unwrap();
+        fs::write(a.join("sub/two.txt"), "4567").unwrap();
+        let index_file = dir.0.join("index.bin");
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index_file.clone());
+        probe.wait_for(IndexState::Watching);
+        let stats = probe.engine.stats();
+        // The root and sub.
+        assert_eq!((stats.files, stats.folders), (2, 2));
+        assert_eq!(stats.file_bytes, 7);
+        assert_eq!(stats.roots, 1);
+        assert_eq!((stats.drives, stats.drives_online), (0, 0));
+        assert!(stats.memory > 0);
+        assert!(stats.file_details);
+        assert!(stats.last_full_scan.is_some(), "it scanned at the start");
+        assert_eq!(stats.index_file.as_deref(), Some(index_file.as_path()));
+        probe.engine.shutdown();
+        assert!(fs::metadata(&index_file).unwrap().len() > 0);
+
+        let probe = Probe::start(vec![a], Vec::new(), index_file.clone());
+        probe.wait_for(IndexState::Watching);
+        let stats = probe.engine.stats();
+        assert_eq!(stats.last_full_scan, None, "the saved index was used");
+        assert_eq!(
+            stats.index_file_bytes,
+            Some(fs::metadata(&index_file).unwrap().len())
+        );
         probe.engine.shutdown();
     }
 

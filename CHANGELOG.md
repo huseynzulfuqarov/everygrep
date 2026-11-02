@@ -428,6 +428,9 @@ First version, 0.1.0, not released yet.
   every day at a time; it scans the folders to index again from scratch,
   which also finds changes no event reported, and waits while index updates
   are paused.
+- Index details on the Indexing page: files, folders, total size, folders
+  and drives, memory, the index file and its size, the last full scan and
+  folders not watched, counted off the window's thread.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

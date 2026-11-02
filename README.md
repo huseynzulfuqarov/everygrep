@@ -331,6 +331,7 @@ the program behaves as before, except that folders show their total size.
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
 | | "Rebuild index now" | — |
+| | index details: files, folders, size of the files, folders to index, drives in the index (connected), memory, the index file and its size, the last full scan, folders not watched; counted when the settings open and with "Count again" | — |
 | Search | search as you type (off: the search runs when Enter is pressed in the search field) | on |
 | | a click into the search field selects its text (a second click places the cursor) | on |
 | | clear the selection when the search changes (off: selected items stay selected while listed) | on |

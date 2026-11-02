@@ -137,6 +137,9 @@ export component SettingsWindow inherits Window {
     in-out property <string> rescan-time;
     in property <string> rescan-error;
     callback rescan-changed();
+    // Numbers about the index, one fact a line; counted again on request.
+    in property <string> index-details;
+    callback refresh-details();
     callback rebuild();
     // Removable drives (shown when the program can keep drive indexes).
     in property <bool> drives-enabled;
@@ -557,6 +560,22 @@ export component SettingsWindow inherits Window {
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
                                 }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                HorizontalLayout {
+                                    spacing: Theme.s3;
+                                    Heading {
+                                        text: @tr("Index details");
+                                        vertical-alignment: center;
+                                    }
+                                    Button {
+                                        text: @tr("Count again");
+                                        clicked => { root.refresh-details(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                }
+                                Note { text: root.index-details; }
                             }
                         }
 
