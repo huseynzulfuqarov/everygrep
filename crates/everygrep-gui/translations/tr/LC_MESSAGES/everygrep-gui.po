@@ -2215,3 +2215,35 @@ msgstr "Kayıtlı dizin bozuk ya da başka bir sürüme ait, bu yüzden yeniden 
 #: src/labels.rs
 msgid "The saved index could not be read ({}), so it is built again."
 msgstr "Kayıtlı dizin okunamadı ({}), bu yüzden yeniden oluşturuluyor."
+
+#: ui/settings.slint
+msgid "Rescan the folders"
+msgstr "Klasörleri yeniden tara"
+
+#: ui/settings.slint
+msgid "Hours between rescans"
+msgstr "Yeniden taramalar arasındaki saat"
+
+#: ui/settings.slint
+msgid "Time of day of the rescan"
+msgstr "Yeniden taramanın günün hangi saatinde yapılacağı"
+
+#: ui/settings.slint
+msgid "A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."
+msgstr "Yeniden tarama, “Dizini şimdi yeniden oluştur” gibi dizine eklenen her klasörü sıfırdan okur ve hiçbir olayın bildirmediği değişiklikleri de bulur; örneğin klasörüne dokunmadan içeriği değişen bir dosya. Saatler son tam taramadan ya da EveryGrep'in açılışından itibaren sayılır; bilgisayar uykudayken geçen günlük saat bir sonraki denetimde çalışır. Dizin güncellemeleri duraklatıldığında hiçbir şey çalışmaz."
+
+#: src/labels.rs
+msgid "Never"
+msgstr "Hiçbir zaman"
+
+#: src/labels.rs
+msgid "Every N hours"
+msgstr "Her N saatte bir"
+
+#: src/labels.rs
+msgid "Every day at"
+msgstr "Her gün şu saatte"
+
+#: src/labels.rs
+msgid "Type the time as HH:MM on the 24-hour clock, for example 03:00. The previous time is kept."
+msgstr "Saati 24 saat biçiminde SS:DD olarak yazın, örneğin 03:00. Önceki saat korunur."

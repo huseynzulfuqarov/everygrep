@@ -27,7 +27,7 @@
 use std::collections::HashSet;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
@@ -50,6 +50,7 @@ use everygrep_core::sync::{folders_below, resume_scan};
 use everygrep_core::watch::Watcher;
 
 use crate::hashes::HashStore;
+use crate::schedule::Schedule;
 
 /// What the index is doing, for the status line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -456,6 +457,14 @@ pub struct Engine {
     /// A frequency column is shown: count after each sort (see
     /// [`Index::frequencies`]).
     frequency_columns: AtomicBool,
+    /// When the folders to index are scanned again by themselves, the time
+    /// of the last full scan (or of the start) and of the last look at the
+    /// schedule, in seconds since 1970, and the local time zone, read on
+    /// the index thread when first needed.
+    schedule: Mutex<Schedule>,
+    last_full_scan: AtomicI64,
+    schedule_checked: AtomicI64,
+    zone: std::sync::OnceLock<everygrep_core::localtime::Zone>,
 }
 
 /// The reading of file contents for a search.
@@ -570,6 +579,10 @@ impl Engine {
             content_state: Mutex::new(ContentState::default()),
             hashes: Arc::new(HashStore::new(hash_file, DEFAULT_MAX_BYTES)),
             frequency_columns: AtomicBool::new(false),
+            schedule: Mutex::new(Schedule::Never),
+            last_full_scan: AtomicI64::new(unix_now()),
+            schedule_checked: AtomicI64::new(unix_now()),
+            zone: std::sync::OnceLock::new(),
         });
         // Watched from before the index thread first looks at the drives, so
         // a drive mounted after that look is never missed, however late the
@@ -722,6 +735,37 @@ impl Engine {
     /// first scan has started.
     pub fn roots(&self) -> Vec<PathBuf> {
         self.roots.lock().expect("lock").clone()
+    }
+
+    /// Scans the folders to index again by themselves on `schedule` (see
+    /// [`Schedule::due`]), while file changes are watched.
+    pub fn set_schedule(&self, schedule: Schedule) {
+        *self.schedule.lock().expect("lock") = schedule;
+    }
+
+    /// Asks for a new index of the current folders and rules when the
+    /// schedule says one is due. Checked once a second at most, by the
+    /// index thread while it watches.
+    fn check_schedule(&self) {
+        let now = unix_now();
+        let checked = self.schedule_checked.load(Ordering::SeqCst);
+        if now == checked {
+            return;
+        }
+        self.schedule_checked.store(now, Ordering::SeqCst);
+        let schedule = *self.schedule.lock().expect("lock");
+        if schedule == Schedule::Never || self.rescan.load(Ordering::SeqCst) {
+            return;
+        }
+        let zone = self
+            .zone
+            .get_or_init(everygrep_core::localtime::Zone::local);
+        let last = self.last_full_scan.load(Ordering::SeqCst);
+        if schedule.due(last, checked, now, zone) {
+            let _roots = self.roots.lock().expect("lock");
+            self.reindexed.fetch_add(1, Ordering::SeqCst);
+            self.rescan.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Whether the next new index reads file sizes and modification times
@@ -1371,6 +1415,9 @@ impl Engine {
     /// Whether the index thread should leave its current loop: to stop, to
     /// scan again, or because watching was turned on or off.
     fn interrupted(&self, watching: bool) -> bool {
+        if watching {
+            self.check_schedule();
+        }
         self.stop.load(Ordering::SeqCst)
             || self.rescan.load(Ordering::SeqCst)
             || self.watching.load(Ordering::SeqCst) != watching
@@ -1523,6 +1570,7 @@ impl Engine {
         }
         self.replace_index(fresh);
         self.read_drives_again(&left_out);
+        self.last_full_scan.store(unix_now(), Ordering::SeqCst);
         *self.indexed_with.lock().expect("lock") = (roots, options);
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
@@ -1726,6 +1774,7 @@ impl Engine {
         };
         drop(index);
         self.read_drives_again(&left_out);
+        self.last_full_scan.store(unix_now(), Ordering::SeqCst);
         // Saves record what this index was built with.
         *self.indexed_with.lock().expect("lock") = (roots, options);
         watched
@@ -2794,6 +2843,40 @@ mod tests {
         probe.engine.shutdown();
         let saved = persist::load(&index_file).unwrap();
         assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&plain)));
+    }
+
+    #[test]
+    fn a_due_schedule_scans_again_while_watching_but_not_while_paused() {
+        let dir = Scratch::new("schedule");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "").unwrap();
+        let roots = normalize_roots(std::slice::from_ref(&a));
+        let probe = Probe::start(roots.clone(), Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        // A file whose folder did not change is found by a full scan only;
+        // here it is simply made while nothing reports it.
+        probe.engine.set_watching(false);
+        probe.wait_for(IndexState::Unwatched);
+        let two_hours_ago = unix_now() - 2 * 3600;
+        probe
+            .engine
+            .last_full_scan
+            .store(two_hours_ago, Ordering::SeqCst);
+        probe.engine.set_schedule(Schedule::EveryHours(1));
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(
+            probe.states.try_iter().all(|s| s != IndexState::Scanning),
+            "scanned while paused"
+        );
+        probe.engine.set_watching(true);
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert!(probe.engine.last_full_scan.load(Ordering::SeqCst) > two_hours_ago);
+        // Not due again right after.
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(probe.states.try_iter().all(|s| s != IndexState::Scanning));
+        probe.engine.shutdown();
     }
 
     #[test]

@@ -128,6 +128,15 @@ export component SettingsWindow inherits Window {
     callback watch-changed();
     in-out property <bool> file-details;
     callback file-details-changed();
+    // Scanning the folders again by themselves: never, every N hours, every
+    // day at a time (HH:MM), and why a typed time was refused.
+    in property <[string]> rescan-names;
+    in-out property <int> rescan-kind;
+    in-out property <int> rescan-hours;
+    in property <int> rescan-hours-max;
+    in-out property <string> rescan-time;
+    in property <string> rescan-error;
+    callback rescan-changed();
     callback rebuild();
     // Removable drives (shown when the program can keep drive indexes).
     in property <bool> drives-enabled;
@@ -364,6 +373,48 @@ export component SettingsWindow inherits Window {
                                     toggled => { root.file-details-changed(); }
                                 }
                                 Note { text: @tr("Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."); }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                HorizontalLayout {
+                                    spacing: Theme.s3;
+                                    Text {
+                                        text: @tr("Rescan the folders");
+                                        color: Theme.text;
+                                        vertical-alignment: center;
+                                    }
+                                    ComboBox {
+                                        width: 200px;
+                                        accessible-label: @tr("Rescan the folders");
+                                        model: root.rescan-names;
+                                        current-index <=> root.rescan-kind;
+                                        selected => { root.rescan-changed(); }
+                                    }
+                                    if root.rescan-kind == 1: SpinBox {
+                                        width: 120px;
+                                        horizontal-stretch: 0;
+                                        accessible-label: @tr("Hours between rescans");
+                                        minimum: 1;
+                                        maximum: root.rescan-hours-max;
+                                        value <=> root.rescan-hours;
+                                        edited => { root.rescan-changed(); }
+                                    }
+                                    if root.rescan-kind == 2: LineEdit {
+                                        width: 90px;
+                                        accessible-label: @tr("Time of day of the rescan");
+                                        placeholder-text: "03:00";
+                                        text <=> root.rescan-time;
+                                        accepted => { root.rescan-changed(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                }
+                                Note { text: @tr("A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."); }
+                                if root.rescan-error != "": Text {
+                                    text: root.rescan-error;
+                                    color: Theme.danger;
+                                    font-size: Theme.small;
+                                    wrap: word-wrap;
+                                }
                             }
                             CheckBox {
                                 text: @tr("Use the exclude list");

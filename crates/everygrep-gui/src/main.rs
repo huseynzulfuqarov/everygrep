@@ -25,6 +25,7 @@ mod open;
 mod portal;
 mod prefs;
 mod results;
+mod schedule;
 mod selection;
 mod settings;
 mod stalled;
@@ -280,6 +281,7 @@ fn main() -> Result<(), slint::PlatformError> {
     prefs.apply_as_you_type();
     prefs.apply_behaviour();
     prefs.apply_watch_changes();
+    prefs.apply_schedule();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
         let _ = portal::watch_color_scheme(|scheme| {

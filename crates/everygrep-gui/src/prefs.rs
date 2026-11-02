@@ -27,6 +27,7 @@ use crate::history::{self, History};
 use crate::i18n;
 use crate::look::{self, Scheme};
 use crate::portal::ColorScheme;
+use crate::schedule::{self, Schedule};
 use crate::settings::{
     self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
 };
@@ -163,6 +164,8 @@ pub struct Prefs {
     writer: settings::Writer,
     /// Why the last change of the rules was refused, shown next to them.
     rule_error: RefCell<String>,
+    /// Why the typed rescan time was refused.
+    rescan_error: RefCell<String>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
     choosing: Cell<bool>,
@@ -260,6 +263,7 @@ impl Prefs {
             error: RefCell::new(error),
             writer: settings::Writer::start(),
             rule_error: RefCell::default(),
+            rescan_error: RefCell::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
             engine,
@@ -636,6 +640,44 @@ impl Prefs {
         }
     }
 
+    /// The Indexing page's rescan choice changed: a kind, its hours or its
+    /// time. A time that cannot be read changes nothing and is said.
+    fn rescan_changed(&self) {
+        let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
+            return;
+        };
+        let Some(w) = w.upgrade() else { return };
+        let kind = usize::try_from(w.get_rescan_kind())
+            .unwrap_or(0)
+            .min(Schedule::KINDS.len() - 1);
+        let hours = u32::try_from(w.get_rescan_hours())
+            .unwrap_or(1)
+            .clamp(1, schedule::MAX_HOURS);
+        let time = match schedule::parse_time(&w.get_rescan_time()) {
+            Some(time) => {
+                self.rescan_error.borrow_mut().clear();
+                w.set_rescan_time(schedule::time_text(time).into());
+                time
+            }
+            None => {
+                *self.rescan_error.borrow_mut() = labels::bad_rescan_time().to_owned();
+                self.settings.borrow().rescan_time
+            }
+        };
+        self.change(move |s| {
+            s.rescan = kind;
+            s.rescan_hours = hours;
+            s.rescan_time = time;
+        });
+        self.apply_schedule();
+        self.refresh();
+    }
+
+    /// Gives the engine the rescan schedule.
+    pub fn apply_schedule(&self) {
+        self.engine.set_schedule(self.settings.borrow().schedule());
+    }
+
     /// Shows in the Index menu whether updates are paused.
     pub fn apply_watch_changes(&self) {
         if let Some(m) = self.main.upgrade() {
@@ -671,6 +713,7 @@ impl Prefs {
     /// [`fill`](Self::fill), which runs on every index state change and
     /// would undo typing.
     fn fill_rule_texts(&self, w: &SettingsWindow) {
+        w.set_rescan_time(schedule::time_text(self.settings.borrow().rescan_time).into());
         let index = self.index.borrow();
         w.set_include_files(index.rules.include_files.as_str().into());
         w.set_exclude_files(index.rules.exclude_files.as_str().into());
@@ -747,6 +790,19 @@ impl Prefs {
         w.set_use_excludes(index.rules.enabled);
         w.set_watch_changes(self.settings.borrow().watch_changes);
         w.set_file_details(self.settings.borrow().index_file_details);
+        {
+            let s = self.settings.borrow();
+            w.set_rescan_names(ModelRc::new(VecModel::from(
+                labels::rescan_kinds()
+                    .into_iter()
+                    .map(SharedString::from)
+                    .collect::<Vec<_>>(),
+            )));
+            w.set_rescan_kind(s.rescan as i32);
+            w.set_rescan_hours(s.rescan_hours as i32);
+            w.set_rescan_hours_max(schedule::MAX_HOURS as i32);
+            w.set_rescan_error(self.rescan_error.borrow().as_str().into());
+        }
         w.set_rule_error(self.rule_error.borrow().as_str().into());
         w.set_index_note(if index.saved {
             "".into()
@@ -1186,6 +1242,7 @@ impl Prefs {
         }));
         w.on_rules_changed(on(|p| p.rules_changed()));
         w.on_watch_changed(on(|p| p.watch_changed()));
+        w.on_rescan_changed(on(|p| p.rescan_changed()));
         w.on_file_details_changed(on(|p| {
             let on = p.window.borrow().as_ref().map(|w| w.get_file_details());
             if let Some(on) = on {
@@ -1704,7 +1761,12 @@ impl Prefs {
                 s.drives = Default::default();
                 s.watch_changes = true;
                 s.index_file_details = true;
+                s.rescan = 0;
+                s.rescan_hours = settings::DEFAULT_RESCAN_HOURS;
+                s.rescan_time = settings::DEFAULT_RESCAN_TIME;
             });
+            self.rescan_error.borrow_mut().clear();
+            self.apply_schedule();
             self.engine.set_watching(true);
             self.engine.set_file_details(true);
             self.apply_watch_changes();

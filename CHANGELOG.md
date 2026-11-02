@@ -424,6 +424,10 @@ First version, 0.1.0, not released yet.
 - A saved index that is damaged, of another version or cannot be read is
   built again with a note in the status line saying why (a missing one, at
   the first start, is not mentioned).
+- Rescan schedule (Indexing page): never (the default), every N hours or
+  every day at a time; it scans the folders to index again from scratch,
+  which also finds changes no event reported, and waits while index updates
+  are paused.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

@@ -2215,3 +2215,35 @@ msgstr "Saxlanmış indeks zədələnib və ya başqa versiyaya aiddir, ona gör
 #: src/labels.rs
 msgid "The saved index could not be read ({}), so it is built again."
 msgstr "Saxlanmış indeksi oxumaq olmadı ({}), ona görə yenidən qurulur."
+
+#: ui/settings.slint
+msgid "Rescan the folders"
+msgstr "Qovluqları yenidən skan et"
+
+#: ui/settings.slint
+msgid "Hours between rescans"
+msgstr "Yenidən skanlar arasındakı saat"
+
+#: ui/settings.slint
+msgid "Time of day of the rescan"
+msgstr "Yenidən skanın günün hansı saatında olacağı"
+
+#: ui/settings.slint
+msgid "A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."
+msgstr "Yenidən skan indekslənən bütün qovluqları, “İndeksi indi yenidən qur” kimi, sıfırdan oxuyur və heç bir hadisənin bildirmədiyi dəyişiklikləri də tapır, məsələn qovluğuna toxunmadan məzmunu dəyişən faylı. Saatlar son tam skandan və ya EveryGrep-in açılışından sayılır; kompüter yuxu rejimində ikən keçən gündəlik vaxt növbəti yoxlamada icra olunur. İndeksin yenilənməsinə fasilə verilibsə, heç nə icra olunmur."
+
+#: src/labels.rs
+msgid "Never"
+msgstr "Heç vaxt"
+
+#: src/labels.rs
+msgid "Every N hours"
+msgstr "Hər N saatdan bir"
+
+#: src/labels.rs
+msgid "Every day at"
+msgstr "Hər gün bu saatda"
+
+#: src/labels.rs
+msgid "Type the time as HH:MM on the 24-hour clock, for example 03:00. The previous time is kept."
+msgstr "Vaxtı 24 saatlıq formatda SS:DD kimi yazın, məsələn 03:00. Əvvəlki vaxt saxlanılır."

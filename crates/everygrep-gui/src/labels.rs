@@ -507,6 +507,17 @@ pub fn notice(n: &Notice) -> String {
     }
 }
 
+/// The choices of the Indexing page's rescan, in the order of
+/// [`crate::schedule::Schedule::KINDS`].
+pub fn rescan_kinds() -> [&'static str; 3] {
+    [tr("Never"), tr("Every N hours"), tr("Every day at")]
+}
+
+/// Why a typed rescan time was not taken.
+pub fn bad_rescan_time() -> &'static str {
+    tr("Type the time as HH:MM on the 24-hour clock, for example 03:00. The previous time is kept.")
+}
+
 /// The message over the empty result list while the index is not ready.
 pub fn loading_message(state: IndexState) -> Option<&'static str> {
     match state {

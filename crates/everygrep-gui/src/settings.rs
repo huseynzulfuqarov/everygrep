@@ -56,6 +56,7 @@ use crate::commands::{self, Chord, Scope};
 use crate::engine::DriveSettings;
 use crate::format::{SizeStandard, SizeUnit};
 use crate::i18n::{self, Lang};
+use crate::schedule::{self, Schedule};
 
 /// Search history entries kept by default (the number before settings
 /// existed).
@@ -64,6 +65,10 @@ pub const DEFAULT_HISTORY: usize = 200;
 pub const DEFAULT_OPEN_CONFIRM: usize = 32;
 /// The largest number the open question can be set to.
 pub const MAX_OPEN_CONFIRM: usize = 10_000;
+/// Hours between rescans, and the time of day of a daily one (03:00), when
+/// that kind is first chosen.
+pub const DEFAULT_RESCAN_HOURS: u32 = 24;
+pub const DEFAULT_RESCAN_TIME: u32 = 3 * 60;
 /// Most search history entries that can be kept.
 pub const MAX_HISTORY: usize = 1000;
 /// Widths outside this range in pixels are ignored when read.
@@ -223,6 +228,13 @@ pub struct Settings {
     /// Whether the index holds the size and modification time of every
     /// file; off reads only names (folders keep their times for catch-up).
     pub index_file_details: bool,
+    /// When the folders to index are scanned again by themselves: the kind
+    /// (see [`Schedule::KINDS`]), and the hours and the time of day kept
+    /// for their kinds also while another is chosen.
+    pub rescan: usize,
+    pub rescan_hours: u32,
+    /// Minute of the day.
+    pub rescan_time: u32,
     /// Filter and matching modes for a new start.
     pub options: QueryOptions,
     /// Whether the results follow every change of the search; off searches
@@ -312,6 +324,9 @@ impl Default for Settings {
             exclude_files: String::new(),
             watch_changes: true,
             index_file_details: true,
+            rescan: 0,
+            rescan_hours: DEFAULT_RESCAN_HOURS,
+            rescan_time: DEFAULT_RESCAN_TIME,
             options: QueryOptions::default(),
             as_you_type: true,
             show_mode_badges: true,
@@ -359,6 +374,15 @@ pub enum Page {
 }
 
 impl Settings {
+    /// When the folders to index are scanned again by themselves.
+    pub fn schedule(&self) -> Schedule {
+        match self.rescan {
+            1 => Schedule::EveryHours(self.rescan_hours),
+            2 => Schedule::Daily(self.rescan_time),
+            _ => Schedule::Never,
+        }
+    }
+
     /// The rules of the excluded folders and file filters.
     pub fn rule_spec(&self) -> RuleSpec {
         RuleSpec {
@@ -454,6 +478,20 @@ impl Settings {
             "use-exclude-list" => put_flag(&mut self.use_excludes),
             "watch-changes" => put_flag(&mut self.watch_changes),
             "index-file-details" => put_flag(&mut self.index_file_details),
+            "rescan" => Schedule::KINDS
+                .iter()
+                .position(|k| *k == value)
+                .map(|k| self.rescan = k)
+                .is_some(),
+            "rescan-hours" => value
+                .parse::<u32>()
+                .ok()
+                .filter(|h| (1..=schedule::MAX_HOURS).contains(h))
+                .map(|h| self.rescan_hours = h)
+                .is_some(),
+            "rescan-time" => schedule::parse_time(value)
+                .map(|m| self.rescan_time = m)
+                .is_some(),
             "include-only-files" | "exclude-files" => {
                 let Some(text) = unescape(value).and_then(|b| String::from_utf8(b).ok()) else {
                     return false;
@@ -662,6 +700,19 @@ impl Settings {
             self.index_file_details,
             d.index_file_details,
         );
+        if self.rescan != d.rescan {
+            line(&mut out, "rescan", Schedule::KINDS[self.rescan]);
+        }
+        if self.rescan_hours != d.rescan_hours {
+            line(&mut out, "rescan-hours", &self.rescan_hours.to_string());
+        }
+        if self.rescan_time != d.rescan_time {
+            line(
+                &mut out,
+                "rescan-time",
+                &schedule::time_text(self.rescan_time),
+            );
+        }
         flag(
             &mut out,
             "use-exclude-list",
@@ -952,6 +1003,9 @@ impl Settings {
                 self.exclude_files = d.exclude_files;
                 self.watch_changes = d.watch_changes;
                 self.index_file_details = d.index_file_details;
+                self.rescan = d.rescan;
+                self.rescan_hours = d.rescan_hours;
+                self.rescan_time = d.rescan_time;
                 self.drives = d.drives;
             }
             Page::Search => {
@@ -1173,6 +1227,8 @@ fn is_known(key: &str) -> bool {
         "symlink",
         "number",
         "windows-1254",
+        "never",
+        "03:00",
     ]
     .iter()
     .any(|v| probe.set(key, v))
@@ -1470,6 +1526,9 @@ pub(crate) mod tests {
             use_excludes: false,
             watch_changes: false,
             index_file_details: false,
+            rescan: 2,
+            rescan_hours: 6,
+            rescan_time: 22 * 60 + 5,
             include_files: "*.mp3; \"a;b\"".into(),
             exclude_files: "*.tmp;~*".into(),
             options: QueryOptions {
@@ -1746,6 +1805,24 @@ pub(crate) mod tests {
         let text = s.to_text();
         assert_eq!(text.lines().count(), 1 + odd.len());
         assert_eq!(Settings::parse(&text).roots, odd);
+    }
+
+    #[test]
+    fn rescan_schedule_reads_its_three_keys_and_refuses_bad_values() {
+        assert_eq!(Settings::default().schedule(), Schedule::Never);
+        let s = Settings::parse("rescan = hours\nrescan-hours = 12\nrescan-time = 4:30\n");
+        assert_eq!(s.schedule(), Schedule::EveryHours(12));
+        assert_eq!(s.rescan_time, 270);
+        let s = Settings::parse(&s.to_text().replace("rescan = hours", "rescan = daily"));
+        assert_eq!(s.schedule(), Schedule::Daily(270));
+        assert!(s.to_text().contains("rescan-time = 04:30\n"));
+        let bad = Settings::parse(
+            "rescan = weekly\nrescan-hours = 0\nrescan-hours = 169\nrescan-time = 25:00\n",
+        );
+        assert_eq!(bad.problems.len(), 4);
+        assert_eq!(bad.schedule(), Schedule::Never);
+        assert_eq!(bad.rescan_hours, DEFAULT_RESCAN_HOURS);
+        assert_eq!(bad.rescan_time, DEFAULT_RESCAN_TIME);
     }
 
     #[test]
