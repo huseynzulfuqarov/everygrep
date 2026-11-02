@@ -243,6 +243,9 @@ export component SettingsWindow inherits Window {
     in property <[string]> folder-size-names;
     in-out property <int> folder-size;
     in property <string> folder-size-note;
+    in-out property <bool> open-searches-in-tabs;
+    in-out property <bool> switch-to-new-tab;
+    in-out property <bool> restore-session;
     callback window-changed();
 
     // Keyboard: the commands of the main window shown for the filter, the
@@ -978,6 +981,24 @@ export component SettingsWindow inherits Window {
                             spacing: Theme.s3;
                             alignment: start;
                             vertical-stretch: 1;
+                            Heading { text: @tr("Tabs and session"); }
+                            CheckBox {
+                                text: @tr("Open searches in tabs instead of new windows");
+                                checked <=> root.open-searches-in-tabs;
+                                toggled => { root.window-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Switch to new tabs immediately");
+                                enabled: root.open-searches-in-tabs;
+                                checked <=> root.switch-to-new-tab;
+                                toggled => { root.window-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Restore the last window's tabs at startup");
+                                checked <=> root.restore-session;
+                                toggled => { root.window-changed(); }
+                            }
+                            Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Closing the window"); }
                             HorizontalLayout {
                                 ComboBox {

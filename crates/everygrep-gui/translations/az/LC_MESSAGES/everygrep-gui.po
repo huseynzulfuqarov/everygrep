@@ -2815,3 +2815,15 @@ msgstr "Başlanğıc tarixi son tarixdən sonra ola bilməz."
 
 msgid "Choose Files or Files and folders to use an extension list."
 msgstr "Uzantı siyahısı üçün “Fayllar” və ya “Fayllar və qovluqlar” seçin."
+
+msgid "Tabs and session"
+msgstr "Tablar və sessiya"
+
+msgid "Open searches in tabs instead of new windows"
+msgstr "Axtarışları yeni pəncərə əvəzinə tablarda aç"
+
+msgid "Switch to new tabs immediately"
+msgstr "Dərhal yeni taba keç"
+
+msgid "Restore the last window's tabs at startup"
+msgstr "Başlanğıcda son pəncərənin tablarını bərpa et"

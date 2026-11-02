@@ -1666,6 +1666,9 @@ impl Prefs {
                 .unwrap_or(0) as i32,
         );
         w.set_folder_size_note(labels::folder_size_note(s.folder_size).into());
+        w.set_open_searches_in_tabs(s.open_searches_in_tabs);
+        w.set_switch_to_new_tab(s.switch_to_new_tab);
+        w.set_restore_session(s.restore_session);
         w.set_remember_columns(s.remember_columns);
         w.set_rename_name_only(s.rename_name_only);
         s.fileops.fill_window(w);
@@ -2676,6 +2679,9 @@ impl Prefs {
             .ok()
             .and_then(|i| FolderSize::ALL.get(i).copied())
             .unwrap_or_default();
+        let open_tabs = w.get_open_searches_in_tabs();
+        let switch_tabs = w.get_switch_to_new_tab();
+        let restore = w.get_restore_session();
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
         let fileops = crate::fileops_settings::Settings::from_window(&w);
@@ -2688,6 +2694,9 @@ impl Prefs {
         let dates_newest_first = w.get_dates_newest_first();
         let sizes_largest_first = w.get_sizes_largest_first();
         self.change(move |s| {
+            s.open_searches_in_tabs = open_tabs;
+            s.switch_to_new_tab = switch_tabs;
+            s.restore_session = restore;
             s.dates_newest_first = dates_newest_first;
             s.sizes_largest_first = sizes_largest_first;
             s.on_close = on_close;

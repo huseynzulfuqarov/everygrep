@@ -310,6 +310,10 @@ gets a new hard link and loses its old name instead; only a folder (or a
 file where hard links are not supported) gets a check followed by a plain
 rename there.
 
+Settings → Window includes opt-in preferences for opening searches in tabs,
+switching to newly opened tabs and restoring the last window's tabs. All three
+are off by default.
+
 ### Settings
 
 Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the

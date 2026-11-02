@@ -270,6 +270,9 @@ pub struct Settings {
     pub history_days: u32,
     pub history_sort: Order,
     pub always_suggestions: bool,
+    pub open_searches_in_tabs: bool,
+    pub switch_to_new_tab: bool,
+    pub restore_session: bool,
     pub on_close: OnClose,
     /// What the Size column shows for folders, and sorts them by. The one
     /// default that differs from the behaviour before settings existed
@@ -357,6 +360,9 @@ impl Default for Settings {
             history_days: 90,
             history_sort: Order::Date,
             always_suggestions: false,
+            open_searches_in_tabs: false,
+            switch_to_new_tab: false,
+            restore_session: false,
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
             remember_columns: true,
@@ -627,6 +633,9 @@ impl Settings {
                 .filter(|n| *n <= 36500)
                 .map(|n| self.history_days = n)
                 .is_some(),
+            "open-searches-in-tabs" => put_flag(&mut self.open_searches_in_tabs),
+            "switch-to-new-tab" => put_flag(&mut self.switch_to_new_tab),
+            "restore-session" => put_flag(&mut self.restore_session),
             "on-close" => OnClose::ALL
                 .into_iter()
                 .find(|o| o.id() == value)
@@ -848,6 +857,24 @@ impl Settings {
         for uuid in &self.drives.ignored {
             line(&mut out, "ignore-drive", uuid);
         }
+        flag(
+            &mut out,
+            "open-searches-in-tabs",
+            self.open_searches_in_tabs,
+            d.open_searches_in_tabs,
+        );
+        flag(
+            &mut out,
+            "switch-to-new-tab",
+            self.switch_to_new_tab,
+            d.switch_to_new_tab,
+        );
+        flag(
+            &mut out,
+            "restore-session",
+            self.restore_session,
+            d.restore_session,
+        );
         flag(&mut out, "filter-wrap", self.filter_wrap, d.filter_wrap);
         let (o, od) = (&self.options, &d.options);
         if all || o.hidden_files != od.hidden_files {
@@ -1213,6 +1240,9 @@ impl Settings {
                 self.language = d.language;
             }
             Page::Window => {
+                self.open_searches_in_tabs = d.open_searches_in_tabs;
+                self.switch_to_new_tab = d.switch_to_new_tab;
+                self.restore_session = d.restore_session;
                 self.on_close = d.on_close;
                 self.folder_size = d.folder_size;
                 self.remember_columns = d.remember_columns;
@@ -1713,6 +1743,27 @@ pub(crate) mod tests {
         // Replaced atomically: a new inode even with the same size and time.
         write_atomic(&path, b"theme = lite\n").unwrap();
         assert_ne!(stamp(&path), Some(first));
+    }
+
+    #[test]
+    fn tab_preferences_default_off_round_trip_and_reset_with_window() {
+        let mut s = Settings::default();
+        assert!(!s.open_searches_in_tabs && !s.switch_to_new_tab && !s.restore_session);
+        assert!(!s.to_text().contains("restore-session"));
+        s = Settings::parse(
+            "open-searches-in-tabs = true\nswitch-to-new-tab = true\nrestore-session = true\n",
+        );
+        assert!(s.open_searches_in_tabs && s.switch_to_new_tab && s.restore_session);
+        assert_eq!(Settings::parse(&s.to_text()), s);
+        s.reset(Page::Search);
+        assert!(s.restore_session);
+        s.reset(Page::Window);
+        assert_eq!(s, Settings::default());
+        let s = Settings::parse(
+            "restore-session = invalid\nopen-searches-in-tabs = invalid\nswitch-to-new-tab = 2\n",
+        );
+        assert_eq!(s.problems.len(), 3);
+        assert!(!s.restore_session && !s.open_searches_in_tabs && !s.switch_to_new_tab);
     }
 
     #[test]

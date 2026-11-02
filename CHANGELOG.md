@@ -8,6 +8,11 @@ All notable changes to EveryGrep are listed here. The format follows
 
 First version, 0.1.0, not released yet.
 
+### Tabs
+
+- Add Window settings for searches in tabs, immediate activation and restoring
+  the last window's tabs, all off by default.
+
 ### Saved searches
 
 - Advanced Search builds safe queries for words, paths, kinds, extensions and
