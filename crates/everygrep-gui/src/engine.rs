@@ -203,6 +203,16 @@ impl Tasks {
         }
     }
 
+    /// Cancels every running drive scan.
+    fn cancel_drive_scans(&self) {
+        let list = self.list.lock().expect("lock");
+        for task in list.iter() {
+            if matches!(*task.kind.lock().expect("lock"), TaskKind::Drive(_)) {
+                task.progress.cancel();
+            }
+        }
+    }
+
     /// Cancels the running search or sort, if any.
     fn cancel_search(&self) {
         let list = self.list.lock().expect("lock");
@@ -354,6 +364,9 @@ pub struct Engine {
     drive_commands: Mutex<Vec<DriveCommand>>,
     scanned: Arc<Mutex<Vec<Scanned>>>,
     scanning: Mutex<HashSet<String>>,
+    /// The threads reading drives, so quitting can wait for them to save
+    /// what they read (see [`Engine::shutdown`]).
+    drive_scans: Mutex<Vec<JoinHandle<()>>>,
     /// Drives whose first reading was cancelled: not read again until they
     /// are connected again (or asked for in the settings).
     not_now: Mutex<HashSet<String>>,
@@ -410,6 +423,11 @@ const SAVE_EVERY: Duration = Duration::from_secs(300);
 /// that, checked for changes, and how many of them at most each time.
 const RECHECK_UNWATCHED_EVERY: Duration = Duration::from_secs(10);
 const RECHECK_UNWATCHED_MAX: usize = 5000;
+/// How long quitting waits for cancelled drive scans to save what they
+/// read. A scan sees the cancel after each folder, and the save writes to
+/// the cache folder, so this is normally well under a second; a drive that
+/// hangs in a read must not keep the program from ending.
+pub const QUIT_WAIT: Duration = Duration::from_secs(5);
 
 impl Engine {
     /// Creates the engine and starts loading in the background. Entries
@@ -458,6 +476,7 @@ impl Engine {
             drive_commands: Mutex::new(Vec::new()),
             scanned: Arc::new(Mutex::new(Vec::new())),
             scanning: Mutex::new(HashSet::new()),
+            drive_scans: Mutex::new(Vec::new()),
             not_now: Mutex::new(HashSet::new()),
             mounts_changed: Arc::new(AtomicBool::new(false)),
             tasks: Tasks::new(on_busy),
@@ -1306,8 +1325,13 @@ impl Engine {
         };
         let settings = self.drive_settings.lock().expect("lock").clone();
         let commands = std::mem::take(&mut *self.drive_commands.lock().expect("lock"));
-        let scanned = std::mem::take(&mut *self.scanned.lock().expect("lock"));
         let mut volumes = self.volumes.lock().expect("lock");
+        // Quitting: drives read meanwhile are kept by `shutdown`, and the
+        // index is not saved again.
+        if self.stop.load(Ordering::SeqCst) {
+            return (false, Vec::new());
+        }
+        let scanned = std::mem::take(&mut *self.scanned.lock().expect("lock"));
         let mut changed = !commands.is_empty();
         let mut to_catch_up = Vec::new();
         let now = unix_now();
@@ -1522,22 +1546,29 @@ impl Engine {
     /// cancelled keeps what it read in the drive's partial file, and the next
     /// scan of the drive goes on from there (see [`resume_scan`]).
     fn start_scan(&self, drive: Drive) {
-        if !self
-            .scanning
-            .lock()
-            .expect("lock")
-            .insert(drive.uuid.clone())
+        // Under this lock a scan is either started before quitting began,
+        // and then cancelled and waited for, or not at all.
+        let mut threads = self.drive_scans.lock().expect("lock");
+        if self.stop.load(Ordering::SeqCst)
+            || !self
+                .scanning
+                .lock()
+                .expect("lock")
+                .insert(drive.uuid.clone())
         {
             return;
         }
+        threads.retain(|t| !t.is_finished());
         let options = self.scan_options();
         let (scanned, changed) = (Arc::clone(&self.scanned), Arc::clone(&self.mounts_changed));
-        let tasks = Arc::clone(&self.tasks);
+        let task = self.tasks.begin(TaskKind::Drive(drive_name(&drive)), true);
         let env = self.drive_env.clone();
-        let _ = std::thread::Builder::new()
+        let drive_uuid = drive.uuid.clone();
+        let thread = std::thread::Builder::new()
             .name("drive scan".into())
             .spawn(move || {
-                let task = tasks.begin(TaskKind::Drive(drive_name(&drive)), true);
+                #[cfg(test)]
+                tests::stuck_drive(&drive.mount_point);
                 let roots = std::slice::from_ref(&drive.mount_point);
                 task.progress().set_total(progress::estimate_scan(
                     roots,
@@ -1571,6 +1602,12 @@ impl Engine {
                 });
                 changed.store(true, Ordering::SeqCst);
             });
+        match thread {
+            Ok(thread) => threads.push(thread),
+            Err(_) => {
+                self.scanning.lock().expect("lock").remove(&drive_uuid);
+            }
+        }
     }
 
     /// Renames the root of another drive that sits at `mount_point` (a
@@ -1628,8 +1665,26 @@ impl Engine {
     /// Stops the threads and saves the index. The search thread is joined; the
     /// index thread is not, because a first scan cannot be interrupted and the
     /// window should close at once. It ends with the process.
+    ///
+    /// Drive scans that are still running are cancelled, and their part read
+    /// so far is saved to the drive's partial file, so the next start goes on
+    /// from there. Quitting waits at most [`QUIT_WAIT`] for that; a scan
+    /// stuck on a drive that does not answer ends with the process, and that
+    /// drive is read again from where its last save left it.
     pub fn shutdown(&self) {
+        self.shutdown_within(QUIT_WAIT);
+    }
+
+    /// [`shutdown`](Self::shutdown), waiting at most `wait` for drive
+    /// scans. Returns whether every drive scan ended in time.
+    fn shutdown_within(&self, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
         self.stop.store(true, Ordering::SeqCst);
+        let scans = {
+            let mut scans = self.drive_scans.lock().expect("lock");
+            self.tasks.cancel_drive_scans();
+            std::mem::take(&mut *scans)
+        };
         // Dropping the sender wakes the search thread so it sees the stop flag.
         self.searches.lock().expect("lock").take();
         let mut threads = self.threads.lock().expect("lock");
@@ -1637,7 +1692,30 @@ impl Engine {
             let _ = threads.remove(0).join();
         }
         drop(threads);
+        let mut ended = true;
+        for scan in scans {
+            while !scan.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            ended &= scan.is_finished();
+        }
         self.save();
+        self.keep_scanned_drives();
+        ended
+    }
+
+    /// Saves drives whose reading ended but that were not added to the index
+    /// yet as partial files, so the next start only checks them again.
+    /// Cancelled ones were saved by their scan thread.
+    fn keep_scanned_drives(&self) {
+        let Some(env) = &self.drive_env else { return };
+        // `sync_drives` takes them under this lock and stops taking them
+        // once quitting began.
+        let _volumes = self.volumes.lock().expect("lock");
+        let scanned = std::mem::take(&mut *self.scanned.lock().expect("lock"));
+        for s in scanned.into_iter().filter(|s| s.complete) {
+            let _ = save_partial(env, &s.drive, &s.index, &s.rules);
+        }
     }
 }
 
@@ -2746,6 +2824,24 @@ mod tests {
         }
     }
 
+    /// Mount points whose drive scan hangs before reading anything, as on a
+    /// drive that does not answer, until they are taken off the list.
+    static STUCK_DRIVES: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    /// Waits while a test lists `mount_point` as stuck (20 s at most).
+    pub(super) fn stuck_drive(mount_point: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline
+            && STUCK_DRIVES
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|p| p == mount_point)
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// Waits until `check` holds for the engine's index.
     fn until(engine: &Engine, what: &str, check: impl Fn(&Index) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -2969,5 +3065,142 @@ mod tests {
             find(i, &card.join("clip.mp4")).is_some()
         });
         e.shutdown();
+    }
+
+    /// A drive of `folders` folders with `files` empty files each.
+    fn fill_drive(root: &Path, folders: usize, files: usize) -> u64 {
+        for d in 0..folders {
+            let dir = root.join(format!("folder{d:05}"));
+            fs::create_dir_all(&dir).unwrap();
+            for f in 0..files {
+                fs::write(dir.join(format!("file{f:04}.dat")), "").unwrap();
+            }
+        }
+        (1 + folders * (1 + files)) as u64
+    }
+
+    /// The progress of the running drive scan, if one runs.
+    fn drive_scan_done(engine: &Engine) -> Option<u64> {
+        let list = engine.tasks.list.lock().unwrap();
+        list.iter()
+            .find(|t| matches!(*t.kind.lock().unwrap(), TaskKind::Drive(_)))
+            .map(|t| t.progress.done())
+    }
+
+    /// Mounts a drive of `total` entries, quits once `at` of them are read,
+    /// and returns how long quitting took and how many entries the partial
+    /// file holds.
+    fn quit_while_reading(
+        fake: &FakeDrives,
+        home: &Path,
+        index: &Path,
+        at: u64,
+    ) -> (Duration, u64) {
+        let probe = Probe::start_with(
+            vec![home.to_path_buf()],
+            Vec::new(),
+            index.to_path_buf(),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        probe.wait_for(IndexState::Watching);
+        fake.mount("AAAA-1111", "sdx1", "USB");
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while drive_scan_done(&probe.engine).is_none_or(|done| done < at) {
+            assert!(Instant::now() < deadline, "the drive scan never got far");
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        let start = Instant::now();
+        assert!(probe.engine.shutdown_within(QUIT_WAIT));
+        let took = start.elapsed();
+        let partial = persist::load(&fake.env.partial_path("AAAA-1111")).expect("a partial file");
+        (took, partial.index.len() as u64)
+    }
+
+    #[test]
+    fn quitting_while_a_drive_is_read_keeps_what_was_read_for_the_next_start() {
+        let dir = Scratch::new("drives-quit");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let usb = dir.0.join("media/USB");
+        let total = fill_drive(&usb, 400, 100);
+        let index = dir.0.join("index.bin");
+
+        let (took, kept) = quit_while_reading(&fake, &home, &index, 2000);
+        eprintln!("quit took {took:?}; {kept} of {total} entries kept");
+        assert!(kept > 0 && kept < total, "kept {kept} of {total}");
+        assert!(took < QUIT_WAIT);
+        // Nothing of it went into the index file of the folders.
+        assert_eq!(persist::load(&index).unwrap().index.len(), 1);
+
+        // The next start goes on from there and ends with the whole drive.
+        let probe = Probe::start_with(
+            vec![home],
+            Vec::new(),
+            index,
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        until(&probe.engine, "the whole drive", |i| {
+            find(i, &usb.join("folder00399/file0099.dat")).is_some()
+                && find(i, &usb.join("folder00000/file0000.dat")).is_some()
+        });
+        until(&probe.engine, "the partial file gone", |_| {
+            !fake.env.partial_path("AAAA-1111").exists()
+        });
+        let entries = probe.engine.drives()[0].entries;
+        assert_eq!(entries, total);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn quitting_does_not_wait_long_for_a_drive_that_hangs() {
+        let dir = Scratch::new("drives-stuck");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let usb = dir.0.join("media/USB");
+        fs::create_dir_all(&usb).unwrap();
+        STUCK_DRIVES.lock().unwrap().push(usb.clone());
+        let probe = Probe::start_with(
+            vec![home],
+            Vec::new(),
+            dir.0.join("index.bin"),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        probe.wait_for(IndexState::Watching);
+        fake.mount("BBBB-2222", "sdx2", "USB");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while drive_scan_done(&probe.engine).is_none() {
+            assert!(Instant::now() < deadline, "no drive scan");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let start = Instant::now();
+        let ended = probe.engine.shutdown_within(Duration::from_millis(300));
+        let took = start.elapsed();
+        STUCK_DRIVES.lock().unwrap().retain(|p| p != &usb);
+        assert!(!ended);
+        assert!(
+            took >= Duration::from_millis(300) && took < Duration::from_secs(3),
+            "{took:?}"
+        );
+    }
+
+    /// Quit delays for larger drives: `cargo test -p everygrep-gui --release
+    /// quit_delay -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing only"]
+    fn quit_delay_while_reading_a_drive() {
+        for (folders, files) in [(1000, 100), (2000, 250)] {
+            for share in [4, 2] {
+                let dir = Scratch::new("drives-quit-timing");
+                let fake = FakeDrives::new(&dir.0);
+                let home = dir.0.join("home");
+                fs::create_dir_all(&home).unwrap();
+                let total = fill_drive(&dir.0.join("media/USB"), folders, files);
+                let at = total / share;
+                let (took, kept) = quit_while_reading(&fake, &home, &dir.0.join("index.bin"), at);
+                eprintln!("drive of {total} entries, quit at {at}: {took:?}, {kept} kept");
+            }
+        }
     }
 }

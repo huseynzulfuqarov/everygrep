@@ -371,8 +371,9 @@ before: a cancelled first index is not saved (the next start, or "Rebuild
 index now", indexes again), a cancelled rescan keeps the previous index and
 folders, a cancelled sort or search keeps the results and order shown, and
 a drive whose first reading was cancelled goes on where it stopped when it
-is plugged in again (also after it was removed while being read; not after
-quitting while it was read). Catching up cannot be cancelled. Cancel has no key yet. Hidden files are always indexed.
+is plugged in again (also after it was removed while being read, or the
+program quit while it was read: quitting cancels the reading and waits up to
+5 seconds for what was read to be saved). Catching up cannot be cancelled. Cancel has no key yet. Hidden files are always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any
 depth, and is kept up to date as files change. Each file counts with its own
@@ -584,7 +585,8 @@ collects nothing. It stores:
   `~/.cache/everygrep/cli-index.bin` for the command line (names, sizes and
   modification times of the indexed files, never their contents), and for
   each removable drive `~/.cache/everygrep/volumes/<uuid>.bin` with the same
-  kind of data, `<uuid>.partial` with what a cancelled first reading read,
+  kind of data, `<uuid>.partial` with what a cancelled or interrupted first
+  reading read,
   and `<uuid>.info` with its label, last mount point, when it was last
   connected and its number of entries;
 - the settings, in `~/.config/everygrep/settings`;
