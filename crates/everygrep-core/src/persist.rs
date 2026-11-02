@@ -89,6 +89,30 @@ pub fn save_with_rules(
     save_impl(index, roots, Some(rules_fingerprint(rules)), path)
 }
 
+/// Like [`save_with_rules`], with a fingerprint from [`index_fingerprint`].
+pub fn save_with_fingerprint(
+    index: &Index,
+    roots: &[PathBuf],
+    fingerprint: u64,
+    path: &Path,
+) -> io::Result<()> {
+    save_impl(index, roots, Some(fingerprint), path)
+}
+
+/// Cache identity of an index built with `rules`, with file sizes and times
+/// (`with_metadata`) or without them. With them it is
+/// [`rules_fingerprint`], so files saved that way stay valid; without them
+/// it differs, so neither kind of index is taken for the other.
+pub fn index_fingerprint(rules: &RuleSpec, with_metadata: bool) -> u64 {
+    let plain = rules_fingerprint(rules);
+    if with_metadata {
+        return plain;
+    }
+    let mut buf = b"no file details".to_vec();
+    put_u64(&mut buf, plain);
+    checksum(&buf)
+}
+
 /// Stable cache identity of all rule fields, including raw folder path bytes.
 /// This is a cache fingerprint, not a cryptographic integrity check.
 pub fn rules_fingerprint(rules: &RuleSpec) -> u64 {

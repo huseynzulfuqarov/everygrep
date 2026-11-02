@@ -355,6 +355,51 @@ fn loading_a_no_meta_index_does_not_populate_file_metadata() {
 }
 
 #[test]
+fn an_index_without_file_details_is_not_used_with_them_or_the_other_way() {
+    let dir = temp_dir("meta-switch");
+    let tree = dir.join("tree");
+    let index = dir.join("index.bin");
+    let (tree_s, index_s) = (tree.to_str().unwrap(), index.to_str().unwrap());
+    let search = |extra: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_everygrep"))
+            .args(["search", "--index-file", index_s])
+            .args(extra)
+            .arg("file: size:>0")
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        (
+            String::from_utf8(out.stdout).unwrap().lines().count(),
+            String::from_utf8(out.stderr).unwrap(),
+        )
+    };
+    let built = run(&[
+        "index",
+        "--no-meta",
+        "--root",
+        tree_s,
+        "--index-file",
+        index_s,
+    ]);
+    assert!(built.status.success());
+    // Asked with sizes: built again with them, both files have a size.
+    let (found, stderr) = search(&[]);
+    assert!(stderr.contains("scanning"), "{stderr}");
+    assert_eq!(found, 2, "{stderr}");
+    // The same again: the saved index is used.
+    let (found, stderr) = search(&[]);
+    assert!(stderr.contains("loaded"), "{stderr}");
+    assert_eq!(found, 2);
+    // Asked without them: built again without them.
+    let (found, stderr) = search(&["--no-meta"]);
+    assert!(stderr.contains("scanning"), "{stderr}");
+    assert_eq!(found, 0);
+    let (_, stderr) = search(&["--no-meta"]);
+    assert!(stderr.contains("loaded"), "{stderr}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn cached_rules_are_rebuilt_when_tightened_or_relaxed() {
     let dir = temp_dir("changed-rules");
     let tree = dir.join("tree");

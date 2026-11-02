@@ -138,6 +138,10 @@ older versions are rejected. A name order from older sorting rules is sorted
 again. The rules fingerprint hashes the enabled switch, raw folder path bytes,
 and both file-pattern lists with length prefixes, using the checksum algorithm
 described above. It identifies cache compatibility, not cryptographic integrity.
+An index built without file sizes and times (the command line's `--no-meta`)
+stores the checksum of the text `no file details` followed by that
+fingerprint instead, so it is never taken for an index with them, or the
+other way round. Indexes with them keep the plain fingerprint.
 
 | Version | Introduced by the commit |
 |---|---|

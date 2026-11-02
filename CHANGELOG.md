@@ -166,6 +166,9 @@ First version, 0.1.0, not released yet.
   `--exclude-files` take file pattern lists.
 - `--no-meta` stays in effect during catch-up and live updates, renames and
   moves included; folder times are kept, so unchanged folders are skipped.
+  A saved index records whether it has sizes and times: one built with
+  `--no-meta` is scanned again when used without it, and the other way
+  round.
 - `everygrep index` fails when the index cannot be saved; `search` and
   `shell` print a warning and still answer.
 - Root, index and excluded-folder paths that are not UTF-8 are kept as they

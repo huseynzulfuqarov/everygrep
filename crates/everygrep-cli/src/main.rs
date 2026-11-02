@@ -165,8 +165,7 @@ fn open_index(args: &Args, force_scan: bool) -> io::Result<(Index, Vec<PathBuf>,
             match persist::load(path) {
                 Ok(saved)
                     if (args.roots.is_empty() || saved.roots == args.roots)
-                        && saved.rules_hash
-                            == Some(persist::rules_fingerprint(&args.scan.rules.spec())) =>
+                        && saved.rules_hash == Some(fingerprint(&args.scan)) =>
                 {
                     eprintln!(
                         "loaded {} entries from {} in {:.0} ms, memory {:.1} MiB",
@@ -183,7 +182,9 @@ fn open_index(args: &Args, force_scan: bool) -> io::Result<(Index, Vec<PathBuf>,
                 }
                 Ok(saved) => {
                     saved_roots = Some(saved.roots);
-                    eprintln!("saved index has other roots or indexing rules, scanning");
+                    eprintln!(
+                        "saved index has other roots, indexing rules or file details, scanning"
+                    );
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => eprintln!("cannot use saved index ({e}), scanning"),
@@ -213,10 +214,17 @@ fn report_catch_up(stats: &CatchUpStats, took: std::time::Duration) -> bool {
     stats.added + stats.removed + stats.updated > 0
 }
 
+/// What a saved index must have been built with to be used: the rules, and
+/// file details or not (`--no-meta`).
+fn fingerprint(scan: &ScanOptions) -> u64 {
+    persist::index_fingerprint(&scan.rules.spec(), scan.with_metadata)
+}
+
 fn save_index(args: &Args, index: &Index, roots: &[PathBuf]) -> io::Result<()> {
     if let Some(path) = &args.index_file {
         let started = Instant::now();
-        if let Err(e) = persist::save_with_rules(index, roots, &args.scan.rules.spec(), path) {
+        if let Err(e) = persist::save_with_fingerprint(index, roots, fingerprint(&args.scan), path)
+        {
             let error = io::Error::new(
                 e.kind(),
                 format!("could not save index to {}: {e}", path.display()),

@@ -536,7 +536,9 @@ everygrep shell [options]            read one query per line
 
 `search` and `shell` load the saved index; they scan and save it first when
 there is none, when roots or include/exclude rules differ from the saved
-ones, when an older cache has unknown rules, or with `--rescan`. The command
+ones, when `--no-meta` is given for an index with sizes and times or left
+out for one without them, when an older cache has unknown rules, or with
+`--rescan`. The command
 line keeps its own index, `~/.cache/everygrep/cli-index.bin`, apart from the
 window's `index.bin`, so neither replaces the other's. Paths are printed in
 name order, one per line, at most `--limit` (50 by default, `0` for all);
