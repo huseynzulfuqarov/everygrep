@@ -220,8 +220,9 @@ impl ResultsModel {
         match changed {
             Changed::None => {}
             Changed::Rows(rows) => rows.into_iter().for_each(|r| self.notify.row_changed(r)),
-            // Each call only touches the rows on screen, so this stays cheap.
-            Changed::All => (0..ids.len()).for_each(|r| self.notify.row_changed(r)),
+            // One notice for the view, not one per row of a long list: it
+            // reads again only the rows on screen.
+            Changed::All => self.notify.reset(),
         }
     }
 
@@ -431,9 +432,8 @@ impl ResultsModel {
     /// Shows the rows again, after the language changed (the Type, Size and
     /// Modified columns have words in them).
     pub fn relabel(&self) {
-        let rows = self.ids.borrow().len();
-        // Each call only touches the rows on screen, so this stays cheap.
-        (0..rows).for_each(|r| self.notify.row_changed(r));
+        // The view reads again only the rows on screen.
+        self.notify.reset();
     }
 
     /// The texts of `column` (numbered as the window's sort column) in the

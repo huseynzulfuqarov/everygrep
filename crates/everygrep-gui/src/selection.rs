@@ -36,6 +36,12 @@ pub enum Changed {
 pub struct Selection {
     set: Set,
     anchor: Option<NodeId>,
+    /// Where the anchor was last seen, and the rows the selected ids took
+    /// when they were one run (a click or a Shift range): hints that spare a
+    /// search through a long list, checked before use since the list may
+    /// have changed since.
+    anchor_row: Option<usize>,
+    run: Option<(usize, usize)>,
 }
 
 impl Default for Selection {
@@ -43,6 +49,8 @@ impl Default for Selection {
         Self {
             set: Set::Only(HashSet::new()),
             anchor: None,
+            anchor_row: None,
+            run: None,
         }
     }
 }
@@ -85,7 +93,8 @@ impl Selection {
             return Changed::None;
         };
         self.anchor = Some(id);
-        self.replace(ids, Set::Only(HashSet::from([id])))
+        self.anchor_row = Some(row);
+        self.replace(ids, Set::Only(HashSet::from([id])), Some((row, row)))
     }
 
     /// Adds the row to the selection or removes it.
@@ -94,6 +103,8 @@ impl Selection {
             return Changed::None;
         };
         self.anchor = Some(id);
+        self.anchor_row = Some(row);
+        self.run = None;
         let set = match &mut self.set {
             Set::Only(s) | Set::AllExcept(s) => s,
         };
@@ -109,21 +120,29 @@ impl Selection {
         if row >= ids.len() {
             return Changed::None;
         }
-        let Some(start) = self.anchor.and_then(|a| ids.iter().position(|&id| id == a)) else {
+        let Some(start) = self.anchor.and_then(|a| {
+            self.anchor_row
+                .filter(|&r| ids.get(r) == Some(&a))
+                .or_else(|| {
+                    scanned(ids.len());
+                    ids.iter().position(|&id| id == a)
+                })
+        }) else {
             return self.select_only(ids, row);
         };
+        self.anchor_row = Some(start);
         let (lo, hi) = (start.min(row), start.max(row));
         let set = if lo == 0 && hi + 1 == ids.len() {
             Set::AllExcept(HashSet::new())
         } else {
             Set::Only(ids[lo..=hi].iter().copied().collect())
         };
-        self.replace(ids, set)
+        self.replace(ids, set, Some((lo, hi)))
     }
 
     /// Selects every row, without listing them.
     pub fn select_all(&mut self, ids: &[NodeId]) -> Changed {
-        self.replace(ids, Set::AllExcept(HashSet::new()))
+        self.replace(ids, Set::AllExcept(HashSet::new()), None)
     }
 
     /// Selects the rows that were not selected and unselects the others,
@@ -133,12 +152,13 @@ impl Selection {
             Set::Only(s) => Set::AllExcept(s.clone()),
             Set::AllExcept(s) => Set::Only(s.clone()),
         };
-        self.replace(ids, new)
+        self.replace(ids, new, None)
     }
 
     pub fn clear(&mut self, ids: &[NodeId]) -> Changed {
         self.anchor = None;
-        self.replace(ids, Set::Only(HashSet::new()))
+        self.anchor_row = None;
+        self.replace(ids, Set::Only(HashSet::new()), None)
     }
 
     /// Drops ids that are not in the new list `ids` (they were removed or no
@@ -182,20 +202,51 @@ impl Selection {
         *self = Self::default();
     }
 
-    /// Replaces the set and reports which rows changed.
-    fn replace(&mut self, ids: &[NodeId], new: Set) -> Changed {
+    /// Replaces the set, whose ids are in the rows `run` when given, and
+    /// reports which rows changed.
+    fn replace(&mut self, ids: &[NodeId], new: Set, run: Option<(usize, usize)>) -> Changed {
         let changed = match (&self.set, &new) {
             (Set::Only(a), Set::Only(b)) if a == b => Changed::None,
             (Set::AllExcept(a), Set::AllExcept(b)) if a == b => Changed::None,
             (Set::Only(a), Set::Only(b)) if a.len() + b.len() <= MAX_ROW_CHANGES => {
-                let diff: HashSet<NodeId> = a.symmetric_difference(b).copied().collect();
-                Changed::Rows(rows_of(ids, &diff))
+                let mut diff: HashSet<NodeId> = a.symmetric_difference(b).copied().collect();
+                // Rows of the old and the new run first; the list is
+                // searched only for ids found in neither.
+                let mut rows = Vec::new();
+                for (lo, hi) in [self.run, run].into_iter().flatten() {
+                    if hi - lo < MAX_ROW_CHANGES {
+                        let run = ids.get(lo..=hi.min(ids.len().saturating_sub(1)));
+                        for (r, id) in (lo..).zip(run.unwrap_or_default()) {
+                            if diff.remove(id) {
+                                rows.push(r);
+                            }
+                        }
+                    }
+                }
+                rows.extend(rows_of(ids, &diff));
+                rows.sort_unstable();
+                Changed::Rows(rows)
             }
             _ => Changed::All,
         };
         self.set = new;
+        self.run = run;
         changed
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Rows looked at by searches through the whole list, in tests.
+    static SCANNED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Notes, in tests, that `rows` rows were looked at.
+fn scanned(rows: usize) {
+    #[cfg(test)]
+    SCANNED.with(|s| s.set(s.get() + rows));
+    #[cfg(not(test))]
+    let _ = rows;
 }
 
 /// Rows holding the given ids.
@@ -203,6 +254,7 @@ fn rows_of(ids: &[NodeId], wanted: &HashSet<NodeId>) -> Vec<usize> {
     if wanted.is_empty() {
         return Vec::new();
     }
+    scanned(ids.len());
     ids.iter()
         .enumerate()
         .filter(|(_, id)| wanted.contains(id))
@@ -378,5 +430,32 @@ mod tests {
         assert_eq!(s.extend_to(&ids, 500), Changed::All);
         assert_eq!(s.select_only(&ids, 3), Changed::All);
         assert_eq!(s.select_only(&ids, 4), Changed::Rows(vec![3, 4]));
+    }
+
+    #[test]
+    fn clicks_on_a_long_list_do_not_search_it() {
+        let ids = list(1_000_000);
+        let mut s = Selection::default();
+        let looked = || SCANNED.with(|c| c.replace(0));
+        looked();
+        assert_eq!(s.select_only(&ids, 10), Changed::Rows(vec![10]));
+        assert_eq!(
+            s.select_only(&ids, 999_990),
+            Changed::Rows(vec![10, 999_990])
+        );
+        assert_eq!(
+            s.extend_to(&ids, 999_995),
+            Changed::Rows((999_991..=999_995).collect())
+        );
+        let mut rows = vec![7];
+        rows.extend(999_990..=999_995);
+        assert_eq!(s.select_only(&ids, 7), Changed::Rows(rows));
+        assert_eq!(s.select_only(&ids, 8), Changed::Rows(vec![7, 8]));
+        assert_eq!(looked(), 0);
+        // After the list changed, the rows are still found.
+        let mut moved = ids.clone();
+        moved.swap(8, 500);
+        s.retain(&moved);
+        assert_eq!(s.select_only(&moved, 9), Changed::Rows(vec![9, 500]));
     }
 }
