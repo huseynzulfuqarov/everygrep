@@ -1142,25 +1142,42 @@ fn with_x11<R>(f: impl FnOnce(Option<&x11clip::X11Clipboard>) -> R) -> R {
     })
 }
 
-/// What Paste pastes: our own files while we hold the clipboard, else
-/// another program's from the XWayland clipboard, else files written as
-/// text on Slint's clipboard.
-fn files_to_paste(w: &AppWindow) -> Option<(clipboard::Operation, Vec<PathBuf>)> {
-    let held = || HELD.with(|h| h.borrow().as_ref().map(|h| (h.op, h.paths.clone())));
-    let from_x11 = with_x11(|x| {
-        let x = x?;
-        Some(if x.owns() { held() } else { x.read() })
-    });
-    let found = match from_x11 {
-        Some(Some(found)) => Some(found),
-        _ => {
+/// Finds what Paste pastes and gives it to `then` on the UI thread: our own
+/// files while we hold the clipboard, else another program's from the
+/// XWayland clipboard, else files written as text on Slint's clipboard.
+/// Asking another program does not block the window: `then` runs once it
+/// answered (or after the clipboard's wait).
+fn files_to_paste(
+    w: &AppWindow,
+    then: impl FnOnce(&AppWindow, Option<(clipboard::Operation, Vec<PathBuf>)>) + Send + 'static,
+) {
+    let finish = move |w: &AppWindow, from_x11: Option<(clipboard::Operation, Vec<PathBuf>)>| {
+        let found = from_x11.or_else(|| {
             let text = w.invoke_paste_text().to_string();
             HELD.with(|h| clipboard::to_paste(h.borrow().as_ref(), &text))
-        }
+        });
+        let found = found.filter(|(op, paths)| {
+            !CUT_PASTED.with(|c| clipboard::moved_already(*op, paths, c.borrow().as_deref()))
+        });
+        then(w, found);
     };
-    found.filter(|(op, paths)| {
-        !CUT_PASTED.with(|c| clipboard::moved_already(*op, paths, c.borrow().as_deref()))
-    })
+    match with_x11(|x| x.map(|x| x.owns())) {
+        Some(false) => {
+            let weak = w.as_weak();
+            with_x11(|x| {
+                if let Some(x) = x {
+                    x.read_then(move |found| {
+                        let _ = weak.upgrade_in_event_loop(move |w| finish(&w, found));
+                    });
+                }
+            });
+        }
+        Some(true) => {
+            let held = HELD.with(|h| h.borrow().as_ref().map(|h| (h.op, h.paths.clone())));
+            finish(w, held);
+        }
+        None => finish(w, None),
+    }
 }
 
 /// Cut, Copy and Paste of files (see [`clipboard`]). Paste copies or moves
@@ -1221,63 +1238,74 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                     return;
                 }
             };
-            let Some((op, sources)) = files_to_paste(&w) else {
-                info(&w, tr("The clipboard holds no files to paste.").into());
-                return;
-            };
+            // Taken before the clipboard is asked, so a second paste while
+            // another program answers is refused too.
             if BUSY.swap(true, SeqCst) {
                 info(&w, tr("Another paste is still running.").into());
                 return;
             }
-            let folder = dest.file_name().map_or_else(
-                || dest.display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
             let (engine, weak) = (engine.clone(), weak.clone());
-            std::thread::spawn(move || {
-                let kind = match op {
-                    clipboard::Operation::Copy => engine::TaskKind::Copying,
-                    clipboard::Operation::Cut => engine::TaskKind::Moving,
+            files_to_paste(&w, move |w, found| {
+                let Some((op, sources)) = found else {
+                    BUSY.store(false, SeqCst);
+                    info(w, tr("The clipboard holds no files to paste.").into());
+                    return;
                 };
-                let job = engine.begin_job(kind);
-                let out = transfer::paste(op, &sources, &dest, job.progress());
-                drop(job);
-                BUSY.store(false, SeqCst);
-                let _ = weak.upgrade_in_event_loop(move |w| {
-                    let (text, failed) = labels::pasted(op, &out, &folder);
-                    if failed {
-                        error(&w, text);
-                    } else {
-                        info(&w, text);
-                    }
-                    // A cut is pasted once; after a failure or a cancel it
-                    // stays, so pasting again moves what is left.
-                    if op == clipboard::Operation::Cut && out.failed.is_empty() && !out.cancelled {
-                        let ours = HELD.with(|h| {
-                            let mut h = h.borrow_mut();
-                            let ours = h.as_ref().is_some_and(|h| h.paths == sources);
-                            if ours {
-                                *h = None;
-                            }
-                            ours
-                        });
-                        with_x11(|x| {
-                            let x = x?;
-                            if ours {
-                                x.clear();
-                            } else if !x.owns() {
-                                // Another program's cut: the clipboard
-                                // thread empties the clipboard if it still
-                                // holds it, as file managers do after
-                                // pasting a cut. What this window held is
-                                // not on the clipboard any more.
-                                HELD.with(|h| *h.borrow_mut() = None);
-                                x.empty_if_holding((clipboard::Operation::Cut, sources.clone()));
-                            }
-                            Some(())
-                        });
-                        CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
-                    }
+                let folder = dest.file_name().map_or_else(
+                    || dest.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                std::thread::spawn(move || {
+                    let kind = match op {
+                        clipboard::Operation::Copy => engine::TaskKind::Copying,
+                        clipboard::Operation::Cut => engine::TaskKind::Moving,
+                    };
+                    let job = engine.begin_job(kind);
+                    let out = transfer::paste(op, &sources, &dest, job.progress());
+                    drop(job);
+                    BUSY.store(false, SeqCst);
+                    let _ = weak.upgrade_in_event_loop(move |w| {
+                        let (text, failed) = labels::pasted(op, &out, &folder);
+                        if failed {
+                            error(&w, text);
+                        } else {
+                            info(&w, text);
+                        }
+                        // A cut is pasted once; after a failure or a cancel it
+                        // stays, so pasting again moves what is left.
+                        if op == clipboard::Operation::Cut
+                            && out.failed.is_empty()
+                            && !out.cancelled
+                        {
+                            let ours = HELD.with(|h| {
+                                let mut h = h.borrow_mut();
+                                let ours = h.as_ref().is_some_and(|h| h.paths == sources);
+                                if ours {
+                                    *h = None;
+                                }
+                                ours
+                            });
+                            with_x11(|x| {
+                                let x = x?;
+                                if ours {
+                                    x.clear();
+                                } else if !x.owns() {
+                                    // Another program's cut: the clipboard
+                                    // thread empties the clipboard if it still
+                                    // holds it, as file managers do after
+                                    // pasting a cut. What this window held is
+                                    // not on the clipboard any more.
+                                    HELD.with(|h| *h.borrow_mut() = None);
+                                    x.empty_if_holding((
+                                        clipboard::Operation::Cut,
+                                        sources.clone(),
+                                    ));
+                                }
+                                Some(())
+                            });
+                            CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
+                        }
+                    });
                 });
             });
         }

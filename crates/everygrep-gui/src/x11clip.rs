@@ -190,6 +190,16 @@ fn fits(have: usize, value: usize, bytes_after: u32) -> bool {
     bytes_after == 0 && have.checked_add(value).is_some_and(|n| n <= MAX_READ)
 }
 
+/// Waits on a helper thread at most `wait` for `answer`, then calls `done`
+/// with it (`None` when it did not come).
+fn answer_then<T: Send + 'static>(
+    answer: Receiver<Option<T>>,
+    wait: Duration,
+    done: impl FnOnce(Option<T>) + Send + 'static,
+) {
+    std::thread::spawn(move || done(answer.recv_timeout(wait).ok().flatten()));
+}
+
 /// Whether a read that ended with `found` empties the clipboard for
 /// `then`.
 fn empties(then: &Then, found: Option<&Found>) -> bool {
@@ -285,14 +295,16 @@ impl X11Clipboard {
         self.owns.load(Ordering::SeqCst)
     }
 
-    /// The files another program put on the clipboard, if any; waits at
-    /// most [`READ_WAIT`].
-    pub fn read(&self) -> Option<(Operation, Vec<PathBuf>)> {
+    /// Asks for the files another program put on the clipboard without
+    /// waiting: `done` gets them (or `None`) on a helper thread, at the
+    /// latest after [`READ_WAIT`].
+    pub fn read_then(&self, done: impl FnOnce(Option<Found>) + Send + 'static) {
         let (reply, answer) = mpsc::channel();
         if !self.send(Cmd::Read(reply)) {
-            return None;
+            done(None);
+            return;
         }
-        answer.recv_timeout(READ_WAIT).ok().flatten()
+        answer_then(answer, READ_WAIT, done);
     }
 
     /// Queues `cmd` and wakes the thread. `false` when the thread is gone.
@@ -975,6 +987,28 @@ mod tests {
         // A read for Paste never empties.
         let (reply, _answer) = mpsc::channel();
         assert!(!empties(&Then::Reply(reply), Some(&moved)));
+    }
+
+    #[test]
+    fn a_read_answers_later_without_blocking_the_caller() {
+        let (done_tx, done) = mpsc::channel();
+        // No answer: the caller goes on at once, `done` gets None later.
+        let (_reply, answer) = mpsc::channel::<Option<u32>>();
+        let start = std::time::Instant::now();
+        let tx = done_tx.clone();
+        answer_then(answer, Duration::from_millis(300), move |got| {
+            tx.send(got).unwrap();
+        });
+        assert!(start.elapsed() < Duration::from_millis(100));
+        assert_eq!(done.recv_timeout(Duration::from_secs(5)).unwrap(), None);
+        assert!(start.elapsed() >= Duration::from_millis(300));
+        // An answer is passed on.
+        let (reply, answer) = mpsc::channel();
+        answer_then(answer, Duration::from_secs(5), move |got| {
+            done_tx.send(got).unwrap();
+        });
+        reply.send(Some(7)).unwrap();
+        assert_eq!(done.recv_timeout(Duration::from_secs(5)).unwrap(), Some(7));
     }
 
     #[test]
