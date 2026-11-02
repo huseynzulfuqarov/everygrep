@@ -629,9 +629,11 @@ const AT_FDCWD: c_int = -100;
 const RENAME_NOREPLACE: c_uint = 1;
 
 /// Renames `from` to `to`, failing with `AlreadyExists` instead of
-/// replacing. File systems without this kind of rename (NFS, SMB, many FUSE
-/// file systems) get a check and a plain rename, which could replace a file
-/// created in between.
+/// replacing. On file systems without this kind of rename (NFS, SMB, many
+/// FUSE file systems) a file or link gets a new hard link and loses its old
+/// name, which never replaces either; a folder (or a file where hard links
+/// are not supported) gets a check and a plain rename, which could replace
+/// an item created in between.
 pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     rename_noreplace_with(from, to, renameat2_noreplace)
 }
@@ -649,10 +651,29 @@ fn rename_noreplace_with(
         Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
         result => return result,
     }
+    if fs::symlink_metadata(from).is_ok_and(|m| !m.is_dir()) {
+        // `link` does not follow a link at `from` and fails when `to` exists.
+        match fs::hard_link(from, to) {
+            Ok(()) => {
+                return fs::remove_file(from).inspect_err(|_| {
+                    let _ = fs::remove_file(to);
+                });
+            }
+            Err(e) if !no_hard_links(&e) => return Err(e),
+            Err(_) => {}
+        }
+    }
     if fs::symlink_metadata(to).is_ok() {
         return Err(io::ErrorKind::AlreadyExists.into());
     }
     fs::rename(from, to)
+}
+
+/// Whether `e` from `link` means another way is needed: EPERM or
+/// EOPNOTSUPP where the file system has no hard links (some FUSE file
+/// systems and SMB shares), EMLINK when the file has too many.
+fn no_hard_links(e: &io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(1 | 95 | 31)) || e.kind() == io::ErrorKind::Unsupported
 }
 
 /// `renameat2` with `RENAME_NOREPLACE`: atomic, never replaces the target.
@@ -1205,11 +1226,54 @@ mod tests {
         rename_noreplace_with(&a, &t.path("c"), unsupported).unwrap();
         assert_eq!(read(&t.path("c")), "a");
         assert!(!a.exists());
+        // A folder is checked and renamed.
+        fs::create_dir(t.path("dir")).unwrap();
+        let e = rename_noreplace_with(&t.path("dir"), &b, unsupported).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        rename_noreplace_with(&t.path("dir"), &t.path("dir2"), unsupported).unwrap();
+        assert!(t.path("dir2").is_dir() && !t.path("dir").exists());
         // Other errors are reported as they are, without a second attempt.
         let denied = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(13));
         let e = rename_noreplace_with(&t.path("c"), &t.path("d"), denied).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(read(&t.path("c")), "a");
+    }
+
+    #[test]
+    fn the_fallback_rename_of_a_file_never_replaces_one_that_arrives_meanwhile() {
+        use std::sync::{Arc, Barrier};
+        let t = TempDir::new("noreplace-race");
+        let unsupported = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(22));
+        let target = t.path("target");
+        let mut replaced = 0;
+        for round in 0..300 {
+            let _ = fs::remove_file(&target);
+            let barrier = Arc::new(Barrier::new(2));
+            let threads: Vec<_> = ["a", "b"]
+                .into_iter()
+                .map(|who| {
+                    let from = t.path(&format!("{who}-{round}"));
+                    write(&from, who);
+                    let (to, barrier) = (target.clone(), barrier.clone());
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        rename_noreplace_with(&from, &to, unsupported).is_ok()
+                    })
+                })
+                .collect();
+            let ok = threads
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .filter(|&ok| ok)
+                .count();
+            if ok == 2 {
+                replaced += 1;
+            }
+        }
+        assert_eq!(
+            replaced, 0,
+            "both renames succeeded, one replacing the other"
+        );
     }
 
     #[test]

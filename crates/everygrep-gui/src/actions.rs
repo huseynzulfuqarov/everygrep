@@ -200,8 +200,9 @@ fn case_only(old: &Path, target: &Path) -> bool {
 /// `None` if the name did not change.
 ///
 /// The rename never replaces a target that appears after the check, where
-/// the file system can refuse that atomically; elsewhere (NFS, SMB, some
-/// FUSE file systems) the check and the rename are two steps. A change of
+/// the file system can refuse that atomically or a file can get a hard
+/// link; elsewhere (a folder on NFS, SMB, some FUSE file systems) the check
+/// and the rename are two steps. A change of
 /// case on a case-insensitive file system is a plain rename, since the
 /// target found there is the item itself.
 pub fn rename(old: &Path, new_name: &str) -> Result<Option<PathBuf>, RenameError> {

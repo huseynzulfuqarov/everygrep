@@ -284,9 +284,11 @@ The Window settings can make Rename open a dialog showing the containing
 folder and the new name. Invalid names, names over 255 UTF-8 bytes and
 existing targets are reported inside the dialog; a failed rename keeps it
 open. The existing in-place editor remains the default. Both editors refuse
-to replace a target that appears during the rename, where the file system
-can refuse that atomically (not on NFS, SMB and some FUSE file systems, which
-get a check followed by a plain rename).
+to replace a target that appears during the rename. On NFS, SMB and some
+FUSE file systems, which cannot refuse that in the rename itself, a file
+gets a new hard link and loses its old name instead; only a folder (or a
+file where hard links are not supported) gets a check followed by a plain
+rename there.
 
 ### Settings
 
