@@ -1032,11 +1032,12 @@ impl Engine {
         if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
             return false;
         }
-        let fresh = self.with_drives(Index::new(store));
+        let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options.rules);
         if task.progress().is_cancelled() {
             return false;
         }
         self.replace_index(fresh);
+        self.read_drives_again(&left_out);
         *self.indexed_with.lock().expect("lock") = (roots, options.rules);
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
@@ -1194,7 +1195,7 @@ impl Engine {
             return;
         }
         drop(task);
-        let fresh = self.with_drives(Index::new(store));
+        let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options.rules);
         let mut index = self.index.write().expect("index lock");
         *index = fresh;
         self.bump_epoch();
@@ -1203,6 +1204,7 @@ impl Engine {
             *watcher = fresh;
         }
         drop(index);
+        self.read_drives_again(&left_out);
         // Saves record what this index was built with.
         *self.indexed_with.lock().expect("lock") = (roots, options.rules);
         *self.shown.lock().expect("lock") = Arc::new(Vec::new());
@@ -1255,19 +1257,54 @@ impl Engine {
 
     /// `fresh` with the drives of the current index added to it (their
     /// entries as they are, online or offline), for a new scan of the
-    /// folders to index.
-    fn with_drives(&self, mut fresh: Index) -> Index {
+    /// folders `roots` with `rules`. Drives read with other rules, or that
+    /// lie in or hold one of `roots` (their entries would be listed twice),
+    /// are left out; their UUIDs are returned, for
+    /// [`read_drives_again`](Self::read_drives_again) once `fresh` is used.
+    fn with_drives(
+        &self,
+        mut fresh: Index,
+        roots: &[PathBuf],
+        rules: &IndexRules,
+    ) -> (Index, Vec<String>) {
+        let fingerprint = persist::rules_fingerprint(&rules.spec());
         let volumes = self.volumes.lock().expect("lock");
         let old = self.index.read().expect("index lock");
+        let mut left_out = Vec::new();
         for v in volumes.iter() {
             let Some(name) = v.root.as_deref() else {
                 continue;
             };
+            if persist::rules_fingerprint(&v.rules.spec()) != fingerprint || overlaps(roots, name) {
+                left_out.push(v.info.uuid.clone());
+                continue;
+            }
             if let (Some(root), None) = (root_id(&old, name), root_id(&fresh, name)) {
                 fresh.graft(&old.extract(&[root]).0);
             }
         }
-        fresh
+        (fresh, left_out)
+    }
+
+    /// The drives `uuids` were left out of the new index (see
+    /// [`with_drives`](Self::with_drives)): they are no longer indexed, and
+    /// are read again with the new rules when they are connected, at once
+    /// for those that are, unless a folder to index holds them.
+    fn read_drives_again(&self, uuids: &[String]) {
+        if uuids.is_empty() {
+            return;
+        }
+        for v in self
+            .volumes
+            .lock()
+            .expect("lock")
+            .iter_mut()
+            .filter(|v| uuids.contains(&v.info.uuid))
+        {
+            v.root = None;
+            v.info.entries = 0;
+        }
+        self.mounts_changed.store(true, Ordering::SeqCst);
     }
 
     /// Loads the saved index of every known drive into the index, marked
@@ -3061,6 +3098,61 @@ mod tests {
         until(e, "the next drive", |i| {
             find(i, &usb.join("later.txt")).is_some()
         });
+        e.shutdown();
+    }
+
+    /// How many entries of `index` have the path `path`.
+    fn count(index: &Index, path: &Path) -> usize {
+        index
+            .order()
+            .iter()
+            .filter(|&id| index.store().path(id) == path)
+            .count()
+    }
+
+    #[test]
+    fn indexing_again_reads_drives_with_the_new_rules_and_roots() {
+        let dir = Scratch::new("drives-reindex");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let usb = dir.0.join("media/USB");
+        fs::create_dir_all(&usb).unwrap();
+        fs::write(usb.join("junk.tmp"), "").unwrap();
+        fs::write(usb.join("keep.txt"), "").unwrap();
+        let probe = Probe::start_with(
+            vec![home.clone()],
+            Vec::new(),
+            dir.0.join("index.bin"),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        probe.wait_for(IndexState::Watching);
+        let e = &probe.engine;
+        fake.mount("RULE-1", "sdx1", "USB");
+        until(e, "the drive", |i| find(i, &usb.join("junk.tmp")).is_some());
+
+        // New rules leave the drive's *.tmp files out too.
+        let no_tmp = IndexRules::new(everygrep_core::rules::RuleSpec {
+            exclude_files: "*.tmp".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        e.reindex(std::slice::from_ref(&home), no_tmp);
+        probe.wait_for(IndexState::Scanning);
+        until(e, "the drive read with the new rules", |i| {
+            find(i, &usb.join("junk.tmp")).is_none() && find(i, &usb.join("keep.txt")).is_some()
+        });
+
+        // A folder to index that holds the drive: its entries once.
+        e.reindex(&[home, dir.0.join("media")], IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        until(e, "the drive's entries once", |i| {
+            count(i, &usb.join("keep.txt")) == 1
+        });
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(count(&e.index.read().unwrap(), &usb.join("keep.txt")), 1);
+        assert!(!e.drives()[0].indexed);
         e.shutdown();
     }
 

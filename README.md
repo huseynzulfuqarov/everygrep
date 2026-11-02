@@ -386,7 +386,9 @@ themselves are always indexed. Changing any list or the switch indexes
 again; the same rules apply while watching for changes and when catching up.
 The saved index (and each drive's) records these rules: one saved with other
 rules, or by an older version without them, is built again at the next start
-(a drive when it is next connected).
+(a drive when it is next connected). Changing the rules also drops the
+entries of every drive read with the old ones; a connected drive is read
+again at once.
 
 Long operations show their progress in the status line once they take
 more than 300 ms: indexing, rescanning, reading a drive, catching up,

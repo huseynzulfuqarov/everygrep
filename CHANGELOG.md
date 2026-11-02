@@ -68,7 +68,8 @@ First version, 0.1.0, not released yet.
   and the window build the index again when the include/exclude rules
   changed or the file has none (versions 4 and 5); the window saves its
   index and each drive's with their rules, and reads a drive again when its
-  file has other rules.
+  file has other rules or the rules change, and leaves out a drive that a
+  new folder to index holds.
 - Total size and item count of every folder, kept current on every change.
 - Sorting by name, folder, size, modification time, type or extension.
   Names sort in natural order: numbers by value (`file2` before `file10`),
