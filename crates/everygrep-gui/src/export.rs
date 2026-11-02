@@ -93,15 +93,7 @@ impl Writer {
     /// Starts an export to `target`: creates the temporary file next to it
     /// and writes the CSV header.
     pub fn create(target: &Path, format: Format, zone: Zone) -> io::Result<Self> {
-        let dir = target
-            .parent()
-            .filter(|d| !d.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        let mut name = std::ffi::OsString::from(".");
-        name.push(target.file_name().unwrap_or_default());
-        name.push(format!(".tmp-{}", std::process::id()));
-        let tmp = dir.join(name);
-        let file = fs::File::create(&tmp)?;
+        let (file, tmp) = crate::settings::create_temp(target)?;
         let mut w = Self {
             out: BufWriter::with_capacity(1 << 16, file),
             tmp,
@@ -278,6 +270,23 @@ mod tests {
         drop(w);
         assert_eq!(fs::read_to_string(&target).unwrap(), "old");
         assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn an_export_never_writes_through_a_planted_link() {
+        let dir = Scratch::new("export-link");
+        let victim = dir.0.join("victim.txt");
+        fs::write(&victim, "keep").unwrap();
+        let target = dir.0.join("out.csv");
+        // The temporary name an export of this process used to take.
+        let planted = dir.0.join(format!(".out.csv.tmp-{}", std::process::id()));
+        std::os::unix::fs::symlink(&victim, &planted).unwrap();
+        let mut w = Writer::create(&target, Format::Text, utc()).unwrap();
+        w.row(&rows()[0]).unwrap();
+        assert_eq!(w.finish().unwrap(), 1);
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(fs::symlink_metadata(&target).unwrap().is_file());
+        assert!(fs::symlink_metadata(&planted).unwrap().is_symlink());
     }
 
     #[test]

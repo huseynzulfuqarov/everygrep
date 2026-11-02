@@ -1018,11 +1018,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no parent folder"))?;
     fs::create_dir_all(dir)?;
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".tmp-{}", std::process::id()));
-    let tmp = dir.join(name);
+    let (mut file, tmp) = create_temp(path)?;
     let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&tmp, path)
@@ -1031,6 +1028,59 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+/// How many temporary names [`create_temp`] tries.
+const TEMP_TRIES: u32 = 100;
+
+/// Creates a new temporary file next to `target`, for writing it whole and
+/// renaming it over `target`: `.<name>.tmp-<pid>-<n>` in the same folder,
+/// `n` from a counter mixed with the clock. The file is always a new one
+/// (`O_EXCL`): an entry under that name, such as a planted link, is never
+/// followed or replaced; the next name is tried.
+pub fn create_temp(target: &Path) -> io::Result<(fs::File, PathBuf)> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let dir = target
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let base = target.file_name().unwrap_or_default();
+    let names = std::iter::repeat_with(|| {
+        let clock = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let n = NEXT
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_mul(0x9E37_79B9)
+            ^ u64::from(clock);
+        let mut name = std::ffi::OsString::from(".");
+        name.push(base);
+        name.push(format!(".tmp-{}-{n:x}", std::process::id()));
+        name
+    });
+    create_temp_named(dir, names)
+}
+
+/// [`create_temp`] with the names to try given, for the tests.
+fn create_temp_named(
+    dir: &Path,
+    names: impl IntoIterator<Item = std::ffi::OsString>,
+) -> io::Result<(fs::File, PathBuf)> {
+    let mut last = io::Error::from(io::ErrorKind::AlreadyExists);
+    for name in names.into_iter().take(TEMP_TRIES as usize) {
+        let tmp = dir.join(name);
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => return Ok((file, tmp)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
 }
 
 /// One value for a settings line: backslash escapes for `\`, line breaks,
@@ -1119,6 +1169,44 @@ pub(crate) mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn saving_never_writes_through_a_planted_link() {
+        let dir = Scratch::new("settings-link");
+        let victim = dir.0.join("victim.txt");
+        fs::write(&victim, "keep").unwrap();
+        let path = dir.0.join("settings");
+        // The temporary name a save of this process used to take.
+        let planted = dir.0.join(format!("settings.tmp-{}", std::process::id()));
+        std::os::unix::fs::symlink(&victim, &planted).unwrap();
+        write_atomic(&path, b"new").unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(fs::symlink_metadata(&path).unwrap().is_file());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[test]
+    fn a_temporary_file_is_always_a_new_one() {
+        let dir = Scratch::new("temp-new");
+        let victim = dir.0.join("victim");
+        fs::write(&victim, "keep").unwrap();
+        std::os::unix::fs::symlink(&victim, dir.0.join("taken-link")).unwrap();
+        fs::write(dir.0.join("taken-file"), "old").unwrap();
+        let names = ["taken-link", "taken-file", "free"].map(std::ffi::OsString::from);
+        let (mut file, tmp) = create_temp_named(&dir.0, names).unwrap();
+        assert_eq!(tmp, dir.0.join("free"));
+        file.write_all(b"x").unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(fs::read_to_string(dir.0.join("taken-file")).unwrap(), "old");
+        let e = create_temp_named(&dir.0, [std::ffi::OsString::from("free")]).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        // The real names are hidden, per target, and differ every time.
+        let (_, a) = create_temp(&dir.0.join("settings")).unwrap();
+        let (_, b) = create_temp(&dir.0.join("settings")).unwrap();
+        assert_ne!(a, b);
+        let a = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(a.starts_with(".settings.tmp-"), "{a}");
     }
 
     #[test]
