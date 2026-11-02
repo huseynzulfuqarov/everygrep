@@ -115,6 +115,8 @@ After reading:
 - every parent link must point to an existing folder (or be 0), names must lie
   inside the pool, no two names may share bytes of the pool (their lengths
   add up to at most the pool's size), and no node may be marked removed;
+- a root's name must be an absolute path and any other name one entry of a
+  folder: not empty, `.` or `..`, without `/`; no name may hold a NUL byte;
 - parent chains must end at a root without loops;
 - the name order must be a permutation of the nodes; if it is not sorted by
   the current rules (a version 4 file, or rules that changed with an update

@@ -578,6 +578,10 @@ impl NodeStore {
             if !end.is_some_and(|e| e <= c.name_pool.len()) {
                 return Err("name out of range");
             }
+            let name = slice(&c.name_pool, c.name_start[i], c.name_len[i]);
+            if !is_valid_name(name, parent == 0) {
+                return Err("bad name");
+            }
         }
         // Each node has name bytes of its own in a saved index. Names that
         // share bytes would let a small file ask for much folding work and
@@ -707,6 +711,19 @@ pub(crate) struct ColumnsRef<'a> {
     pub name_pool: &'a [u8],
 }
 
+/// Whether a saved name can be what a scan stores: a root is an absolute
+/// path, any other node one entry of a folder (not empty, `.` or `..`, no
+/// `/`). Neither holds a NUL byte. Joined into paths, other names could
+/// point outside the indexed folders.
+fn is_valid_name(name: &[u8], root: bool) -> bool {
+    !name.contains(&0)
+        && if root {
+            name.first() == Some(&b'/')
+        } else {
+            !name.is_empty() && name != b"." && name != b".." && !name.contains(&b'/')
+        }
+}
+
 fn push(pool: &mut Vec<u8>, bytes: &[u8]) -> (u32, u16) {
     let start = u32::try_from(pool.len()).expect("name pool exceeds 4 GiB");
     let len = u16::try_from(bytes.len()).expect("name longer than 65535 bytes");
@@ -807,6 +824,22 @@ mod tests {
             c.name_pool.extend_from_slice(name);
         }
         c
+    }
+
+    #[test]
+    fn names_that_are_no_entry_of_a_folder_are_refused() {
+        let load = |names: &[&[u8]]| {
+            NodeStore::from_columns(columns_named(vec![DIR_BIT, 1 | DIR_BIT, 2], names)).err()
+        };
+        assert_eq!(load(&[b"/r", b"a", b"b.txt"]), None);
+        assert_eq!(load(&[b"/", b"a b", "é".as_bytes()]), None);
+        for child in [&b"/etc"[..], b"a/b", b"..", b".", b"", b"a\0b"] {
+            assert_eq!(load(&[b"/r", child, b"x"]), Some("bad name"), "{child:?}");
+            assert_eq!(load(&[b"/r", b"a", child]), Some("bad name"), "{child:?}");
+        }
+        for root in [&b"r"[..], b"", b"/r\0"] {
+            assert_eq!(load(&[root, b"a", b"x"]), Some("bad name"), "{root:?}");
+        }
     }
 
     #[test]
