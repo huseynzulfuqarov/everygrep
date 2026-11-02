@@ -58,7 +58,8 @@ First version, 0.1.0, not released yet.
   be listed but not searched still gets its added and removed entries by
   name, also while it is watched; it is listed again when it gets an event
   (such as the permission change that makes it searchable) until all its
-  entries could be looked at.
+  entries could be looked at, also when the scan or a catch-up before the
+  watch left it so.
 - In-memory compaction during long watch sessions.
 - Saved index (format version 6) with full validation and a checksum,
   decoded while it is read. It is written to an exclusively created

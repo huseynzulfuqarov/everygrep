@@ -30,7 +30,7 @@ use crate::inotify::{Event, Inotify, Mask, WatchId};
 use crate::progress::Progress;
 use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
-use crate::sync::{CatchUpStats, add_tree, catch_up_with, online_roots, recheck_dirs};
+use crate::sync::{CatchUpStats, Folders, add_tree, catch_up_with, online_roots, recheck_dirs};
 
 /// What happened while applying a batch of events.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -154,9 +154,10 @@ pub struct Watcher {
     /// its old name, and that name.
     waiting_moves: HashMap<MoveKey, (NodeId, Vec<u8>)>,
     /// Folders with an entry that could not be looked at (readable but not
-    /// searchable). Their time is not kept, so a catch-up reads them again,
-    /// and they are listed again when they get an event, until a listing
-    /// is complete.
+    /// searchable), found by an event or left so by the scan, a catch-up
+    /// or the reading of a new folder. Their time is not kept, so a
+    /// catch-up reads them again, and they are listed again when they get
+    /// an event, until a listing is complete.
     incomplete: HashSet<NodeId>,
     /// Folders where a created entry was not found because the folder was
     /// no longer at its indexed path: it was moved, and its move is in a
@@ -205,6 +206,26 @@ impl Watcher {
             self.watches.watch(index, dir, &self.skip);
             stack.extend(store.children(dir).filter(|&k| store.is_dir(k)));
         }
+        self.note_incomplete_below(index, &[root]);
+    }
+
+    /// Marks the watched folders below `tops` whose listing was not complete
+    /// (a scan or catch-up left their time unknown) as incomplete, so they
+    /// are listed again when they get an event instead of having their
+    /// time kept.
+    fn note_incomplete_below(&mut self, index: &Index, tops: &[NodeId]) {
+        let store = index.store();
+        let mut stack: Vec<NodeId> = tops
+            .iter()
+            .copied()
+            .filter(|&d| store.is_live(d) && store.is_dir(d))
+            .collect();
+        while let Some(dir) = stack.pop() {
+            if store.meta(dir).mtime_ns == 0 && self.watches.watch_of.contains_key(&dir) {
+                self.incomplete.insert(dir);
+            }
+            stack.extend(store.children(dir).filter(|&k| store.is_dir(k)));
+        }
     }
 
     /// Stops watching the folders below `root`, for a root that goes
@@ -249,16 +270,11 @@ impl Watcher {
         roots: &[NodeId],
         progress: &Progress,
     ) -> CatchUpStats {
-        let watches = &mut self.watches;
-        let skip = &self.skip;
-        let stats = catch_up_with(
-            index,
-            roots,
-            skip,
-            &mut |idx: &Index, dir| watches.watch(idx, dir, skip),
-            progress,
-        );
+        let mut visit = Visit::new(&mut self.watches, &self.skip);
+        let stats = catch_up_with(index, roots, &self.skip, &mut visit, progress);
+        let incomplete = visit.incomplete;
         self.watches.forget(&index.take_removed());
+        self.keep_incomplete(index, incomplete);
         stats
     }
 
@@ -310,12 +326,11 @@ impl Watcher {
                 limit_reached = self.watches.failed.get(&dir) == Some(&io::ErrorKind::StorageFull);
             }
         }
-        let watches = &mut self.watches;
-        let skip = &self.skip;
-        let stats = recheck_dirs(index, &dirs, skip, false, &mut |idx: &Index, dir| {
-            watches.watch(idx, dir, skip)
-        });
+        let mut visit = Visit::new(&mut self.watches, &self.skip);
+        let stats = recheck_dirs(index, &dirs, &self.skip, false, &mut visit);
+        let incomplete = visit.incomplete;
         self.watches.forget(&index.take_removed());
+        self.keep_incomplete(index, incomplete);
         stats
     }
 
@@ -584,17 +599,10 @@ impl Watcher {
             .collect();
         for dir in arrived {
             self.moved_away.remove(&dir);
-            let watches = &mut self.watches;
-            let skip = &self.skip;
-            let listed = recheck_dirs(index, &[dir], skip, true, &mut |idx: &Index, new| {
-                watches.watch(idx, new, skip)
-            });
+            let listed = self.relist(index, dir);
             stats.added += listed.added;
             stats.removed += listed.removed;
             stats.updated += listed.updated;
-            if listed.errors != 0 {
-                self.incomplete.insert(dir);
-            }
         }
         let relist: Vec<NodeId> = self
             .incomplete
@@ -603,17 +611,11 @@ impl Watcher {
             .filter(|dir| event_dirs.contains(dir) || touched.contains(dir))
             .collect();
         for dir in relist {
-            let watches = &mut self.watches;
-            let skip = &self.skip;
-            let listed = recheck_dirs(index, &[dir], skip, true, &mut |idx: &Index, new| {
-                watches.watch(idx, new, skip)
-            });
+            self.incomplete.remove(&dir);
+            let listed = self.relist(index, dir);
             stats.added += listed.added;
             stats.removed += listed.removed;
             stats.updated += listed.updated;
-            if listed.errors == 0 {
-                self.incomplete.remove(&dir);
-            }
         }
         // The times read at the end of the previous batch: every event queued
         // before them has now been read and applied. Only a watched folder
@@ -680,13 +682,8 @@ impl Watcher {
         // The old watch is gone with the file system.
         self.watches.detach(dir);
         self.watches.watch(index, dir, &self.skip);
-        let watches = &mut self.watches;
-        let skip = &self.skip;
-        let mut stats = recheck_dirs(index, &[dir], skip, true, &mut |idx: &Index, d| {
-            watches.watch(idx, d, skip)
-        });
+        let mut stats = self.relist(index, dir);
         stats.removed += removed;
-        self.watches.forget(&index.take_removed());
         stats
     }
 
@@ -755,16 +752,64 @@ impl Watcher {
             .path(parent)
             .join(std::ffi::OsStr::from_bytes(name));
         fs::symlink_metadata(&path)?;
-        let watches = &mut self.watches;
-        let skip = &self.skip;
-        Ok(add_tree(
-            index,
-            parent,
-            name,
-            &path,
+        let mut visit = Visit::new(&mut self.watches, &self.skip);
+        let added = add_tree(index, parent, name, &path, &self.skip, &mut visit);
+        let incomplete = visit.incomplete;
+        self.keep_incomplete(index, incomplete);
+        Ok(added)
+    }
+
+    /// Lists the folder `dir` again, watching new folders below it, and
+    /// marks what is still incomplete.
+    fn relist(&mut self, index: &mut Index, dir: NodeId) -> CatchUpStats {
+        let mut visit = Visit::new(&mut self.watches, &self.skip);
+        let stats = recheck_dirs(index, &[dir], &self.skip, true, &mut visit);
+        let mut incomplete = visit.incomplete;
+        if stats.errors != 0 {
+            // Not even looked at, say under a folder that is not searchable.
+            incomplete.push(dir);
+        }
+        self.watches.forget(&index.take_removed());
+        self.keep_incomplete(index, incomplete);
+        stats
+    }
+
+    /// Marks the watched ones of `dirs`, folders that could not be read
+    /// completely, as incomplete (see the field `incomplete`).
+    fn keep_incomplete(&mut self, index: &Index, dirs: Vec<NodeId>) {
+        self.incomplete.extend(
+            dirs.into_iter().filter(|dir| {
+                index.store().is_live(*dir) && self.watches.watch_of.contains_key(dir)
+            }),
+        );
+    }
+}
+
+/// Watches each folder that a catch-up adds, and collects those it could
+/// not read completely.
+struct Visit<'a> {
+    watches: &'a mut Watches,
+    skip: &'a Skip,
+    incomplete: Vec<NodeId>,
+}
+
+impl<'a> Visit<'a> {
+    fn new(watches: &'a mut Watches, skip: &'a Skip) -> Self {
+        Self {
+            watches,
             skip,
-            &mut |idx: &Index, dir| watches.watch(idx, dir, skip),
-        ))
+            incomplete: Vec::new(),
+        }
+    }
+}
+
+impl Folders for Visit<'_> {
+    fn added(&mut self, index: &Index, dir: NodeId) {
+        self.watches.watch(index, dir, self.skip);
+    }
+
+    fn incomplete(&mut self, dir: NodeId) {
+        self.incomplete.push(dir);
     }
 }
 
@@ -1181,6 +1226,78 @@ mod tests {
         f.settle(|_| false);
         assert!(time(&f));
         assert_eq!(f.watcher.catch_up(&mut f.index).dirs_rescanned, 0);
+    }
+
+    #[test]
+    fn a_folder_left_incomplete_before_watching_is_listed_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!(
+            "everygrep-watch-incomplete-before-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("root");
+        let (u, v) = (root.join("u"), root.join("v"));
+        fs::create_dir_all(&u).unwrap();
+        fs::create_dir_all(&v).unwrap();
+        fs::write(u.join("f.txt"), b"fffff").unwrap();
+        fs::write(v.join("a.txt"), b"a").unwrap();
+        /// Gives the folders their permissions back and removes them, also
+        /// when the test fails.
+        struct Cleanup(PathBuf, [PathBuf; 2]);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                for dir in &self.1 {
+                    let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o755));
+                }
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(base.clone(), [u.clone(), v.clone()]);
+        let searchable = |dir: &Path, yes: bool| {
+            let mode = if yes { 0o755 } else { 0o644 };
+            fs::set_permissions(dir, fs::Permissions::from_mode(mode)).unwrap();
+        };
+        // `u` is readable but not searchable when it is scanned.
+        searchable(&u, false);
+        if fs::symlink_metadata(u.join("f.txt")).is_ok() {
+            panic!("test requires an unprivileged user");
+        }
+        let mut store = NodeStore::new();
+        scan(
+            &mut store,
+            std::slice::from_ref(&root),
+            &ScanOptions::default(),
+        );
+        let mut index = Index::new(store);
+        // `v` gets a file while nothing watches, and is not searchable when
+        // it is caught up.
+        fs::write(v.join("b.txt"), b"bbbbb").unwrap();
+        searchable(&v, false);
+        let mut watcher = Watcher::new(&index, &ScanOptions::default()).unwrap();
+        watcher.catch_up(&mut index);
+        let size = |index: &Index, path: &Path| index.store().meta(node_in(index, path)).size;
+        assert_eq!(size(&index, &u.join("f.txt")), 0);
+        assert_eq!(size(&index, &v.join("b.txt")), 0);
+        // Searchable again: the permission changes list them again.
+        searchable(&u, true);
+        searchable(&v, true);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline
+            && (size(&index, &u.join("f.txt")) != 5 || size(&index, &v.join("b.txt")) != 5)
+        {
+            watcher
+                .poll(&mut index, Some(Duration::from_millis(50)))
+                .unwrap();
+        }
+        for _ in 0..3 {
+            watcher
+                .poll(&mut index, Some(Duration::from_millis(50)))
+                .unwrap();
+        }
+        assert_eq!(size(&index, &u.join("f.txt")), 5);
+        assert_eq!(size(&index, &v.join("b.txt")), 5);
+        assert_eq!(watcher.catch_up(&mut index).dirs_rescanned, 0);
     }
 
     fn node_in(index: &Index, path: &Path) -> NodeId {

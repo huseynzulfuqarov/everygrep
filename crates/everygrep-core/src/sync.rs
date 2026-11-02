@@ -21,6 +21,23 @@ use crate::progress::{Cancelled, Progress};
 use crate::scan::{ScanOptions, Skip};
 use crate::store::{Meta, NodeId};
 
+/// What a catch-up tells its caller about the folders it reads. A closure
+/// `FnMut(&Index, NodeId)` is one that only hears of added folders.
+pub(crate) trait Folders {
+    /// `dir` was added; called before its contents are read.
+    fn added(&mut self, index: &Index, dir: NodeId);
+    /// `dir` was read but not completely: its listing failed, or some of
+    /// its entries could not be looked at. Its time says it is to be read
+    /// again.
+    fn incomplete(&mut self, _dir: NodeId) {}
+}
+
+impl<F: FnMut(&Index, NodeId)> Folders for F {
+    fn added(&mut self, index: &Index, dir: NodeId) {
+        self(index, dir)
+    }
+}
+
 /// Counters from [`catch_up`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CatchUpStats {
@@ -81,8 +98,9 @@ pub(crate) fn online_roots(index: &Index) -> Vec<NodeId> {
         .collect()
 }
 
-/// Catch-up of the folder roots in `roots` that calls `on_new_dir` for every
-/// folder it adds, before reading that folder, and counts every indexed
+/// Catch-up of the folder roots in `roots` that tells `folders` of every
+/// folder it adds, before reading that folder, and of every folder it could
+/// not read completely (see [`Folders`]), and counts every indexed
 /// folder it checks in `progress`. Removed ids are left in the index's
 /// removal log. Entries that the rules leave out are not added; indexed
 /// folders they leave out are removed when checked, and indexed files when
@@ -91,7 +109,7 @@ pub(crate) fn catch_up_with(
     index: &mut Index,
     roots: &[NodeId],
     skip: &Skip,
-    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    folders: &mut dyn Folders,
     progress: &Progress,
 ) -> CatchUpStats {
     let mut stats = CatchUpStats::default();
@@ -106,7 +124,7 @@ pub(crate) fn catch_up_with(
     while let Some(dir) = queue.pop_front() {
         let mode = Mode::default();
         queue.extend(check_dir(
-            index, dir, skip, mode, on_new_dir, progress, &mut stats,
+            index, dir, skip, mode, folders, progress, &mut stats,
         ));
     }
     stats
@@ -197,7 +215,7 @@ pub(crate) fn recheck_dirs(
     dirs: &[NodeId],
     skip: &Skip,
     force: bool,
-    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    folders: &mut dyn Folders,
 ) -> CatchUpStats {
     let mut stats = CatchUpStats::default();
     for &dir in dirs {
@@ -207,7 +225,7 @@ pub(crate) fn recheck_dirs(
                 force,
                 shallow: false,
             };
-            check_dir(index, dir, skip, mode, on_new_dir, &progress, &mut stats);
+            check_dir(index, dir, skip, mode, folders, &progress, &mut stats);
         }
     }
     stats
@@ -220,7 +238,7 @@ fn check_dir(
     dir: NodeId,
     skip: &Skip,
     mode: Mode,
-    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    folders: &mut dyn Folders,
     progress: &Progress,
     stats: &mut CatchUpStats,
 ) -> Vec<NodeId> {
@@ -299,6 +317,7 @@ fn check_dir(
     }
     if listing_failed {
         stats.errors += 1;
+        folders.incomplete(dir);
         return Vec::new();
     }
     stats.dirs_rescanned += 1;
@@ -344,18 +363,19 @@ fn check_dir(
                             ..meta
                         },
                     );
-                    on_new_dir(index, id);
+                    folders.added(index, id);
                     subfolders.push(id);
                     stats.added += 1;
                 }
             }
             listed => {
-                stats.added += add_listed(index, dir, &name, &path, listed, skip, on_new_dir);
+                stats.added += add_listed(index, dir, &name, &path, listed, skip, folders);
             }
         }
     }
     let mtime_ns = if incomplete {
         // The saved time differs from the folder's, so it is read again.
+        folders.incomplete(dir);
         index.store().meta(dir).mtime_ns
     } else {
         meta.mtime_ns
@@ -374,18 +394,18 @@ fn add_listed(
     dir_path: &Path,
     (is_dir, meta): (bool, Option<Meta>),
     skip: &Skip,
-    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    folders: &mut dyn Folders,
 ) -> usize {
     let path = dir_path.join(OsStr::from_bytes(name));
     if meta.is_some() {
-        return add_tree(index, dir, name, &path, skip, on_new_dir);
+        return add_tree(index, dir, name, &path, skip, folders);
     }
     if !skip.accepts(&path, is_dir) {
         return 0;
     }
     let id = index.insert(Some(dir), name, is_dir, Meta::default());
     if is_dir {
-        on_new_dir(index, id);
+        folders.added(index, id);
     }
     1
 }
@@ -401,16 +421,16 @@ fn root_path(index: &Index, node: NodeId) -> PathBuf {
 }
 
 /// Adds the entry `name` at `path` under `parent`, and for a folder all entries
-/// below it, leaving out what the rules leave out. `on_new_dir` is called
-/// for each added folder before its contents are read. Returns how many
-/// nodes were added.
+/// below it, leaving out what the rules leave out. `folders` hears of each
+/// added folder before its contents are read, and of each one not read
+/// completely. Returns how many nodes were added.
 pub(crate) fn add_tree(
     index: &mut Index,
     parent: NodeId,
     name: &[u8],
     path: &Path,
     skip: &Skip,
-    on_new_dir: &mut dyn FnMut(&Index, NodeId),
+    folders: &mut dyn Folders,
 ) -> usize {
     let Ok(m) = fs::symlink_metadata(path) else {
         return 0;
@@ -439,8 +459,9 @@ pub(crate) fn add_tree(
                 ..complete_meta
             },
         );
-        on_new_dir(index, dir_id);
+        folders.added(index, dir_id);
         let Some(mut entries) = tree.as_ref().and_then(|t| t.list(&dir_path).ok()) else {
+            folders.incomplete(dir_id);
             continue;
         };
         let mut complete = true;
@@ -468,6 +489,8 @@ pub(crate) fn add_tree(
         }
         if complete {
             index.set_meta(dir_id, complete_meta);
+        } else {
+            folders.incomplete(dir_id);
         }
     }
     added
@@ -824,7 +847,9 @@ mod tests {
             b"added",
             &added,
             &Skip::new(&ScanOptions::default()),
-            &mut |_, _| fs::set_permissions(&added, fs::Permissions::from_mode(0o000)).unwrap(),
+            &mut |_: &Index, _| {
+                fs::set_permissions(&added, fs::Permissions::from_mode(0o000)).unwrap()
+            },
         );
         assert!(
             fs::read_dir(&added).is_err(),
