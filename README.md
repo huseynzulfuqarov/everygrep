@@ -404,7 +404,9 @@ folders or rules cancels the older rescan without a message), a cancelled sort o
 a drive whose first reading was cancelled goes on where it stopped when it
 is plugged in again (also after it was removed while being read, or the
 program quit while it was read: quitting cancels the reading and waits up to
-5 seconds for what was read to be saved). Catching up cannot be cancelled. Cancel has no key yet. Hidden files are always indexed.
+5 seconds for what was read to be saved). Catching up cannot be cancelled;
+quitting during a long catch-up waits at most those 5 seconds too, and an
+index it could not save then is caught up again at the next start. Cancel has no key yet. Hidden files are always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any
 depth, and is kept up to date as files change. Each file counts with its own

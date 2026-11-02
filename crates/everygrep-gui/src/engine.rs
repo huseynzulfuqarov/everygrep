@@ -759,6 +759,10 @@ impl Engine {
                 Ok(query) => {
                     terms = query.highlight_terms();
                     let index = self.index.read().expect("index lock");
+                    // Quitting began while the index was held.
+                    if self.stop.load(Ordering::SeqCst) {
+                        break;
+                    }
                     epoch = self.epoch();
                     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
                     let task = self.tasks.begin(TaskKind::Searching, true);
@@ -1291,6 +1295,13 @@ impl Engine {
     /// index to the index file, each connected drive to its own file.
     /// Drives that are not connected were saved when they went away.
     pub fn save(&self) {
+        self.save_by(None);
+    }
+
+    /// [`save`](Self::save), giving up at `deadline` when the drives or the
+    /// index stay locked until then (a catch-up holds the index while it
+    /// reads folders); the index then stays to be saved.
+    fn save_by(&self, deadline: Option<Instant>) {
         if !self.dirty.swap(false, Ordering::SeqCst) {
             return;
         }
@@ -1298,8 +1309,24 @@ impl Engine {
         // differ from the asked-for ones while a new index is being built.
         let (roots, rules) = self.indexed_with.lock().expect("lock").clone();
         let rules = rules.spec();
-        let mut volumes = self.volumes.lock().expect("lock");
-        let index = self.index.read().expect("index lock");
+        let locked = match deadline {
+            None => Some((
+                self.volumes.lock().expect("lock"),
+                self.index.read().expect("index lock"),
+            )),
+            Some(deadline) => {
+                retry_until(deadline, || self.volumes.try_lock().ok()).and_then(|volumes| {
+                    Some((
+                        volumes,
+                        retry_until(deadline, || self.index.try_read().ok())?,
+                    ))
+                })
+            }
+        };
+        let Some((mut volumes, index)) = locked else {
+            self.dirty.store(true, Ordering::SeqCst);
+            return;
+        };
         let drive_roots: Vec<NodeId> = volumes
             .iter()
             .filter_map(|v| root_id(&index, v.root.as_deref()?))
@@ -1788,21 +1815,24 @@ impl Engine {
         }
     }
 
-    /// Stops the threads and saves the index. The search thread is joined; the
-    /// index thread is not, because a first scan cannot be interrupted and the
+    /// Stops the threads and saves the index. The running search or sort is
+    /// cancelled and the search thread waited for; the index thread is not,
+    /// because a first scan or a catch-up cannot be interrupted and the
     /// window should close at once. It ends with the process.
     ///
     /// Drive scans that are still running are cancelled, and their part read
     /// so far is saved to the drive's partial file, so the next start goes on
-    /// from there. Quitting waits at most [`QUIT_WAIT`] for that; a scan
-    /// stuck on a drive that does not answer ends with the process, and that
-    /// drive is read again from where its last save left it.
+    /// from there. Quitting waits at most [`QUIT_WAIT`] in all: for the
+    /// search thread, for those scans, and for the index to be free to save
+    /// (a catch-up holds it). A scan stuck on a drive that does not answer
+    /// ends with the process, and that drive is read again from where its
+    /// last save left it; an index not saved is caught up at the next start.
     pub fn shutdown(&self) {
         self.shutdown_within(QUIT_WAIT);
     }
 
-    /// [`shutdown`](Self::shutdown), waiting at most `wait` for drive
-    /// scans. Returns whether every drive scan ended in time.
+    /// [`shutdown`](Self::shutdown), waiting at most `wait`. Returns whether
+    /// every drive scan ended in time.
     fn shutdown_within(&self, wait: Duration) -> bool {
         let deadline = Instant::now() + wait;
         self.stop.store(true, Ordering::SeqCst);
@@ -1811,37 +1841,56 @@ impl Engine {
             self.tasks.cancel_drive_scans();
             std::mem::take(&mut *scans)
         };
+        self.tasks.cancel_search();
         // Dropping the sender wakes the search thread so it sees the stop flag.
         self.searches.lock().expect("lock").take();
-        let mut threads = self.threads.lock().expect("lock");
-        if !threads.is_empty() {
-            let _ = threads.remove(0).join();
+        let search = {
+            let mut threads = self.threads.lock().expect("lock");
+            (!threads.is_empty()).then(|| threads.remove(0))
+        };
+        // A search that waits for the index ends when it gets it.
+        if let Some(search) = search {
+            if retry_until(deadline, || search.is_finished().then_some(())).is_some() {
+                let _ = search.join();
+            }
         }
-        drop(threads);
         let mut ended = true;
         for scan in scans {
-            while !scan.is_finished() && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            ended &= scan.is_finished();
+            ended &= retry_until(deadline, || scan.is_finished().then_some(())).is_some();
         }
-        self.save();
-        self.keep_scanned_drives();
+        self.save_by(Some(deadline));
+        self.keep_scanned_drives(deadline);
         ended
     }
 
     /// Saves drives whose reading ended but that were not added to the index
     /// yet as partial files, so the next start only checks them again.
     /// Cancelled ones were saved by their scan thread.
-    fn keep_scanned_drives(&self) {
+    fn keep_scanned_drives(&self, deadline: Instant) {
         let Some(env) = &self.drive_env else { return };
         // `sync_drives` takes them under this lock and stops taking them
         // once quitting began.
-        let _volumes = self.volumes.lock().expect("lock");
+        let Some(_volumes) = retry_until(deadline, || self.volumes.try_lock().ok()) else {
+            return;
+        };
         let scanned = std::mem::take(&mut *self.scanned.lock().expect("lock"));
         for s in scanned.into_iter().filter(|s| s.complete) {
             let _ = save_partial(env, &s.drive, &s.index, &s.rules);
         }
+    }
+}
+
+/// Calls `attempt` until it gives a value or `deadline` passes; at least
+/// once.
+fn retry_until<T>(deadline: Instant, mut attempt: impl FnMut() -> Option<T>) -> Option<T> {
+    loop {
+        if let Some(value) = attempt() {
+            return Some(value);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -2788,6 +2837,36 @@ mod tests {
             find(i, &root.join("three.txt")).is_some()
         });
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn quitting_does_not_wait_long_for_an_index_held_by_a_catch_up() {
+        let dir = Scratch::new("quit-held-index");
+        fs::create_dir_all(dir.0.join("a")).unwrap();
+        fs::write(dir.0.join("a/one.txt"), "").unwrap();
+        let probe = Probe::start(vec![dir.0.join("a")], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        // Something holds the index for long, as a catch-up of many folders
+        // does, while a search waits for it and the index is to be saved.
+        let engine = Arc::clone(&probe.engine);
+        let (locked, is_locked) = mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _index = engine.index.write().unwrap();
+            locked.send(()).unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+        });
+        is_locked.recv().unwrap();
+        probe.engine.dirty.store(true, Ordering::SeqCst);
+        probe.engine.set_query("one", QueryOptions::default());
+        std::thread::sleep(Duration::from_millis(50));
+
+        let start = Instant::now();
+        probe.engine.shutdown_within(Duration::from_millis(300));
+        let took = start.elapsed();
+        holder.join().unwrap();
+        assert!(took < Duration::from_millis(1500), "{took:?}");
+        // Not saved: it still is to be saved.
+        assert!(probe.engine.dirty.load(Ordering::SeqCst));
     }
 
     #[test]
