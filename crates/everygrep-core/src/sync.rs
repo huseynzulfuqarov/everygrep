@@ -975,6 +975,38 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_found_just_before_a_cancel_is_read_when_the_scan_goes_on() {
+        use crate::scan::scan_with_progress;
+        let base = std::env::temp_dir().join(format!(
+            "everygrep-sync-resume-batch-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        // More folders than one progress batch, each with a file in it.
+        for d in 0..1100 {
+            let dir = base.join(format!("d{d:04}"));
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("f.txt"), b"x").unwrap();
+        }
+        let roots = [base.clone()];
+        let options = ScanOptions::default();
+        let mut store = NodeStore::new();
+        let progress = Progress::new();
+        // The root, then the check after the first batch of its entries.
+        progress.cancel_when_done(1 + 1024);
+        assert!(scan_with_progress(&mut store, &roots, &options, &progress).is_err());
+        let mut index = Index::new(store);
+        assert_eq!(index.len(), 1 + 1024);
+        resume_scan(&mut index, &roots, &options, &Progress::new()).unwrap();
+        let fresh = index_of(&base);
+        let (found, again) = (paths(&index), catch_up(&mut index, &options));
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(found.len(), 1 + 2 * 1100);
+        assert_eq!(found, paths(&fresh));
+        assert_eq!(again.dirs_rescanned, 0, "{again:?}");
+    }
+
+    #[test]
     fn missing_root_is_removed() {
         let base = tree("root");
         let mut index = index_of(&base);

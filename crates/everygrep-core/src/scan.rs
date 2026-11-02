@@ -216,11 +216,6 @@ fn walk_pending(
                 Meta::default()
             };
             let id = store.add(Some(dir_id), name, is_dir, meta);
-            unreported += 1;
-            if unreported == PROGRESS_BATCH {
-                progress.add(std::mem::take(&mut unreported));
-                progress.check()?;
-            }
             if is_dir {
                 stats.dirs += 1;
                 let path = dir.join(entry.name_os());
@@ -229,6 +224,13 @@ fn walk_pending(
                 }
             } else {
                 stats.files += 1;
+            }
+            // Only once a new folder is in `pending`, which a cancel marks
+            // as not read.
+            unreported += 1;
+            if unreported == PROGRESS_BATCH {
+                progress.add(std::mem::take(&mut unreported));
+                progress.check()?;
             }
         }
         if complete {
