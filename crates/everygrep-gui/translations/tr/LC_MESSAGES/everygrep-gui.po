@@ -2397,3 +2397,63 @@ msgstr "Dosyaya her 2 saniyede bir bakılır; başka bir programın ya da başka
 #: src/labels.rs
 msgid "The settings file was changed outside this window; its settings now apply."
 msgstr "Ayarlar dosyası bu pencerenin dışında değiştirildi; artık onun ayarları geçerli."
+
+#: ui/settings.slint
+msgid "All settings"
+msgstr "Tüm ayarlar"
+
+#: ui/settings.slint
+msgid "Search settings"
+msgstr "Şunu içeren ayarları göster"
+
+#: ui/settings.slint
+msgid "Search settings…"
+msgstr "Şunu içeren ayarları göster…"
+
+#: ui/settings.slint
+msgid "Only changed settings"
+msgstr "Yalnızca değiştirilen ayarlar"
+
+#: ui/settings.slint
+msgid "Setting"
+msgstr "Ayar"
+
+#: ui/settings.slint
+msgid "Value"
+msgstr "Değer"
+
+#: ui/settings.slint
+msgid "Default"
+msgstr "Varsayılan"
+
+#: ui/settings.slint
+msgid "Value of the chosen setting"
+msgstr "Seçilen ayarın değeri"
+
+#: ui/settings.slint
+msgid "Apply"
+msgstr "Uygula"
+
+#: ui/settings.slint
+msgid "Toggle"
+msgstr "Değiştir"
+
+#: ui/settings.slint
+msgid "Reset"
+msgstr "Sıfırla"
+
+#: ui/settings.slint
+msgid "Every setting as the settings file writes it: true or false, numbers, names, and paths with backslash escapes; an empty value is the default where the default is empty. A change applies at once and is saved, as if it were made on its page. Folders, drives and keys repeat their key once per value and are changed on their pages; lines this version does not know are kept as they are."
+msgstr "Her ayar, ayarlar dosyasının yazdığı biçimde: true ya da false, sayılar, adlar ve ters eğik çizgiyle kaçışlı yollar; varsayılanı boş olan yerde boş değer varsayılandır. Bir değişiklik, kendi sayfasında yapılmış gibi hemen uygulanır ve kaydedilir. Klasörler, sürücüler ve kısayol tuşları anahtarlarını her değer için tekrarlar ve kendi sayfalarında değiştirilir; bu sürümün bilmediği satırlar olduğu gibi korunur."
+
+#: src/labels.rs
+msgid "(a list; see its page)"
+msgstr "(liste; kendi sayfasına bakın)"
+
+#: src/labels.rs
+msgid "(unknown, kept)"
+msgstr "(bilinmiyor, korunuyor)"
+
+#: src/labels.rs
+msgid "“{1}” is not a value {0} takes. Nothing was changed."
+msgstr "“{1}”, {0} için geçerli bir değer değil. Hiçbir şey değiştirilmedi."

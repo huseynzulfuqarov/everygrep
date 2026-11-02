@@ -82,24 +82,28 @@ impl Settings {
         true
     }
 
-    pub fn write(&self, out: &mut String) {
+    /// The lines of the settings that differ from their defaults; with
+    /// `all`, of every setting.
+    pub fn write(&self, out: &mut String, all: bool) {
         for (key, on) in [
             ("context-search-new-window", self.search_new_window),
             ("context-search-subfolders", self.search_recursive),
             ("context-search-exact-name", self.search_exact_name),
+            ("rename-in-dialog", self.rename_dialog),
         ] {
-            if on {
-                out.push_str(&format!("{key} = true\n"));
+            if on || all {
+                out.push_str(&format!("{key} = {on}\n"));
             }
         }
-        if self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop {
-            out.push_str("shortcut-kind = desktop\n");
+        let desktop = self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop;
+        if desktop || all {
+            let kind = if desktop { "desktop" } else { "symlink" };
+            out.push_str(&format!("shortcut-kind = {kind}\n"));
         }
-        if self.shortcut_collision == crate::fileops_shortcut::Collision::Skip {
-            out.push_str("shortcut-collision = skip\n");
-        }
-        if self.rename_dialog {
-            out.push_str("rename-in-dialog = true\n");
+        let skip = self.shortcut_collision == crate::fileops_shortcut::Collision::Skip;
+        if skip || all {
+            let collision = if skip { "skip" } else { "number" };
+            out.push_str(&format!("shortcut-collision = {collision}\n"));
         }
     }
 }

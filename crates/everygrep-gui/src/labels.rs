@@ -701,6 +701,24 @@ pub fn settings_reloaded(bad: usize) -> String {
     format!("{done} {skipped}")
 }
 
+/// The Default column of the raw table for a list key.
+pub fn raw_list() -> &'static str {
+    tr("(a list; see its page)")
+}
+
+/// The Default column of the raw table for a key this version does not know.
+pub fn raw_unknown() -> &'static str {
+    tr("(unknown, kept)")
+}
+
+/// Why the raw table did not take a value.
+pub fn raw_refused(key: &str, value: &str) -> String {
+    fill(
+        tr("“{1}” is not a value {0} takes. Nothing was changed."),
+        &[&key, &value],
+    )
+}
+
 pub fn settings_reset() -> &'static str {
     tr("Every setting is back to its default.")
 }

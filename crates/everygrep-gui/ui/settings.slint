@@ -1,6 +1,6 @@
 // The settings window. Changes apply at once; each page has a button that
 // puts its settings back to the defaults.
-import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView, StandardTableView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
 import { ContentSettings, HashCacheSettings } from "content-settings.slint";
@@ -287,6 +287,24 @@ export component SettingsWindow inherits Window {
     in property <string> settings-note;
     in-out property <bool> reload-changed;
     callback reload-changed-toggled();
+    // The raw settings table: its filter, "only changed", the rows shown
+    // (key, value, default), the chosen row and its value being edited,
+    // what can be done with it, and why the last edit was refused.
+    in-out property <string> raw-filter;
+    in-out property <bool> raw-only-changed;
+    in property <[[StandardListViewItem]]> raw-rows;
+    in-out property <int> raw-current: -1;
+    in-out property <string> raw-value;
+    in property <bool> raw-editable;
+    in property <bool> raw-toggle;
+    in property <bool> raw-resettable;
+    in property <string> raw-error;
+    callback raw-filter-changed();
+    callback raw-chosen(int);
+    callback raw-apply();
+    callback raw-toggle-value();
+    callback raw-reset();
+    callback raw-copy();
 
     // Puts the settings of the page back to their defaults.
     callback reset-page(int);
@@ -1235,6 +1253,70 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.reload-changed-toggled(); }
                             }
                             Note { text: @tr("The file is looked at every 2 seconds; a change by another program or another EveryGrep window is applied at once, as an import would be. Off: such changes apply at the next start, and a change made here keeps them in the file."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("All settings"); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    accessible-label: @tr("Search settings");
+                                    placeholder-text: @tr("Search settings…");
+                                    text <=> root.raw-filter;
+                                    edited => { root.raw-filter-changed(); }
+                                }
+                                CheckBox {
+                                    text: @tr("Only changed settings");
+                                    checked <=> root.raw-only-changed;
+                                    toggled => { root.raw-filter-changed(); }
+                                }
+                            }
+                            StandardTableView {
+                                min-height: 240px;
+                                columns: [
+                                    { title: @tr("Setting"), min-width: 160px },
+                                    { title: @tr("Value"), min-width: 120px },
+                                    { title: @tr("Default"), min-width: 100px },
+                                ];
+                                rows: root.raw-rows;
+                                current-row <=> root.raw-current;
+                                current-row-changed(i) => { root.raw-chosen(i); }
+                            }
+                            HorizontalLayout {
+                                spacing: Theme.s2;
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    accessible-label: @tr("Value of the chosen setting");
+                                    enabled: root.raw-editable;
+                                    text <=> root.raw-value;
+                                    accepted => { root.raw-apply(); }
+                                }
+                                Button {
+                                    text: @tr("Apply");
+                                    enabled: root.raw-editable;
+                                    clicked => { root.raw-apply(); }
+                                }
+                                if root.raw-toggle: Button {
+                                    text: @tr("Toggle");
+                                    clicked => { root.raw-toggle-value(); }
+                                }
+                                Button {
+                                    text: @tr("Reset");
+                                    enabled: root.raw-resettable;
+                                    clicked => { root.raw-reset(); }
+                                }
+                                Button {
+                                    text: @tr("Copy");
+                                    enabled: root.raw-current >= 0;
+                                    clicked => { root.raw-copy(); }
+                                }
+                            }
+                            if root.raw-error != "": Text {
+                                text: root.raw-error;
+                                color: Theme.danger;
+                                font-size: Theme.small;
+                                wrap: word-wrap;
+                            }
+                            Note { text: @tr("Every setting as the settings file writes it: true or false, numbers, names, and paths with backslash escapes; an empty value is the default where the default is empty. A change applies at once and is saved, as if it were made on its page. Folders, drives and keys repeat their key once per value and are changed on their pages; lines this version does not know are kept as they are."); }
                         }
                     }
                 }

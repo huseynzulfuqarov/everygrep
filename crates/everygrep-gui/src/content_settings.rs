@@ -118,18 +118,20 @@ impl Settings {
         }
     }
 
-    pub fn write(&self, out: &mut String) {
+    /// The lines of the settings that differ from their defaults; with
+    /// `all`, of every setting.
+    pub fn write(&self, out: &mut String, all: bool) {
         let d = Self::default();
-        if self.max_size_mb != d.max_size_mb {
+        if all || self.max_size_mb != d.max_size_mb {
             out.push_str(&format!("content-max-size-mb = {}\n", self.max_size_mb));
         }
-        if self.code_page != d.code_page {
+        if all || self.code_page != d.code_page {
             out.push_str(&format!("content-code-page = {}\n", self.code_page.id()));
         }
-        if self.pdf != d.pdf {
+        if all || self.pdf != d.pdf {
             out.push_str(&format!("content-pdf = {}\n", self.pdf));
         }
-        if self.hash_cache_mb != d.hash_cache_mb {
+        if all || self.hash_cache_mb != d.hash_cache_mb {
             out.push_str(&format!("hash-cache-max-mb = {}\n", self.hash_cache_mb));
         }
     }

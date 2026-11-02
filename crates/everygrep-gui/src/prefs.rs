@@ -184,6 +184,12 @@ pub struct Prefs {
     /// Looks every [`RELOAD_EVERY`] whether the settings file changed
     /// outside the window; the stamp of the version last seen.
     reload_timer: slint::Timer,
+    /// The raw settings table: the rows listed for its filter, in order,
+    /// the key of the chosen one, and why the last edit was refused.
+    raw_listed: RefCell<Vec<settings::RawRow>>,
+    raw_chosen: RefCell<Option<String>>,
+    raw_error: RefCell<String>,
+    raw_lang: Cell<Option<i18n::Lang>>,
     seen: Arc<std::sync::Mutex<Option<settings::Stamp>>>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
@@ -293,6 +299,10 @@ impl Prefs {
             pending: RefCell::default(),
             settings_note: RefCell::default(),
             reload_timer: slint::Timer::default(),
+            raw_listed: RefCell::default(),
+            raw_chosen: RefCell::default(),
+            raw_error: RefCell::default(),
+            raw_lang: Cell::new(None),
             seen: Arc::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
@@ -1385,7 +1395,105 @@ impl Prefs {
         w.set_pending_action(action.into());
         w.set_settings_note(self.settings_note.borrow().as_str().into());
         w.set_reload_changed(self.settings.borrow().reload_changed);
+        self.fill_raw(w);
         w.set_error(self.error.borrow().as_str().into());
+    }
+
+    /// The raw settings table: the rows for the filter, the chosen one kept
+    /// by its key. The value being edited is set only when a row is chosen,
+    /// so filling again does not undo typing.
+    fn fill_raw(&self, w: &SettingsWindow) {
+        let filter = w.get_raw_filter().to_lowercase();
+        let only_changed = w.get_raw_only_changed();
+        let rows: Vec<settings::RawRow> = self
+            .settings
+            .borrow()
+            .raw_rows()
+            .into_iter()
+            .filter(|r| !only_changed || r.modified())
+            .filter(|r| {
+                filter.is_empty()
+                    || r.key.to_lowercase().contains(&filter)
+                    || r.value.to_lowercase().contains(&filter)
+            })
+            .collect();
+        // A new model scrolls the table back to the top: only when the rows
+        // (or the language of their notes) changed.
+        let lang = i18n::current();
+        let same =
+            *self.raw_listed.borrow() == rows && self.raw_lang.replace(Some(lang)) == Some(lang);
+        let item = |t: &str| StandardListViewItem::from(SharedString::from(t));
+        let table: Vec<ModelRc<StandardListViewItem>> = rows
+            .iter()
+            .map(|r| {
+                let default = match (&r.default, r.known) {
+                    (Some(d), _) => d.clone(),
+                    (None, true) => labels::raw_list().to_owned(),
+                    (None, false) => labels::raw_unknown().to_owned(),
+                };
+                ModelRc::new(VecModel::from(vec![
+                    item(&r.key),
+                    item(&r.value),
+                    item(&default),
+                ]))
+            })
+            .collect();
+        if !same {
+            w.set_raw_rows(ModelRc::new(VecModel::from(table)));
+        }
+        let chosen = self.raw_chosen.borrow().clone();
+        let current = chosen.and_then(|key| rows.iter().position(|r| r.key == key));
+        w.set_raw_current(current.map_or(-1, |i| i as i32));
+        let row = current.map(|i| &rows[i]);
+        w.set_raw_editable(row.is_some_and(settings::RawRow::editable));
+        w.set_raw_toggle(
+            row.is_some_and(|r| r.editable() && matches!(r.value.as_str(), "true" | "false")),
+        );
+        w.set_raw_resettable(row.is_some_and(|r| r.editable() && r.modified()));
+        w.set_raw_error(self.raw_error.borrow().as_str().into());
+        *self.raw_listed.borrow_mut() = rows;
+    }
+
+    /// A row of the raw table was chosen: its value goes into the field.
+    fn raw_chosen(&self, i: usize) {
+        let row = self.raw_listed.borrow().get(i).cloned();
+        *self.raw_chosen.borrow_mut() = row.as_ref().map(|r| r.key.clone());
+        self.raw_error.borrow_mut().clear();
+        if let (Some(w), Some(r)) = (self.window.borrow().as_ref(), &row) {
+            w.set_raw_value(r.value.as_str().into());
+        }
+        self.refresh();
+    }
+
+    /// Sets the chosen key to `value` (`None`: its default) and applies
+    /// every setting, as an import does; a value that does not fit is
+    /// refused with a note.
+    fn raw_set(&self, value: Option<String>) {
+        let Some(key) = self.raw_chosen.borrow().clone() else {
+            return;
+        };
+        let new = self.settings.borrow().with_raw(&key, value.as_deref());
+        match new {
+            Some(new) => {
+                self.raw_error.borrow_mut().clear();
+                self.replace_all(new, true);
+                let shown = self
+                    .settings
+                    .borrow()
+                    .raw_rows()
+                    .into_iter()
+                    .find(|r| r.key == key)
+                    .map(|r| r.value);
+                if let (Some(w), Some(v)) = (self.window.borrow().as_ref(), shown) {
+                    w.set_raw_value(v.into());
+                }
+            }
+            None => {
+                *self.raw_error.borrow_mut() =
+                    labels::raw_refused(&key, value.as_deref().unwrap_or(""));
+            }
+        }
+        self.refresh();
     }
 
     /// The Keyboard page: the commands that match the filter with their
@@ -1766,6 +1874,39 @@ impl Prefs {
         });
         w.on_reset_page(on_index(|p, i| p.reset(i)));
         w.on_export_settings(on(|p| p.export_settings()));
+        w.on_raw_filter_changed(on(|p| p.refresh()));
+        w.on_raw_chosen(on_index(|p, i| p.raw_chosen(i)));
+        w.on_raw_apply(on(|p| {
+            let value = p
+                .window
+                .borrow()
+                .as_ref()
+                .map(|w| w.get_raw_value().to_string());
+            if value.is_some() {
+                p.raw_set(value);
+            }
+        }));
+        w.on_raw_toggle_value(on(|p| {
+            let value = p
+                .window
+                .borrow()
+                .as_ref()
+                .map(|w| w.get_raw_value().to_string());
+            let flipped = match value.as_deref().map(str::trim) {
+                Some("true") => "false",
+                Some("false") => "true",
+                _ => return,
+            };
+            p.raw_set(Some(flipped.to_owned()));
+        }));
+        w.on_raw_reset(on(|p| p.raw_set(None)));
+        w.on_raw_copy(on(|p| {
+            let key = p.raw_chosen.borrow().clone();
+            let row = key.and_then(|k| p.raw_listed.borrow().iter().find(|r| r.key == k).cloned());
+            if let (Some(w), Some(r)) = (p.window.borrow().as_ref(), row) {
+                w.invoke_copy_text(format!("{} = {}", r.key, r.value).into());
+            }
+        }));
         w.on_reload_changed_toggled(on(|p| {
             let on = p.window.borrow().as_ref().map(|w| w.get_reload_changed());
             if let Some(on) = on {

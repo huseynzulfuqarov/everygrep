@@ -442,6 +442,9 @@ First version, 0.1.0, not released yet.
   file every 2 seconds after the window's own saves, and a new version that
   differs is applied like an import. A switch on the Advanced page turns it
   off.
+- All settings table on the Advanced page: every key with its value and
+  default, a filter, "only changed", and editing, toggling, resetting or
+  copying one value, applied and saved at once.
 - Index menu: Rebuild index now (as the button on the Indexing page) and
   Pause index updates, the "Watch for changes" setting the other way round
   (resuming catches up with what changed meanwhile); both commands can get

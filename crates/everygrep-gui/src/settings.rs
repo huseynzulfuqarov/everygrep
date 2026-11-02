@@ -375,6 +375,34 @@ impl Default for Settings {
     }
 }
 
+/// Keys that are written once per value (a folder, a drive, a command's
+/// keys); the raw settings table shows them but edits them only on their
+/// pages.
+pub const LIST_KEYS: [&str; 4] = ["root", "exclude", "ignore-drive", "shortcut"];
+
+/// One line of the raw settings table: a key and its value as the file
+/// writes them, its default (`None` for list keys and unknown keys), and
+/// whether this version knows the key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawRow {
+    pub key: String,
+    pub value: String,
+    pub default: Option<String>,
+    pub known: bool,
+}
+
+impl RawRow {
+    /// Whether the value differs from the default.
+    pub fn modified(&self) -> bool {
+        self.default.as_deref() != Some(self.value.as_str())
+    }
+
+    /// Whether it can be edited in the table.
+    pub fn editable(&self) -> bool {
+        self.known && !LIST_KEYS.contains(&self.key.as_str())
+    }
+}
+
 /// The settings that one page of the settings window resets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
@@ -695,6 +723,13 @@ impl Settings {
     /// The text of a settings file: settings that differ from their
     /// defaults, then the unknown lines that were read.
     pub fn to_text(&self) -> String {
+        self.write(false)
+    }
+
+    /// The text of a settings file; with `all` every setting is written,
+    /// those at their default too (an unset width or folder as an empty
+    /// value), for the raw settings table.
+    fn write(&self, all: bool) -> String {
         let d = Settings::default();
         let mut out = String::from(
             "# EveryGrep settings. Only settings that differ from the defaults are listed.\n",
@@ -706,7 +741,7 @@ impl Settings {
             out.push('\n');
         };
         let flag = |out: &mut String, key: &str, value: bool, default: bool| {
-            if value != default {
+            if all || value != default {
                 line(out, key, if value { "true" } else { "false" });
             }
         };
@@ -722,7 +757,8 @@ impl Settings {
             self.watch_changes,
             d.watch_changes,
         );
-        if let Some(folder) = &self.index_folder {
+        if all || self.index_folder.is_some() {
+            let folder = self.index_folder.as_deref().unwrap_or(Path::new(""));
             line(
                 &mut out,
                 "index-folder",
@@ -735,13 +771,13 @@ impl Settings {
             self.index_file_details,
             d.index_file_details,
         );
-        if self.rescan != d.rescan {
+        if all || self.rescan != d.rescan {
             line(&mut out, "rescan", Schedule::KINDS[self.rescan]);
         }
-        if self.rescan_hours != d.rescan_hours {
+        if all || self.rescan_hours != d.rescan_hours {
             line(&mut out, "rescan-hours", &self.rescan_hours.to_string());
         }
-        if self.rescan_time != d.rescan_time {
+        if all || self.rescan_time != d.rescan_time {
             line(
                 &mut out,
                 "rescan-time",
@@ -754,14 +790,14 @@ impl Settings {
             self.use_excludes,
             d.use_excludes,
         );
-        if !self.include_files.is_empty() {
+        if all || !self.include_files.is_empty() {
             line(
                 &mut out,
                 "include-only-files",
                 &escape(self.include_files.as_bytes()),
             );
         }
-        if !self.exclude_files.is_empty() {
+        if all || !self.exclude_files.is_empty() {
             line(
                 &mut out,
                 "exclude-files",
@@ -774,7 +810,7 @@ impl Settings {
             self.drives.auto,
             d.drives.auto,
         );
-        if self.drives.keep_offline != d.drives.keep_offline {
+        if all || self.drives.keep_offline != d.drives.keep_offline {
             line(
                 &mut out,
                 "removed-drives",
@@ -790,10 +826,10 @@ impl Settings {
         }
         flag(&mut out, "filter-wrap", self.filter_wrap, d.filter_wrap);
         let (o, od) = (&self.options, &d.options);
-        if o.hidden_files != od.hidden_files {
+        if all || o.hidden_files != od.hidden_files {
             line(&mut out, "hidden-files", o.hidden_files.id());
         }
-        if o.filter != od.filter {
+        if all || o.filter != od.filter {
             line(&mut out, "filter", o.filter.id());
         }
         flag(&mut out, "match-case", o.case_sensitive, od.case_sensitive);
@@ -857,7 +893,7 @@ impl Settings {
             self.clear_selection_on_search,
             d.clear_selection_on_search,
         );
-        if self.history_size != d.history_size {
+        if all || self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
         flag(
@@ -872,12 +908,12 @@ impl Settings {
             self.reload_changed,
             d.reload_changed,
         );
-        self.fileops.write(&mut out);
-        self.content.write(&mut out);
-        if self.on_close != d.on_close {
+        self.fileops.write(&mut out, all);
+        self.content.write(&mut out, all);
+        if all || self.on_close != d.on_close {
             line(&mut out, "on-close", self.on_close.id());
         }
-        if self.folder_size != d.folder_size {
+        if all || self.folder_size != d.folder_size {
             line(&mut out, "folder-size", self.folder_size.id());
         }
         flag(
@@ -904,7 +940,7 @@ impl Settings {
             self.copy_full_path_quotes,
             d.copy_full_path_quotes,
         );
-        if self.open_confirm_over != d.open_confirm_over {
+        if all || self.open_confirm_over != d.open_confirm_over {
             line(
                 &mut out,
                 "confirm-open-over",
@@ -929,10 +965,10 @@ impl Settings {
             self.sizes_largest_first,
             d.sizes_largest_first,
         );
-        if self.theme != d.theme {
+        if all || self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
-        if self.density != d.density {
+        if all || self.density != d.density {
             line(&mut out, "density", self.density.id());
         }
         flag(
@@ -948,13 +984,13 @@ impl Settings {
             self.alternate_rows,
             d.alternate_rows,
         );
-        if self.size_unit != d.size_unit {
+        if all || self.size_unit != d.size_unit {
             line(&mut out, "size-format", self.size_unit.id());
         }
-        if self.size_standard != d.size_standard {
+        if all || self.size_standard != d.size_standard {
             line(&mut out, "size-units", self.size_standard.id());
         }
-        if self.language != d.language {
+        if all || self.language != d.language {
             line(&mut out, "language", self.language.id());
         }
         let c = &self.columns;
@@ -992,8 +1028,10 @@ impl Settings {
             ("same-size-width", c.size_freq),
         ];
         for (key, width) in widths {
-            if let Some(w) = width {
-                line(&mut out, key, &format!("{}", w.round()));
+            match width {
+                Some(w) => line(&mut out, key, &format!("{}", w.round())),
+                None if all => line(&mut out, key, ""),
+                None => {}
             }
         }
         for (id, keys) in &self.shortcuts {
@@ -1004,6 +1042,63 @@ impl Settings {
             out.push('\n');
         }
         out
+    }
+
+    /// Every setting as a row of the raw table, in the file's order: each
+    /// key with its value (defaults too), every value of a list key, then
+    /// the lines with keys this version does not know.
+    pub fn raw_rows(&self) -> Vec<RawRow> {
+        let split = |text: String| -> Vec<(String, String)> {
+            text.lines()
+                .filter(|l| !l.trim_ascii().starts_with('#'))
+                .filter_map(|l| l.split_once('='))
+                .map(|(k, v)| (k.trim_ascii().to_owned(), v.trim_ascii().to_owned()))
+                .collect()
+        };
+        let defaults = split(Settings::default().write(true));
+        split(self.write(true))
+            .into_iter()
+            .map(|(key, value)| {
+                let list = LIST_KEYS.contains(&key.as_str());
+                RawRow {
+                    default: (!list)
+                        .then(|| defaults.iter().find(|(k, _)| *k == key))
+                        .flatten()
+                        .map(|(_, v)| v.clone()),
+                    known: key == "shortcut" || is_known(&key),
+                    key,
+                    value,
+                }
+            })
+            .collect()
+    }
+
+    /// The settings with `key` set to `value` as the file would write it,
+    /// or back to its default with `None` (an empty value does the same
+    /// for keys whose default is empty). `None` when the key cannot be
+    /// edited this way (a list key) or the value does not fit it.
+    pub fn with_raw(&self, key: &str, value: Option<&str>) -> Option<Settings> {
+        if LIST_KEYS.contains(&key) {
+            return None;
+        }
+        let value = value.map(str::trim_ascii).filter(|v| {
+            !v.is_empty()
+                || !Settings::default()
+                    .raw_rows()
+                    .iter()
+                    .any(|r| r.key == key && r.default.as_deref() == Some(""))
+        });
+        let mut text: String = self
+            .to_text()
+            .lines()
+            .filter(|l| l.split_once('=').is_none_or(|(k, _)| k.trim_ascii() != key))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        if let Some(value) = value {
+            text.push_str(&format!("{key} = {value}\n"));
+        }
+        let new = Settings::parse(&text);
+        new.problems.is_empty().then_some(new)
     }
 
     /// Sets the keys of the command `id`, in place of its defaults.
@@ -1951,6 +2046,59 @@ pub(crate) mod tests {
         assert_eq!(known_lines("shortcut = file.export-results\n"), 1);
         assert_eq!(known_lines("[Desktop Entry]\nName = x\nExec=y\n"), 0);
         assert_eq!(known_lines("# theme = dark\n"), 0);
+    }
+
+    #[test]
+    fn the_raw_table_lists_every_setting_and_edits_one_at_a_time() {
+        let d = Settings::default();
+        let rows = d.raw_rows();
+        assert!(rows.iter().all(|r| r.known && !r.modified()), "{rows:#?}");
+        let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+        for key in [
+            "theme",
+            "history-size",
+            "name-width",
+            "content-pdf",
+            "rescan-time",
+        ] {
+            assert!(keys.contains(&key), "{key} missing");
+        }
+        // Every key accepts its own default, and the result is the default.
+        for r in &rows {
+            let back = d.with_raw(&r.key, Some(r.default.as_deref().unwrap()));
+            assert_eq!(back.as_ref(), Some(&d), "{}", r.key);
+        }
+        // Every key the file can hold is in the table.
+        for r in &rows {
+            assert!(is_known(&r.key), "{}", r.key);
+        }
+
+        let s = d.with_raw("theme", Some("dark")).unwrap();
+        assert_eq!(s.theme, ThemeChoice::Dark);
+        let row = s.raw_rows().into_iter().find(|r| r.key == "theme").unwrap();
+        assert!(row.modified() && row.editable());
+        assert_eq!(
+            (row.value.as_str(), row.default.as_deref()),
+            ("dark", Some("system"))
+        );
+        assert_eq!(s.with_raw("theme", None).unwrap(), d);
+        assert_eq!(d.with_raw("theme", Some("purple")), None);
+        assert_eq!(d.with_raw("history-size", Some("-1")), None);
+        // An empty width is its default.
+        let wide = d.with_raw("name-width", Some("300")).unwrap();
+        assert_eq!(wide.columns.name, Some(300.0));
+        assert_eq!(wide.with_raw("name-width", Some(" ")).unwrap(), d);
+        // List keys and unknown lines are listed, list keys not edited.
+        let s = Settings::parse("root = /a\nroot = /b\nfuture-key = 1\n");
+        let rows = s.raw_rows();
+        let roots: Vec<&RawRow> = rows.iter().filter(|r| r.key == "root").collect();
+        assert_eq!(roots.len(), 2);
+        assert!(roots.iter().all(|r| !r.editable() && r.modified()));
+        let future = rows.iter().find(|r| r.key == "future-key").unwrap();
+        assert!(!future.known && !future.editable());
+        assert_eq!(s.with_raw("root", Some("/c")), None);
+        // Other lines stay as they were.
+        assert_eq!(s.with_raw("theme", Some("light")).unwrap().roots.len(), 2);
     }
 
     #[test]
