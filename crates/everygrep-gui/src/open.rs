@@ -66,12 +66,17 @@ fn spawn(cmd: &mut Command) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
-    if let Ok(mut child) = child {
-        // Reap the process when it ends so it does not stay as a zombie.
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        });
+    if let Ok(child) = child {
+        reap(child);
     }
+}
+
+/// Waits for `child` on a thread of its own, so it does not stay as a
+/// zombie once it ends.
+pub(crate) fn reap(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 /// `file://` URI with percent-encoding of every byte outside the unreserved set

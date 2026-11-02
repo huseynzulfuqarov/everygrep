@@ -100,6 +100,15 @@ fn window_args(base: &[OsString], query: &str, options: QueryOptions) -> Vec<OsS
     args
 }
 
+/// Starts the search window `cmd`; returns its process id. The process is
+/// reaped when it ends.
+fn launch(cmd: &mut std::process::Command) -> std::io::Result<u32> {
+    let child = cmd.spawn()?;
+    let id = child.id();
+    crate::open::reap(child);
+    Ok(id)
+}
+
 pub fn connect(
     w: &AppWindow,
     model: &Rc<ResultsModel>,
@@ -131,9 +140,10 @@ pub fn connect(
             };
             if settings.search_new_window {
                 let result = std::env::current_exe().and_then(|exe| {
-                    std::process::Command::new(exe)
-                        .args(window_args(&base_args, &query, options))
-                        .spawn()
+                    launch(
+                        std::process::Command::new(exe)
+                            .args(window_args(&base_args, &query, options)),
+                    )
                 });
                 if let Err(e) = result {
                     crate::error(&w, fill(tr("Cannot open a search window: {}"), &[&e]));
@@ -154,6 +164,24 @@ pub fn connect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The state letter of process `pid` in `/proc`, `None` when gone.
+    fn state(pid: u32) -> Option<char> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        stat.rsplit_once(") ")?.1.chars().next()
+    }
+
+    #[test]
+    fn a_closed_search_window_leaves_no_zombie() {
+        let pid = launch(&mut std::process::Command::new("true")).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while state(pid).is_some_and(|s| s != 'Z') && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // Give the reaper a moment once the process has ended.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(state(pid), None, "process {pid} left as a zombie");
+    }
     use everygrep_core::query::{EvalScratch, Query};
     use everygrep_core::store::{Meta, NodeStore};
     use std::os::unix::ffi::OsStringExt;
