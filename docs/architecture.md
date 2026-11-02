@@ -277,7 +277,12 @@ A save reads the file, applies the change and writes it back while holding
 an `flock` on `settings.lock` next to it, so two windows saving at once keep
 both changes.
 `prefs.rs` owns the running settings, applies each change at once and fills
-the settings window.
+the settings window. The file (and the search history) is written by a
+`settings::Writer` thread, one save after another in the order asked, so a
+slow disk or another window holding the lock never holds up the window; a
+failed save is shown in the settings window when it comes, and quitting
+waits up to 5 seconds for the saves still running. Choosing other folders
+or rules to index is saved at once, as before.
 
 ### Translations (`i18n.rs`, `translations/`)
 

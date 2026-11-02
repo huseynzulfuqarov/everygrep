@@ -153,6 +153,8 @@ pub struct Prefs {
     read_error: Option<String>,
     /// The last problem, shown in the settings window.
     error: RefCell<String>,
+    /// Saves the settings and the history off the window's thread.
+    writer: settings::Writer,
     /// Why the last change of the rules was refused, shown next to them.
     rule_error: RefCell<String>,
     state: Cell<(IndexState, usize)>,
@@ -250,6 +252,7 @@ impl Prefs {
             index: RefCell::new(index),
             read_error,
             error: RefCell::new(error),
+            writer: settings::Writer::start(),
             rule_error: RefCell::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
@@ -269,15 +272,28 @@ impl Prefs {
         prefs
     }
 
-    /// Changes the settings and saves them.
-    fn change(&self, f: impl Fn(&mut Settings)) {
+    /// Changes the settings and saves them on the saving thread; a failure
+    /// is shown when it comes.
+    fn change(&self, f: impl Fn(&mut Settings) + Send + 'static) {
         f(&mut self.settings.borrow_mut());
         if self.read_error.is_some() {
             return;
         }
-        let Some(path) = &self.path else { return };
-        let result = settings::update(path, &f);
-        self.set_error(result.err().map(|e| labels::cannot_save(&e)));
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        self.writer.run(move || {
+            let failed = settings::update(&path, &f).err();
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| p.set_error(failed.map(|e| labels::cannot_save(&e))));
+            });
+        });
+    }
+
+    /// Waits at most `wait` for the settings and the history to be saved,
+    /// before the program ends.
+    pub fn finish_saving(&self, wait: std::time::Duration) -> bool {
+        self.writer.wait_done(wait)
     }
 
     fn set_error(&self, error: Option<String>) {
@@ -302,7 +318,10 @@ impl Prefs {
             return;
         }
         if let Some(path) = settings::history_path() {
-            let _ = history::save(&path, self.history.borrow().entries());
+            let entries = self.history.borrow().entries().to_vec();
+            self.writer.run(move || {
+                let _ = history::save(&path, &entries);
+            });
         }
     }
 
@@ -347,14 +366,14 @@ impl Prefs {
 
     /// Changes whether the main window has a menu bar.
     pub fn set_menu_bar(&self, on: bool) {
-        self.change(|s| s.menu_bar = on);
+        self.change(move |s| s.menu_bar = on);
         self.apply_menu_bar();
         self.refresh();
     }
 
     /// Changes what folders show in the Size column.
     pub fn set_folder_size(&self, folder_size: FolderSize) {
-        self.change(|s| s.folder_size = folder_size);
+        self.change(move |s| s.folder_size = folder_size);
         self.apply_folder_size();
         self.refresh();
     }
@@ -441,7 +460,7 @@ impl Prefs {
             attrs: differs(w.get_attr_want(), ATTRS_WIDTH),
         };
         if self.settings.borrow().columns != columns {
-            self.change(|s| s.columns = columns.clone());
+            self.change(move |s| s.columns = columns.clone());
         }
     }
 
@@ -542,7 +561,7 @@ impl Prefs {
         let Some(on) = self.window.borrow().as_ref().map(|w| w.get_watch_changes()) else {
             return;
         };
-        self.change(|s| s.watch_changes = on);
+        self.change(move |s| s.watch_changes = on);
         self.engine.set_watching(on);
         self.refresh();
     }
@@ -1027,7 +1046,7 @@ impl Prefs {
     fn set_keymap(&self, keymap: Keymap) {
         let overrides = keymap.overrides();
         commands::set_current(keymap);
-        self.change(|s| s.set_shortcuts(overrides.clone()));
+        self.change(move |s| s.set_shortcuts(overrides.clone()));
         if let Some(m) = self.main.upgrade() {
             crate::apply_keys(&m);
         }
@@ -1037,7 +1056,7 @@ impl Prefs {
     /// Puts every command back to its default keys.
     fn restore_keys(&self) {
         commands::set_current(Keymap::default());
-        self.change(|s| s.reset_shortcuts());
+        self.change(move |s| s.reset_shortcuts());
         if let Some(m) = self.main.upgrade() {
             crate::apply_keys(&m);
         }
@@ -1214,7 +1233,7 @@ impl Prefs {
         let Some(w) = w.upgrade() else { return };
         let auto = w.get_index_drives();
         let keep = w.get_removed_choice() != 1;
-        self.change(|s| {
+        self.change(move |s| {
             s.drives.auto = auto;
             s.drives.keep_offline = keep;
         });
@@ -1230,10 +1249,11 @@ impl Prefs {
             .drives()
             .iter()
             .any(|d| d.uuid == uuid && d.indexed && !d.ignored);
-        self.change(|s| {
-            s.drives.ignored.retain(|u| u != uuid);
+        let owned = uuid.to_owned();
+        self.change(move |s| {
+            s.drives.ignored.retain(|u| *u != owned);
             if indexed {
-                s.drives.ignored.push(uuid.to_owned());
+                s.drives.ignored.push(owned.clone());
             }
         });
         self.engine
@@ -1247,7 +1267,7 @@ impl Prefs {
         let Some(&mode) = HiddenFiles::ALL.get(index as usize) else {
             return;
         };
-        self.change(|s| s.options.hidden_files = mode);
+        self.change(move |s| s.options.hidden_files = mode);
         self.apply_behaviour();
         self.refresh();
     }
@@ -1288,7 +1308,7 @@ impl Prefs {
         let show_mode_badges = w.get_show_mode_badges();
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
-        self.change(|s| {
+        self.change(move |s| {
             s.options = options;
             s.as_you_type = as_you_type;
             s.show_mode_badges = show_mode_badges;
@@ -1369,7 +1389,7 @@ impl Prefs {
             .ok()
             .and_then(|i| LanguageChoice::ALL.get(i).copied())
             .unwrap_or_default();
-        self.change(|s| {
+        self.change(move |s| {
             s.theme = theme;
             s.density = density;
             s.status_details = details;
@@ -1434,7 +1454,7 @@ impl Prefs {
 
     /// Changes whether the status line describes the selection.
     pub fn set_status_details(&self, on: bool) {
-        self.change(|s| s.status_details = on);
+        self.change(move |s| s.status_details = on);
         self.apply_status_details();
         self.fill_menus();
         self.refresh();
@@ -1442,7 +1462,7 @@ impl Prefs {
 
     /// Changes the density setting and repacks the list.
     pub fn set_density(&self, density: Density) {
-        self.change(|s| s.density = density);
+        self.change(move |s| s.density = density);
         self.apply_density();
         self.fill_menus();
         self.refresh();
@@ -1450,7 +1470,7 @@ impl Prefs {
 
     /// Changes the theme setting and recolors the windows.
     pub fn set_theme(&self, theme: ThemeChoice) {
-        self.change(|s| s.theme = theme);
+        self.change(move |s| s.theme = theme);
         self.apply_theme();
         self.fill_menus();
         self.refresh();
@@ -1497,7 +1517,7 @@ impl Prefs {
         let focus_on_show = w.get_focus_on_show();
         let dates_newest_first = w.get_dates_newest_first();
         let sizes_largest_first = w.get_sizes_largest_first();
-        self.change(|s| {
+        self.change(move |s| {
             s.dates_newest_first = dates_newest_first;
             s.sizes_largest_first = sizes_largest_first;
             s.on_close = on_close;
@@ -1559,7 +1579,7 @@ impl Prefs {
             _ => return,
         };
         if page == Page::Indexing {
-            self.change(|s| {
+            self.change(move |s| {
                 s.drives = Default::default();
                 s.watch_changes = true;
             });
@@ -1580,7 +1600,7 @@ impl Prefs {
             }
             return;
         }
-        self.change(|s| s.reset(page));
+        self.change(move |s| s.reset(page));
         if page == Page::Search {
             self.apply_history();
             self.apply_as_you_type();

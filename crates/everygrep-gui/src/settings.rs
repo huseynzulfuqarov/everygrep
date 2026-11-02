@@ -44,6 +44,8 @@ use std::fs;
 use std::io::{self, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use everygrep_core::filter::Filter;
 use everygrep_core::query::{HiddenFiles, QueryOptions};
@@ -947,6 +949,63 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
     Ok(s)
 }
 
+/// Saves files on a thread of its own, one after the other in the order
+/// asked, so a slow or stalled disk (or another window holding the settings
+/// lock) never holds up the window.
+pub struct Writer {
+    jobs: mpsc::Sender<Box<dyn FnOnce() + Send>>,
+    /// Jobs asked for and not done yet.
+    left: Arc<(Mutex<usize>, Condvar)>,
+}
+
+impl Writer {
+    pub fn start() -> Self {
+        let (jobs, asked) = mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        let left = Arc::new((Mutex::new(0_usize), Condvar::new()));
+        let counted = Arc::clone(&left);
+        let _ = std::thread::Builder::new()
+            .name("save-settings".into())
+            .spawn(move || {
+                for job in asked {
+                    job();
+                    let (count, done) = &*counted;
+                    let mut count = count.lock().unwrap_or_else(|e| e.into_inner());
+                    *count = count.saturating_sub(1);
+                    done.notify_all();
+                }
+            });
+        Self { jobs, left }
+    }
+
+    /// Runs `job` after the jobs asked before it, without waiting for it.
+    pub fn run(&self, job: impl FnOnce() + Send + 'static) {
+        let (count, _) = &*self.left;
+        *count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        if self.jobs.send(Box::new(job)).is_err() {
+            *count.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        }
+    }
+
+    /// Waits at most `wait` for every job asked so far to be done; returns
+    /// whether they are.
+    pub fn wait_done(&self, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
+        let (count, done) = &*self.left;
+        let mut count = count.lock().unwrap_or_else(|e| e.into_inner());
+        while *count > 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            count = done
+                .wait_timeout(count, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        true
+    }
+}
+
 unsafe extern "C" {
     fn flock(fd: std::ffi::c_int, operation: std::ffi::c_int) -> std::ffi::c_int;
 }
@@ -1212,6 +1271,35 @@ pub(crate) mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn saves_run_in_order_without_holding_up_the_caller() {
+        let writer = Writer::start();
+        let (release, stalled) = mpsc::channel::<()>();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        // A save that hangs, as on a stalled disk, and two after it.
+        let asked = Instant::now();
+        let o = Arc::clone(&order);
+        writer.run(move || {
+            let _ = stalled.recv();
+            o.lock().unwrap().push(1);
+        });
+        for n in [2, 3] {
+            let o = Arc::clone(&order);
+            writer.run(move || o.lock().unwrap().push(n));
+        }
+        assert!(asked.elapsed() < Duration::from_millis(100));
+        assert!(
+            !writer.wait_done(Duration::from_millis(200)),
+            "waited too long"
+        );
+        assert!(order.lock().unwrap().is_empty());
+        release.send(()).unwrap();
+        assert!(writer.wait_done(Duration::from_secs(5)));
+        assert_eq!(*order.lock().unwrap(), [1, 2, 3]);
+        // Nothing left: no wait.
+        assert!(writer.wait_done(Duration::ZERO));
     }
 
     #[test]

@@ -517,6 +517,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // Gives the clipboard up and closes the XWayland connection.
     X11.with(|x| x.borrow_mut().take());
     window.hide()?;
+    // Settings and history changed last (columns, searches) are on disk
+    // before the program ends, unless the disk does not answer.
+    prefs.finish_saving(engine::QUIT_WAIT);
     engine.shutdown();
     Ok(())
 }
