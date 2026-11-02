@@ -2474,6 +2474,15 @@ impl Prefs {
         }
     }
 
+    /// A saved query may override parsing for its own expression. The next
+    /// manual edit returns to the policy shown in Search settings.
+    pub fn restore_parse_options(&self, w: &AppWindow) {
+        let options = self.settings.borrow().options;
+        w.set_wildcards_anywhere(options.wildcards_anywhere);
+        w.set_literal_operators(options.literal_operators);
+        w.set_and_before_or(options.and_before_or);
+    }
+
     /// Applies interaction settings and search policy to the main window.
     /// A changed search policy reruns the current query.
     pub fn apply_behaviour(&self) {
@@ -2481,9 +2490,7 @@ impl Prefs {
         self.fill_history();
         let s = self.settings.borrow();
         let old_options = crate::options(&m);
-        m.set_wildcards_anywhere(s.options.wildcards_anywhere);
-        m.set_literal_operators(s.options.literal_operators);
-        m.set_and_before_or(s.options.and_before_or);
+        self.restore_parse_options(&m);
         m.set_hidden_files(
             HiddenFiles::ALL
                 .iter()

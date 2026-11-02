@@ -2656,3 +2656,21 @@ msgstr "Sorgu geçersiz."
 
 msgid "The entry was removed in another window."
 msgstr "Kayıt başka bir pencerede silindi."
+
+msgid "Save bookmark…"
+msgstr "Yer imi kaydet…"
+
+msgid "Manage bookmarks…"
+msgstr "Yer imlerini yönet…"
+
+msgid "Manage bookmarks"
+msgstr "Yer imlerini yönet"
+
+msgid "Bookmarks"
+msgstr "Yer imleri"
+
+msgid "Invalid saved search sort order."
+msgstr "Kayıtlı aramanın sıralaması geçersiz."
+
+msgid "Invalid bookmark."
+msgstr "Yer imi geçersiz."

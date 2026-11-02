@@ -36,9 +36,35 @@ impl NamedFilter {
     }
 }
 
+/// A bookmark freezes both expressions, so editing or deleting a filter
+/// later cannot silently change the saved search.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bookmark {
+    pub id: u64,
+    pub name: String,
+    pub search: String,
+    pub options: QueryOptions,
+    pub filter: NamedFilter,
+    pub sort_column: i32,
+    pub descending: bool,
+}
+
+impl Bookmark {
+    pub fn manager_title(&self) -> String {
+        if Query::parse(&self.search, self.options).is_err()
+            || Query::parse(&self.filter.search, self.filter.options).is_err()
+        {
+            fill(tr("{} (invalid query)"), &[&self.name])
+        } else {
+            self.name.clone()
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Library {
     pub filters: Vec<NamedFilter>,
+    pub bookmarks: Vec<Bookmark>,
     next_id: u64,
 }
 
@@ -46,6 +72,7 @@ impl Default for Library {
     fn default() -> Self {
         Self {
             filters: defaults(),
+            bookmarks: Vec::new(),
             next_id: 10,
         }
     }
@@ -140,6 +167,49 @@ impl Library {
         move_entry(&mut self.filters, |f| f.id == id, step)
     }
 
+    pub fn put_bookmark(&mut self, id: Option<u64>, mut entry: Bookmark) -> io::Result<u64> {
+        if entry.name.trim().is_empty() || !(0..=8).contains(&entry.sort_column) {
+            return Err(invalid(tr("Invalid bookmark.")));
+        }
+        Query::parse(&entry.search, entry.options).map_err(|_| invalid(tr("Invalid query.")))?;
+        Query::parse(&entry.filter.search, entry.filter.options)
+            .map_err(|_| invalid(tr("Invalid query.")))?;
+        entry.name = entry.name.trim().into();
+        entry.id = if let Some(id) = id {
+            if !self.bookmarks.iter().any(|b| b.id == id) {
+                return Err(missing());
+            }
+            id
+        } else {
+            let id = self.next_id;
+            self.next_id = id
+                .checked_add(1)
+                .ok_or_else(|| invalid(tr("Too many saved searches.")))?;
+            id
+        };
+        let id = entry.id;
+        if let Some(old) = self.bookmarks.iter_mut().find(|b| b.id == id) {
+            *old = entry;
+        } else {
+            self.bookmarks.push(entry);
+        }
+        Ok(id)
+    }
+
+    pub fn remove_bookmark(&mut self, id: u64) -> io::Result<()> {
+        let i = self
+            .bookmarks
+            .iter()
+            .position(|b| b.id == id)
+            .ok_or_else(missing)?;
+        self.bookmarks.remove(i);
+        Ok(())
+    }
+
+    pub fn move_bookmark(&mut self, id: u64, step: i32) -> io::Result<()> {
+        move_entry(&mut self.bookmarks, |b| b.id == id, step)
+    }
+
     pub fn load(path: &Path) -> io::Result<Self> {
         let text = match std::fs::read_to_string(path) {
             Ok(s) => s,
@@ -157,10 +227,55 @@ impl Library {
             .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
         let mut library = Self {
             filters: Vec::new(),
+            bookmarks: Vec::new(),
             next_id,
         };
         for line in lines {
             let parts: Vec<_> = line.split('\t').collect();
+            if parts.first() == Some(&"B") {
+                if parts.len() != 15 {
+                    return Err(invalid(tr("Invalid saved search record.")));
+                }
+                let id = parts[1]
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|id| *id >= 10 && *id < next_id)
+                    .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
+                if library.bookmarks.iter().any(|b| b.id == id)
+                    || library.filters.iter().any(|f| f.id == id)
+                {
+                    return Err(invalid(tr("Invalid saved search identity.")));
+                }
+                let filter = NamedFilter {
+                    id: parts[9]
+                        .parse()
+                        .map_err(|_| invalid(tr("Invalid saved search identity.")))?,
+                    name: decode(parts[10])?,
+                    search: decode(parts[11])?,
+                    options: decode_options(parts[12], parts[13], parts[14])?,
+                };
+                let entry = Bookmark {
+                    id,
+                    name: decode(parts[2])?,
+                    search: decode(parts[3])?,
+                    options: decode_options(parts[4], parts[5], parts[6])?,
+                    sort_column: parts[7]
+                        .parse()
+                        .map_err(|_| invalid(tr("Invalid saved search sort order.")))?,
+                    descending: match parts[8] {
+                        "0" => false,
+                        "1" => true,
+                        _ => return Err(invalid(tr("Invalid saved search sort order."))),
+                    },
+                    filter,
+                };
+                // Keep structurally sound records editable across parser changes.
+                if entry.name.trim().is_empty() || !(0..=8).contains(&entry.sort_column) {
+                    return Err(invalid(tr("Invalid bookmark.")));
+                }
+                library.bookmarks.push(entry);
+                continue;
+            }
             if parts.len() != 7 || parts[0] != "F" {
                 return Err(invalid(tr("Invalid saved search record.")));
             }
@@ -169,7 +284,9 @@ impl Library {
                 .ok()
                 .filter(|id| *id > 0 && *id < next_id)
                 .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
-            if library.filters.iter().any(|f| f.id == id) {
+            if library.filters.iter().any(|f| f.id == id)
+                || library.bookmarks.iter().any(|b| b.id == id)
+            {
                 return Err(invalid(tr("Invalid saved search identity.")));
             }
             let name = decode(parts[2])?;
@@ -193,6 +310,22 @@ impl Library {
         for f in &self.filters {
             text.push_str(&format!(
                 "F\t{}\t{}\t{}\t{}\n",
+                f.id,
+                settings::escape(f.name.as_bytes()),
+                settings::escape(f.search.as_bytes()),
+                encode_options(f.options)
+            ));
+        }
+        for b in &self.bookmarks {
+            let f = &b.filter;
+            text.push_str(&format!(
+                "B\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                b.id,
+                settings::escape(b.name.as_bytes()),
+                settings::escape(b.search.as_bytes()),
+                encode_options(b.options),
+                b.sort_column,
+                u8::from(b.descending),
                 f.id,
                 settings::escape(f.name.as_bytes()),
                 settings::escape(f.search.as_bytes()),
@@ -347,6 +480,102 @@ pub fn recover(path: &Path) -> io::Result<(Library, std::path::PathBuf)> {
 mod tests {
     use super::*;
     use crate::settings::tests::Scratch;
+
+    fn bookmark(l: &Library, name: &str) -> Bookmark {
+        Bookmark {
+            id: 0,
+            name: name.into(),
+            search: "Report.*".into(),
+            options: QueryOptions {
+                regex: true,
+                case_sensitive: true,
+                ..QueryOptions::default()
+            },
+            filter: l.filters[3].clone(),
+            sort_column: 8,
+            descending: true,
+        }
+    }
+
+    #[test]
+    fn invalid_bookmark_expressions_do_not_block_other_edits() {
+        let dir = Scratch::new("bookmark-query-recovery");
+        let path = dir.0.join("saved-searches");
+        update(&path, |l| {
+            let mut b = bookmark(l, "Repair me");
+            b.search = "ext:md".into();
+            b.options = QueryOptions::default();
+            b.filter.search = "ext:rs".into();
+            b.filter.options = QueryOptions::default();
+            l.put_bookmark(None, b)
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("ext:md", "size:invalid")
+            .replace("ext:rs", "modified:invalid");
+        std::fs::write(&path, text).unwrap();
+        let l = Library::load(&path).unwrap();
+        assert_eq!(l.bookmarks.len(), 1);
+        assert_ne!(l.bookmarks[0].manager_title(), l.bookmarks[0].name);
+        update(&path, |l| {
+            l.put_filter(Some(1), "All", "", QueryOptions::default())
+        })
+        .unwrap();
+        let mut b = Library::load(&path).unwrap().bookmarks.remove(0);
+        b.search = "ext:md".into();
+        b.filter.search = "ext:rs".into();
+        update(&path, |l| l.put_bookmark(Some(b.id), b)).unwrap();
+        assert_eq!(Library::load(&path).unwrap().bookmarks[0].search, "ext:md");
+    }
+
+    #[test]
+    fn bookmarks_freeze_filters_and_round_trip_all_search_state() {
+        let d = Scratch::new("bookmark-state");
+        let path = d.0.join("saved-searches");
+        let (mut l, id) =
+            update(&path, |l| l.put_bookmark(None, bookmark(l, "Work\t\n\\"))).unwrap();
+        let saved = l.bookmarks[0].clone();
+        l.put_filter(Some(4), "Changed", "other", QueryOptions::default())
+            .unwrap();
+        assert_eq!(l.bookmarks[0], saved);
+        l.remove_filter(4).unwrap();
+        assert_eq!(l.bookmarks[0], saved);
+        update(&path, |stored| {
+            *stored = l.clone();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        assert_eq!(l.bookmarks[0].id, id);
+        assert!(l.bookmarks[0].options.regex && l.bookmarks[0].descending);
+        assert_eq!(l.bookmarks[0].sort_column, 8);
+    }
+
+    #[test]
+    fn bookmarks_rename_delete_move_and_reject_stale_edits() {
+        let mut l = Library::default();
+        let first = l.put_bookmark(None, bookmark(&l, "first")).unwrap();
+        let second = l.put_bookmark(None, bookmark(&l, "second")).unwrap();
+        l.move_bookmark(second, -1).unwrap();
+        assert_eq!(l.bookmarks[0].id, second);
+        let mut b = l.bookmarks[0].clone();
+        b.name = "renamed".into();
+        l.put_bookmark(Some(second), b.clone()).unwrap();
+        l.move_bookmark(second, 1).unwrap();
+        l.move_bookmark(first, -1).unwrap();
+        assert_eq!(l.bookmarks[1].name, "renamed");
+        l.remove_bookmark(second).unwrap();
+        assert!(l.put_bookmark(Some(second), b.clone()).is_err());
+        assert!(l.move_bookmark(second, 1).is_err());
+        b.name = " ".into();
+        assert!(l.put_bookmark(None, b.clone()).is_err());
+        b.name = "valid".into();
+        b.sort_column = 9;
+        assert!(l.put_bookmark(None, b).is_err());
+        l.restore_filters();
+        assert_eq!(l.bookmarks.len(), 1);
+    }
 
     #[test]
     fn builtin_requests_reject_modified_or_deleted_library_entries() {

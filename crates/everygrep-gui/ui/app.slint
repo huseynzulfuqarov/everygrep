@@ -1524,6 +1524,10 @@ export component AppWindow inherits Window {
     callback add-filter();
     callback organize-filters();
     callback restore-filters();
+    callback add-bookmark();
+    callback organize-bookmarks();
+    in property <[string]> bookmark-names;
+    callback open-bookmark(int);
     callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
 
     // File actions that are refused, with a note, for an item on a drive
@@ -1730,6 +1734,8 @@ export component AppWindow inherits Window {
             root.organize-filters();
         } else if (c == Command.restore-filters) {
             root.restore-filters();
+        } else if (c == Command.add-bookmark) { root.add-bookmark();
+        } else if (c == Command.organize-bookmarks) { root.organize-bookmarks();
         } else if (c == Command.settings) {
             root.open-settings();
         } else if (c == Command.keyboard-settings) {
@@ -3399,6 +3405,15 @@ export component AppWindow inherits Window {
                     shortcut: root.menu-keys.clear-duplicates;
                     activated => { root.run(Command.clear-duplicates); }
                 }
+            }
+        }
+        Menu {
+            title: @tr("Bookmarks");
+            MenuItem { title: @tr("Save bookmark…"); shortcut: root.menu-keys.add-bookmark; activated => { root.run(Command.add-bookmark); } }
+            MenuItem { title: @tr("Manage bookmarks…"); shortcut: root.menu-keys.organize-bookmarks; activated => { root.run(Command.organize-bookmarks); } }
+            for name[i] in root.bookmark-names: MenuItem {
+                title: name;
+                activated => { root.open-bookmark(i); }
             }
         }
         Menu {

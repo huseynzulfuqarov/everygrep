@@ -10,6 +10,10 @@ First version, 0.1.0, not released yet.
 
 ### Saved searches
 
+- Save complete search bookmarks, open them from a Bookmarks menu and manage
+  their names, search options, sort and order. Saved filters remain reproducible
+  after editing or removing the original.
+
 - Manage named filters with matching modes in the existing selector and Search
   menu; restore built-ins, reorder with Alt+Up/Down and save edits atomically.
 

@@ -441,3 +441,16 @@ The behaviour chosen for indexing and searching.
 
 These budgets are measured before each release and the numbers are recorded in
 the changelog.
+
+### Filters and bookmarks
+
+Search → Filter holds Save as filter, Manage filters and Restore default
+filters above the existing choices. The organizer uses a table and an editor
+with a name, query, kind and matching modes. New starts from the current field.
+Alt+Up/Down moves the selected item when the editor is closed. Restore asks
+first and keeps custom entries. Bookmarks has its own menu between Search and
+History, with Save bookmark (Ctrl+D), Manage bookmarks and the saved names.
+Its organizer also edits the filter and sort. Opening restores the text, all
+matching modes, frozen filter and sort, revealing the sort column if needed.
+A frozen filter that differs from the live one is available in the same
+selector; choosing another filter leaves the snapshot unused.

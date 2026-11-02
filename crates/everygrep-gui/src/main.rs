@@ -317,6 +317,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move |text| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
+            prefs.restore_parse_options(&w);
             prefs.fill_history();
             if !typing::with(|t| t.edited()) {
                 wait_for_enter(&w);

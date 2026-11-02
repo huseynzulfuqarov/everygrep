@@ -778,3 +778,11 @@ Delete asks for confirmation. Invalid queries remain visible for editing; a
 structurally unreadable file offers a confirmed reset after saving a private copy.
 Built-in requests use an original snapshot with a notice if that built-in was
 edited or removed.
+
+Bookmarks → Save bookmark (Ctrl+D) stores the query, matching options, filter
+and sort column/direction. Manage bookmarks renames, edits, deletes and reorders
+entries (Alt+Up/Down); Open restores one search. A bookmark keeps a snapshot
+of its filter. If that filter was changed or removed, its saved version appears
+in the existing selector for this window. Opening a bookmark reveals a hidden
+sort column when necessary. After using saved query parse options, the next
+manual edit restores the policy shown in Search settings.

@@ -516,3 +516,10 @@ Query validation is lenient on load and strict on save; manager rows mark invali
 queries. Structural corruption requires explicit recovery: a unique mode-0600
 backup is synced before an atomic reset. The latest file is checked under the
 lock so a stale recovery dialog cannot reset an already repaired library.
+
+Bookmarks share the same file and identity allocator. Each stores field text,
+complete query options, a filter snapshot and sort column/direction. A snapshot
+that differs from its live filter becomes a transient entry in the existing
+selector; the manager continues to edit only the persisted filter collection.
+Reloading or editing the library preserves the selected identity and respects
+search-as-you-type when its effective filter changes.

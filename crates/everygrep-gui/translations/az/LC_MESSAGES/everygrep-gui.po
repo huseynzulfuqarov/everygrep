@@ -2656,3 +2656,21 @@ msgstr "Sorğu yanlışdır."
 
 msgid "The entry was removed in another window."
 msgstr "Qeyd başqa pəncərədə silinib."
+
+msgid "Save bookmark…"
+msgstr "Əlfəcin saxla…"
+
+msgid "Manage bookmarks…"
+msgstr "Əlfəcinləri idarə et…"
+
+msgid "Manage bookmarks"
+msgstr "Əlfəcinləri idarə et"
+
+msgid "Bookmarks"
+msgstr "Əlfəcinlər"
+
+msgid "Invalid saved search sort order."
+msgstr "Saxlanmış axtarışın sıralaması yanlışdır."
+
+msgid "Invalid bookmark."
+msgstr "Əlfəcin yanlışdır."

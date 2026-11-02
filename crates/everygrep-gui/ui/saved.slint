@@ -2,7 +2,12 @@ import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, StandardTabl
 import { Theme } from "theme.slint";
 
 export component SavedWindow inherits Window {
-    title: @tr("Manage filters");
+    title: root.bookmarks ? @tr("Manage bookmarks") : @tr("Manage filters");
+    in property <bool> bookmarks;
+    in property <[string]> sort-names;
+    in-out property <int> sort-column;
+    in-out property <bool> descending;
+    callback open-entry();
     icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
     preferred-width: 800px;
     preferred-height: 700px;
@@ -75,7 +80,7 @@ export component SavedWindow inherits Window {
             padding: Theme.s4;
             spacing: Theme.s2;
             table := StandardTableView {
-                accessible-label: @tr("Filters");
+                accessible-label: root.bookmarks ? @tr("Bookmarks") : @tr("Filters");
                 enabled: !root.confirming && !root.deleting && !root.resetting;
                 rows: root.rows;
                 columns: [ { title: @tr("Name"), width: 240px, horizontal-stretch: 1 }, { title: @tr("Search"), width: 400px, horizontal-stretch: 1 } ];
@@ -88,6 +93,10 @@ export component SavedWindow inherits Window {
                 Button { text: @tr("Delete"); enabled: !root.busy && root.current >= 0; clicked => { root.request-remove(); } }
                 Button { text: @tr("Move up"); enabled: !root.busy && root.current > 0; clicked => { root.move-entry(-1); } }
                 Button { text: @tr("Move down"); enabled: !root.busy && root.current >= 0 && root.current + 1 < root.rows.length; clicked => { root.move-entry(1); } }
+            }
+            if root.bookmarks: HorizontalLayout {
+                spacing: Theme.s2;
+                Button { text: @tr("Open"); enabled: !root.busy && root.current >= 0; clicked => { root.open-entry(); } }
             }
             VerticalLayout {
                 spacing: Theme.s2;
@@ -102,6 +111,11 @@ export component SavedWindow inherits Window {
                 HorizontalLayout {
                     Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; }
                     ComboBox { enabled: root.editing; accessible-label: @tr("Filter"); model: root.kinds; current-index <=> root.kind; }
+                }
+                if root.bookmarks: HorizontalLayout {
+                    Text { text: @tr("Sort by"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox { enabled: root.editing; accessible-label: @tr("Sort by"); model: root.sort-names; current-index <=> root.sort-column; }
+                    CheckBox { enabled: root.editing; text: @tr("Descending"); checked <=> root.descending; }
                 }
                 HorizontalLayout {
                     Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; }
@@ -148,13 +162,13 @@ export component SavedWindow inherits Window {
                 clicked => { root.resetting = true; }
             }
             if root.notice != "": Text { text: root.notice; color: root.notice-error ? Theme.danger : Theme.text-muted; wrap: word-wrap; }
-            if root.confirming: HorizontalLayout {
+            if root.confirming && !root.bookmarks: HorizontalLayout {
                 Text { text: @tr("Restore built-in filters and keep your own filters?"); color: Theme.text; wrap: word-wrap; }
                 Button { text: @tr("Restore"); clicked => { root.confirming = false; root.restore(); } }
                 Button { text: @tr("Cancel"); clicked => { root.confirming = false; } }
             }
             HorizontalLayout {
-                Button { text: @tr("Restore default filters"); enabled: !root.busy; clicked => { root.confirming = true; } }
+                Button { visible: !root.bookmarks; text: @tr("Restore default filters"); enabled: !root.busy; clicked => { root.confirming = true; } }
                 Rectangle { horizontal-stretch: 1; }
                 Button { text: @tr("Close"); clicked => { root.close-window(); } }
             }
