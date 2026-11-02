@@ -598,6 +598,7 @@ impl Prefs {
         drop(s);
         self.history.borrow_mut().set_max(0);
         self.history.borrow_mut().set_max(max);
+        crate::tabs_ui::history_policy(max, true);
         self.searches.borrow_mut().0.clear();
         self.clear_saved_history();
         self.fill_history();
@@ -701,6 +702,7 @@ impl Prefs {
         self.history_epoch
             .set(self.history_epoch.get().wrapping_add(1));
         self.history.borrow_mut().remove(&query);
+        crate::tabs_ui::remove_history(&query);
         let removed = query.clone();
         self.change_searches_with(
             move |entries| entries.0.retain(|e| e.search != removed),
@@ -2519,6 +2521,9 @@ impl Prefs {
         });
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);
+        m.set_open_searches_in_tabs(s.open_searches_in_tabs);
+        m.set_switch_to_new_tab(s.switch_to_new_tab);
+        m.set_restore_session(s.restore_session);
         drop(s);
         if old_options != crate::options(&m) {
             crate::show_badges(&m);
@@ -2663,6 +2668,7 @@ impl Prefs {
         self.searches
             .borrow_mut()
             .retain_days(days, search_history::now());
+        crate::tabs_ui::history_policy(size, false);
         self.change_searches(|_| {});
     }
 
@@ -2859,6 +2865,39 @@ impl Prefs {
             }
         }
         self.set_index(list_roots, rules);
+    }
+
+    pub fn set_tab_preference(&self, index: i32, on: bool) {
+        self.change(move |s| match index {
+            0 => s.open_searches_in_tabs = on,
+            1 => s.switch_to_new_tab = on,
+            2 => s.restore_session = on,
+            _ => {}
+        });
+        self.apply_behaviour();
+        self.refresh();
+    }
+
+    pub fn restore_search_policy(&self, w: &AppWindow) {
+        self.restore_parse_options(w);
+        let hidden = self.settings.borrow().options.hidden_files;
+        w.set_hidden_files(
+            HiddenFiles::ALL
+                .iter()
+                .position(|h| *h == hidden)
+                .unwrap_or(0) as i32,
+        );
+    }
+
+    pub fn search_policy(&self) -> QueryOptions {
+        self.settings.borrow().options
+    }
+
+    pub fn open_searches_in_tabs(&self) -> bool {
+        self.settings.borrow().open_searches_in_tabs
+    }
+    pub fn switch_to_new_tab(&self) -> bool {
+        self.settings.borrow().switch_to_new_tab
     }
 
     /// Preferences of the file action modules.

@@ -2827,3 +2827,78 @@ msgstr "Dərhal yeni taba keç"
 
 msgid "Restore the last window's tabs at startup"
 msgstr "Başlanğıcda son pəncərənin tablarını bərpa et"
+
+msgid "Tabs"
+msgstr "Tablar"
+
+msgid "New tab"
+msgstr "Yeni tab"
+
+msgid "Close tab"
+msgstr "Tabı bağla"
+
+msgid "Duplicate tab"
+msgstr "Tabın surətini yarat"
+
+msgid "Next tab"
+msgstr "Növbəti tab"
+
+msgid "Previous tab"
+msgstr "Əvvəlki tab"
+
+msgid "List all tabs"
+msgstr "Bütün tabları göstər"
+
+msgid "Close multiple tabs"
+msgstr "Bir neçə tabı bağla"
+
+msgid "Close selected tabs"
+msgstr "Seçilmiş tabları bağla"
+
+msgid "Close tabs to the left"
+msgstr "Soldakı tabları bağla"
+
+msgid "Close tabs to the right"
+msgstr "Sağdakı tabları bağla"
+
+msgid "Close other tabs"
+msgstr "Digər tabları bağla"
+
+msgid "Reopen closed tab"
+msgstr "Bağlanmış tabı yenidən aç"
+
+msgid "Reopen all closed tabs"
+msgstr "Bütün bağlanmış tabları yenidən aç"
+
+msgid "Recently closed tabs"
+msgstr "Son bağlanmış tablar"
+
+msgid "Select tab 1"
+msgstr "1-ci taba keç"
+
+msgid "Select tab 2"
+msgstr "2-ci taba keç"
+
+msgid "Select tab 3"
+msgstr "3-cü taba keç"
+
+msgid "Select tab 4"
+msgstr "4-cü taba keç"
+
+msgid "Select tab 5"
+msgstr "5-ci taba keç"
+
+msgid "Select tab 6"
+msgstr "6-cı taba keç"
+
+msgid "Select tab 7"
+msgstr "7-ci taba keç"
+
+msgid "Select tab 8"
+msgstr "8-ci taba keç"
+
+msgid "Select tab 9"
+msgstr "9-cu taba keç"
+
+msgid "Select tab 10"
+msgstr "10-cu taba keç"

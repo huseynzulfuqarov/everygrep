@@ -542,3 +542,22 @@ calendar days before emitting inclusive dm/dc/da comparisons. A full engine
 parse validates the output before changing the field. Filter choices are held
 by value, so a concurrent organizer edit cannot make an index select another
 filter. No form data is persisted and no content query is generated.
+
+### Search tabs (`tabs.rs`, `tabs_ui.rs`, `ui/tabs.slint`)
+
+Rust owns the tab list and ten closed search records. One `ResultsModel` and
+one engine search serve the active tab. Switching freezes Arc-backed ids,
+highlight terms and selection; inactive tabs do not submit work. Restoring a
+snapshot checks the engine's id epoch before showing it, then submits a fresh
+search. Old queued responses still go through the generation check. Query,
+filter references, matching toggles, sort, column layout, navigation trail,
+cursor and scroll position belong to the tab. Enter-pending edits keep their
+last submitted search separately. Hidden-file mode and the three parse policies
+follow Settings across all tabs. Filters resolve by live identity, falling back
+to their snapshot only after deletion; bookmarks retain their explicit snapshots.
+Closed tabs release result arrays. No-op navigation does not reinstall a search.
+
+A custom horizontal strip appears for two or more tabs; the list dialog and
+Tabs menu make every overflowed tab reachable. A 250 ms observer sees changes
+made by history, bookmarks and settings without additional search callbacks or
+copying result arrays. It updates titles only when search/layout state changed.

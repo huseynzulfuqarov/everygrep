@@ -159,6 +159,17 @@ fn read_details(path: &Path, name: &[u8]) -> Details {
     Details::read(path, name)
 }
 
+/// Frozen rows and selection for a background tab. Node ids are shared, not copied.
+#[derive(Clone)]
+pub struct ResultSnapshot {
+    ids: Arc<Vec<NodeId>>,
+    epoch: u64,
+    query: String,
+    selection: Selection,
+    terms: Arc<Vec<HighlightTerm>>,
+    took: Duration,
+}
+
 /// A file action was refused: a drive that is not connected holds some of
 /// its items, whose paths may now belong to other files, or to nothing.
 #[derive(Debug, PartialEq, Eq)]
@@ -236,6 +247,31 @@ impl ResultsModel {
             frequency_columns: Cell::new(FrequencyColumns::default()),
             notify: ModelNotify::default(),
         }
+    }
+
+    pub fn freeze(&self) -> ResultSnapshot {
+        ResultSnapshot {
+            ids: self.ids.borrow().clone(),
+            epoch: self.epoch.get(),
+            query: self.query.borrow().clone(),
+            selection: self.selection.borrow().clone(),
+            terms: self.terms.borrow().clone(),
+            took: self.took.get(),
+        }
+    }
+
+    /// Never show ids from before an index rebuild; the activation search follows.
+    pub fn restore(&self, snapshot: Option<&ResultSnapshot>) {
+        let snapshot = snapshot.filter(|s| s.epoch == self.engine.epoch());
+        *self.ids.borrow_mut() = snapshot.map(|s| s.ids.clone()).unwrap_or_default();
+        self.epoch.set(snapshot.map_or(u64::MAX, |s| s.epoch));
+        *self.query.borrow_mut() = snapshot.map(|s| s.query.clone()).unwrap_or_default();
+        *self.selection.borrow_mut() = snapshot.map(|s| s.selection.clone()).unwrap_or_default();
+        *self.terms.borrow_mut() = snapshot.map(|s| s.terms.clone()).unwrap_or_default();
+        self.took.set(snapshot.map_or(Duration::ZERO, |s| s.took));
+        self.renaming.set(None);
+        self.detail_cache.borrow_mut().clear();
+        self.notify.reset();
     }
 
     /// Whether a new query clears the selection (the default) or keeps the

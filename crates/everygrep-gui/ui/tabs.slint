@@ -1,0 +1,93 @@
+import { Button, CheckBox, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct TabEntry { title: string, checked: bool }
+
+export component TabStrip inherits Rectangle {
+    in property <[TabEntry]> tabs;
+    in property <int> active;
+    callback selected(int);
+    callback closed(int);
+    callback list();
+    changed active => { strip.content-x = -max(0px, min(root.active * 180px, strip.content-width - strip.width)); }
+    height: 34px;
+    background: Theme.surface-alt;
+    HorizontalLayout {
+        spacing: Theme.s1;
+        strip := Flickable {
+            content-width: max(self.width, root.tabs.length * 180px);
+            content-height: self.height;
+            for tab[i] in root.tabs: Rectangle {
+                x: i * 180px;
+                width: 180px;
+                height: parent.height;
+                background: root.active == i ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
+                border-width: 1px;
+                border-color: root.active == i ? Theme.accent : Theme.line;
+                accessible-role: AccessibleRole.tab;
+                accessible-label: tab.title;
+                accessible-item-index: i;
+                accessible-item-selectable: true;
+                accessible-item-selected: root.active == i;
+                accessible-action-default => { root.selected(i); }
+                touch := TouchArea {
+                    clicked => { root.selected(i); }
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.up && event.button == PointerEventButton.middle) {
+                            root.closed(i);
+                        }
+                    }
+                }
+                Text {
+                    x: Theme.s2;
+                    width: parent.width - 40px;
+                    height: parent.height;
+                    text: tab.title;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    color: root.active == i ? Theme.selection-text : Theme.text;
+                }
+                Button {
+                    x: parent.width - 30px;
+                    width: 28px;
+                    height: parent.height;
+                    text: "×";
+                    accessible-label: @tr("Close tab");
+                    clicked => { root.closed(i); }
+                }
+            }
+        }
+        Button { text: "⋯"; accessible-label: @tr("List all tabs"); clicked => { root.list(); } }
+    }
+}
+
+export component TabsWindow inherits Window {
+    in property <[TabEntry]> tabs;
+    in property <bool> multiple;
+    callback chosen(int);
+    callback marked(int, bool);
+    callback close-marked();
+    title: root.multiple ? @tr("Close multiple tabs") : @tr("List all tabs");
+    width: 460px;
+    height: 440px;
+    background: Theme.surface;
+    VerticalLayout {
+        padding: Theme.s3;
+        spacing: Theme.s2;
+        ListView {
+            for tab[i] in root.tabs: HorizontalLayout {
+                height: 36px;
+                if root.multiple: CheckBox {
+                    text: tab.title;
+                    checked: tab.checked;
+                    toggled => { root.marked(i, self.checked); }
+                }
+                if !root.multiple: Button { text: tab.title; clicked => { root.chosen(i); } }
+            }
+        }
+        if root.multiple: Button {
+            text: @tr("Close selected tabs");
+            clicked => { root.close-marked(); }
+        }
+    }
+}

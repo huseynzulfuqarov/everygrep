@@ -35,6 +35,8 @@ mod search_history;
 mod selection;
 mod settings;
 mod stalled;
+mod tabs;
+mod tabs_ui;
 mod transfer;
 mod typing;
 mod x11clip;
@@ -314,6 +316,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let pause = Rc::new(Timer::default());
+    tabs_ui::connect(&window, &engine, &model, &prefs, &pause);
     let query_edit = |manual: bool| {
         let (engine, weak, pause, prefs) =
             (engine.clone(), weak.clone(), pause.clone(), prefs.clone());
@@ -492,6 +495,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let (engine, model) = (engine.clone(), model.clone());
         move |column, descending| {
             engine.set_sort(sort_for_column(column, descending, model.folder_size()));
+            tabs_ui::submitted_sort(column, descending);
         }
     });
     window.on_drag_columns(columns::drag_in_window);
@@ -679,6 +683,7 @@ fn set_shortcuts(w: &AppWindow) {
 /// `.slint` texts follow by themselves; a note in the status line is
 /// dropped rather than left in the old language.
 pub fn relabel(w: &AppWindow) {
+    tabs_ui::refresh();
     set_filter_names(w);
     apply_keys(w);
     show_badges(w);
@@ -852,6 +857,7 @@ fn presentation(args: &[String]) -> Presentation {
 /// Closes the main window: hides it (`hide`) or quits. The columns are
 /// saved either way.
 fn close_window(w: &AppWindow, engine: &Arc<Engine>, prefs: &Prefs, hide: bool) {
+    tabs_ui::close_picker();
     prefs.save_columns(w);
     if hide {
         let _ = w.window().hide();
@@ -925,7 +931,32 @@ fn present(
     if p.query.is_some() {
         w.set_notice("".into());
     }
+    if prefs.open_searches_in_tabs() && p.query.is_some() {
+        tabs_ui::open_search(
+            p.query.as_deref().unwrap_or(""),
+            p.options.unwrap_or_else(|| options(w)),
+            p.options.is_none(),
+            &settings::Columns {
+                show_type: p.show_type,
+                show_ext: p.show_ext,
+                show_created: p.show_created,
+                show_accessed: p.show_accessed,
+                show_attrs: p.show_attrs,
+                ..Default::default()
+            },
+        );
+        prefs.record(p.query.as_deref().unwrap_or(""));
+        if prefs.focus_on_show() {
+            w.invoke_focus_search();
+        }
+        raise(w, request.activation_token);
+        if let Some(page) = p.settings_page {
+            prefs.open(Some(page));
+        }
+        return;
+    }
     if let Some(o) = p.options {
+        prefs.restore_search_policy(w);
         set_options(w, o);
     }
     w.set_show_type(w.get_show_type() || p.show_type);
@@ -1909,6 +1940,7 @@ pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool) {
 }
 
 fn run_query(w: &AppWindow, engine: &Engine) {
+    tabs_ui::submitted(w);
     let filter = saved_ui::selected(w).map(|f| (f.search, f.options));
     engine.set_filtered_query(&w.get_query(), options(w), filter);
 }
@@ -2219,6 +2251,47 @@ mod tests {
         ] {
             assert!(present_args(&[flag]).options.is_some(), "{flag}");
         }
+    }
+
+    #[test]
+    fn forwarded_case_search_uses_settings_policy_and_preserves_layout() {
+        let p = present_args(&["--case", "--columns", "created", "foo"]);
+        let policy = QueryOptions {
+            hidden_files: HiddenFiles::Only,
+            and_before_or: true,
+            literal_operators: true,
+            wildcards_anywhere: true,
+            ..Default::default()
+        };
+        let current = tabs::SearchState {
+            columns: settings::Columns {
+                show_type: true,
+                name: Some(419.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let search = current.launched(
+            p.query.as_deref().unwrap(),
+            p.options.unwrap(),
+            false,
+            &settings::Columns {
+                show_created: p.show_created,
+                ..Default::default()
+            },
+        );
+        let effective = tabs::with_policy(search.options, policy);
+        assert_eq!(search.query, "foo");
+        assert!(
+            effective.case_sensitive
+                && effective.and_before_or
+                && effective.literal_operators
+                && effective.wildcards_anywhere
+        );
+        assert_eq!(effective.hidden_files, HiddenFiles::Only);
+        assert!(search.columns.show_type && search.columns.show_created);
+        assert_eq!(search.columns.name, Some(419.0));
+        assert_eq!(present_args(&["--regex"]).query, None);
     }
 
     #[test]

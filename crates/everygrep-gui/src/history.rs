@@ -8,7 +8,7 @@
 
 use crate::settings::DEFAULT_HISTORY;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct History {
     entries: Vec<String>,
     /// Index of the entry shown now, if any.

@@ -310,9 +310,24 @@ gets a new hard link and loses its old name instead; only a folder (or a
 file where hard links are not supported) gets a check followed by a plain
 rename there.
 
+Search tabs use `Ctrl+T` (new), `Ctrl+W` (close), `Ctrl+Shift+K`
+(duplicate), `Ctrl+Tab` / `Ctrl+Shift+Tab` (next/previous), and `Ctrl+1`…`Ctrl+9`
+or `Ctrl+0` (tabs 1…10). `Ctrl+Shift+W` closes the window. All are rebindable.
+The tab strip appears with two tabs; its × button or middle click closes a tab.
+The Tabs menu and `Ctrl+Shift+L` list all tabs, including those beyond the strip.
+Close multiple tabs opens a checklist. Left/right/other closure and the ten most
+recently closed tabs share the menu; `Ctrl+Shift+T` reopens the latest one.
+Closing the last tab clears only its query and keeps its options, sort and layout.
+New tabs inherit the active search's
+filter, matching options and column layout. Duplicate also keeps its search and
+selection. Background tabs freeze and refresh when shown; pending text still
+waits for Enter when search as you type is off.
+
 Settings → Window includes opt-in preferences for opening searches in tabs,
 switching to newly opened tabs and restoring the last window's tabs. All three
-are off by default.
+are off by default. Opening a context search in a new window follows the tab
+preference, as do query-bearing launches handed to the running window. Explicit
+New window commands continue to create windows.
 
 ### Settings
 

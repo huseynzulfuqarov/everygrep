@@ -2827,3 +2827,78 @@ msgstr "Hemen yeni sekmeye geç"
 
 msgid "Restore the last window's tabs at startup"
 msgstr "Başlangıçta son pencerenin sekmelerini geri yükle"
+
+msgid "Tabs"
+msgstr "Sekmeler"
+
+msgid "New tab"
+msgstr "Yeni sekme"
+
+msgid "Close tab"
+msgstr "Sekmeyi kapat"
+
+msgid "Duplicate tab"
+msgstr "Sekmeyi çoğalt"
+
+msgid "Next tab"
+msgstr "Sonraki sekme"
+
+msgid "Previous tab"
+msgstr "Önceki sekme"
+
+msgid "List all tabs"
+msgstr "Tüm sekmeleri listele"
+
+msgid "Close multiple tabs"
+msgstr "Birden fazla sekmeyi kapat"
+
+msgid "Close selected tabs"
+msgstr "Seçili sekmeleri kapat"
+
+msgid "Close tabs to the left"
+msgstr "Soldaki sekmeleri kapat"
+
+msgid "Close tabs to the right"
+msgstr "Sağdaki sekmeleri kapat"
+
+msgid "Close other tabs"
+msgstr "Diğer sekmeleri kapat"
+
+msgid "Reopen closed tab"
+msgstr "Kapatılan sekmeyi yeniden aç"
+
+msgid "Reopen all closed tabs"
+msgstr "Kapatılan tüm sekmeleri yeniden aç"
+
+msgid "Recently closed tabs"
+msgstr "Son kapatılan sekmeler"
+
+msgid "Select tab 1"
+msgstr "1. sekmeye geç"
+
+msgid "Select tab 2"
+msgstr "2. sekmeye geç"
+
+msgid "Select tab 3"
+msgstr "3. sekmeye geç"
+
+msgid "Select tab 4"
+msgstr "4. sekmeye geç"
+
+msgid "Select tab 5"
+msgstr "5. sekmeye geç"
+
+msgid "Select tab 6"
+msgstr "6. sekmeye geç"
+
+msgid "Select tab 7"
+msgstr "7. sekmeye geç"
+
+msgid "Select tab 8"
+msgstr "8. sekmeye geç"
+
+msgid "Select tab 9"
+msgstr "9. sekmeye geç"
+
+msgid "Select tab 10"
+msgstr "10. sekmeye geç"

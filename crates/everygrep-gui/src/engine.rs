@@ -3873,6 +3873,56 @@ mod tests {
     }
 
     #[test]
+    fn thirty_frozen_tabs_share_rows_keep_selection_and_reject_old_epochs() {
+        use slint::Model;
+        let dir = Scratch::new("tab-snapshots");
+        let root = dir.0.join("files");
+        fs::create_dir(&root).unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index"));
+        probe.wait_for(IndexState::Unwatched);
+        let model = crate::results::ResultsModel::new(probe.engine.clone());
+        // Synthetic ids measure state exchange independently of filesystem size.
+        // No row data or file action is requested for these synthetic rows.
+        let ids = Arc::new((0..1_000_000).map(NodeId).collect::<Vec<_>>());
+        let mut snapshots = Vec::new();
+        for i in 0..30 {
+            model.set_result(&SearchResult {
+                ids: ids.clone(),
+                terms: Arc::default(),
+                took: Duration::ZERO,
+                error: None,
+                query: i.to_string(),
+                epoch: probe.engine.epoch(),
+                generation: 0,
+            });
+            model.select_only(i);
+            snapshots.push(model.freeze());
+        }
+        let start = Instant::now();
+        for i in 0..3000 {
+            model.restore(Some(&snapshots[i % 30]));
+            std::hint::black_box(model.freeze());
+        }
+        eprintln!(
+            "30 tabs, 1M synthetic rows: result state exchange {:.3} us/switch (3000 switches, debug build)",
+            start.elapsed().as_secs_f64() * 1_000_000.0 / 3000.0
+        );
+        for (i, snapshot) in snapshots.iter().enumerate() {
+            model.restore(Some(snapshot));
+            assert_eq!(model.row_count(), 1_000_000);
+            assert!(model.is_selected(i));
+            assert!(!model.is_selected((i + 1) % 30));
+            assert!(Arc::ptr_eq(&ids, &model.snapshot().0));
+        }
+        probe.engine.epoch.fetch_add(1, Ordering::SeqCst);
+        model.restore(Some(&snapshots[0]));
+        assert_eq!(model.row_count(), 0);
+        model.restore(None);
+        assert_eq!(model.row_count(), 0);
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn results_name_the_request_they_answer() {
         let dir = Scratch::new("result-generation");
         fs::create_dir_all(dir.0.join("a")).unwrap();

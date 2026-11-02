@@ -1,4 +1,6 @@
 import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
+import { TabStrip, TabEntry } from "tabs.slint";
+export { TabEntry, TabsWindow } from "tabs.slint";
 import { Theme } from "theme.slint";
 import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
@@ -1003,6 +1005,18 @@ export component AppWindow inherits Window {
     callback open-settings();
     callback quit();
     // Another window over the same index.
+    in property <[TabEntry]> tabs;
+    in property <int> active-tab;
+    in property <[string]> closed-tab-names;
+    callback tab-command(Command);
+    callback tab-selected(int);
+    callback tab-closed(int);
+    callback closed-tab-selected(int);
+    in-out property <length> results-scroll-y <=> list.content-y;
+    in-out property <bool> open-searches-in-tabs;
+    in-out property <bool> switch-to-new-tab;
+    in-out property <bool> restore-session;
+    callback tab-preference-changed(int, bool);
     callback new-window();
     // Closes the window as its close button does: hides it or quits, as
     // set on the Window page of the settings.
@@ -1565,7 +1579,9 @@ export component AppWindow inherits Window {
 
     // Runs a command.
     function run(c: Command) {
-        if (c == Command.new-window) {
+        if (c == Command.new-tab || c == Command.close-tab || c == Command.duplicate-tab || c == Command.next-tab || c == Command.previous-tab || c == Command.select-tab-1 || c == Command.select-tab-2 || c == Command.select-tab-3 || c == Command.select-tab-4 || c == Command.select-tab-5 || c == Command.select-tab-6 || c == Command.select-tab-7 || c == Command.select-tab-8 || c == Command.select-tab-9 || c == Command.select-tab-10 || c == Command.list-tabs || c == Command.close-multiple-tabs || c == Command.close-left-tabs || c == Command.close-right-tabs || c == Command.close-other-tabs || c == Command.reopen-tab || c == Command.reopen-all-tabs) {
+            root.tab-command(c);
+        } else if (c == Command.new-window) {
             root.new-window();
         } else if (c == Command.close-window) {
             root.close-window();
@@ -1947,6 +1963,13 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
+            if root.tabs.length >= 2: TabStrip {
+                tabs: root.tabs;
+                active: root.active-tab;
+                selected(i) => { root.tab-selected(i); }
+                closed(i) => { root.tab-closed(i); }
+                list => { root.tab-command(Command.list-tabs); }
+            }
             // Top bar
             Rectangle {
                 height: Theme.top-bar-height;
@@ -3447,6 +3470,29 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.organize-history;
                 activated => { root.run(Command.organize-history); }
             }
+        }
+        Menu { title: @tr("Tabs");
+            MenuItem { title: @tr("New tab"); shortcut: root.menu-keys.new-tab; enabled: root.can-run(Command.new-tab); activated => { root.run(Command.new-tab); } }
+            MenuItem { title: @tr("Close tab"); shortcut: root.menu-keys.close-tab; enabled: root.can-run(Command.close-tab); activated => { root.run(Command.close-tab); } }
+            MenuItem { title: @tr("Duplicate tab"); shortcut: root.menu-keys.duplicate-tab; enabled: root.can-run(Command.duplicate-tab); activated => { root.run(Command.duplicate-tab); } }
+            MenuItem { title: @tr("Next tab"); shortcut: root.menu-keys.next-tab; enabled: root.can-run(Command.next-tab); activated => { root.run(Command.next-tab); } }
+            MenuItem { title: @tr("Previous tab"); shortcut: root.menu-keys.previous-tab; enabled: root.can-run(Command.previous-tab); activated => { root.run(Command.previous-tab); } }
+            MenuItem { title: @tr("List all tabs"); shortcut: root.menu-keys.list-tabs; enabled: root.can-run(Command.list-tabs); activated => { root.run(Command.list-tabs); } }
+            MenuItem { title: @tr("Close multiple tabs"); shortcut: root.menu-keys.close-multiple-tabs; enabled: root.can-run(Command.close-multiple-tabs); activated => { root.run(Command.close-multiple-tabs); } }
+            MenuItem { title: @tr("Close tabs to the left"); shortcut: root.menu-keys.close-left-tabs; enabled: root.can-run(Command.close-left-tabs); activated => { root.run(Command.close-left-tabs); } }
+            MenuItem { title: @tr("Close tabs to the right"); shortcut: root.menu-keys.close-right-tabs; enabled: root.can-run(Command.close-right-tabs); activated => { root.run(Command.close-right-tabs); } }
+            MenuItem { title: @tr("Close other tabs"); shortcut: root.menu-keys.close-other-tabs; enabled: root.can-run(Command.close-other-tabs); activated => { root.run(Command.close-other-tabs); } }
+            MenuItem { title: @tr("Reopen closed tab"); shortcut: root.menu-keys.reopen-tab; enabled: root.can-run(Command.reopen-tab); activated => { root.run(Command.reopen-tab); } }
+            MenuItem { title: @tr("Reopen all closed tabs"); shortcut: root.menu-keys.reopen-all-tabs; enabled: root.can-run(Command.reopen-all-tabs); activated => { root.run(Command.reopen-all-tabs); } }
+            Menu { title: @tr("Recently closed tabs");
+                for title[i] in root.closed-tab-names: MenuItem { title: title; activated => { root.closed-tab-selected(i); } }
+            }
+            MenuSeparator { }
+            for tab[i] in root.tabs: MenuItem { title: tab.title; checkable: true; checked: tab.checked; activated => { root.tab-selected(i); } }
+            MenuSeparator { }
+            MenuItem { title: @tr("Open searches in tabs instead of new windows"); checkable: true; checked <=> root.open-searches-in-tabs; activated => { root.tab-preference-changed(0, self.checked); } }
+            MenuItem { title: @tr("Switch to new tabs immediately"); checkable: true; checked <=> root.switch-to-new-tab; activated => { root.tab-preference-changed(1, self.checked); } }
+            MenuItem { title: @tr("Restore the last window's tabs at startup"); checkable: true; checked <=> root.restore-session; activated => { root.tab-preference-changed(2, self.checked); } }
         }
         Menu {
             title: @tr("Index");

@@ -138,7 +138,11 @@ pub fn connect(
             ) else {
                 return;
             };
-            if settings.search_new_window {
+            let mut open_tabs = false;
+            prefs::with(|p| open_tabs = p.open_searches_in_tabs());
+            if settings.search_new_window && open_tabs {
+                crate::tabs_ui::open_search(&query, options, true, &Default::default());
+            } else if settings.search_new_window {
                 let result = std::env::current_exe().and_then(|exe| {
                     launch(
                         std::process::Command::new(exe)

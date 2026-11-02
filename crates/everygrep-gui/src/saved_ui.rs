@@ -43,6 +43,17 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
         Ok(l) => (l.unwrap_or_default(), None),
         Err(e) => (Library::default(), Some(e)),
     };
+    let conflicts = commands::with_current(|keys| {
+        library
+            .shortcuts
+            .iter()
+            .filter_map(|key| {
+                let name = library.target_name(key.target)?;
+                shortcut_conflict(&name, key.chord, keys)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
     let state = Rc::new(State {
         main: w.as_weak(),
         engine: engine.clone(),
@@ -142,6 +153,8 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
     });
     if let Some(e) = error {
         crate::error(w, fill(tr("Cannot read saved searches: {}"), &[&e]));
+    } else if !conflicts.is_empty() {
+        crate::error(w, conflicts);
     }
 }
 
@@ -169,6 +182,61 @@ pub fn filter_choices() -> Vec<NamedFilter> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+pub fn using_snapshot(w: &AppWindow) -> bool {
+    with(|s| {
+        w.get_filter_index() as usize == s.library.borrow().filters.len()
+            && s.snapshot.borrow().is_some()
+    })
+    .unwrap_or(false)
+}
+
+pub fn select_snapshot(w: &AppWindow, filter: &NamedFilter) {
+    with(|s| {
+        *s.snapshot.borrow_mut() = Some(filter.clone());
+        w.set_filter_index(s.library.borrow().filters.len() as i32);
+        fill_filters(w);
+    });
+}
+
+pub fn tab_filter(
+    w: &AppWindow,
+    filter: Option<&NamedFilter>,
+    frozen: bool,
+) -> Option<NamedFilter> {
+    let resolved = with(|s| {
+        let resolved = filter.map(|f| resolve_tab_filter(&s.library.borrow().filters, f, frozen));
+        *s.snapshot.borrow_mut() = None;
+        resolved
+    })
+    .flatten();
+    if let Some(filter) = &resolved {
+        if frozen {
+            select_snapshot(w, filter);
+        } else {
+            select_filter(w, filter);
+        }
+    } else {
+        fill_filters(w);
+    }
+    resolved
+}
+
+pub fn filter_for_tab(filter: &NamedFilter, frozen: bool) -> NamedFilter {
+    with(|s| resolve_tab_filter(&s.library.borrow().filters, filter, frozen))
+        .unwrap_or_else(|| filter.clone())
+}
+
+fn resolve_tab_filter(library: &[NamedFilter], filter: &NamedFilter, frozen: bool) -> NamedFilter {
+    if frozen {
+        return filter.clone();
+    }
+    library
+        .iter()
+        .find(|f| f.id == filter.id)
+        .unwrap_or(filter)
+        .clone()
 }
 
 pub fn select_filter(w: &AppWindow, filter: &NamedFilter) {
@@ -255,6 +323,21 @@ pub fn shortcut_owner(chord: Chord) -> Option<String> {
     .flatten()
 }
 
+fn shortcut_conflict(name: &str, chord: Chord, keys: &commands::Keymap) -> Option<String> {
+    let owners = keys
+        .bindings()
+        .iter()
+        .filter(|b| b.chord == chord)
+        .filter_map(|b| commands::spec(b.cmd).map(|s| (s.label)()))
+        .collect::<Vec<_>>();
+    (!owners.is_empty()).then(|| {
+        format!(
+            "{name}: {}",
+            fill(tr("Shortcut already used by {}."), &[&owners.join(", ")])
+        )
+    })
+}
+
 pub fn shortcut_rows() -> Vec<crate::ShortcutRow> {
     with(|s| {
         let l = s.library.borrow();
@@ -263,7 +346,11 @@ pub fn shortcut_rows() -> Vec<crate::ShortcutRow> {
             .filter_map(|key| {
                 l.target_name(key.target).map(|name| crate::ShortcutRow {
                     keys: key.chord.display().into(),
-                    action: name.into(),
+                    action: commands::with_current(|keys| {
+                        shortcut_conflict(&name, key.chord, keys)
+                    })
+                    .unwrap_or(name)
+                    .into(),
                 })
             })
             .collect()
@@ -739,12 +826,6 @@ impl State {
     fn activate(&self, b: &Bookmark) {
         let Some(w) = self.main.upgrade() else { return };
         w.invoke_history_record();
-        let live = self
-            .library
-            .borrow()
-            .filters
-            .iter()
-            .position(|f| *f == b.filter);
         w.set_query(b.search.as_str().into());
         w.set_hidden_files(
             everygrep_core::query::HiddenFiles::ALL
@@ -756,9 +837,8 @@ impl State {
         w.set_and_before_or(b.options.and_before_or);
         w.set_wildcards_anywhere(b.options.wildcards_anywhere);
         crate::set_options(&w, b.options);
-        *self.snapshot.borrow_mut() = live.is_none().then(|| b.filter.clone());
+        select_snapshot(&w, &b.filter);
         w.set_notice("".into());
-        w.set_filter_index(live.unwrap_or(self.library.borrow().filters.len()) as i32);
         crate::show_badges(&w);
         match b.sort_column {
             4 => w.set_show_type(true),
@@ -857,5 +937,64 @@ impl State {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::*;
+
+    #[test]
+    fn loaded_saved_shortcut_conflicts_are_visible_in_keyboard_rows() {
+        let chord = Chord::parse("Ctrl+1").unwrap();
+        let message =
+            shortcut_conflict("My bookmark", chord, &commands::Keymap::default()).unwrap();
+        assert!(message.contains("My bookmark"));
+        assert!(message.contains("Select tab 1"));
+        assert!(
+            shortcut_conflict(
+                "Free",
+                Chord::parse("Ctrl+Alt+9").unwrap(),
+                &commands::Keymap::default()
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn ordinary_tabs_follow_live_filter_ids_and_keep_deleted_snapshots() {
+        let original = NamedFilter {
+            id: 42,
+            name: "Docs".into(),
+            search: "ext:pdf".into(),
+            options: QueryOptions::default(),
+        };
+        let edited = NamedFilter {
+            search: "ext:pdf;odt".into(),
+            ..original.clone()
+        };
+        assert_eq!(
+            resolve_tab_filter(std::slice::from_ref(&edited), &original, false),
+            edited
+        );
+        assert_eq!(resolve_tab_filter(&[], &original, false), original);
+        assert_eq!(
+            resolve_tab_filter(std::slice::from_ref(&edited), &original, true),
+            original
+        );
+        let mut changed_kind = edited.clone();
+        changed_kind.options.filter = Filter::Audio;
+        let tab = crate::tabs::SearchState {
+            options: QueryOptions {
+                filter: Filter::Document,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            tab.effective_options(QueryOptions::default(), Some(&changed_kind))
+                .filter,
+            Filter::Audio
+        );
     }
 }

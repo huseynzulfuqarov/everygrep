@@ -51,6 +51,10 @@ impl Typing {
         self.waiting = false;
     }
 
+    pub fn as_you_type(&self) -> bool {
+        self.as_you_type
+    }
+
     /// Whether a change is waiting for Enter.
     #[cfg(test)]
     pub fn waiting(&self) -> bool {
@@ -81,6 +85,7 @@ mod tests {
     #[test]
     fn as_you_type_searches_at_every_change() {
         let mut t = Typing::default();
+        assert!(t.as_you_type());
         assert!(t.edited());
         assert!(!t.waiting());
         assert_eq!(t.enter(), Enter::Open);
@@ -90,6 +95,7 @@ mod tests {
     fn off_searches_on_enter_only() {
         let mut t = Typing::default();
         assert!(!t.set_as_you_type(false));
+        assert!(!t.as_you_type());
         assert!(!t.edited(), "typing does not search");
         assert!(!t.edited());
         assert!(t.waiting());

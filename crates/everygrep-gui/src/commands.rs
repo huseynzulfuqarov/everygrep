@@ -410,6 +410,7 @@ pub enum Category {
     Search,
     History,
     Bookmarks,
+    Tabs,
     Index,
     Tools,
     Help,
@@ -424,6 +425,7 @@ impl Category {
             Category::Search => tr("Search"),
             Category::History => tr("History"),
             Category::Bookmarks => tr("Bookmarks"),
+            Category::Tabs => tr("Tabs"),
             Category::Index => tr("Index"),
             Category::Tools => tr("Tools"),
             Category::Help => tr("Help"),
@@ -447,6 +449,160 @@ use Scope::{Global, List};
 /// Every command, in the order of the help dialog and the keyboard settings.
 pub const COMMANDS: &[Spec] = &[
     Spec {
+        cmd: Command::NewTab,
+        id: "tab.new",
+        category: Category::Tabs,
+        label: || tr("New tab"),
+        defaults: &[(Global, "Ctrl+T")],
+    },
+    Spec {
+        cmd: Command::CloseTab,
+        id: "tab.close",
+        category: Category::Tabs,
+        label: || tr("Close tab"),
+        defaults: &[(Global, "Ctrl+W")],
+    },
+    Spec {
+        cmd: Command::DuplicateTab,
+        id: "tab.duplicate",
+        category: Category::Tabs,
+        label: || tr("Duplicate tab"),
+        defaults: &[(Global, "Ctrl+Shift+K")],
+    },
+    Spec {
+        cmd: Command::NextTab,
+        id: "tab.next",
+        category: Category::Tabs,
+        label: || tr("Next tab"),
+        defaults: &[(Global, "Ctrl+Tab")],
+    },
+    Spec {
+        cmd: Command::PreviousTab,
+        id: "tab.previous",
+        category: Category::Tabs,
+        label: || tr("Previous tab"),
+        defaults: &[(Global, "Ctrl+Shift+Tab")],
+    },
+    Spec {
+        cmd: Command::SelectTab1,
+        id: "tab.select-one",
+        category: Category::Tabs,
+        label: || tr("Select tab 1"),
+        defaults: &[(Global, "Ctrl+1")],
+    },
+    Spec {
+        cmd: Command::SelectTab2,
+        id: "tab.select-two",
+        category: Category::Tabs,
+        label: || tr("Select tab 2"),
+        defaults: &[(Global, "Ctrl+2")],
+    },
+    Spec {
+        cmd: Command::SelectTab3,
+        id: "tab.select-three",
+        category: Category::Tabs,
+        label: || tr("Select tab 3"),
+        defaults: &[(Global, "Ctrl+3")],
+    },
+    Spec {
+        cmd: Command::SelectTab4,
+        id: "tab.select-four",
+        category: Category::Tabs,
+        label: || tr("Select tab 4"),
+        defaults: &[(Global, "Ctrl+4")],
+    },
+    Spec {
+        cmd: Command::SelectTab5,
+        id: "tab.select-five",
+        category: Category::Tabs,
+        label: || tr("Select tab 5"),
+        defaults: &[(Global, "Ctrl+5")],
+    },
+    Spec {
+        cmd: Command::SelectTab6,
+        id: "tab.select-six",
+        category: Category::Tabs,
+        label: || tr("Select tab 6"),
+        defaults: &[(Global, "Ctrl+6")],
+    },
+    Spec {
+        cmd: Command::SelectTab7,
+        id: "tab.select-seven",
+        category: Category::Tabs,
+        label: || tr("Select tab 7"),
+        defaults: &[(Global, "Ctrl+7")],
+    },
+    Spec {
+        cmd: Command::SelectTab8,
+        id: "tab.select-eight",
+        category: Category::Tabs,
+        label: || tr("Select tab 8"),
+        defaults: &[(Global, "Ctrl+8")],
+    },
+    Spec {
+        cmd: Command::SelectTab9,
+        id: "tab.select-nine",
+        category: Category::Tabs,
+        label: || tr("Select tab 9"),
+        defaults: &[(Global, "Ctrl+9")],
+    },
+    Spec {
+        cmd: Command::SelectTab10,
+        id: "tab.select-ten",
+        category: Category::Tabs,
+        label: || tr("Select tab 10"),
+        defaults: &[(Global, "Ctrl+0")],
+    },
+    Spec {
+        cmd: Command::ListTabs,
+        id: "tab.list",
+        category: Category::Tabs,
+        label: || tr("List all tabs"),
+        defaults: &[(Global, "Ctrl+Shift+L")],
+    },
+    Spec {
+        cmd: Command::CloseMultipleTabs,
+        id: "tab.close-multiple",
+        category: Category::Tabs,
+        label: || tr("Close multiple tabs"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::CloseLeftTabs,
+        id: "tab.close-left",
+        category: Category::Tabs,
+        label: || tr("Close tabs to the left"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::CloseRightTabs,
+        id: "tab.close-right",
+        category: Category::Tabs,
+        label: || tr("Close tabs to the right"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::CloseOtherTabs,
+        id: "tab.close-other",
+        category: Category::Tabs,
+        label: || tr("Close other tabs"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::ReopenTab,
+        id: "tab.reopen",
+        category: Category::Tabs,
+        label: || tr("Reopen closed tab"),
+        defaults: &[(Global, "Ctrl+Shift+T")],
+    },
+    Spec {
+        cmd: Command::ReopenAllTabs,
+        id: "tab.reopen-all",
+        category: Category::Tabs,
+        label: || tr("Reopen all closed tabs"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::NewWindow,
         id: "file.new-window",
         category: Category::File,
@@ -458,7 +614,7 @@ pub const COMMANDS: &[Spec] = &[
         id: "file.close-window",
         category: Category::File,
         label: || tr("Close window"),
-        defaults: &[(Global, "Ctrl+W")],
+        defaults: &[(Global, "Ctrl+Shift+W")],
     },
     Spec {
         cmd: Command::ExportResults,
@@ -1046,6 +1202,21 @@ impl Keymap {
                 }
             }
         }
+        // New tab defaults must not take an existing explicit user binding.
+        bindings.retain(|binding| {
+            let item = spec(binding.cmd).expect("known command");
+            item.category != Category::Tabs
+                || overrides.iter().any(|(id, _)| id == item.id)
+                || !overrides.iter().any(|(id, keys)| {
+                    COMMANDS.iter().any(|s| s.id == id)
+                        && keys.iter().any(|(scope, chord)| {
+                            *chord == binding.chord
+                                && (*scope == binding.scope
+                                    || *scope == Scope::Global
+                                    || binding.scope == Scope::Global)
+                        })
+                })
+        });
         Keymap { bindings }
     }
 
@@ -1230,6 +1401,28 @@ impl Keymap {
     /// The keys of the menu bar's items.
     pub fn menu_keys(&self) -> MenuKeys {
         menu_keys!(self;
+            new_tab => NewTab,
+            close_tab => CloseTab,
+            duplicate_tab => DuplicateTab,
+            next_tab => NextTab,
+            previous_tab => PreviousTab,
+            select_tab_1 => SelectTab1,
+            select_tab_2 => SelectTab2,
+            select_tab_3 => SelectTab3,
+            select_tab_4 => SelectTab4,
+            select_tab_5 => SelectTab5,
+            select_tab_6 => SelectTab6,
+            select_tab_7 => SelectTab7,
+            select_tab_8 => SelectTab8,
+            select_tab_9 => SelectTab9,
+            select_tab_10 => SelectTab10,
+            list_tabs => ListTabs,
+            close_multiple_tabs => CloseMultipleTabs,
+            close_left_tabs => CloseLeftTabs,
+            close_right_tabs => CloseRightTabs,
+            close_other_tabs => CloseOtherTabs,
+            reopen_tab => ReopenTab,
+            reopen_all_tabs => ReopenAllTabs,
             new_window => NewWindow,
             close_window => CloseWindow,
             export_results => ExportResults,
@@ -1350,6 +1543,23 @@ mod tests {
     }
 
     #[test]
+    fn explicit_existing_bindings_take_priority_over_new_tab_defaults() {
+        let map = Keymap::with_overrides(&[(
+            "file.new-window".into(),
+            vec![(Scope::Global, chord("Ctrl+T"))],
+        )]);
+        assert_eq!(
+            map.resolve(Scope::Global, &chord("Ctrl+T")),
+            Some(Command::NewWindow)
+        );
+        assert!(map.of(Command::NewTab).next().is_none());
+        assert_eq!(
+            map.resolve(Scope::Global, &chord("Ctrl+W")),
+            Some(Command::CloseTab)
+        );
+    }
+
+    #[test]
     fn captured_shortcuts_round_trip_shifted_symbols_and_layout_characters() {
         for text in ["!", "@", "+", "Ü", "ı", "ς", "ſ", "ə", "ж"] {
             let captured = Chord::from_event(text, true, false, true, false).unwrap();
@@ -1362,6 +1572,29 @@ mod tests {
             );
         }
         assert!(Chord::parse("Ctrl+ı").unwrap().to_string().ends_with('ı'));
+    }
+
+    #[test]
+    fn tab_keys_work_in_search_and_can_be_rebound() {
+        let map = Keymap::default();
+        for (key, cmd) in [
+            ("Ctrl+T", Command::NewTab),
+            ("Ctrl+W", Command::CloseTab),
+            ("Ctrl+Tab", Command::NextTab),
+            ("Ctrl+Shift+Tab", Command::PreviousTab),
+            ("Ctrl+1", Command::SelectTab1),
+            ("Ctrl+0", Command::SelectTab10),
+            ("Ctrl+Shift+T", Command::ReopenTab),
+        ] {
+            assert_eq!(map.resolve(Scope::Search, &chord(key)), Some(cmd));
+        }
+        let map =
+            Keymap::with_overrides(&[("tab.new".into(), vec![(Global, chord("Ctrl+Shift+N"))])]);
+        assert_eq!(map.resolve(Global, &chord("Ctrl+T")), None);
+        assert_eq!(
+            map.resolve(Global, &chord("Ctrl+Shift+N")),
+            Some(Command::NewTab)
+        );
     }
 
     #[test]
@@ -1570,7 +1803,7 @@ mod tests {
             (&both, "Ctrl+N", C::NewWindow),
             (&both, "Ctrl+Comma", C::Settings),
             (&both, "Ctrl+Q", C::Quit),
-            (&both, "Ctrl+W", C::CloseWindow),
+            (&both, "Ctrl+Shift+W", C::CloseWindow),
         ];
         for (scopes, text, cmd) in table {
             for &scope in *scopes {
