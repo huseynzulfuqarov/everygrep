@@ -139,7 +139,10 @@ in batches and applied to the index: creations add nodes, deletions remove
 them, and a `MOVED_FROM`/`MOVED_TO` pair with the same cookie becomes a
 rename that keeps the node id, so paths below a renamed folder stay correct.
 A new folder is watched before it is read, so nothing created meanwhile is
-lost. If the kernel queue overflows, the index is rebuilt by a scan.
+lost. If the kernel queue overflows, the index is rebuilt by a scan and
+gets a new watcher. When no watcher can be made (no inotify instance left),
+the window's index thread shows the index as not watched and tries again
+every 10 seconds, then catches up in full.
 
 On start, `catch_up` compares the modification time of every indexed folder
 with the saved one and re-reads only the folders that changed; folders that

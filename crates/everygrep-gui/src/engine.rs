@@ -439,6 +439,9 @@ const SAVE_EVERY: Duration = Duration::from_secs(300);
 /// that, checked for changes, and how many of them at most each time.
 const RECHECK_UNWATCHED_EVERY: Duration = Duration::from_secs(10);
 const RECHECK_UNWATCHED_MAX: usize = 5000;
+/// How often a watcher is tried again while none could be made (no inotify
+/// instance left, as after lost events when another program holds them all).
+const RETRY_WATCHER_EVERY: Duration = Duration::from_secs(10);
 /// How long quitting waits for cancelled drive scans to save what they
 /// read. A scan sees the cancel after each folder, and the save writes to
 /// the cache folder, so this is normally well under a second; a drive that
@@ -994,7 +997,8 @@ impl Engine {
     }
 
     /// Watches until interrupted, catching up first when `catch_up` is set
-    /// (or with the roots of drives that came online). The watcher and all
+    /// (or with the roots of drives that came online). Without a watcher it
+    /// waits for one (see [`Engine::wait_for_watcher`]). The watcher and all
     /// its watches are dropped on return. Returns whether a catch-up is
     /// still due.
     fn watch_once(&self, catch_up: bool, drives_to_catch_up: &mut Vec<NodeId>) -> bool {
@@ -1002,60 +1006,80 @@ impl Engine {
             &self.index.read().expect("index lock"),
             &self.scan_options(),
         );
-        match watcher {
-            Ok(mut watcher) => {
-                if catch_up || !drives_to_catch_up.is_empty() {
-                    self.report(IndexState::CatchingUp);
-                    let task = self.tasks.begin(TaskKind::Updating, false);
-                    let mut index = self.index.write().expect("index lock");
-                    let roots = if catch_up {
-                        online_roots(&index)
-                    } else {
-                        std::mem::take(drives_to_catch_up)
-                    };
-                    task.progress()
-                        .set_total(Some(folders_below(&index, &roots)));
-                    let stats = watcher.catch_up_with_progress(&mut index, &roots, task.progress());
-                    drop(index);
-                    drop(task);
-                    if stats.added + stats.removed + stats.updated > 0 {
-                        self.dirty.store(true, Ordering::SeqCst);
-                        self.request_search();
-                    }
-                }
-                drives_to_catch_up.clear();
-                self.note_unwatched(Some(&watcher));
-                self.report(IndexState::Watching);
-                {
-                    // A catch-up finds new and removed entries, not changed
-                    // attributes, so details read before this session (or
-                    // while nothing was watched) are not trusted.
-                    let _index = self.index.write().expect("index lock");
-                    self.forget_details();
-                    self.applying_changes.store(true, Ordering::SeqCst);
-                }
-                // Without a watcher for an index built again, nothing
-                // watched it since: a catch-up is due.
-                let lost = !self.watch_loop(&mut watcher);
-                self.applying_changes.store(false, Ordering::SeqCst);
-                self.note_unwatched(None);
-                lost
-            }
-            Err(_) => {
-                self.report(IndexState::Static);
-                while !self.interrupted(true) {
-                    std::thread::sleep(Duration::from_millis(250));
-                    if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_drives(None).0
-                    {
-                        self.dirty.store(true, Ordering::SeqCst);
-                        self.request_search();
-                        self.report(IndexState::Static);
-                    }
-                }
-                // Not caught up: nothing watched meanwhile.
-                catch_up
+        let (mut watcher, catch_up) = match watcher {
+            Ok(watcher) => (watcher, catch_up),
+            // Nothing watched the index meanwhile: once a watcher is made,
+            // it is caught up in full. Interrupted before that, it is not.
+            Err(_) => match self.wait_for_watcher() {
+                Some(watcher) => (watcher, true),
+                None => return true,
+            },
+        };
+        if catch_up || !drives_to_catch_up.is_empty() {
+            self.report(IndexState::CatchingUp);
+            let task = self.tasks.begin(TaskKind::Updating, false);
+            let mut index = self.index.write().expect("index lock");
+            let roots = if catch_up {
+                online_roots(&index)
+            } else {
+                std::mem::take(drives_to_catch_up)
+            };
+            task.progress()
+                .set_total(Some(folders_below(&index, &roots)));
+            let stats = watcher.catch_up_with_progress(&mut index, &roots, task.progress());
+            drop(index);
+            drop(task);
+            if stats.added + stats.removed + stats.updated > 0 {
+                self.dirty.store(true, Ordering::SeqCst);
+                self.request_search();
             }
         }
+        drives_to_catch_up.clear();
+        self.note_unwatched(Some(&watcher));
+        self.report(IndexState::Watching);
+        {
+            // A catch-up finds new and removed entries, not changed
+            // attributes, so details read before this session (or
+            // while nothing was watched) are not trusted.
+            let _index = self.index.write().expect("index lock");
+            self.forget_details();
+            self.applying_changes.store(true, Ordering::SeqCst);
+        }
+        // Without a watcher for an index built again, nothing
+        // watched it since: a catch-up is due.
+        let lost = !self.watch_loop(&mut watcher);
+        self.applying_changes.store(false, Ordering::SeqCst);
+        self.note_unwatched(None);
+        lost
+    }
+
+    /// Without a watcher (no inotify instance could be made, for example
+    /// after lost events while other programs hold every instance), the index
+    /// is shown as not watched and stays as it is, while drives still come
+    /// and go. A watcher is tried again every [`RETRY_WATCHER_EVERY`].
+    /// Returns it, or nothing when the index thread is interrupted first.
+    fn wait_for_watcher(&self) -> Option<Watcher> {
+        self.report(IndexState::Static);
+        let mut last_try = Instant::now();
+        while !self.interrupted(true) {
+            std::thread::sleep(Duration::from_millis(250));
+            if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_drives(None).0 {
+                self.dirty.store(true, Ordering::SeqCst);
+                self.request_search();
+                self.report(IndexState::Static);
+            }
+            if last_try.elapsed() >= RETRY_WATCHER_EVERY {
+                last_try = Instant::now();
+                let watcher = self.new_watcher(
+                    &self.index.read().expect("index lock"),
+                    &self.scan_options(),
+                );
+                if let Ok(watcher) = watcher {
+                    return Some(watcher);
+                }
+            }
+        }
+        None
     }
 
     /// A watcher of `index`. In tests it can be made to fail, as when no
@@ -2834,6 +2858,49 @@ mod tests {
         probe.wait_for(IndexState::Unwatched);
         probe.engine.set_watching(true);
         until(&probe.engine, "the file made while nothing watched", |i| {
+            find(i, &root.join("three.txt")).is_some()
+        });
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn watching_starts_again_by_itself_once_a_watcher_can_be_made() {
+        let dir = Scratch::new("overflow-watcher-retry");
+        let root = dir.0.join("a");
+        fs::create_dir_all(&root).unwrap();
+        let index = dir.0.join("index.bin");
+        let probe = Probe::start(vec![root.clone()], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        let root = fs::canonicalize(&root).unwrap();
+
+        // Lost events, and no watcher for the index built after them.
+        FAILING_WATCHERS.lock().unwrap().push(index.clone());
+        OVERFLOWS.lock().unwrap().push(index.clone());
+        fs::write(root.join("one.txt"), "").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut is_static = false;
+        while !is_static && Instant::now() < deadline {
+            is_static =
+                probe.states.recv_timeout(Duration::from_millis(100)) == Ok(IndexState::Static);
+        }
+        fs::write(root.join("two.txt"), "").unwrap();
+
+        // Watchers can be made again (an inotify instance was freed): the
+        // next try, without any toggle or restart, catches up and watches.
+        FAILING_WATCHERS.lock().unwrap().retain(|p| p != &index);
+        assert!(is_static, "never shown as not watched");
+        let deadline = Instant::now() + RETRY_WATCHER_EVERY + Duration::from_secs(10);
+        let mut watching = false;
+        while !watching && Instant::now() < deadline {
+            watching =
+                probe.states.recv_timeout(Duration::from_millis(100)) == Ok(IndexState::Watching);
+        }
+        assert!(watching, "not watched again");
+        until(&probe.engine, "the file made while nothing watched", |i| {
+            find(i, &root.join("two.txt")).is_some()
+        });
+        fs::write(root.join("three.txt"), "").unwrap();
+        until(&probe.engine, "a file made once watched again", |i| {
             find(i, &root.join("three.txt")).is_some()
         });
         probe.engine.shutdown();

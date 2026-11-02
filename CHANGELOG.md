@@ -47,6 +47,10 @@ First version, 0.1.0, not released yet.
   unmounted inside the indexed folders is read again at its mount point.
   A folder's time is saved only once the events before it were applied, so
   a catch-up after an exit finds what was not applied yet.
+- When no inotify instance can be made (for example for the index built
+  again after a queue overflow, while other programs hold every instance),
+  the index is shown as not watching changes and a watcher is tried again
+  every 10 seconds; once one is made, what changed meanwhile is caught up.
 - Folders that could not be watched (watch limit reached) are tried again
   and checked for changes every 10 seconds; the status line counts them.
 - Catching up on start with changes made while nothing was watching, by

@@ -530,6 +530,10 @@ limit (for example `sysctl fs.inotify.max_user_watches=1048576`) removes
 it. Folders that cannot be read at all are not counted: nothing in them is
 indexed. When a file system mounted inside the indexed folders (not a
 removable drive) is unmounted, its folder is read again as it is now.
+When no inotify instance can be made at all (other programs hold all of
+them; this can happen after lost events, when the index is built again),
+the status line says "not watching changes" and a watcher is tried again
+every 10 seconds; what changed meanwhile is caught up once it works.
 
 EveryGrep notices mounts and unmounts through the kernel's mount table
 (`/proc/self/mountinfo`), which wakes it only when something changes; it
