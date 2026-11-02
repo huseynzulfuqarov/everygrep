@@ -98,6 +98,16 @@ never blocks), reads it with `grep-searcher` in 64 KiB buffers and stops at
 the first match, a NUL byte (binary) or a cancel. A `ContentCache` keeps the
 answers by term, path, size and time.
 
+`hash.rs` hashes file contents: MD5, SHA-256 and CRC-32 for the hash
+columns, and XXH3-128 to compare contents. A file is opened like a content
+search opens it and read once for every hash asked for, in 256 KiB buffers
+with a cancel check before each. A file is known by its `FileKey` (device,
+inode, size, modification time): hard links share it, and a file that was
+written to or replaced gets another. `HashCache` (`hashcache.rs`) keeps
+hashes by that key in memory and in `$XDG_CACHE_HOME/everygrep/hashes.bin`
+(no paths), up to a size limit (512 MiB by default, counted as the entries
+take in the file); when it is reached, the entries used longest ago go first.
+
 A `DetailCache` keeps the creation times or attributes one sort read, by
 node id, for the next sort of the same results (the refresh after file
 changes). The index logs every node whose details may have changed: new

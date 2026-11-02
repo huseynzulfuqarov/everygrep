@@ -181,11 +181,18 @@ fn save_impl(
     let sum = checksum(&buf);
     put_u64(&mut buf, sum);
 
+    write_atomically(path, &buf)
+}
+
+/// Writes `bytes` to a new file next to `path` and renames it over `path`,
+/// so readers see the old file or the new one, never a part of it. Creates
+/// the folder when it is missing.
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
     let mut tmp = TempFile::create(path)?;
-    tmp.file.write_all(&buf)?;
+    tmp.file.write_all(bytes)?;
     tmp.file.sync_all()?;
     publish(&mut tmp, path, |dir| {
         unsupported_is_fine(fs::File::open(dir)?.sync_all())
