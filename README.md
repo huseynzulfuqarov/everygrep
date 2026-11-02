@@ -428,7 +428,8 @@ tray icon is needed. `Ctrl+Q` or Quit in the `⋯` menu ends the program.
 "Start EveryGrep when I log in" writes the autostart entry
 `$XDG_CONFIG_HOME/autostart/az.huseynz.EveryGrep.desktop` (by default under
 `~/.config`) and removes it when turned off; the switch shows whether the
-entry exists. The entry runs this program by its full path with
+entry exists and is not turned off inside (`Hidden=true` or
+`X-GNOME-Autostart-enabled=false`, as other tools may write). The entry runs this program by its full path with
 `--background`: when closing only hides the window, EveryGrep then loads the
 index and watches without showing a window, and the next launch shows it at
 once. When closing quits, a window without a way back would make no sense,

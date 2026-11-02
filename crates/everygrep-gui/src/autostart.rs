@@ -2,7 +2,9 @@
 //! `$XDG_CONFIG_HOME/autostart/az.huseynz.EveryGrep.desktop` (by default
 //! under `~/.config`). The entry exists exactly while the setting is on, so
 //! the settings window reads the state from the file and stays true when
-//! the desktop's own tools remove it.
+//! the desktop's own tools remove it, or turn it off inside with
+//! `Hidden=true` or `X-GNOME-Autostart-enabled=false` (turning the setting
+//! on writes the entry again).
 
 use std::ffi::OsString;
 use std::io;
@@ -37,9 +39,35 @@ pub fn path() -> Option<PathBuf> {
     .map(|d| d.join(FILE_NAME))
 }
 
-/// Whether the program starts on login, judged by the entry at `path`.
+/// Whether the program starts on login, judged by the entry at `path`: it
+/// is a file, and its `[Desktop Entry]` group has neither `Hidden=true` nor
+/// `X-GNOME-Autostart-enabled=false`. A file that cannot be read counts as
+/// on.
 pub fn is_enabled(path: &Path) -> bool {
-    path.is_file()
+    if !path.is_file() {
+        return false;
+    }
+    let Ok(text) = std::fs::read(path) else {
+        return true;
+    };
+    let mut in_entry = false;
+    for line in String::from_utf8_lossy(&text).lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match (in_entry, key.trim(), value.trim()) {
+            (true, "Hidden", "true") | (true, "X-GNOME-Autostart-enabled", "false") => {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    true
 }
 
 /// Writes the entry, starting `exe`, to `path`.
@@ -209,6 +237,32 @@ mod tests {
         // A folder in the way is not taken for the entry.
         std::fs::create_dir_all(&path).unwrap();
         assert!(!is_enabled(&path));
+    }
+
+    #[test]
+    fn an_entry_turned_off_inside_counts_as_off() {
+        let scratch = Scratch::new("autostart-off");
+        let path = scratch.0.join(FILE_NAME);
+        let on = entry("/opt/eg/everygrep-gui");
+        for off in [
+            on.replace(
+                "X-GNOME-Autostart-enabled=true",
+                "X-GNOME-Autostart-enabled=false",
+            ),
+            format!("{on}Hidden=true\n"),
+            on.replace("NoDisplay=true", "Hidden = true"),
+        ] {
+            std::fs::write(&path, &off).unwrap();
+            assert!(!is_enabled(&path), "{off}");
+            // Turning it on writes the entry again.
+            enable(&path, Path::new("/opt/eg/everygrep-gui")).unwrap();
+            assert!(is_enabled(&path));
+        }
+        // The keys count only in the entry's own group.
+        std::fs::write(&path, format!("{on}[Desktop Action x]\nHidden=true\n")).unwrap();
+        assert!(is_enabled(&path));
+        std::fs::write(&path, format!("{on}Hidden=false\n")).unwrap();
+        assert!(is_enabled(&path));
     }
 
     #[cfg(unix)]

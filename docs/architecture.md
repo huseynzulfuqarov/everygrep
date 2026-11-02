@@ -325,7 +325,9 @@ specification says), written atomically with
 rules: an argument with a reserved character goes in double quotes with
 `"`, `` ` ``, `$` and `\` escaped, `%` is doubled, and the string escapes
 (`\\`, `\n`, `\t`) are applied on top. A path that is not UTF-8 is refused.
-Nothing else is stored, so the switch is the file's existence.
+Nothing else is stored, so the switch is the file's existence, unless its
+`[Desktop Entry]` group says `Hidden=true` or `X-GNOME-Autostart-enabled=false`
+(another tool turned it off); turning the switch on writes the file again.
 
 ### Removable drives in the window (`engine.rs`)
 
