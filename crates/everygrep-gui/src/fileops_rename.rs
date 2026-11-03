@@ -61,8 +61,10 @@ impl Dialog {
                     }))
                 });
                 std::thread::spawn(move || {
-                    let result =
-                        crate::fileops_undo::rename(&path, &name).map_err(|e| e.to_string());
+                    let result = crate::fileops_undo::catch_worker(|| {
+                        crate::fileops_undo::rename(&path, &name).map_err(|e| e.to_string())
+                    })
+                    .unwrap_or_else(Err);
                     let _ = weak.upgrade_in_event_loop(move |w| {
                         DONE.with(|d| {
                             if let Some(done) = d.borrow_mut().take() {

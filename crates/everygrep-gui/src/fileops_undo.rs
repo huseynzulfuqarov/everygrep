@@ -1,4 +1,4 @@
-//! Session-only, opt-in reversal. Disk work stays on helper threads.
+//! Session-only file reversal. Disk work stays on helper threads.
 use crate::i18n::{fill, tr, trn};
 use crate::{actions, clipboard::Operation, fileops_settings::Settings, transfer};
 use everygrep_core::progress::Progress;
@@ -16,6 +16,7 @@ struct Stamp {
     len: u64,
     mode: u32,
     mtime: (i64, i64),
+    ctime: (i64, i64),
 }
 impl Stamp {
     fn read(path: &Path) -> io::Result<Self> {
@@ -26,6 +27,7 @@ impl Stamp {
             len: m.len(),
             mode: m.mode(),
             mtime: (m.mtime(), m.mtime_nsec()),
+            ctime: (m.ctime(), m.ctime_nsec()),
         })
     }
 }
@@ -145,28 +147,99 @@ static JOURNAL: Mutex<Journal> = Mutex::new(Journal {
 });
 // Serializes this program's destructive operations, never held by the UI.
 static FILES: Mutex<()> = Mutex::new(());
-pub struct FileGuard(Option<std::sync::MutexGuard<'static, ()>>);
-impl FileGuard {
-    fn new(guard: std::sync::MutexGuard<'static, ()>) -> Self {
-        crate::fileops_undo_ui::request_refresh();
-        Self(Some(guard))
-    }
+
+type QueueNotice = Box<dyn Fn(bool)>;
+thread_local! {
+    static HELD_FILES: std::cell::RefCell<Option<std::sync::MutexGuard<'static, ()>>> = const { std::cell::RefCell::new(None) };
+    static QUEUED: std::cell::RefCell<Option<QueueNotice>> = const { std::cell::RefCell::new(None) };
 }
+pub struct FileGuard(std::marker::PhantomData<std::rc::Rc<()>>);
 impl Drop for FileGuard {
     fn drop(&mut self) {
-        drop(self.0.take());
+        HELD_FILES.with(|held| {
+            held.borrow_mut().take();
+        });
         crate::fileops_undo_ui::request_refresh();
+    }
+}
+fn held(guard: std::sync::MutexGuard<'static, ()>) -> FileGuard {
+    HELD_FILES.with(|held| *held.borrow_mut() = Some(guard));
+    crate::fileops_undo_ui::request_refresh();
+    FileGuard(std::marker::PhantomData)
+}
+fn try_file_guard() -> Option<FileGuard> {
+    match FILES.try_lock() {
+        Ok(guard) => Some(held(guard)),
+        Err(std::sync::TryLockError::Poisoned(e)) => Some(held(e.into_inner())),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+pub fn queue_notice(weak: slint::Weak<crate::AppWindow>) {
+    QUEUED.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move |queued| {
+            let _ = weak.upgrade_in_event_loop(move |w| {
+                crate::info(
+                    &w,
+                    (if queued {
+                        tr("File operation queued.")
+                    } else {
+                        tr("File operation running…")
+                    })
+                    .into(),
+                )
+            });
+        }))
+    });
+}
+fn wait_for_files() -> std::sync::MutexGuard<'static, ()> {
+    match FILES.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            QUEUED.with(|slot| {
+                if let Some(notice) = slot.borrow().as_ref() {
+                    notice(true);
+                }
+            });
+            let guard = FILES.lock().unwrap_or_else(|e| e.into_inner());
+            QUEUED.with(|slot| {
+                if let Some(notice) = slot.borrow().as_ref() {
+                    notice(false);
+                }
+            });
+            guard
+        }
     }
 }
 pub fn file_guard() -> FileGuard {
-    FileGuard::new(FILES.lock().expect("file operations"))
+    held(wait_for_files())
 }
-fn try_file_guard() -> Option<FileGuard> {
-    FILES.try_lock().ok().map(FileGuard::new)
+/// A user question reserves no disk-operation slot. The caller revalidates
+/// source and destination after the answer and before changing either.
+pub fn while_waiting<T>(wait: impl FnOnce() -> T) -> T {
+    let released = HELD_FILES.with(|held| held.borrow_mut().take());
+    let resume = released.is_some();
+    drop(released);
+    let result = wait();
+    if resume {
+        HELD_FILES.with(|held| *held.borrow_mut() = Some(wait_for_files()));
+    }
+    result
+}
+pub fn catch_worker<T>(work: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).map_err(|_| {
+        let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        journal.entries.clear();
+        journal.cursor = 0;
+        JOURNAL.clear_poison();
+        FILES.clear_poison();
+        tr("The file operation stopped unexpectedly. Undo history was cleared. Try again.")
+            .to_owned()
+    })
 }
 
 pub fn configure(s: &Settings) {
-    let mut c = CONFIG.lock().expect("configuration");
+    let mut c = CONFIG.lock().unwrap_or_else(|e| e.into_inner());
     if c.enabled != s.undo_enabled {
         c.epoch = c.epoch.wrapping_add(1);
     }
@@ -176,12 +249,12 @@ pub fn configure(s: &Settings) {
     crate::fileops_undo_ui::request_refresh();
 }
 fn config() -> Config {
-    *CONFIG.lock().expect("configuration")
+    *CONFIG.lock().unwrap_or_else(|e| e.into_inner())
 }
 /// A non-blocking snapshot for menu actions; workers may hold the journal
 /// while reading trees or waiting for a transfer decision.
 pub fn availability() -> (bool, bool) {
-    let Ok(_files) = FILES.try_lock() else {
+    let Some(_files) = try_file_guard() else {
         return (false, false);
     };
     let Ok(mut journal) = JOURNAL.try_lock() else {
@@ -204,6 +277,17 @@ struct StepOutcome {
 }
 
 impl Journal {
+    fn advance_rename(&mut self, before: Stamp, after: Stamp) {
+        for other in &mut self.entries {
+            for snapshot in std::iter::once(&mut other.expected).chain(other.source.iter_mut()) {
+                for (_, stamp) in &mut snapshot.0 {
+                    if *stamp == before {
+                        *stamp = after;
+                    }
+                }
+            }
+        }
+    }
     fn availability(&self, enabled: bool) -> (bool, bool) {
         (
             enabled && self.cursor > 0,
@@ -250,6 +334,13 @@ impl Journal {
     /// Records one operation as one step. `Err(dropped)` when it is too
     /// large to record; `dropped` tells whether undoable steps were removed.
     fn append_group(&mut self, mut entries: Vec<Entry>, c: Config) -> Result<(), bool> {
+        for entry in &mut entries {
+            if entry.kind == Kind::Move
+                && let Some(before) = entry.source.take()
+            {
+                self.advance_rename(before.0[0].1, entry.expected.0[0].1);
+            }
+        }
         // A new disk operation invalidates redo, even if it cannot be recorded.
         self.entries.truncate(self.cursor);
         let weight = |e: &Entry| e.expected.0.len() + e.source.as_ref().map_or(0, |s| s.0.len());
@@ -346,6 +437,7 @@ impl Journal {
         };
         let e = &mut self.entries[index];
         let old_copy = (redo && e.kind == Kind::Copy).then(|| (e.to.clone(), e.expected.clone()));
+        let old_stamp = e.expected.0[0].1;
         let result = if let Some(why) = &e.skipped {
             Err(why.clone())
         } else if e.applied == redo {
@@ -360,6 +452,10 @@ impl Journal {
             e.skipped = Some(reason.clone());
         }
         if result.is_ok() {
+            let new_stamp = self.entries[index].expected.0[0].1;
+            if self.entries[index].kind != Kind::Copy {
+                self.advance_rename(old_stamp, new_stamp);
+            }
             if let Some((path, old)) = old_copy {
                 let new = self.entries[index].expected.clone();
                 for (i, other) in self.entries.iter_mut().enumerate() {
@@ -439,13 +535,17 @@ pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameE
         actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
     })?;
     let c = config();
+    let before_stamp = Stamp::read(old).ok();
     let result = actions::rename(old, name)?;
     let mut note = None;
     if c.enabled {
         if let Some(to) = &result {
-            let mut journal = JOURNAL.lock().expect("journal");
+            let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
             match Snapshot::read(to) {
                 Ok(expected) => {
+                    if let Some(before) = before_stamp {
+                        journal.advance_rename(before, expected.0[0].1);
+                    }
                     // A rename tree always fits after older steps go.
                     let _ = journal.push_group(
                         vec![Entry {
@@ -503,6 +603,9 @@ fn paste_using(
 ) -> transfer::Outcome {
     let _files = file_guard();
     let c = config();
+    let resolver = resolver.map(|resolve| -> transfer::Resolver {
+        Box::new(move |question, progress| while_waiting(|| resolve(question, progress)))
+    });
     let before: Vec<_> = if c.enabled {
         let mut budget = MAX_TREE;
         sources
@@ -541,7 +644,7 @@ fn paste_using(
         transfer::paste(op, sources, dest, progress)
     };
     if c.enabled {
-        let mut journal = JOURNAL.lock().expect("journal");
+        let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
         let mut entries = Vec::new();
         let mut incomplete = false;
         for (r, expected) in out.records.iter().zip(published) {
@@ -564,7 +667,11 @@ fn paste_using(
                     out.history_omitted = true;
                     continue;
                 }
-                let source = source.filter(|s| s.check(&r.source).is_ok());
+                let source = if op == Operation::Copy {
+                    source.filter(|s| s.check(&r.source).is_ok())
+                } else {
+                    source
+                };
                 entries.push(Entry {
                     id: 0,
                     kind: if op == Operation::Copy {
@@ -610,7 +717,7 @@ pub struct View {
 }
 pub fn view(filter: i32) -> View {
     let c = config();
-    let mut j = JOURNAL.lock().expect("journal");
+    let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
     j.sync(c);
     View {
         can_undo: c.enabled && j.cursor > 0,
@@ -661,7 +768,7 @@ pub fn run(request: Request, progress: &Progress) -> (String, bool) {
         return (tr("A file operation is still running.").into(), true);
     };
     let c = config();
-    let mut j = JOURNAL.lock().expect("journal");
+    let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
     j.sync(c);
     let mut outcomes = Vec::new();
     let count = match request {
@@ -787,6 +894,7 @@ pub fn csv(rows: &[Row]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    pub(super) static TEST_JOURNAL: Mutex<()> = Mutex::new(());
     use std::sync::atomic::{AtomicU64, Ordering};
     struct Temp(PathBuf);
     impl Temp {
@@ -928,6 +1036,7 @@ mod tests {
 
     #[test]
     fn file_guard_disables_actions_and_releases_on_early_return() {
+        let _test = TEST_JOURNAL.lock().unwrap();
         fn attempt() {
             let _guard = file_guard();
             assert_eq!(availability(), (false, false));
@@ -939,7 +1048,32 @@ mod tests {
     }
 
     #[test]
+    fn poisoned_file_and_journal_locks_recover_after_a_worker_fault() {
+        let _test = TEST_JOURNAL.lock().unwrap();
+        assert!(
+            catch_worker(|| {
+                let _files = file_guard();
+                let _journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+                panic!("injected file worker fault");
+            })
+            .is_err()
+        );
+        let _files = file_guard();
+        let j = JOURNAL.lock().unwrap();
+        assert!(j.entries.is_empty());
+        assert_eq!(j.cursor, 0);
+        drop(j);
+        drop(_files);
+        let t = Temp::new();
+        let old = t.0.join("old");
+        fs::write(&old, "kept").unwrap();
+        rename(&old, "new").unwrap();
+        assert_eq!(fs::read(t.0.join("new")).unwrap(), b"kept");
+    }
+
+    #[test]
     fn rename_refuses_a_running_paste_without_waiting() {
+        let _test = TEST_JOURNAL.lock().unwrap();
         let t = Temp::new();
         let path = t.0.join("original");
         fs::write(&path, "keep").unwrap();
@@ -962,6 +1096,7 @@ mod tests {
         transfer::rename_strict(&b, &c).unwrap();
         let second = entry(Kind::Rename, b.clone(), c.clone(), None);
         let mut j = journal(vec![first, second]);
+        j.advance_rename(j.entries[0].expected.0[0].1, j.entries[1].expected.0[0].1);
         let p = Progress::new();
         assert!(j.step(false, &no_trash, &p).unwrap().skipped.is_empty());
         assert!(j.step(false, &no_trash, &p).unwrap().skipped.is_empty());
@@ -975,6 +1110,7 @@ mod tests {
     }
     #[test]
     fn same_paste_overwrite_cannot_make_undo_move_the_overwriting_file() {
+        let _test = TEST_JOURNAL.lock().unwrap();
         // The only test that records into the session journal itself.
         let before = config();
         *CONFIG.lock().unwrap() = Config {
@@ -1155,6 +1291,7 @@ mod tests {
         let mut second = entry(Kind::Rename, copy.clone(), renamed.clone(), None);
         second.id = 2;
         let mut j = journal(vec![first, second]);
+        j.advance_rename(j.entries[0].expected.0[0].1, j.entries[1].expected.0[0].1);
         let p = Progress::new();
         assert!(j.step(false, &no_trash, &p).unwrap().skipped.is_empty());
         assert!(
@@ -1327,5 +1464,66 @@ mod tests {
         std::os::unix::fs::symlink(t.0.join("missing"), &dst).unwrap();
         assert!(transfer::copy_exact(&src, &dst, &Progress::new()).is_err());
         assert!(fs::symlink_metadata(dst).unwrap().is_symlink());
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    #[test]
+    fn restoring_mtime_does_not_hide_an_external_same_size_edit() {
+        let path = std::env::temp_dir().join(format!("everygrep-ctime-{}", std::process::id()));
+        fs::write(&path, b"old").unwrap();
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        let snapshot = Snapshot::read(&path).unwrap();
+        fs::write(&path, b"new").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert!(snapshot.check(&path).is_err());
+        fs::remove_file(&path).unwrap();
+    }
+    #[test]
+    fn queued_workers_report_waiting_then_running() {
+        let _test = super::tests::TEST_JOURNAL.lock().unwrap();
+        let guard = file_guard();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            QUEUED.with(|slot| {
+                *slot.borrow_mut() = Some(Box::new(move |queued| {
+                    tx.send(queued).unwrap();
+                }))
+            });
+            let _guard = file_guard();
+        });
+        assert!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        drop(guard);
+        assert!(!rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn a_question_releases_the_file_slot_until_its_answer() {
+        let _test = super::tests::TEST_JOURNAL.lock().unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (answer_tx, answer_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _guard = file_guard();
+            while_waiting(|| {
+                ready_tx.send(()).unwrap();
+                answer_rx.recv().unwrap();
+            });
+            assert!(try_file_guard().is_none());
+        });
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let guard = try_file_guard().expect("the question must not hold the slot");
+        drop(guard);
+        answer_tx.send(()).unwrap();
+        worker.join().unwrap();
     }
 }

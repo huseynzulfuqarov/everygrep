@@ -458,6 +458,9 @@ fn paste_attempt(
     if progress.is_cancelled() {
         return Err(Stop::Cancelled);
     }
+    if run.resolver.is_some() && !Copied::new(src, &meta).unchanged(&fs::symlink_metadata(src)?) {
+        return Err(io::Error::other(tr("The item changed since the recorded operation.")).into());
+    }
     if op == Operation::Cut && run.replace.is_some() {
         let (target, copied) = copy_in(src, &meta, dest, name, progress, true, run)?;
         return Ok(match remove_copied(&copied) {

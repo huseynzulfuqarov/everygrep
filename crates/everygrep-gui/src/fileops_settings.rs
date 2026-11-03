@@ -18,8 +18,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             rename_dialog: false,
-            conflict_ask: false,
-            undo_enabled: false,
+            conflict_ask: true,
+            undo_enabled: true,
             undo_limit: 100,
             search_new_window: false,
             search_recursive: false,
@@ -120,15 +120,40 @@ impl Settings {
     /// The lines of the settings that differ from their defaults; with
     /// `all`, of every setting.
     pub fn write(&self, out: &mut String, all: bool) {
-        for (key, on) in [
-            ("context-search-new-window", self.search_new_window),
-            ("context-search-subfolders", self.search_recursive),
-            ("context-search-exact-name", self.search_exact_name),
-            ("rename-in-dialog", self.rename_dialog),
-            ("file-conflicts-ask", self.conflict_ask),
-            ("file-undo-enabled", self.undo_enabled),
+        let defaults = Self::default();
+        for (key, on, default) in [
+            (
+                "context-search-new-window",
+                self.search_new_window,
+                defaults.search_new_window,
+            ),
+            (
+                "context-search-subfolders",
+                self.search_recursive,
+                defaults.search_recursive,
+            ),
+            (
+                "context-search-exact-name",
+                self.search_exact_name,
+                defaults.search_exact_name,
+            ),
+            (
+                "rename-in-dialog",
+                self.rename_dialog,
+                defaults.rename_dialog,
+            ),
+            (
+                "file-conflicts-ask",
+                self.conflict_ask,
+                defaults.conflict_ask,
+            ),
+            (
+                "file-undo-enabled",
+                self.undo_enabled,
+                defaults.undo_enabled,
+            ),
         ] {
-            if on || all {
+            if on != default || all {
                 out.push_str(&format!("{key} = {on}\n"));
             }
         }
@@ -153,12 +178,12 @@ mod tests {
     use crate::settings::{Page, Settings};
 
     #[test]
-    fn undo_is_opt_in_and_history_limit_roundtrips_and_resets() {
+    fn undo_defaults_on_and_history_limit_roundtrips_and_resets() {
         let default = Settings::default();
-        assert!(!default.fileops.undo_enabled);
+        assert!(default.fileops.undo_enabled);
         assert_eq!(default.fileops.undo_limit, 100);
-        let mut s = Settings::parse("file-undo-enabled = true\nfile-undo-limit = 17");
-        assert!(s.fileops.undo_enabled);
+        let mut s = Settings::parse("file-undo-enabled = false\nfile-undo-limit = 17");
+        assert!(!s.fileops.undo_enabled);
         assert_eq!(s.fileops.undo_limit, 17);
         assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
         s.reset(Page::Window);
@@ -174,13 +199,13 @@ mod tests {
     }
 
     #[test]
-    fn conflict_choice_defaults_to_keep_both_and_roundtrips() {
-        assert!(!Settings::default().fileops.conflict_ask);
-        let mut s = Settings::parse("file-conflicts-ask = true");
-        assert!(s.fileops.conflict_ask);
+    fn conflict_choice_defaults_to_asking_and_roundtrips() {
+        assert!(Settings::default().fileops.conflict_ask);
+        let mut s = Settings::parse("file-conflicts-ask = false");
+        assert!(!s.fileops.conflict_ask);
         assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
         s.reset(Page::Window);
-        assert!(!s.fileops.conflict_ask);
+        assert!(s.fileops.conflict_ask);
         assert_eq!(
             Settings::parse("file-conflicts-ask = invalid")
                 .problems

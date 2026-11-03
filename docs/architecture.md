@@ -685,7 +685,8 @@ Restore submits only the selected tab, leaving background searches dormant.
 The transfer resolver posts a question to the UI event loop, then waits on a
 channel with cancellation checks every 100 ms. Only the worker waits. The UI
 answers through a modal, and disconnect or cancel stops the paste. The resolver
-is optional; default transfers still select a free numbered name. Overwrites
+is optional. The window asks by default; turning the setting off selects a
+free numbered name. Overwrites
 copy to a private temporary name and recheck destination device, inode, size,
 mtime and ctime before moving the old file to the desktop trash and publishing
 with a strict non-replacing rename. Trash capability is queried on the worker;
@@ -694,13 +695,13 @@ Questions show both sizes and modification times; results count replacements.
 
 ### File undo (`fileops_undo.rs`, `fileops_undo_ui.rs`)
 
-An opt-in, bounded session journal records successful transfer pairs and
+A default-enabled, bounded session journal records successful transfer pairs and
 renames. One paste is one step, containing its supported successful items;
 undo visits the members in reverse order and redo in source order. The history
 limit counts whole operations. If a new group would exceed the tree snapshot
-budget, none of that group is recorded and older applied history is kept;
+budget, none of that group is recorded and older applied history is cleared;
 redo is invalidated and the result warns about omitted history. Each item carries a sorted, non-following tree snapshot (relative
-paths, device, inode, byte size, mode and nanosecond modification time). Undo
+paths, device, inode, byte size, mode and nanosecond modification and change times). Undo
 checks the snapshot and destination vacancy on a worker, then uses strict
 `RENAME_NOREPLACE`; unsupported filesystems fail safely. Copy undo uses the
 desktop trash, while redo creates an exact-path copy from a verified source.
@@ -709,7 +710,10 @@ overwrites and destructive deletion are excluded. No history goes to disk.
 The settings writer persists only the enable choice and history limit.
 
 The journal and this program's destructive operations are serialized on
-workers. History snapshots, CSV export, rename submission and all tree
+workers. User questions release the file-operation slot and resumed transfers
+revalidate their source. Queued operations report their state. Worker faults
+clear uncertain history and still complete the UI action so busy flags reset.
+History snapshots, CSV export, rename submission and all tree
 traversal run off the UI thread. Existing result helpers also take brief index
 read locks on the UI thread when preparing result context menus.
 History rows carry stable operation IDs; filter refreshes have a revision guard

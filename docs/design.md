@@ -544,7 +544,8 @@ startup query takes precedence. Selection, raw row ids and navigation trails
 stay in memory. Saving is coalesced, and a malformed session is preserved with
 a status message.
 
-Paste conflicts can be enabled on the Window settings page. The modal offers
+Paste conflicts and file undo are enabled by default and can be disabled on
+the Window settings page. The modal offers
 skip, skip all (this paste), keep both and cancel; errors offer retry. Only a
 regular file can replace another regular file, using a complete temporary copy
 and atomic rename after rechecking the destination. Folders are never merged.

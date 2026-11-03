@@ -1267,7 +1267,8 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             w.set_rename_busy(true);
             let weak = w.as_weak();
             std::thread::spawn(move || {
-                let result = fileops_undo::rename(&old, &text);
+                let result = fileops_undo::catch_worker(|| fileops_undo::rename(&old, &text))
+                    .unwrap_or_else(|e| Err(actions::RenameError::Io(std::io::Error::other(e))));
                 let _ = weak.upgrade_in_event_loop(move |w| {
                     w.set_rename_busy(false);
                     match result {
@@ -1549,15 +1550,24 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                         clipboard::Operation::Copy => engine::TaskKind::Copying,
                         clipboard::Operation::Cut => engine::TaskKind::Moving,
                     };
-                    let job = engine.begin_job(kind);
-                    let out = fileops_undo::paste(op, &sources, &dest, job.progress(), resolver);
-                    drop(job);
+                    fileops_undo::queue_notice(weak.clone());
+                    let result = fileops_undo::catch_worker(|| {
+                        let job = engine.begin_job(kind);
+                        fileops_undo::paste(op, &sources, &dest, job.progress(), resolver)
+                    });
                     let queued = weak.upgrade_in_event_loop(move |w| {
                         w.invoke_fileops_conflict_answer(5);
                         // Keep the next paste out until this paste's dialog
                         // answer and clipboard completion have been handled.
                         BUSY.store(false, SeqCst);
                         fileops_undo_ui::refresh_open();
+                        let out = match result {
+                            Ok(out) => out,
+                            Err(e) => {
+                                error(&w, e);
+                                return;
+                            }
+                        };
                         let (text, failed) = labels::pasted(op, &out, &folder);
                         if failed {
                             error(&w, text.clone());
@@ -1916,8 +1926,12 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
     info(w, fill(tr("Moving {} to the trash…"), &[&what]));
     let weak = w.as_weak();
     std::thread::spawn(move || {
-        let _files = fileops_undo::file_guard();
-        let result = actions::trash(&paths);
+        fileops_undo::queue_notice(weak.clone());
+        let result = fileops_undo::catch_worker(|| {
+            let _files = fileops_undo::file_guard();
+            actions::trash(&paths)
+        })
+        .unwrap_or_else(Err);
         let _ = weak.upgrade_in_event_loop(move |w| match result {
             Ok(()) => info(&w, fill(tr("Moved {} to the trash."), &[&what])),
             Err(e) => error(&w, e),
@@ -1931,8 +1945,18 @@ fn run_delete(w: &AppWindow, paths: Vec<PathBuf>) {
     info(w, fill(tr("Deleting {}…"), &[&what]));
     let weak = w.as_weak();
     std::thread::spawn(move || {
-        let _files = fileops_undo::file_guard();
-        let failed = actions::delete_permanently(&paths);
+        fileops_undo::queue_notice(weak.clone());
+        let result = fileops_undo::catch_worker(|| {
+            let _files = fileops_undo::file_guard();
+            actions::delete_permanently(&paths)
+        });
+        let failed = match result {
+            Ok(failed) => failed,
+            Err(e) => {
+                let _ = weak.upgrade_in_event_loop(move |w| error(&w, e));
+                return;
+            }
+        };
         let _ = weak.upgrade_in_event_loop(move |w| match failed.as_slice() {
             [] => info(&w, fill(tr("Deleted {}."), &[&what])),
             [(path, e), ..] => error(

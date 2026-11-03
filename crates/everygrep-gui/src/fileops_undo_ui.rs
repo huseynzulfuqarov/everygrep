@@ -73,10 +73,12 @@ fn reverse(w: &AppWindow, engine: &Arc<Engine>, request: Request) {
         }
     });
     std::thread::spawn(move || {
-        let job = engine.begin_job(TaskKind::ReversingFiles);
-        let (text, failed) = fileops_undo::run(request, job.progress());
-        drop(job);
-        let _ = weak.upgrade_in_event_loop(move |w| {
+        let (text, failed) = fileops_undo::catch_worker(|| {
+            let job = engine.begin_job(TaskKind::ReversingFiles);
+            fileops_undo::run(request, job.progress())
+        })
+        .unwrap_or_else(|e| (e, true));
+        let queued = weak.upgrade_in_event_loop(move |w| {
             BUSY.store(false, Ordering::SeqCst);
             refresh_actions();
             if failed {
@@ -92,6 +94,9 @@ fn reverse(w: &AppWindow, engine: &Arc<Engine>, request: Request) {
                 }
             });
         });
+        if queued.is_err() {
+            BUSY.store(false, Ordering::SeqCst);
+        }
     });
 }
 

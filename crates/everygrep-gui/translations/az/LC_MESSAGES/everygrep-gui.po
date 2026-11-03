@@ -3946,3 +3946,12 @@ msgstr "Seç…"
 
 msgid "Distinct searches to keep"
 msgstr "Saxlanacaq fərqli axtarış sayı"
+
+msgid "File operation queued."
+msgstr "Fayl əməliyyatı növbədədir."
+
+msgid "The file operation stopped unexpectedly. Undo history was cleared. Try again."
+msgstr "Fayl əməliyyatı gözlənilmədən dayandı. Undo tarixçəsi təmizləndi. Yenidən cəhd edin."
+
+msgid "File operation running…"
+msgstr "Fayl əməliyyatı işləyir…"

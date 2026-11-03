@@ -162,10 +162,11 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>) {
             prefs::with(|p| options = p.fileops_settings());
             let (weak, busy) = (w.as_weak(), busy.clone());
             std::thread::spawn(move || {
-                let _files = crate::fileops_undo::file_guard();
-                let result =
+                crate::fileops_undo::queue_notice(weak.clone());
+                let result = crate::fileops_undo::catch_worker(|| {
                     portal::choose_folder(tr("Create shortcuts"), tr("Create")).map(|folder| {
                         folder.map(|folder| {
+                            let _files = crate::fileops_undo::file_guard();
                             let mut made = 0;
                             let mut skipped = 0;
                             let mut failures = Vec::new();
@@ -183,8 +184,11 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>) {
                             }
                             (made, skipped, failures)
                         })
-                    });
-                let _ = weak.upgrade_in_event_loop(move |w| {
+                    })
+                })
+                .unwrap_or_else(Err);
+                let reset = busy.clone();
+                let queued = weak.upgrade_in_event_loop(move |w| {
                     busy.store(false, std::sync::atomic::Ordering::SeqCst);
                     match result {
                         Ok(Some((made, skipped, failures))) => {
@@ -208,6 +212,9 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>) {
                         Err(e) => crate::error(&w, fill(tr("Cannot create shortcuts: {}"), &[&e])),
                     }
                 });
+                if queued.is_err() {
+                    reset.store(false, std::sync::atomic::Ordering::SeqCst);
+                }
             });
         }
     });
