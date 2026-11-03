@@ -731,7 +731,10 @@ clear uncertain history and still complete the UI action so busy flags reset.
 History snapshots, CSV export, rename submission and all tree
 traversal run off the UI thread. Existing result helpers also take brief index
 read locks on the UI thread when preparing result context menus.
-History rows carry stable operation IDs; filter refreshes have a revision guard
+History CSV uses fixed English action/state values; localized skip explanations
+remain in the window. The history window resolves Undo/Redo through the current
+result-list/global key bindings. History rows carry stable operation IDs;
+filter refreshes have a revision guard
 so stale responses cannot retarget a selected step. Recreating a copy updates
 the recorded identity of a later pending rename of that same copy. An identity
 check cannot eliminate changes made by other processes between the check and

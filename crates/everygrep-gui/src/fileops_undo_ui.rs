@@ -164,6 +164,13 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
             let Ok(w) = FileUndoWindow::new() else {
                 return;
             };
+            w.on_resolve_key(|text, ctrl, alt, shift, meta| {
+                let Some(chord) = crate::commands::Chord::from_event(&text, ctrl, alt, shift, meta)
+                else {
+                    return -1;
+                };
+                crate::commands::with_current(|keys| history_key(keys, chord))
+            });
             // Stable IDs are kept apart from the visible table cells.
             w.on_reverse({
                 let (weak, main, engine) = (w.as_weak(), main.as_weak(), engine.clone());
@@ -247,7 +254,7 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
 }
 
 fn export() -> Result<(), String> {
-    let rows = fileops_undo::view(0).rows;
+    let rows = fileops_undo::export_view().rows;
     let Some((path, _)) = crate::portal::save_file(
         tr("Export file undo history"),
         tr("Save"),
@@ -279,4 +286,30 @@ pub fn apply_scheme(scheme: i32) {
             w.invoke_set_color_scheme(scheme);
         }
     });
+}
+
+fn history_key(keys: &crate::commands::Keymap, chord: crate::commands::Chord) -> i32 {
+    match keys.resolve(crate::commands::Scope::List, &chord) {
+        Some(crate::Command::UndoFile) => 0,
+        Some(crate::Command::RedoFile) => 1,
+        _ => -1,
+    }
+}
+#[cfg(test)]
+mod key_tests {
+    #[test]
+    fn history_obeys_custom_keys_and_releases_the_old_binding() {
+        use crate::commands::{Chord, Keymap, Scope};
+        let key = Chord::parse("F9").unwrap();
+        let map = Keymap::with_overrides(&[("edit.undo-file".into(), vec![(Scope::List, key)])]);
+        assert_eq!(super::history_key(&map, key), 0);
+        assert_eq!(
+            super::history_key(&map, Chord::parse("Ctrl+Z").unwrap()),
+            -1
+        );
+        assert_eq!(
+            super::history_key(&map, Chord::parse("Ctrl+Shift+Z").unwrap()),
+            1
+        );
+    }
 }

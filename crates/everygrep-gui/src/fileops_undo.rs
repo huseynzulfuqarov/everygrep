@@ -750,6 +750,12 @@ pub struct View {
     pub can_redo: bool,
 }
 pub fn view(filter: i32) -> View {
+    view_in(filter, true)
+}
+pub fn export_view() -> View {
+    view_in(0, false)
+}
+fn view_in(filter: i32, localized: bool) -> View {
     let c = config();
     let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
     j.sync(c);
@@ -766,8 +772,10 @@ pub fn view(filter: i32) -> View {
                 let path = |p: &Path| {
                     if g.len() == 1 {
                         p.display().to_string()
-                    } else {
+                    } else if localized {
                         fill(tr("{0} ({1} items)"), &[&p.display(), &g.len()])
+                    } else {
+                        format!("{} ({} items)", p.display(), g.len())
                     }
                 };
                 let reasons = g
@@ -775,17 +783,40 @@ pub fn view(filter: i32) -> View {
                     .filter_map(|e| e.skipped.as_deref())
                     .collect::<Vec<_>>();
                 let state = if !reasons.is_empty() {
-                    reasons.join("; ")
+                    if localized {
+                        reasons.join("; ")
+                    } else {
+                        "Skipped".into()
+                    }
                 } else if g.iter().all(|e| e.applied) {
-                    tr("Applied").into()
+                    (if localized { tr("Applied") } else { "Applied" }).into()
                 } else if g.iter().all(|e| !e.applied) {
-                    tr("Undone").into()
+                    (if localized { tr("Undone") } else { "Undone" }).into()
                 } else {
-                    tr("Partly reversed").into()
+                    (if localized {
+                        tr("Partly reversed")
+                    } else {
+                        "Partly reversed"
+                    })
+                    .into()
                 };
                 Row {
                     id: e.id,
-                    cells: vec![e.kind.label().into(), path(&e.from), path(&e.to), state],
+                    cells: vec![
+                        (if localized {
+                            e.kind.label()
+                        } else {
+                            match e.kind {
+                                Kind::Rename => "Rename",
+                                Kind::Move => "Move",
+                                Kind::Copy => "Copy",
+                            }
+                        })
+                        .into(),
+                        path(&e.from),
+                        path(&e.to),
+                        state,
+                    ],
                 }
             })
             .collect(),
@@ -1079,6 +1110,37 @@ mod tests {
         attempt();
         let _guard = file_guard();
         assert_eq!(availability(), (false, false));
+    }
+
+    #[test]
+    fn exported_history_uses_fixed_english_actions_and_states() {
+        let _test = TEST_JOURNAL.lock().unwrap();
+        let before = config();
+        let c = Config {
+            enabled: true,
+            limit: 100,
+            epoch: before.epoch.wrapping_add(1),
+        };
+        *CONFIG.lock().unwrap() = c;
+        let t = Temp::new();
+        let target = t.0.join("target");
+        fs::write(&target, "x").unwrap();
+        {
+            let mut j = JOURNAL.lock().unwrap();
+            j.sync(c);
+            j.push_group(vec![entry(Kind::Copy, t.0.join("source"), target, None)], c)
+                .unwrap()
+                .unwrap();
+        }
+        let rows = export_view().rows;
+        assert_eq!(rows[0].cells[0], "Copy");
+        assert_eq!(rows[0].cells[3], "Applied");
+        JOURNAL.lock().unwrap().entries[0].skipped = Some("yerli səbəb".into());
+        let text = csv(&export_view().rows);
+        assert!(text.contains("Skipped"));
+        assert!(!text.contains("yerli səbəb"));
+        *CONFIG.lock().unwrap() = before;
+        JOURNAL.lock().unwrap().sync(before);
     }
 
     #[test]

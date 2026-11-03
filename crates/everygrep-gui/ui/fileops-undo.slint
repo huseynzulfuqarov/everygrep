@@ -20,15 +20,17 @@ export component FileUndoWindow inherits Window {
     in-out property <int> action-filter;
     callback filter-changed();
     callback reverse(int);
+    callback resolve-key(string, bool, bool, bool, bool) -> int;
     callback export();
     callback close-window();
     public function set-color-scheme(scheme: int) {
         Palette.color-scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
     }
     FocusScope {
-        key-pressed(event) => {
+        capture-key-pressed(event) => {
             if (event.text == Key.Escape) { root.close-window(); return accept; }
-            if (event.modifiers.control && (event.text == "z" || event.text == "Z") && !root.busy) { root.reverse(event.modifiers.shift ? 1 : 0); return accept; }
+            let action = root.resolve-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+            if (action >= 0 && !root.busy) { root.reverse(action); return accept; }
             reject
         }
         VerticalLayout {
