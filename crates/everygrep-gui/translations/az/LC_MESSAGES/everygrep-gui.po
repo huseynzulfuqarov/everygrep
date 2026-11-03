@@ -3925,3 +3925,9 @@ msgstr "Nəticələrini saxlayan fon tabları"
 
 msgid "The tabs shown last keep their result lists in memory; older ones free theirs and search again when shown (a stopped content search keeps its matches). Fewer saves memory with many tabs."
 msgstr "Ən son göstərilən tablar nəticə siyahılarını yaddaşda saxlayır; köhnələri siyahını yaddaşdan atır və göstəriləndə axtarışı yenidən edir (dayandırılmış məzmun axtarışı tapdıqlarını saxlayır). Tab çox olanda kiçik rəqəm yaddaşa qənaət edir."
+
+msgid "Restoring tabs needs search history on disk. Enable recording and disk storage too?"
+msgstr "Tabları bərpa etmək üçün axtarış tarixçəsi diskdə saxlanmalıdır. Tarixçə yazılması və diskdə saxlanması da açılsın?"
+
+msgid "Enable"
+msgstr "Aç"

@@ -7,7 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const HEADER: &str = "EveryGrep session 1";
+const HEADER: &str = "EveryGrep session 2";
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_TABS: usize = 1000;
 const SAVE_DELAY: Duration = Duration::from_secs(15);
@@ -898,7 +898,7 @@ mod tests {
     }
     #[test]
     fn legacy_tab_policies_are_ignored_and_new_files_omit_them() {
-        let legacy = "EveryGrep session 1\nscope = test\ntab = open\noptions = all\t4095\tonly\n";
+        let legacy = "EveryGrep session 2\nscope = test\ntab = open\noptions = all\t4095\tonly\n";
         let s = Session::parse(legacy).unwrap();
         assert!(s.open[0].options.case_sensitive && s.open[0].options.regex);
         assert_eq!(s.open[0].options, tab_options(s.open[0].options));
@@ -1034,7 +1034,7 @@ mod tests {
         let path = dir.0.join("session");
         for bad in [
             "EveryGrep session 99\n",
-            "EveryGrep session 1\nscope = x\ntab = open\nquery = \\q\n",
+            "EveryGrep session 2\nscope = x\ntab = open\nquery = \\q\n",
         ] {
             std::fs::write(&path, bad).unwrap();
             let mut writer = Writer::new(Some(path.clone()));
@@ -1052,14 +1052,14 @@ mod tests {
         let dir = Scratch::new("session-malformed");
         let path = dir.0.join("session");
         for text in [
-            "EveryGrep session 2\n",
             "EveryGrep session 1\n",
-            "EveryGrep session 1\nscope = a\ntab = open\noptions = invalid\n",
-            "EveryGrep session 1\nscope = a\ntab = open\nsort = 9\t1\n",
-            "EveryGrep session 1\nscope = a\ntab = open\nwidths = name:NaN\n",
-            "EveryGrep session 1\nscope = a\ntab = open\nwidths = name\n",
-            "EveryGrep session 1\nscope = a\ntab = open\nsort = 11\t0\n",
-            "EveryGrep session 1\nscope = a\ntab = open\nquery = \\q\n",
+            "EveryGrep session 2\n",
+            "EveryGrep session 2\nscope = a\ntab = open\noptions = invalid\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nsort = 9\t1\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nwidths = name:NaN\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nwidths = name\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nsort = 11\t0\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nquery = \\q\n",
         ] {
             std::fs::write(&path, text).unwrap();
             assert!(Session::load(&path).is_err());
@@ -1223,5 +1223,33 @@ mod tests {
         );
         assert_eq!(Session::load(&path).unwrap(), Some(session));
         assert_eq!(std::fs::metadata(path).unwrap().len(), bytes as u64);
+    }
+}
+
+/// Called only after the storage question is accepted.
+pub fn enable_with_history(s: &mut settings::Settings) {
+    s.restore_session = true;
+    s.history_enabled = true;
+    s.history_on_disk = true;
+    if s.history_size == 0 {
+        s.history_size = settings::Settings::default().history_size;
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    #[test]
+    fn accepting_restore_enables_required_history_without_changing_retention() {
+        let mut s = crate::settings::Settings::parse(
+            "history-enabled = false\nhistory-size = 0\nhistory-days = 7",
+        );
+        super::enable_with_history(&mut s);
+        assert!(super::can_persist(
+            s.restore_session,
+            s.history_enabled && s.history_size > 0,
+            s.history_on_disk
+        ));
+        assert_eq!(s.history_days, 7);
+        assert_eq!(crate::settings::Settings::parse(&s.to_text()), s);
     }
 }

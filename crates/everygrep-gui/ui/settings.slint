@@ -272,6 +272,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> switch-to-new-tab;
     in-out property <bool> restore-session;
     callback window-changed();
+    in-out property <bool> session-confirm;
+    callback session-answer(bool);
 
     // Keyboard: the commands of the main window shown for the filter, the
     // chosen one (-1 for none) and its keys.
@@ -1079,6 +1081,14 @@ export component SettingsWindow inherits Window {
                             }
                             Note { text: @tr("The tabs shown last keep their result lists in memory; older ones free theirs and search again when shown (a stopped content search keeps its matches). Fewer saves memory with many tabs."); }
                             Rectangle { height: Theme.s2; }
+                            if root.session-confirm: VerticalLayout {
+                                spacing: Theme.s2;
+                                Note { text: @tr("Restoring tabs needs search history on disk. Enable recording and disk storage too?"); }
+                                HorizontalLayout {
+                                    Button { text: @tr("Cancel"); clicked => { root.session-answer(false); } }
+                                    Button { text: @tr("Enable"); primary: true; clicked => { root.session-answer(true); } }
+                                }
+                            }
                             Heading { text: @tr("Closing the window"); }
                             HorizontalLayout {
                                 ComboBox {

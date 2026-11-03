@@ -3925,3 +3925,9 @@ msgstr "Sonuçlarını tutan arka plan sekmeleri"
 
 msgid "The tabs shown last keep their result lists in memory; older ones free theirs and search again when shown (a stopped content search keeps its matches). Fewer saves memory with many tabs."
 msgstr "Son gösterilen sekmeler sonuç listelerini bellekte tutar; daha eskileri listelerini bırakır ve gösterildiklerinde yeniden arar (durdurulmuş bir içerik araması bulduklarını tutar). Çok sekmede daha küçük bir sayı bellekten tasarruf eder."
+
+msgid "Restoring tabs needs search history on disk. Enable recording and disk storage too?"
+msgstr "Sekmeleri geri yüklemek için arama geçmişi diskte saklanmalıdır. Geçmiş kaydı ve diskte saklama da açılsın mı?"
+
+msgid "Enable"
+msgstr "Etkinleştir"

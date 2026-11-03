@@ -455,8 +455,8 @@ impl Default for Settings {
             history_days: 90,
             history_sort: Order::Date,
             always_suggestions: false,
-            open_searches_in_tabs: false,
-            switch_to_new_tab: false,
+            open_searches_in_tabs: true,
+            switch_to_new_tab: true,
             restore_session: false,
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
@@ -2354,9 +2354,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn tab_preferences_default_off_round_trip_and_reset_with_window() {
+    fn tab_preferences_defaults_round_trip_and_reset_with_window() {
         let mut s = Settings::default();
-        assert!(!s.open_searches_in_tabs && !s.switch_to_new_tab && !s.restore_session);
+        assert!(s.open_searches_in_tabs && s.switch_to_new_tab && !s.restore_session);
         assert_eq!(s.tab_results_kept, 10);
         assert_eq!(
             Settings::parse("tab-results-kept = 0\n").tab_results_kept,
@@ -2374,6 +2374,11 @@ pub(crate) mod tests {
         );
         assert!(s.open_searches_in_tabs && s.switch_to_new_tab && s.restore_session);
         assert_eq!(Settings::parse(&s.to_text()), s);
+        s = Settings::parse(
+            "open-searches-in-tabs = false\nswitch-to-new-tab = false\nrestore-session = true",
+        );
+        assert!(!s.open_searches_in_tabs && !s.switch_to_new_tab);
+        assert_eq!(Settings::parse(&s.to_text()), s);
         s.reset(Page::Search);
         assert!(s.restore_session);
         s.reset(Page::Window);
@@ -2382,7 +2387,7 @@ pub(crate) mod tests {
             "restore-session = invalid\nopen-searches-in-tabs = invalid\nswitch-to-new-tab = 2\n",
         );
         assert_eq!(s.problems.len(), 3);
-        assert!(!s.restore_session && !s.open_searches_in_tabs && !s.switch_to_new_tab);
+        assert!(!s.restore_session && s.open_searches_in_tabs && s.switch_to_new_tab);
     }
 
     #[test]

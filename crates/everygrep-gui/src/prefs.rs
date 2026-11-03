@@ -2511,6 +2511,19 @@ impl Prefs {
         }));
         w.on_clear_history(on(|p| p.clear_history()));
         w.on_window_changed(on(|p| p.window_changed()));
+        w.on_session_answer(|yes| {
+            with(|p| {
+                if let Some(w) = p.window.borrow().as_ref() {
+                    w.set_session_confirm(false);
+                }
+                if yes {
+                    p.change(crate::session::enable_with_history);
+                    p.apply_history();
+                    p.apply_behaviour();
+                }
+                p.refresh();
+            })
+        });
         w.on_start_on_login_changed({
             let me = me.clone();
             move |on| {
@@ -3057,7 +3070,11 @@ impl Prefs {
             .unwrap_or_default();
         let open_tabs = w.get_open_searches_in_tabs();
         let switch_tabs = w.get_switch_to_new_tab();
-        let restore = w.get_restore_session();
+        let mut restore = w.get_restore_session();
+        if restore && !self.settings.borrow().restore_session && self.needs_session_history() {
+            restore = false;
+            w.set_session_confirm(true);
+        }
         let remember = w.get_remember_columns();
         let name_only = w.get_rename_name_only();
         let fileops = crate::fileops_settings::Settings::from_window(&w);
@@ -3253,7 +3270,22 @@ impl Prefs {
         self.set_index(list_roots, rules);
     }
 
-    pub fn set_tab_preference(&self, index: i32, on: bool) {
+    fn needs_session_history(&self) -> bool {
+        let s = self.settings.borrow();
+        !s.history_enabled || !s.history_on_disk || s.history_size == 0
+    }
+
+    pub fn set_tab_preference(self: &Rc<Self>, index: i32, on: bool) {
+        if index == 2 && on && self.needs_session_history() {
+            if let Some(main) = self.main.upgrade() {
+                main.set_restore_session(self.settings.borrow().restore_session);
+            }
+            self.open(Some(3));
+            if let Some(w) = self.window.borrow().as_ref() {
+                w.set_session_confirm(true);
+            }
+            return;
+        }
         self.change(move |s| match index {
             0 => s.open_searches_in_tabs = on,
             1 => s.switch_to_new_tab = on,

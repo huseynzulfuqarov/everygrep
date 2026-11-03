@@ -534,10 +534,11 @@ results freeze;
 activation restores the snapshot and updates the visible search. Unsubmitted
 text still waits for Enter. The last ten closed searches can be reopened from
 the Tabs menu. Searches requested in new windows can instead open background
-tabs; immediate activation is a separate option. Both settings are off by
-default, in the Tabs menu and Window settings.
+tabs; immediate activation is a separate option. Both settings are on by
+default and switchable in the Tabs menu and Window settings.
 
-Session restore is separately opt-in. It restores only the last window's
+Session restore is separately opt-in. Enabling it asks to enable history
+recording and disk storage too when either prerequisite is off. It restores only the last window's
 searches for the same index, selected tab and closed searches; an explicit
 startup query takes precedence. Selection, raw row ids and navigation trails
 stay in memory. Saving is coalesced, and a malformed session is preserved with
