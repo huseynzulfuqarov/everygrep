@@ -260,6 +260,40 @@ fn read_columns(w: &AppWindow) -> Columns {
         show_name_freq: w.get_show_name_freq(),
         show_ext_freq: w.get_show_ext_freq(),
         show_size_freq: w.get_show_size_freq(),
+        show_full_path: w.get_show_full_path(),
+        full_path: Some(w.get_full_path_want()),
+        show_parent_path: w.get_show_parent_path(),
+        parent_path: Some(w.get_parent_path_want()),
+        show_stem: w.get_show_stem(),
+        stem: Some(w.get_stem_want()),
+        show_name_length: w.get_show_name_length(),
+        name_length: Some(w.get_name_length_want()),
+        show_path_length: w.get_show_path_length(),
+        path_length: Some(w.get_path_length_want()),
+        show_disk_size: w.get_show_disk_size(),
+        disk_size: Some(w.get_disk_size_want()),
+        show_total_size: w.get_show_total_size(),
+        total_size: Some(w.get_total_size_want()),
+        show_child_count: w.get_show_child_count(),
+        child_count: Some(w.get_child_count_want()),
+        show_child_files: w.get_show_child_files(),
+        child_files: Some(w.get_child_files_want()),
+        show_child_folders: w.get_show_child_folders(),
+        child_folders: Some(w.get_child_folders_want()),
+        show_desc_count: w.get_show_desc_count(),
+        desc_count: Some(w.get_desc_count_want()),
+        show_desc_files: w.get_show_desc_files(),
+        desc_files: Some(w.get_desc_files_want()),
+        show_desc_folders: w.get_show_desc_folders(),
+        desc_folders: Some(w.get_desc_folders_want()),
+        show_folder_depth: w.get_show_folder_depth(),
+        folder_depth: Some(w.get_folder_depth_want()),
+        show_hard_links: w.get_show_hard_links(),
+        hard_links: Some(w.get_hard_links_want()),
+        show_shortcut_target: w.get_show_shortcut_target(),
+        shortcut_target: Some(w.get_shortcut_target_want()),
+        show_owner: w.get_show_owner(),
+        owner: Some(w.get_owner_want()),
         name: w.get_name_set().then(|| w.get_name_want()),
         // Folder has a width of its own only while the columns are wider
         // than the window; 0 means it takes the room the others leave.
@@ -293,6 +327,70 @@ fn install_columns(w: &AppWindow, c: &Columns) {
     w.set_show_name_freq(c.show_name_freq);
     w.set_show_ext_freq(c.show_ext_freq);
     w.set_show_size_freq(c.show_size_freq);
+    w.set_show_full_path(c.show_full_path);
+    c.full_path
+        .into_iter()
+        .for_each(|v| w.set_full_path_want(v));
+    w.set_show_parent_path(c.show_parent_path);
+    c.parent_path
+        .into_iter()
+        .for_each(|v| w.set_parent_path_want(v));
+    w.set_show_stem(c.show_stem);
+    c.stem.into_iter().for_each(|v| w.set_stem_want(v));
+    w.set_show_name_length(c.show_name_length);
+    c.name_length
+        .into_iter()
+        .for_each(|v| w.set_name_length_want(v));
+    w.set_show_path_length(c.show_path_length);
+    c.path_length
+        .into_iter()
+        .for_each(|v| w.set_path_length_want(v));
+    w.set_show_disk_size(c.show_disk_size);
+    c.disk_size
+        .into_iter()
+        .for_each(|v| w.set_disk_size_want(v));
+    w.set_show_total_size(c.show_total_size);
+    c.total_size
+        .into_iter()
+        .for_each(|v| w.set_total_size_want(v));
+    w.set_show_child_count(c.show_child_count);
+    c.child_count
+        .into_iter()
+        .for_each(|v| w.set_child_count_want(v));
+    w.set_show_child_files(c.show_child_files);
+    c.child_files
+        .into_iter()
+        .for_each(|v| w.set_child_files_want(v));
+    w.set_show_child_folders(c.show_child_folders);
+    c.child_folders
+        .into_iter()
+        .for_each(|v| w.set_child_folders_want(v));
+    w.set_show_desc_count(c.show_desc_count);
+    c.desc_count
+        .into_iter()
+        .for_each(|v| w.set_desc_count_want(v));
+    w.set_show_desc_files(c.show_desc_files);
+    c.desc_files
+        .into_iter()
+        .for_each(|v| w.set_desc_files_want(v));
+    w.set_show_desc_folders(c.show_desc_folders);
+    c.desc_folders
+        .into_iter()
+        .for_each(|v| w.set_desc_folders_want(v));
+    w.set_show_folder_depth(c.show_folder_depth);
+    c.folder_depth
+        .into_iter()
+        .for_each(|v| w.set_folder_depth_want(v));
+    w.set_show_hard_links(c.show_hard_links);
+    c.hard_links
+        .into_iter()
+        .for_each(|v| w.set_hard_links_want(v));
+    w.set_show_shortcut_target(c.show_shortcut_target);
+    c.shortcut_target
+        .into_iter()
+        .for_each(|v| w.set_shortcut_target_want(v));
+    w.set_show_owner(c.show_owner);
+    c.owner.into_iter().for_each(|v| w.set_owner_want(v));
     w.set_name_set(c.name.is_some());
     if let Some(v) = c.name {
         w.set_name_want(v);

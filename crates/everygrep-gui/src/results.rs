@@ -76,6 +76,10 @@ pub struct ResultsModel {
     hash_pending: RefCell<HashSet<NodeId>>,
     /// Which frequency columns are shown.
     frequency_columns: Cell<FrequencyColumns>,
+    property_columns: RefCell<Vec<bool>>,
+    property_cache: RefCell<HashMap<NodeId, Vec<String>>>,
+    property_pending: RefCell<HashSet<NodeId>>,
+    property_reader: RefCell<Option<crate::properties::Reader>>,
     notify: ModelNotify,
 }
 
@@ -251,6 +255,10 @@ impl ResultsModel {
             hash_reader: RefCell::new(None),
             hash_pending: RefCell::new(HashSet::new()),
             frequency_columns: Cell::new(FrequencyColumns::default()),
+            property_columns: RefCell::new(Vec::new()),
+            property_cache: RefCell::new(HashMap::new()),
+            property_pending: RefCell::new(HashSet::new()),
+            property_reader: RefCell::new(None),
             notify: ModelNotify::default(),
         }
     }
@@ -288,6 +296,68 @@ impl ResultsModel {
 
     /// Whether a new query clears the selection (the default) or keeps the
     /// selected items it lists.
+    pub fn read_properties_with(&self, reader: crate::properties::Reader) {
+        *self.property_reader.borrow_mut() = Some(reader);
+    }
+    pub fn set_properties(&self, columns: Vec<bool>) {
+        if *self.property_columns.borrow() != columns {
+            *self.property_columns.borrow_mut() = columns;
+            self.forget_properties();
+            self.notify.reset();
+        }
+    }
+    pub fn viewport_changed(&self) {
+        self.property_pending.borrow_mut().clear();
+        if let Some(r) = self.property_reader.borrow().as_ref() {
+            r.cancel();
+        }
+        self.notify.reset();
+    }
+    pub fn forget_properties(&self) {
+        self.property_cache.borrow_mut().clear();
+        self.property_pending.borrow_mut().clear();
+        if let Some(r) = self.property_reader.borrow().as_ref() {
+            r.cancel();
+        }
+    }
+    fn properties_of(&self, id: NodeId, row: usize) -> Vec<SharedString> {
+        if let Some(values) = self.property_cache.borrow().get(&id) {
+            return values.iter().map(|v| v.as_str().into()).collect();
+        }
+        if self.property_columns.borrow().iter().any(|v| *v)
+            && let Some(reader) = self.property_reader.borrow().as_ref()
+            && !self.property_pending.borrow().contains(&id)
+            && reader.request(
+                row,
+                id,
+                self.epoch.get(),
+                self.property_columns.borrow().clone(),
+            )
+        {
+            self.property_pending.borrow_mut().insert(id);
+        }
+        vec![SharedString::new(); everygrep_core::property::Property::ALL.len()]
+    }
+    pub fn take_properties(&self, batch: crate::properties::Batch) {
+        let reader = self.property_reader.borrow();
+        let Some(reader) = reader.as_ref() else {
+            return;
+        };
+        if batch.serial != reader.serial() {
+            return;
+        }
+        self.property_pending.borrow_mut().remove(&batch.id);
+        if self.property_cache.borrow().len() > 1024 {
+            self.property_cache.borrow_mut().clear();
+        }
+        self.property_cache
+            .borrow_mut()
+            .insert(batch.id, batch.values);
+        if self.ids.borrow().get(batch.row) == Some(&batch.id) {
+            self.notify.row_changed(batch.row);
+        }
+    }
+
     pub fn set_clear_on_search(&self, on: bool) {
         self.clear_on_search.set(on);
     }
@@ -456,6 +526,7 @@ impl ResultsModel {
 
     /// Drops the details read and asked for: they belong to another list.
     fn forget_details(&self) {
+        self.forget_properties();
         self.forget_hashes();
         self.detail_cache.borrow_mut().clear();
         self.detail_pending.borrow_mut().clear();
@@ -849,7 +920,12 @@ impl ResultsModel {
                 11 => d.crc32.into(),
                 12 => d.name_freq.into(),
                 13 => d.ext_freq.into(),
-                _ => d.size_freq.into(),
+                14 => d.size_freq.into(),
+                c => d
+                    .properties
+                    .row_data((c - 15) as usize)
+                    .unwrap_or_default()
+                    .into(),
             })
             .collect()
     }
@@ -1095,6 +1171,7 @@ impl Model for ResultsModel {
             name_freq: count(shown.name, freq.as_ref().map(|f| f.name(id))),
             ext_freq: count(shown.extension, freq.as_ref().map(|f| f.extension(id))),
             size_freq: count(shown.size, freq.as_ref().map(|f| f.size(id))),
+            properties: slint::ModelRc::new(slint::VecModel::from(self.properties_of(id, row))),
             is_dir,
             kind: kind.icon_index(),
             selected: self.selection.borrow().contains(id),

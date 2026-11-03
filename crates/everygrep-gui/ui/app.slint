@@ -52,6 +52,7 @@ export struct ResultRow {
     name-freq: string,
     ext-freq: string,
     size-freq: string,
+    properties: [string],
     is-dir: bool,
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
@@ -672,6 +673,23 @@ component Row inherits Rectangle {
     in property <length> name-freq-width;
     in property <length> ext-freq-width;
     in property <length> size-freq-width;
+    in property <length> full-path-width;
+    in property <length> parent-path-width;
+    in property <length> stem-width;
+    in property <length> name-length-width;
+    in property <length> path-length-width;
+    in property <length> disk-size-width;
+    in property <length> total-size-width;
+    in property <length> child-count-width;
+    in property <length> child-files-width;
+    in property <length> child-folders-width;
+    in property <length> desc-count-width;
+    in property <length> desc-files-width;
+    in property <length> desc-folders-width;
+    in property <length> folder-depth-width;
+    in property <length> hard-links-width;
+    in property <length> shortcut-target-width;
+    in property <length> owner-width;
     // The name is being edited in place.
     in property <bool> editing;
     in-out property <string> edit-text;
@@ -934,6 +952,194 @@ component Row inherits Rectangle {
         horizontal-alignment: right;
         overflow: elide;
     }
+    property <length> full-path-x: root.size-freq-x + root.size-freq-width;
+    if root.full-path-width > 0: Text {
+        x: root.full-path-x + Theme.s2;
+        width: root.full-path-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[0];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> parent-path-x: root.full-path-x + root.full-path-width;
+    if root.parent-path-width > 0: Text {
+        x: root.parent-path-x + Theme.s2;
+        width: root.parent-path-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[1];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> stem-x: root.parent-path-x + root.parent-path-width;
+    if root.stem-width > 0: Text {
+        x: root.stem-x + Theme.s2;
+        width: root.stem-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[2];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> name-length-x: root.stem-x + root.stem-width;
+    if root.name-length-width > 0: Text {
+        x: root.name-length-x + Theme.s2;
+        width: root.name-length-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[3];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> path-length-x: root.name-length-x + root.name-length-width;
+    if root.path-length-width > 0: Text {
+        x: root.path-length-x + Theme.s2;
+        width: root.path-length-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[4];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> disk-size-x: root.path-length-x + root.path-length-width;
+    if root.disk-size-width > 0: Text {
+        x: root.disk-size-x + Theme.s2;
+        width: root.disk-size-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[5];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> total-size-x: root.disk-size-x + root.disk-size-width;
+    if root.total-size-width > 0: Text {
+        x: root.total-size-x + Theme.s2;
+        width: root.total-size-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[6];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> child-count-x: root.total-size-x + root.total-size-width;
+    if root.child-count-width > 0: Text {
+        x: root.child-count-x + Theme.s2;
+        width: root.child-count-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[7];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> child-files-x: root.child-count-x + root.child-count-width;
+    if root.child-files-width > 0: Text {
+        x: root.child-files-x + Theme.s2;
+        width: root.child-files-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[8];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> child-folders-x: root.child-files-x + root.child-files-width;
+    if root.child-folders-width > 0: Text {
+        x: root.child-folders-x + Theme.s2;
+        width: root.child-folders-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[9];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> desc-count-x: root.child-folders-x + root.child-folders-width;
+    if root.desc-count-width > 0: Text {
+        x: root.desc-count-x + Theme.s2;
+        width: root.desc-count-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[10];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> desc-files-x: root.desc-count-x + root.desc-count-width;
+    if root.desc-files-width > 0: Text {
+        x: root.desc-files-x + Theme.s2;
+        width: root.desc-files-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[11];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> desc-folders-x: root.desc-files-x + root.desc-files-width;
+    if root.desc-folders-width > 0: Text {
+        x: root.desc-folders-x + Theme.s2;
+        width: root.desc-folders-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[12];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> folder-depth-x: root.desc-folders-x + root.desc-folders-width;
+    if root.folder-depth-width > 0: Text {
+        x: root.folder-depth-x + Theme.s2;
+        width: root.folder-depth-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[13];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> hard-links-x: root.folder-depth-x + root.folder-depth-width;
+    if root.hard-links-width > 0: Text {
+        x: root.hard-links-x + Theme.s2;
+        width: root.hard-links-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[14];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> shortcut-target-x: root.hard-links-x + root.hard-links-width;
+    if root.shortcut-target-width > 0: Text {
+        x: root.shortcut-target-x + Theme.s2;
+        width: root.shortcut-target-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[15];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> owner-x: root.shortcut-target-x + root.shortcut-target-width;
+    if root.owner-width > 0: Text {
+        x: root.owner-x + Theme.s2;
+        width: root.owner-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[16];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
 }
 
 // A dialog above the window: a dimmed backdrop, a card with a title, the
@@ -1198,6 +1404,8 @@ export component AppWindow inherits Window {
     callback tab-closed(int);
     callback closed-tab-selected(int);
     in-out property <length> results-scroll-y <=> list.content-y;
+    callback property-view-changed();
+    changed results-scroll-y => { root.property-view-changed(); }
     // Sideways scroll of the result table (0 or less), kept per tab.
     in-out property <length> results-scroll-x <=> list.content-x;
     in-out property <bool> open-searches-in-tabs;
@@ -1414,6 +1622,91 @@ export component AppWindow inherits Window {
     in-out property <bool> show-name-freq: false;
     in-out property <bool> show-ext-freq: false;
     in-out property <bool> show-size-freq: false;
+    in-out property <bool> show-full-path: false;
+    in-out property <length> full-path-want: 160px;
+    out property <length> full-path-min: 60px;
+    property <length> full-path-width: self.show-full-path ? max(self.full-path-min, self.full-path-want) : 0px;
+    changed show-full-path => { root.detail-columns-changed(); }
+    in-out property <bool> show-parent-path: false;
+    in-out property <length> parent-path-want: 160px;
+    out property <length> parent-path-min: 60px;
+    property <length> parent-path-width: self.show-parent-path ? max(self.parent-path-min, self.parent-path-want) : 0px;
+    changed show-parent-path => { root.detail-columns-changed(); }
+    in-out property <bool> show-stem: false;
+    in-out property <length> stem-want: 160px;
+    out property <length> stem-min: 60px;
+    property <length> stem-width: self.show-stem ? max(self.stem-min, self.stem-want) : 0px;
+    changed show-stem => { root.detail-columns-changed(); }
+    in-out property <bool> show-name-length: false;
+    in-out property <length> name-length-want: 160px;
+    out property <length> name-length-min: 60px;
+    property <length> name-length-width: self.show-name-length ? max(self.name-length-min, self.name-length-want) : 0px;
+    changed show-name-length => { root.detail-columns-changed(); }
+    in-out property <bool> show-path-length: false;
+    in-out property <length> path-length-want: 160px;
+    out property <length> path-length-min: 60px;
+    property <length> path-length-width: self.show-path-length ? max(self.path-length-min, self.path-length-want) : 0px;
+    changed show-path-length => { root.detail-columns-changed(); }
+    in-out property <bool> show-disk-size: false;
+    in-out property <length> disk-size-want: 160px;
+    out property <length> disk-size-min: 60px;
+    property <length> disk-size-width: self.show-disk-size ? max(self.disk-size-min, self.disk-size-want) : 0px;
+    changed show-disk-size => { root.detail-columns-changed(); }
+    in-out property <bool> show-total-size: false;
+    in-out property <length> total-size-want: 160px;
+    out property <length> total-size-min: 60px;
+    property <length> total-size-width: self.show-total-size ? max(self.total-size-min, self.total-size-want) : 0px;
+    changed show-total-size => { root.detail-columns-changed(); }
+    in-out property <bool> show-child-count: false;
+    in-out property <length> child-count-want: 160px;
+    out property <length> child-count-min: 60px;
+    property <length> child-count-width: self.show-child-count ? max(self.child-count-min, self.child-count-want) : 0px;
+    changed show-child-count => { root.detail-columns-changed(); }
+    in-out property <bool> show-child-files: false;
+    in-out property <length> child-files-want: 160px;
+    out property <length> child-files-min: 60px;
+    property <length> child-files-width: self.show-child-files ? max(self.child-files-min, self.child-files-want) : 0px;
+    changed show-child-files => { root.detail-columns-changed(); }
+    in-out property <bool> show-child-folders: false;
+    in-out property <length> child-folders-want: 160px;
+    out property <length> child-folders-min: 60px;
+    property <length> child-folders-width: self.show-child-folders ? max(self.child-folders-min, self.child-folders-want) : 0px;
+    changed show-child-folders => { root.detail-columns-changed(); }
+    in-out property <bool> show-desc-count: false;
+    in-out property <length> desc-count-want: 160px;
+    out property <length> desc-count-min: 60px;
+    property <length> desc-count-width: self.show-desc-count ? max(self.desc-count-min, self.desc-count-want) : 0px;
+    changed show-desc-count => { root.detail-columns-changed(); }
+    in-out property <bool> show-desc-files: false;
+    in-out property <length> desc-files-want: 160px;
+    out property <length> desc-files-min: 60px;
+    property <length> desc-files-width: self.show-desc-files ? max(self.desc-files-min, self.desc-files-want) : 0px;
+    changed show-desc-files => { root.detail-columns-changed(); }
+    in-out property <bool> show-desc-folders: false;
+    in-out property <length> desc-folders-want: 160px;
+    out property <length> desc-folders-min: 60px;
+    property <length> desc-folders-width: self.show-desc-folders ? max(self.desc-folders-min, self.desc-folders-want) : 0px;
+    changed show-desc-folders => { root.detail-columns-changed(); }
+    in-out property <bool> show-folder-depth: false;
+    in-out property <length> folder-depth-want: 160px;
+    out property <length> folder-depth-min: 60px;
+    property <length> folder-depth-width: self.show-folder-depth ? max(self.folder-depth-min, self.folder-depth-want) : 0px;
+    changed show-folder-depth => { root.detail-columns-changed(); }
+    in-out property <bool> show-hard-links: false;
+    in-out property <length> hard-links-want: 160px;
+    out property <length> hard-links-min: 60px;
+    property <length> hard-links-width: self.show-hard-links ? max(self.hard-links-min, self.hard-links-want) : 0px;
+    changed show-hard-links => { root.detail-columns-changed(); }
+    in-out property <bool> show-shortcut-target: false;
+    in-out property <length> shortcut-target-want: 160px;
+    out property <length> shortcut-target-min: 60px;
+    property <length> shortcut-target-width: self.show-shortcut-target ? max(self.shortcut-target-min, self.shortcut-target-want) : 0px;
+    changed show-shortcut-target => { root.detail-columns-changed(); }
+    in-out property <bool> show-owner: false;
+    in-out property <length> owner-want: 160px;
+    out property <length> owner-min: 60px;
+    property <length> owner-width: self.show-owner ? max(self.owner-min, self.owner-want) : 0px;
+    changed show-owner => { root.detail-columns-changed(); }
     // Created, Accessed, Attributes, a hash or a frequency column was shown
     // or hidden: their values are read (or counted) only while shown.
     callback detail-columns-changed();
@@ -1464,7 +1757,24 @@ export component AppWindow inherits Window {
         + self.crc32-width
         + self.name-freq-width
         + self.ext-freq-width
-        + self.size-freq-width;
+        + self.size-freq-width
+        + self.full-path-width
+        + self.parent-path-width
+        + self.stem-width
+        + self.name-length-width
+        + self.path-length-width
+        + self.disk-size-width
+        + self.total-size-width
+        + self.child-count-width
+        + self.child-files-width
+        + self.child-folders-width
+        + self.desc-count-width
+        + self.desc-files-width
+        + self.desc-folders-width
+        + self.folder-depth-width
+        + self.hard-links-width
+        + self.shortcut-target-width
+        + self.owner-width;
     property <length> name-width: max(self.name-min, self.name-want);
     property <length> folder-width: max(self.folder-min, max(self.folder-want,
         list.visible-width - self.name-width - self.fixed-width));
@@ -1494,17 +1804,85 @@ export component AppWindow inherits Window {
     property <length> ext-freq-x: self.name-freq-x + self.name-freq-width;
     property <length> size-freq-x: self.ext-freq-x + self.ext-freq-width;
 
+    property <length> full-path-x: self.size-freq-x + self.size-freq-width;
+    property <length> parent-path-x: self.full-path-x + self.full-path-width;
+    property <length> stem-x: self.parent-path-x + self.parent-path-width;
+    property <length> name-length-x: self.stem-x + self.stem-width;
+    property <length> path-length-x: self.name-length-x + self.name-length-width;
+    property <length> disk-size-x: self.path-length-x + self.path-length-width;
+    property <length> total-size-x: self.disk-size-x + self.disk-size-width;
+    property <length> child-count-x: self.total-size-x + self.total-size-width;
+    property <length> child-files-x: self.child-count-x + self.child-count-width;
+    property <length> child-folders-x: self.child-files-x + self.child-files-width;
+    property <length> desc-count-x: self.child-folders-x + self.child-folders-width;
+    property <length> desc-files-x: self.desc-count-x + self.desc-count-width;
+    property <length> desc-folders-x: self.desc-files-x + self.desc-files-width;
+    property <length> folder-depth-x: self.desc-folders-x + self.desc-folders-width;
+    property <length> hard-links-x: self.folder-depth-x + self.folder-depth-width;
+    property <length> shortcut-target-x: self.hard-links-x + self.hard-links-width;
+    property <length> owner-x: self.shortcut-target-x + self.shortcut-target-width;
     // Width, minimum width and wanted width of column 3 (Modified) to 14
     // (Same size), numbered as sort-column.
     function col-width(c: int) -> length {
+        if (c == 15) { return root.full-path-width; }
+        if (c == 16) { return root.parent-path-width; }
+        if (c == 17) { return root.stem-width; }
+        if (c == 18) { return root.name-length-width; }
+        if (c == 19) { return root.path-length-width; }
+        if (c == 20) { return root.disk-size-width; }
+        if (c == 21) { return root.total-size-width; }
+        if (c == 22) { return root.child-count-width; }
+        if (c == 23) { return root.child-files-width; }
+        if (c == 24) { return root.child-folders-width; }
+        if (c == 25) { return root.desc-count-width; }
+        if (c == 26) { return root.desc-files-width; }
+        if (c == 27) { return root.desc-folders-width; }
+        if (c == 28) { return root.folder-depth-width; }
+        if (c == 29) { return root.hard-links-width; }
+        if (c == 30) { return root.shortcut-target-width; }
+        if (c == 31) { return root.owner-width; }
         return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
             : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : c == 11 ? root.crc32-width : c == 12 ? root.name-freq-width : c == 13 ? root.ext-freq-width : root.size-freq-width;
     }
     function col-min(c: int) -> length {
+        if (c == 15) { return root.full-path-min; }
+        if (c == 16) { return root.parent-path-min; }
+        if (c == 17) { return root.stem-min; }
+        if (c == 18) { return root.name-length-min; }
+        if (c == 19) { return root.path-length-min; }
+        if (c == 20) { return root.disk-size-min; }
+        if (c == 21) { return root.total-size-min; }
+        if (c == 22) { return root.child-count-min; }
+        if (c == 23) { return root.child-files-min; }
+        if (c == 24) { return root.child-folders-min; }
+        if (c == 25) { return root.desc-count-min; }
+        if (c == 26) { return root.desc-files-min; }
+        if (c == 27) { return root.desc-folders-min; }
+        if (c == 28) { return root.folder-depth-min; }
+        if (c == 29) { return root.hard-links-min; }
+        if (c == 30) { return root.shortcut-target-min; }
+        if (c == 31) { return root.owner-min; }
         return c == 3 ? root.date-min : c == 4 ? root.type-min : c == 5 ? root.ext-min
             : c == 6 ? root.created-min : c == 7 ? root.accessed-min : c == 8 ? root.attr-min : c == 9 ? root.md5-min : c == 10 ? root.sha256-min : c == 11 ? root.crc32-min : c == 12 ? root.name-freq-min : c == 13 ? root.ext-freq-min : root.size-freq-min;
     }
     function set-col-want(c: int, w: length) {
+        if (c == 15) { root.full-path-want = w; return; }
+        if (c == 16) { root.parent-path-want = w; return; }
+        if (c == 17) { root.stem-want = w; return; }
+        if (c == 18) { root.name-length-want = w; return; }
+        if (c == 19) { root.path-length-want = w; return; }
+        if (c == 20) { root.disk-size-want = w; return; }
+        if (c == 21) { root.total-size-want = w; return; }
+        if (c == 22) { root.child-count-want = w; return; }
+        if (c == 23) { root.child-files-want = w; return; }
+        if (c == 24) { root.child-folders-want = w; return; }
+        if (c == 25) { root.desc-count-want = w; return; }
+        if (c == 26) { root.desc-files-want = w; return; }
+        if (c == 27) { root.desc-folders-want = w; return; }
+        if (c == 28) { root.folder-depth-want = w; return; }
+        if (c == 29) { root.hard-links-want = w; return; }
+        if (c == 30) { root.shortcut-target-want = w; return; }
+        if (c == 31) { root.owner-want = w; return; }
         if (c == 3) {
             root.date-want = w;
         } else if (c == 4) {
@@ -1533,6 +1911,23 @@ export component AppWindow inherits Window {
     }
     // Header label and minimum width of any column, numbered as sort-column.
     function col-label(c: int) -> string {
+        if (c == 15) { return @tr("Full path"); }
+        if (c == 16) { return @tr("Parent path"); }
+        if (c == 17) { return @tr("Stem"); }
+        if (c == 18) { return @tr("Name length"); }
+        if (c == 19) { return @tr("Path length"); }
+        if (c == 20) { return @tr("Size on disk"); }
+        if (c == 21) { return @tr("Total size"); }
+        if (c == 22) { return @tr("Items"); }
+        if (c == 23) { return @tr("Files inside"); }
+        if (c == 24) { return @tr("Subfolders"); }
+        if (c == 25) { return @tr("Items at any depth"); }
+        if (c == 26) { return @tr("Files at any depth"); }
+        if (c == 27) { return @tr("Subfolders at any depth"); }
+        if (c == 28) { return @tr("Folder depth"); }
+        if (c == 29) { return @tr("Hard link count"); }
+        if (c == 30) { return @tr("Shortcut target"); }
+        if (c == 31) { return @tr("Owner"); }
         return c == 0 ? @tr("Name") : c == 1 ? @tr("Folder") : c == 2 ? @tr("Size")
             : c == 3 ? @tr("Modified") : c == 4 ? @tr("Type") : c == 5 ? @tr("Extension")
             : c == 6 ? @tr("Created") : c == 7 ? @tr("Accessed") : c == 8 ? @tr("Attributes") : c == 9 ? @tr("MD5") : c == 10 ? @tr("SHA-256") : c == 11 ? @tr("CRC-32") : c == 12 ? @tr("Same name") : c == 13 ? @tr("Same extension") : @tr("Same size");
@@ -1550,7 +1945,24 @@ export component AppWindow inherits Window {
             || (c == 11 && root.show-crc32)
             || (c == 12 && root.show-name-freq)
             || (c == 13 && root.show-ext-freq)
-            || (c == 14 && root.show-size-freq);
+            || (c == 14 && root.show-size-freq)
+            || (c == 15 && root.show-full-path)
+            || (c == 16 && root.show-parent-path)
+            || (c == 17 && root.show-stem)
+            || (c == 18 && root.show-name-length)
+            || (c == 19 && root.show-path-length)
+            || (c == 20 && root.show-disk-size)
+            || (c == 21 && root.show-total-size)
+            || (c == 22 && root.show-child-count)
+            || (c == 23 && root.show-child-files)
+            || (c == 24 && root.show-child-folders)
+            || (c == 25 && root.show-desc-count)
+            || (c == 26 && root.show-desc-files)
+            || (c == 27 && root.show-desc-folders)
+            || (c == 28 && root.show-folder-depth)
+            || (c == 29 && root.show-hard-links)
+            || (c == 30 && root.show-shortcut-target)
+            || (c == 31 && root.show-owner);
     }
 
     // Texts measured to size a column to fit: the widest-looking cells of
@@ -1625,6 +2037,23 @@ export component AppWindow inherits Window {
         if (root.show-name-freq) { root.fit-column(12); }
         if (root.show-ext-freq) { root.fit-column(13); }
         if (root.show-size-freq) { root.fit-column(14); }
+        if (root.show-full-path) { root.fit-column(15); }
+        if (root.show-parent-path) { root.fit-column(16); }
+        if (root.show-stem) { root.fit-column(17); }
+        if (root.show-name-length) { root.fit-column(18); }
+        if (root.show-path-length) { root.fit-column(19); }
+        if (root.show-disk-size) { root.fit-column(20); }
+        if (root.show-total-size) { root.fit-column(21); }
+        if (root.show-child-count) { root.fit-column(22); }
+        if (root.show-child-files) { root.fit-column(23); }
+        if (root.show-child-folders) { root.fit-column(24); }
+        if (root.show-desc-count) { root.fit-column(25); }
+        if (root.show-desc-files) { root.fit-column(26); }
+        if (root.show-desc-folders) { root.fit-column(27); }
+        if (root.show-folder-depth) { root.fit-column(28); }
+        if (root.show-hard-links) { root.fit-column(29); }
+        if (root.show-shortcut-target) { root.fit-column(30); }
+        if (root.show-owner) { root.fit-column(31); }
         root.fit-column(0);
     }
 
@@ -1646,13 +2075,30 @@ export component AppWindow inherits Window {
         let w12 = root.fit-width(12);
         let w13 = root.fit-width(13);
         let w14 = root.fit-width(14);
+        let w15 = root.fit-width(15);
+        let w16 = root.fit-width(16);
+        let w17 = root.fit-width(17);
+        let w18 = root.fit-width(18);
+        let w19 = root.fit-width(19);
+        let w20 = root.fit-width(20);
+        let w21 = root.fit-width(21);
+        let w22 = root.fit-width(22);
+        let w23 = root.fit-width(23);
+        let w24 = root.fit-width(24);
+        let w25 = root.fit-width(25);
+        let w26 = root.fit-width(26);
+        let w27 = root.fit-width(27);
+        let w28 = root.fit-width(28);
+        let w29 = root.fit-width(29);
+        let w30 = root.fit-width(30);
+        let w31 = root.fit-width(31);
         let total = w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7 + w8
             + w9
             + w10
             + w11
             + w12
             + w13
-            + w14;
+            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31;
         if (total <= 0px) {
             return;
         }
@@ -1672,11 +2118,45 @@ export component AppWindow inherits Window {
         if (root.show-ext-freq) { root.ext-freq-want = max(root.ext-freq-min, w13 * f); }
         if (root.show-size-freq) { root.size-freq-want = max(root.size-freq-min, w14 * f); }
         root.name-want = max(root.name-min, w0 * f);
+        if (root.show-full-path) { root.full-path-want = max(root.full-path-min, w15 * f); }
+        if (root.show-parent-path) { root.parent-path-want = max(root.parent-path-min, w16 * f); }
+        if (root.show-stem) { root.stem-want = max(root.stem-min, w17 * f); }
+        if (root.show-name-length) { root.name-length-want = max(root.name-length-min, w18 * f); }
+        if (root.show-path-length) { root.path-length-want = max(root.path-length-min, w19 * f); }
+        if (root.show-disk-size) { root.disk-size-want = max(root.disk-size-min, w20 * f); }
+        if (root.show-total-size) { root.total-size-want = max(root.total-size-min, w21 * f); }
+        if (root.show-child-count) { root.child-count-want = max(root.child-count-min, w22 * f); }
+        if (root.show-child-files) { root.child-files-want = max(root.child-files-min, w23 * f); }
+        if (root.show-child-folders) { root.child-folders-want = max(root.child-folders-min, w24 * f); }
+        if (root.show-desc-count) { root.desc-count-want = max(root.desc-count-min, w25 * f); }
+        if (root.show-desc-files) { root.desc-files-want = max(root.desc-files-min, w26 * f); }
+        if (root.show-desc-folders) { root.desc-folders-want = max(root.desc-folders-min, w27 * f); }
+        if (root.show-folder-depth) { root.folder-depth-want = max(root.folder-depth-min, w28 * f); }
+        if (root.show-hard-links) { root.hard-links-want = max(root.hard-links-min, w29 * f); }
+        if (root.show-shortcut-target) { root.shortcut-target-want = max(root.shortcut-target-min, w30 * f); }
+        if (root.show-owner) { root.owner-want = max(root.owner-min, w31 * f); }
         root.name-set = true;
     }
 
     // The shown column left of optional column c; Modified (3) is always shown.
     function left-of(c: int) -> int {
+        if (c > 31 && root.show-owner) { return 31; }
+        if (c > 30 && root.show-shortcut-target) { return 30; }
+        if (c > 29 && root.show-hard-links) { return 29; }
+        if (c > 28 && root.show-folder-depth) { return 28; }
+        if (c > 27 && root.show-desc-folders) { return 27; }
+        if (c > 26 && root.show-desc-files) { return 26; }
+        if (c > 25 && root.show-desc-count) { return 25; }
+        if (c > 24 && root.show-child-folders) { return 24; }
+        if (c > 23 && root.show-child-files) { return 23; }
+        if (c > 22 && root.show-child-count) { return 22; }
+        if (c > 21 && root.show-total-size) { return 21; }
+        if (c > 20 && root.show-disk-size) { return 20; }
+        if (c > 19 && root.show-path-length) { return 19; }
+        if (c > 18 && root.show-name-length) { return 18; }
+        if (c > 17 && root.show-stem) { return 17; }
+        if (c > 16 && root.show-parent-path) { return 16; }
+        if (c > 15 && root.show-full-path) { return 15; }
         return c > 13 && root.show-ext-freq ? 13
             : c > 12 && root.show-name-freq ? 12
             : c > 11 && root.show-crc32 ? 11
@@ -1689,6 +2169,23 @@ export component AppWindow inherits Window {
 
     // The last shown column.
     function last-shown() -> int {
+        if (root.show-owner) { return 31; }
+        if (root.show-shortcut-target) { return 30; }
+        if (root.show-hard-links) { return 29; }
+        if (root.show-folder-depth) { return 28; }
+        if (root.show-desc-folders) { return 27; }
+        if (root.show-desc-files) { return 26; }
+        if (root.show-desc-count) { return 25; }
+        if (root.show-child-folders) { return 24; }
+        if (root.show-child-files) { return 23; }
+        if (root.show-child-count) { return 22; }
+        if (root.show-total-size) { return 21; }
+        if (root.show-disk-size) { return 20; }
+        if (root.show-path-length) { return 19; }
+        if (root.show-name-length) { return 18; }
+        if (root.show-stem) { return 17; }
+        if (root.show-parent-path) { return 16; }
+        if (root.show-full-path) { return 15; }
         return root.show-size-freq ? 14
             : root.show-ext-freq ? 13
             : root.show-name-freq ? 12
@@ -1717,7 +2214,7 @@ export component AppWindow inherits Window {
                 root.crc32-width,
                 root.name-freq-width,
                 root.ext-freq-width,
-                root.size-freq-width],
+                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width],
             mins: [root.name-min, root.folder-min, root.size-min, root.date-min, root.type-min,
                 root.ext-min, root.created-min, root.accessed-min, root.attr-min,
                 root.md5-min,
@@ -1725,7 +2222,7 @@ export component AppWindow inherits Window {
                 root.crc32-min,
                 root.name-freq-min,
                 root.ext-freq-min,
-                root.size-freq-min],
+                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min],
             window: list.visible-width,
             folder-want: root.folder-want,
         }, left, right, delta);
@@ -1797,10 +2294,44 @@ export component AppWindow inherits Window {
         { title: @tr("Same name"), column: 12, checked: root.show-name-freq, enabled: true },
         { title: @tr("Same extension"), column: 13, checked: root.show-ext-freq, enabled: true },
         { title: @tr("Same size"), column: 14, checked: root.show-size-freq, enabled: true },
+        { title: @tr("Full path"), column: 15, checked: root.show-full-path, enabled: true },
+        { title: @tr("Parent path"), column: 16, checked: root.show-parent-path, enabled: true },
+        { title: @tr("Stem"), column: 17, checked: root.show-stem, enabled: true },
+        { title: @tr("Name length"), column: 18, checked: root.show-name-length, enabled: true },
+        { title: @tr("Path length"), column: 19, checked: root.show-path-length, enabled: true },
+        { title: @tr("Size on disk"), column: 20, checked: root.show-disk-size, enabled: true },
+        { title: @tr("Total size"), column: 21, checked: root.show-total-size, enabled: true },
+        { title: @tr("Items"), column: 22, checked: root.show-child-count, enabled: true },
+        { title: @tr("Files inside"), column: 23, checked: root.show-child-files, enabled: true },
+        { title: @tr("Subfolders"), column: 24, checked: root.show-child-folders, enabled: true },
+        { title: @tr("Items at any depth"), column: 25, checked: root.show-desc-count, enabled: true },
+        { title: @tr("Files at any depth"), column: 26, checked: root.show-desc-files, enabled: true },
+        { title: @tr("Subfolders at any depth"), column: 27, checked: root.show-desc-folders, enabled: true },
+        { title: @tr("Folder depth"), column: 28, checked: root.show-folder-depth, enabled: true },
+        { title: @tr("Hard link count"), column: 29, checked: root.show-hard-links, enabled: true },
+        { title: @tr("Shortcut target"), column: 30, checked: root.show-shortcut-target, enabled: true },
+        { title: @tr("Owner"), column: 31, checked: root.show-owner, enabled: true },
     ];
 
     // Shows or hides optional column c (4 to 14).
     function set-column-shown(c: int, on: bool) {
+        if (c == 15) { root.show-full-path = on; root.column-shown(c, on); return; }
+        if (c == 16) { root.show-parent-path = on; root.column-shown(c, on); return; }
+        if (c == 17) { root.show-stem = on; root.column-shown(c, on); return; }
+        if (c == 18) { root.show-name-length = on; root.column-shown(c, on); return; }
+        if (c == 19) { root.show-path-length = on; root.column-shown(c, on); return; }
+        if (c == 20) { root.show-disk-size = on; root.column-shown(c, on); return; }
+        if (c == 21) { root.show-total-size = on; root.column-shown(c, on); return; }
+        if (c == 22) { root.show-child-count = on; root.column-shown(c, on); return; }
+        if (c == 23) { root.show-child-files = on; root.column-shown(c, on); return; }
+        if (c == 24) { root.show-child-folders = on; root.column-shown(c, on); return; }
+        if (c == 25) { root.show-desc-count = on; root.column-shown(c, on); return; }
+        if (c == 26) { root.show-desc-files = on; root.column-shown(c, on); return; }
+        if (c == 27) { root.show-desc-folders = on; root.column-shown(c, on); return; }
+        if (c == 28) { root.show-folder-depth = on; root.column-shown(c, on); return; }
+        if (c == 29) { root.show-hard-links = on; root.column-shown(c, on); return; }
+        if (c == 30) { root.show-shortcut-target = on; root.column-shown(c, on); return; }
+        if (c == 31) { root.show-owner = on; root.column-shown(c, on); return; }
         if (c == 4) { root.show-type = on; }
         else if (c == 5) { root.show-ext = on; }
         else if (c == 6) { root.show-created = on; }
@@ -1833,6 +2364,23 @@ export component AppWindow inherits Window {
         root.show-name-freq = false;
         root.show-ext-freq = false;
         root.show-size-freq = false;
+        root.show-full-path = false; root.full-path-want = 160px;
+        root.show-parent-path = false; root.parent-path-want = 160px;
+        root.show-stem = false; root.stem-want = 160px;
+        root.show-name-length = false; root.name-length-want = 160px;
+        root.show-path-length = false; root.path-length-want = 160px;
+        root.show-disk-size = false; root.disk-size-want = 160px;
+        root.show-total-size = false; root.total-size-want = 160px;
+        root.show-child-count = false; root.child-count-want = 160px;
+        root.show-child-files = false; root.child-files-want = 160px;
+        root.show-child-folders = false; root.child-folders-want = 160px;
+        root.show-desc-count = false; root.desc-count-want = 160px;
+        root.show-desc-files = false; root.desc-files-want = 160px;
+        root.show-desc-folders = false; root.desc-folders-want = 160px;
+        root.show-folder-depth = false; root.folder-depth-want = 160px;
+        root.show-hard-links = false; root.hard-links-want = 160px;
+        root.show-shortcut-target = false; root.shortcut-target-want = 160px;
+        root.show-owner = false; root.owner-want = 160px;
         root.size-want = 96px;
         root.date-want = 120px;
         root.type-want = 130px;
@@ -2234,6 +2782,23 @@ export component AppWindow inherits Window {
         { title: @tr("Same name"), column: 12, checked: root.sort-column == 12, enabled: root.show-name-freq },
         { title: @tr("Same extension"), column: 13, checked: root.sort-column == 13, enabled: root.show-ext-freq },
         { title: @tr("Same size"), column: 14, checked: root.sort-column == 14, enabled: root.show-size-freq },
+        { title: @tr("Full path"), column: 15, checked: root.sort-column == 15, enabled: root.show-full-path },
+        { title: @tr("Parent path"), column: 16, checked: root.sort-column == 16, enabled: root.show-parent-path },
+        { title: @tr("Stem"), column: 17, checked: root.sort-column == 17, enabled: root.show-stem },
+        { title: @tr("Name length"), column: 18, checked: root.sort-column == 18, enabled: root.show-name-length },
+        { title: @tr("Path length"), column: 19, checked: root.sort-column == 19, enabled: root.show-path-length },
+        { title: @tr("Size on disk"), column: 20, checked: root.sort-column == 20, enabled: root.show-disk-size },
+        { title: @tr("Total size"), column: 21, checked: root.sort-column == 21, enabled: root.show-total-size },
+        { title: @tr("Items"), column: 22, checked: root.sort-column == 22, enabled: root.show-child-count },
+        { title: @tr("Files inside"), column: 23, checked: root.sort-column == 23, enabled: root.show-child-files },
+        { title: @tr("Subfolders"), column: 24, checked: root.sort-column == 24, enabled: root.show-child-folders },
+        { title: @tr("Items at any depth"), column: 25, checked: root.sort-column == 25, enabled: root.show-desc-count },
+        { title: @tr("Files at any depth"), column: 26, checked: root.sort-column == 26, enabled: root.show-desc-files },
+        { title: @tr("Subfolders at any depth"), column: 27, checked: root.sort-column == 27, enabled: root.show-desc-folders },
+        { title: @tr("Folder depth"), column: 28, checked: root.sort-column == 28, enabled: root.show-folder-depth },
+        { title: @tr("Hard link count"), column: 29, checked: root.sort-column == 29, enabled: root.show-hard-links },
+        { title: @tr("Shortcut target"), column: 30, checked: root.sort-column == 30, enabled: root.show-shortcut-target },
+        { title: @tr("Owner"), column: 31, checked: root.sort-column == 31, enabled: root.show-owner },
     ];
     property <[MenuChoice]> sort-order-items: [
         { title: @tr("Ascending"), checked: !root.sort-descending },
@@ -2853,6 +3418,125 @@ export component AppWindow inherits Window {
                                         header-menu.show({ x: self.x + x, y: y });
                                     }
                                 }
+                                if root.show-full-path: HeaderCell {
+                                    x: root.full-path-x; width: root.full-path-width; height: parent.height;
+                                    label: @tr("Full path");
+                                    sorted: root.sort-column == 15; descending: root.sort-descending;
+                                    clicked => { root.sort-by(15); }
+                                    right-pressed(x, y) => { root.menu-column = 15; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-parent-path: HeaderCell {
+                                    x: root.parent-path-x; width: root.parent-path-width; height: parent.height;
+                                    label: @tr("Parent path");
+                                    sorted: root.sort-column == 16; descending: root.sort-descending;
+                                    clicked => { root.sort-by(16); }
+                                    right-pressed(x, y) => { root.menu-column = 16; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-stem: HeaderCell {
+                                    x: root.stem-x; width: root.stem-width; height: parent.height;
+                                    label: @tr("Stem");
+                                    sorted: root.sort-column == 17; descending: root.sort-descending;
+                                    clicked => { root.sort-by(17); }
+                                    right-pressed(x, y) => { root.menu-column = 17; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-name-length: HeaderCell {
+                                    x: root.name-length-x; width: root.name-length-width; height: parent.height;
+                                    label: @tr("Name length");
+                                    sorted: root.sort-column == 18; descending: root.sort-descending;
+                                    clicked => { root.sort-by(18); }
+                                    right-pressed(x, y) => { root.menu-column = 18; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-path-length: HeaderCell {
+                                    x: root.path-length-x; width: root.path-length-width; height: parent.height;
+                                    label: @tr("Path length");
+                                    sorted: root.sort-column == 19; descending: root.sort-descending;
+                                    clicked => { root.sort-by(19); }
+                                    right-pressed(x, y) => { root.menu-column = 19; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-disk-size: HeaderCell {
+                                    x: root.disk-size-x; width: root.disk-size-width; height: parent.height;
+                                    label: @tr("Size on disk");
+                                    sorted: root.sort-column == 20; descending: root.sort-descending;
+                                    clicked => { root.sort-by(20); }
+                                    right-pressed(x, y) => { root.menu-column = 20; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-total-size: HeaderCell {
+                                    x: root.total-size-x; width: root.total-size-width; height: parent.height;
+                                    label: @tr("Total size");
+                                    sorted: root.sort-column == 21; descending: root.sort-descending;
+                                    clicked => { root.sort-by(21); }
+                                    right-pressed(x, y) => { root.menu-column = 21; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-child-count: HeaderCell {
+                                    x: root.child-count-x; width: root.child-count-width; height: parent.height;
+                                    label: @tr("Items");
+                                    sorted: root.sort-column == 22; descending: root.sort-descending;
+                                    clicked => { root.sort-by(22); }
+                                    right-pressed(x, y) => { root.menu-column = 22; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-child-files: HeaderCell {
+                                    x: root.child-files-x; width: root.child-files-width; height: parent.height;
+                                    label: @tr("Files inside");
+                                    sorted: root.sort-column == 23; descending: root.sort-descending;
+                                    clicked => { root.sort-by(23); }
+                                    right-pressed(x, y) => { root.menu-column = 23; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-child-folders: HeaderCell {
+                                    x: root.child-folders-x; width: root.child-folders-width; height: parent.height;
+                                    label: @tr("Subfolders");
+                                    sorted: root.sort-column == 24; descending: root.sort-descending;
+                                    clicked => { root.sort-by(24); }
+                                    right-pressed(x, y) => { root.menu-column = 24; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-desc-count: HeaderCell {
+                                    x: root.desc-count-x; width: root.desc-count-width; height: parent.height;
+                                    label: @tr("Items at any depth");
+                                    sorted: root.sort-column == 25; descending: root.sort-descending;
+                                    clicked => { root.sort-by(25); }
+                                    right-pressed(x, y) => { root.menu-column = 25; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-desc-files: HeaderCell {
+                                    x: root.desc-files-x; width: root.desc-files-width; height: parent.height;
+                                    label: @tr("Files at any depth");
+                                    sorted: root.sort-column == 26; descending: root.sort-descending;
+                                    clicked => { root.sort-by(26); }
+                                    right-pressed(x, y) => { root.menu-column = 26; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-desc-folders: HeaderCell {
+                                    x: root.desc-folders-x; width: root.desc-folders-width; height: parent.height;
+                                    label: @tr("Subfolders at any depth");
+                                    sorted: root.sort-column == 27; descending: root.sort-descending;
+                                    clicked => { root.sort-by(27); }
+                                    right-pressed(x, y) => { root.menu-column = 27; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-folder-depth: HeaderCell {
+                                    x: root.folder-depth-x; width: root.folder-depth-width; height: parent.height;
+                                    label: @tr("Folder depth");
+                                    sorted: root.sort-column == 28; descending: root.sort-descending;
+                                    clicked => { root.sort-by(28); }
+                                    right-pressed(x, y) => { root.menu-column = 28; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-hard-links: HeaderCell {
+                                    x: root.hard-links-x; width: root.hard-links-width; height: parent.height;
+                                    label: @tr("Hard link count");
+                                    sorted: root.sort-column == 29; descending: root.sort-descending;
+                                    clicked => { root.sort-by(29); }
+                                    right-pressed(x, y) => { root.menu-column = 29; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-shortcut-target: HeaderCell {
+                                    x: root.shortcut-target-x; width: root.shortcut-target-width; height: parent.height;
+                                    label: @tr("Shortcut target");
+                                    sorted: root.sort-column == 30; descending: root.sort-descending;
+                                    clicked => { root.sort-by(30); }
+                                    right-pressed(x, y) => { root.menu-column = 30; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-owner: HeaderCell {
+                                    x: root.owner-x; width: root.owner-width; height: parent.height;
+                                    label: @tr("Owner");
+                                    sorted: root.sort-column == 31; descending: root.sort-descending;
+                                    clicked => { root.sort-by(31); }
+                                    right-pressed(x, y) => { root.menu-column = 31; header-menu.show({ x: self.x + x, y: y }); }
+                                }
                             }
                             // Boundary grips, on top of the cells.
                             // A double-click on a grip sizes the column on its left to fit.
@@ -2940,6 +3624,91 @@ export component AppWindow inherits Window {
                                 height: parent.height;
                                 dragged(delta) => { root.drag-boundary(14, delta); }
                                 fit => { root.fit-column(root.left-of(14)); }
+                            }
+                            if root.show-full-path: ColumnGrip {
+                                x: root.full-path-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(15, d); }
+                                fit => { root.fit-column(root.left-of(15)); }
+                            }
+                            if root.show-parent-path: ColumnGrip {
+                                x: root.parent-path-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(16, d); }
+                                fit => { root.fit-column(root.left-of(16)); }
+                            }
+                            if root.show-stem: ColumnGrip {
+                                x: root.stem-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(17, d); }
+                                fit => { root.fit-column(root.left-of(17)); }
+                            }
+                            if root.show-name-length: ColumnGrip {
+                                x: root.name-length-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(18, d); }
+                                fit => { root.fit-column(root.left-of(18)); }
+                            }
+                            if root.show-path-length: ColumnGrip {
+                                x: root.path-length-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(19, d); }
+                                fit => { root.fit-column(root.left-of(19)); }
+                            }
+                            if root.show-disk-size: ColumnGrip {
+                                x: root.disk-size-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(20, d); }
+                                fit => { root.fit-column(root.left-of(20)); }
+                            }
+                            if root.show-total-size: ColumnGrip {
+                                x: root.total-size-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(21, d); }
+                                fit => { root.fit-column(root.left-of(21)); }
+                            }
+                            if root.show-child-count: ColumnGrip {
+                                x: root.child-count-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(22, d); }
+                                fit => { root.fit-column(root.left-of(22)); }
+                            }
+                            if root.show-child-files: ColumnGrip {
+                                x: root.child-files-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(23, d); }
+                                fit => { root.fit-column(root.left-of(23)); }
+                            }
+                            if root.show-child-folders: ColumnGrip {
+                                x: root.child-folders-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(24, d); }
+                                fit => { root.fit-column(root.left-of(24)); }
+                            }
+                            if root.show-desc-count: ColumnGrip {
+                                x: root.desc-count-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(25, d); }
+                                fit => { root.fit-column(root.left-of(25)); }
+                            }
+                            if root.show-desc-files: ColumnGrip {
+                                x: root.desc-files-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(26, d); }
+                                fit => { root.fit-column(root.left-of(26)); }
+                            }
+                            if root.show-desc-folders: ColumnGrip {
+                                x: root.desc-folders-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(27, d); }
+                                fit => { root.fit-column(root.left-of(27)); }
+                            }
+                            if root.show-folder-depth: ColumnGrip {
+                                x: root.folder-depth-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(28, d); }
+                                fit => { root.fit-column(root.left-of(28)); }
+                            }
+                            if root.show-hard-links: ColumnGrip {
+                                x: root.hard-links-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(29, d); }
+                                fit => { root.fit-column(root.left-of(29)); }
+                            }
+                            if root.show-shortcut-target: ColumnGrip {
+                                x: root.shortcut-target-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(30, d); }
+                                fit => { root.fit-column(root.left-of(30)); }
+                            }
+                            if root.show-owner: ColumnGrip {
+                                x: root.owner-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(31, d); }
+                                fit => { root.fit-column(root.left-of(31)); }
                             }
                             // The right edge of the last column: dragged to the right, the
                             // columns get wider than the window.
@@ -3159,6 +3928,23 @@ export component AppWindow inherits Window {
                                 name-freq-width: root.name-freq-width;
                                 ext-freq-width: root.ext-freq-width;
                                 size-freq-width: root.size-freq-width;
+                                full-path-width: root.full-path-width;
+                                parent-path-width: root.parent-path-width;
+                                stem-width: root.stem-width;
+                                name-length-width: root.name-length-width;
+                                path-length-width: root.path-length-width;
+                                disk-size-width: root.disk-size-width;
+                                total-size-width: root.total-size-width;
+                                child-count-width: root.child-count-width;
+                                child-files-width: root.child-files-width;
+                                child-folders-width: root.child-folders-width;
+                                desc-count-width: root.desc-count-width;
+                                desc-files-width: root.desc-files-width;
+                                desc-folders-width: root.desc-folders-width;
+                                folder-depth-width: root.folder-depth-width;
+                                hard-links-width: root.hard-links-width;
+                                shortcut-target-width: root.shortcut-target-width;
+                                owner-width: root.owner-width;
                                 pressed(mods) => {
                                     root.jump-reset();
                                     root.current = i;

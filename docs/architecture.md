@@ -719,3 +719,13 @@ existing context-search generator and is persisted with the ordinary search.
 Visibility, recursive mode and width use the settings writer. The tree cursor and
 scroll position also travel with runtime tabs. Explicit Locate uses the existing
 result helpers to resolve the selected folder from the index, with no disk reads.
+
+### Optional properties (`property.rs`, `properties.rs`)
+
+Stable property ids extend the column catalogue without changing existing column
+numbers. Values retain a numeric or text type for sorting. The row model queues
+only requested rows on one worker with a bounded queue; viewport, query and
+column changes cancel stale requests. Directory counts describe the index,
+without recursively reading live directories. Disk allocation and link counts
+use non-following metadata. Owner names use a bounded NSS helper with a numeric
+uid fallback. Property visibility and widths follow settings, tabs and sessions.

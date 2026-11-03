@@ -3563,3 +3563,52 @@ msgstr "CSV ve TSV içinde tablo formüllerinden koru"
 
 msgid "Adds an apostrophe before cells starting with =, +, -, @, tab or carriage return. Other formats keep their contents."
 msgstr "Başında =, +, -, @, sekme veya satır başı bulunan hücrelere kesme işareti ekler. Diğer biçimlerin içeriği korunur."
+
+msgid "Full path"
+msgstr "Tam yol"
+
+msgid "Parent path"
+msgstr "Üst klasör yolu"
+
+msgid "Stem"
+msgstr "Uzantısız ad"
+
+msgid "Name length"
+msgstr "Ad uzunluğu"
+
+msgid "Path length"
+msgstr "Yol uzunluğu"
+
+msgid "Size on disk"
+msgstr "Diskte boyut"
+
+msgid "Items"
+msgstr "Doğrudan öğe sayısı"
+
+msgid "Files inside"
+msgstr "Doğrudan dosya sayısı"
+
+msgid "Subfolders"
+msgstr "Doğrudan klasör sayısı"
+
+msgid "Items at any depth"
+msgstr "Tüm alt öğe sayısı"
+
+msgid "Files at any depth"
+msgstr "Tüm alt dosya sayısı"
+
+msgid "Subfolders at any depth"
+msgstr "Tüm alt klasör sayısı"
+
+msgid "Folder depth"
+msgstr "Klasör derinliği"
+
+msgid "Hard link count"
+msgstr "Sabit bağlantı sayısı"
+
+msgid "Shortcut target"
+msgstr "Kısayol hedefi"
+
+msgid "Owner"
+msgstr "Sahip"
+

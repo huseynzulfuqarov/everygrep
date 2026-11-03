@@ -66,6 +66,8 @@ pub enum SortKey {
     /// How many entries of the index share the name (see
     /// [`crate::frequency`]).
     NameFrequency,
+    /// Optional filesystem or media property.
+    Property(crate::property::Property),
     /// How many files of the index share the extension.
     ExtensionFrequency,
     /// How many files (or folders) of the index share the size.
@@ -351,6 +353,16 @@ fn sort_ordered(
     let store = index.store();
     let desc = sort.descending;
     match sort.key {
+        SortKey::Property(property) => {
+            let mut keys = Vec::with_capacity(ids.len());
+            for &id in ids.iter() {
+                progress.check()?;
+                keys.push(crate::property::read(index, id, property, progress)?);
+                progress.add(1);
+            }
+            let refs: Vec<_> = keys.iter().collect();
+            sort_directed(ids, threads, desc, refs, progress)?;
+        }
         SortKey::Name => {
             if desc {
                 ids.reverse();

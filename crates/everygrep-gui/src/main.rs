@@ -36,6 +36,7 @@ mod menus;
 mod open;
 mod portal;
 mod prefs;
+mod properties;
 mod results;
 mod saved_searches;
 mod saved_ui;
@@ -269,6 +270,17 @@ fn main() -> Result<(), slint::PlatformError> {
             let _ = weak.upgrade_in_event_loop(move |w| with_model(&w, |m| m.take_hashes(batch)));
         }
     }));
+    model.read_properties_with(properties::Reader::start(engine.clone(), {
+        let weak = window.as_weak();
+        move |batch| {
+            let _ =
+                weak.upgrade_in_event_loop(move |w| with_model(&w, |m| m.take_properties(batch)));
+        }
+    }));
+    window.on_property_view_changed({
+        let model = model.clone();
+        move || model.viewport_changed()
+    });
     window.set_results(ModelRc::from(model.clone()));
     let progress_timer = Rc::new(Timer::default());
     let shown_task = Rc::new(Cell::new(None));
@@ -2127,6 +2139,9 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         12 => SortKey::NameFrequency,
         13 => SortKey::ExtensionFrequency,
         14 => SortKey::SizeFrequency,
+        c if everygrep_core::property::Property::from_column(c).is_some() => SortKey::Property(
+            everygrep_core::property::Property::from_column(c).expect("property column"),
+        ),
         _ => SortKey::Name,
     };
     Sort {
@@ -2158,6 +2173,7 @@ fn column_of(key: SortKey) -> i32 {
         SortKey::NameFrequency => 12,
         SortKey::ExtensionFrequency => 13,
         SortKey::SizeFrequency => 14,
+        SortKey::Property(p) => p.column(),
     }
 }
 
@@ -2199,6 +2215,7 @@ pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool) {
 }
 
 fn run_query(w: &AppWindow, engine: &Engine) {
+    with_model(w, |m| m.forget_properties());
     tabs_ui::submitted(w);
     let filter = saved_ui::selected(w).map(|f| (f.search, f.options));
     engine.set_filtered_query(&w.get_query(), options(w), filter);
@@ -2269,6 +2286,25 @@ fn apply_detail_columns(w: &AppWindow) {
         size: w.get_show_size_freq(),
     };
     with_model(w, |m| {
+        m.set_properties(vec![
+            w.get_show_full_path(),
+            w.get_show_parent_path(),
+            w.get_show_stem(),
+            w.get_show_name_length(),
+            w.get_show_path_length(),
+            w.get_show_disk_size(),
+            w.get_show_total_size(),
+            w.get_show_child_count(),
+            w.get_show_child_files(),
+            w.get_show_child_folders(),
+            w.get_show_desc_count(),
+            w.get_show_desc_files(),
+            w.get_show_desc_folders(),
+            w.get_show_folder_depth(),
+            w.get_show_hard_links(),
+            w.get_show_shortcut_target(),
+            w.get_show_owner(),
+        ]);
         m.set_detail_columns(columns);
         m.set_hash_columns(hashes);
         m.set_frequency_columns(frequencies);

@@ -316,7 +316,7 @@ fn options(s: &str) -> io::Result<everygrep_core::query::QueryOptions> {
     saved_searches::decode_options(p[0], p[1], p[2])
 }
 /// The optional columns a tab can show, by their name in the file.
-fn column_flags(c: &Columns) -> [(&'static str, bool); 11] {
+fn column_flags(c: &Columns) -> [(&'static str, bool); 28] {
     [
         ("type", c.show_type),
         ("ext", c.show_ext),
@@ -329,6 +329,23 @@ fn column_flags(c: &Columns) -> [(&'static str, bool); 11] {
         ("name-freq", c.show_name_freq),
         ("ext-freq", c.show_ext_freq),
         ("size-freq", c.show_size_freq),
+        ("full-path", c.show_full_path),
+        ("parent-path", c.show_parent_path),
+        ("stem", c.show_stem),
+        ("name-length", c.show_name_length),
+        ("path-length", c.show_path_length),
+        ("disk-size", c.show_disk_size),
+        ("total-size", c.show_total_size),
+        ("child-count", c.show_child_count),
+        ("child-files", c.show_child_files),
+        ("child-folders", c.show_child_folders),
+        ("desc-count", c.show_desc_count),
+        ("desc-files", c.show_desc_files),
+        ("desc-folders", c.show_desc_folders),
+        ("folder-depth", c.show_folder_depth),
+        ("hard-links", c.show_hard_links),
+        ("shortcut-target", c.show_shortcut_target),
+        ("owner", c.show_owner),
     ]
 }
 
@@ -345,12 +362,29 @@ fn column_flag<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut bool> {
         "name-freq" => &mut c.show_name_freq,
         "ext-freq" => &mut c.show_ext_freq,
         "size-freq" => &mut c.show_size_freq,
+        "full-path" => &mut c.show_full_path,
+        "parent-path" => &mut c.show_parent_path,
+        "stem" => &mut c.show_stem,
+        "name-length" => &mut c.show_name_length,
+        "path-length" => &mut c.show_path_length,
+        "disk-size" => &mut c.show_disk_size,
+        "total-size" => &mut c.show_total_size,
+        "child-count" => &mut c.show_child_count,
+        "child-files" => &mut c.show_child_files,
+        "child-folders" => &mut c.show_child_folders,
+        "desc-count" => &mut c.show_desc_count,
+        "desc-files" => &mut c.show_desc_files,
+        "desc-folders" => &mut c.show_desc_folders,
+        "folder-depth" => &mut c.show_folder_depth,
+        "hard-links" => &mut c.show_hard_links,
+        "shortcut-target" => &mut c.show_shortcut_target,
+        "owner" => &mut c.show_owner,
         _ => return None,
     })
 }
 
 /// The column widths of a tab, by their name in the file.
-fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 15] {
+fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 32] {
     [
         ("name", c.name),
         ("folder", c.folder),
@@ -367,6 +401,23 @@ fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 15] {
         ("name-freq", c.name_freq),
         ("ext-freq", c.ext_freq),
         ("size-freq", c.size_freq),
+        ("full-path", c.full_path),
+        ("parent-path", c.parent_path),
+        ("stem", c.stem),
+        ("name-length", c.name_length),
+        ("path-length", c.path_length),
+        ("disk-size", c.disk_size),
+        ("total-size", c.total_size),
+        ("child-count", c.child_count),
+        ("child-files", c.child_files),
+        ("child-folders", c.child_folders),
+        ("desc-count", c.desc_count),
+        ("desc-files", c.desc_files),
+        ("desc-folders", c.desc_folders),
+        ("folder-depth", c.folder_depth),
+        ("hard-links", c.hard_links),
+        ("shortcut-target", c.shortcut_target),
+        ("owner", c.owner),
     ]
 }
 
@@ -387,6 +438,23 @@ fn column_width<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut Option<f32
         "name-freq" => &mut c.name_freq,
         "ext-freq" => &mut c.ext_freq,
         "size-freq" => &mut c.size_freq,
+        "full-path" => &mut c.full_path,
+        "parent-path" => &mut c.parent_path,
+        "stem" => &mut c.stem,
+        "name-length" => &mut c.name_length,
+        "path-length" => &mut c.path_length,
+        "disk-size" => &mut c.disk_size,
+        "total-size" => &mut c.total_size,
+        "child-count" => &mut c.child_count,
+        "child-files" => &mut c.child_files,
+        "child-folders" => &mut c.child_folders,
+        "desc-count" => &mut c.desc_count,
+        "desc-files" => &mut c.desc_files,
+        "desc-folders" => &mut c.desc_folders,
+        "folder-depth" => &mut c.folder_depth,
+        "hard-links" => &mut c.hard_links,
+        "shortcut-target" => &mut c.shortcut_target,
+        "owner" => &mut c.owner,
         _ => return None,
     })
 }
@@ -708,8 +776,16 @@ mod tests {
     }
     #[test]
     fn every_sort_column_and_every_column_survive_the_session() {
-        let sortable: Vec<i32> = (-1..32).filter(|c| crate::is_sort_column(*c)).collect();
-        assert_eq!(sortable, [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]);
+        let sortable: Vec<i32> = (-1..crate::columns::COLUMNS as i32 + 4)
+            .filter(|c| crate::is_sort_column(*c))
+            .collect();
+        assert_eq!(
+            sortable,
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]
+                .into_iter()
+                .chain(everygrep_core::property::Property::ALL.map(|p| p.column()))
+                .collect::<Vec<_>>()
+        );
         for column in sortable {
             let mut s = sample(1);
             s.open[0].sort_column = column;

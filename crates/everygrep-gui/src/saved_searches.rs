@@ -821,21 +821,28 @@ mod tests {
         let dir = Scratch::new("bookmark-sorts");
         let path = dir.0.join("saved-searches");
         let mut l = Library::default();
-        for column in (-1..32).filter(|c| crate::is_sort_column(*c)) {
+        for column in (-1..crate::columns::COLUMNS as i32 + 4).filter(|c| crate::is_sort_column(*c))
+        {
             let mut b = bookmark(&l, &format!("sort {column}"));
             b.sort_column = column;
             l.put_bookmark(None, b).unwrap();
         }
         // The frequency columns (12-14) sort too.
         let sorts: Vec<i32> = l.bookmarks.iter().map(|b| b.sort_column).collect();
-        assert_eq!(sorts, [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]);
+        assert_eq!(
+            sorts,
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]
+                .into_iter()
+                .chain(everygrep_core::property::Property::ALL.map(|p| p.column()))
+                .collect::<Vec<_>>()
+        );
         update(&path, |stored| {
             *stored = l.clone();
             Ok(())
         })
         .unwrap();
         assert_eq!(Library::load(&path).unwrap(), l);
-        for column in [9, 10, 11, 15, -1] {
+        for column in [9, 10, 11, crate::columns::COLUMNS as i32, -1] {
             let mut b = bookmark(&l, "hash column");
             b.sort_column = column;
             assert!(l.put_bookmark(None, b).is_err(), "{column}");

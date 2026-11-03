@@ -192,6 +192,40 @@ pub struct Columns {
     pub show_name_freq: bool,
     pub show_ext_freq: bool,
     pub show_size_freq: bool,
+    pub show_full_path: bool,
+    pub full_path: Option<f32>,
+    pub show_parent_path: bool,
+    pub parent_path: Option<f32>,
+    pub show_stem: bool,
+    pub stem: Option<f32>,
+    pub show_name_length: bool,
+    pub name_length: Option<f32>,
+    pub show_path_length: bool,
+    pub path_length: Option<f32>,
+    pub show_disk_size: bool,
+    pub disk_size: Option<f32>,
+    pub show_total_size: bool,
+    pub total_size: Option<f32>,
+    pub show_child_count: bool,
+    pub child_count: Option<f32>,
+    pub show_child_files: bool,
+    pub child_files: Option<f32>,
+    pub show_child_folders: bool,
+    pub child_folders: Option<f32>,
+    pub show_desc_count: bool,
+    pub desc_count: Option<f32>,
+    pub show_desc_files: bool,
+    pub desc_files: Option<f32>,
+    pub show_desc_folders: bool,
+    pub desc_folders: Option<f32>,
+    pub show_folder_depth: bool,
+    pub folder_depth: Option<f32>,
+    pub show_hard_links: bool,
+    pub hard_links: Option<f32>,
+    pub show_shortcut_target: bool,
+    pub shortcut_target: Option<f32>,
+    pub show_owner: bool,
+    pub owner: Option<f32>,
     pub name: Option<f32>,
     /// Folder's own width, kept only while the columns are wider than the
     /// window (Folder otherwise takes the room the others leave).
@@ -741,6 +775,108 @@ impl Settings {
             "show-same-name-column" => put_flag(&mut self.columns.show_name_freq),
             "show-same-extension-column" => put_flag(&mut self.columns.show_ext_freq),
             "show-same-size-column" => put_flag(&mut self.columns.show_size_freq),
+            "show-full-path-column" => put_flag(&mut self.columns.show_full_path),
+            "full-path-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.full_path = Some(w);
+                true
+            }
+            "show-parent-path-column" => put_flag(&mut self.columns.show_parent_path),
+            "parent-path-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.parent_path = Some(w);
+                true
+            }
+            "show-stem-column" => put_flag(&mut self.columns.show_stem),
+            "stem-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.stem = Some(w);
+                true
+            }
+            "show-name-length-column" => put_flag(&mut self.columns.show_name_length),
+            "name-length-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.name_length = Some(w);
+                true
+            }
+            "show-path-length-column" => put_flag(&mut self.columns.show_path_length),
+            "path-length-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.path_length = Some(w);
+                true
+            }
+            "show-disk-size-column" => put_flag(&mut self.columns.show_disk_size),
+            "disk-size-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.disk_size = Some(w);
+                true
+            }
+            "show-total-size-column" => put_flag(&mut self.columns.show_total_size),
+            "total-size-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.total_size = Some(w);
+                true
+            }
+            "show-items-column" => put_flag(&mut self.columns.show_child_count),
+            "items-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.child_count = Some(w);
+                true
+            }
+            "show-files-inside-column" => put_flag(&mut self.columns.show_child_files),
+            "files-inside-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.child_files = Some(w);
+                true
+            }
+            "show-subfolders-column" => put_flag(&mut self.columns.show_child_folders),
+            "subfolders-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.child_folders = Some(w);
+                true
+            }
+            "show-deep-items-column" => put_flag(&mut self.columns.show_desc_count),
+            "deep-items-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.desc_count = Some(w);
+                true
+            }
+            "show-deep-files-column" => put_flag(&mut self.columns.show_desc_files),
+            "deep-files-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.desc_files = Some(w);
+                true
+            }
+            "show-deep-subfolders-column" => put_flag(&mut self.columns.show_desc_folders),
+            "deep-subfolders-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.desc_folders = Some(w);
+                true
+            }
+            "show-folder-depth-column" => put_flag(&mut self.columns.show_folder_depth),
+            "folder-depth-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.folder_depth = Some(w);
+                true
+            }
+            "show-hard-links-column" => put_flag(&mut self.columns.show_hard_links),
+            "hard-links-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.hard_links = Some(w);
+                true
+            }
+            "show-shortcut-target-column" => put_flag(&mut self.columns.show_shortcut_target),
+            "shortcut-target-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.shortcut_target = Some(w);
+                true
+            }
+            "show-owner-column" => put_flag(&mut self.columns.show_owner),
+            "owner-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.owner = Some(w);
+                true
+            }
             "name-width"
             | "folder-width"
             | "size-width"
@@ -1132,7 +1268,81 @@ impl Settings {
             false,
         );
         flag(&mut out, "show-same-size-column", c.show_size_freq, false);
+        flag(&mut out, "show-full-path-column", c.show_full_path, false);
+        flag(
+            &mut out,
+            "show-parent-path-column",
+            c.show_parent_path,
+            false,
+        );
+        flag(&mut out, "show-stem-column", c.show_stem, false);
+        flag(
+            &mut out,
+            "show-name-length-column",
+            c.show_name_length,
+            false,
+        );
+        flag(
+            &mut out,
+            "show-path-length-column",
+            c.show_path_length,
+            false,
+        );
+        flag(&mut out, "show-disk-size-column", c.show_disk_size, false);
+        flag(&mut out, "show-total-size-column", c.show_total_size, false);
+        flag(&mut out, "show-items-column", c.show_child_count, false);
+        flag(
+            &mut out,
+            "show-files-inside-column",
+            c.show_child_files,
+            false,
+        );
+        flag(
+            &mut out,
+            "show-subfolders-column",
+            c.show_child_folders,
+            false,
+        );
+        flag(&mut out, "show-deep-items-column", c.show_desc_count, false);
+        flag(&mut out, "show-deep-files-column", c.show_desc_files, false);
+        flag(
+            &mut out,
+            "show-deep-subfolders-column",
+            c.show_desc_folders,
+            false,
+        );
+        flag(
+            &mut out,
+            "show-folder-depth-column",
+            c.show_folder_depth,
+            false,
+        );
+        flag(&mut out, "show-hard-links-column", c.show_hard_links, false);
+        flag(
+            &mut out,
+            "show-shortcut-target-column",
+            c.show_shortcut_target,
+            false,
+        );
+        flag(&mut out, "show-owner-column", c.show_owner, false);
         let widths = [
+            ("full-path-width", c.full_path),
+            ("parent-path-width", c.parent_path),
+            ("stem-width", c.stem),
+            ("name-length-width", c.name_length),
+            ("path-length-width", c.path_length),
+            ("disk-size-width", c.disk_size),
+            ("total-size-width", c.total_size),
+            ("items-width", c.child_count),
+            ("files-inside-width", c.child_files),
+            ("subfolders-width", c.child_folders),
+            ("deep-items-width", c.desc_count),
+            ("deep-files-width", c.desc_files),
+            ("deep-subfolders-width", c.desc_folders),
+            ("folder-depth-width", c.folder_depth),
+            ("hard-links-width", c.hard_links),
+            ("shortcut-target-width", c.shortcut_target),
+            ("owner-width", c.owner),
             ("name-width", c.name),
             ("folder-width", c.folder),
             ("size-width", c.size),
@@ -2063,6 +2273,11 @@ pub(crate) mod tests {
                 name_freq: None,
                 ext_freq: Some(100.0),
                 size_freq: Some(90.0),
+                show_full_path: true,
+                full_path: Some(260.0),
+                show_owner: true,
+                owner: Some(110.0),
+                ..Columns::default()
             },
             theme: ThemeChoice::Dark,
             density: Density::Compact,
