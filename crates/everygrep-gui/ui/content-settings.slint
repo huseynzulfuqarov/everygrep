@@ -95,6 +95,24 @@ export component ContentSettings inherits VerticalLayout {
     }
 }
 
+// How duplicate searches by contents compare files; on the Search page.
+export component DuplicateSettings inherits VerticalLayout {
+    in-out property <bool> empty-files;
+    callback changed();
+    spacing: Theme.s3;
+    CheckBox {
+        text: @tr("Count empty files as duplicates");
+        checked <=> root.empty-files;
+        toggled => { root.changed(); }
+    }
+    Text {
+        text: @tr("All empty files have the same contents, so with this on they form one large group. Off: empty files are left out of duplicate searches by contents.");
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}
+
 // The size of the hash cache of duplicate searches, how much of it is used,
 // and a button to empty it; on the Search page.
 export component HashCacheSettings inherits VerticalLayout {

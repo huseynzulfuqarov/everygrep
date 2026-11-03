@@ -499,6 +499,7 @@ pub struct Engine {
     unwatched: Mutex<Unwatched>,
     /// How files are read for `content:` terms.
     content_options: Mutex<ContentOptions>,
+    compare_options: Mutex<dupe::CompareOptions>,
     /// Answers of content terms, so a search again (another order, file
     /// changes) reads only what changed.
     content_cache: Mutex<ContentCache>,
@@ -692,6 +693,7 @@ impl Engine {
             applied: Mutex::new(QueryState::default()),
             answered: Mutex::new((0, None)),
             content_options: Mutex::new(ContentOptions::default()),
+            compare_options: Mutex::new(dupe::CompareOptions::default()),
             content_cache: Mutex::new(ContentCache::new()),
             content_state: Mutex::new(ContentState::default()),
             properties: Arc::new(everygrep_core::propertycache::Store::new(
@@ -1308,6 +1310,20 @@ impl Engine {
         self.request_search();
     }
 
+    /// How duplicate searches compare contents from now on. A change runs
+    /// the current query again.
+    pub fn set_compare_options(&self, options: dupe::CompareOptions) {
+        let mut current = self.compare_options.lock().expect("lock");
+        if *current == options {
+            return;
+        }
+        *current = options;
+        drop(current);
+        let _query = self.query.lock().expect("lock");
+        self.content_state.lock().expect("lock").stopped = false;
+        self.request_search();
+    }
+
     /// The query runs again because files changed. While files are read
     /// for a content search, it runs again only when that is done (the
     /// answers are cached, so only changed files are read again); after the
@@ -1576,9 +1592,11 @@ impl Engine {
                     drop(index);
                     task.set_kind(TaskKind::ComparingFiles);
                     self.content_state.lock().expect("lock").running = true;
+                    let compare = *self.compare_options.lock().expect("lock");
                     let compared = dupe::compare_contents(
                         grouped,
                         Some(self.hashes.cache()),
+                        compare,
                         threads.min(CONTENT_THREADS),
                         task.progress(),
                     );

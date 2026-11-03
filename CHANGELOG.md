@@ -265,8 +265,8 @@ First version, 0.1.0, not released yet.
   combinations (`duplicates:name;size`) compare those; `extra-copies:`
   lists every copy but the first of each group, `distinct:` one of each,
   `unique:` the results without a duplicate. Groups stay together in the
-  order shown. 
-  `duplicates:` and `extra-copies:`.
+  order shown.  Empty files are left out unless
+  Settings → Search → Duplicates counts them.
 
 ### Command line
 

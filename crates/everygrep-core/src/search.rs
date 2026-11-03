@@ -55,7 +55,13 @@ pub fn search_with_progress(
     let dupes = if grouped.candidates.is_empty() {
         grouped.dupes
     } else {
-        dupe::compare_contents(grouped, None, threads, progress)?
+        dupe::compare_contents(
+            grouped,
+            None,
+            dupe::CompareOptions::default(),
+            threads,
+            progress,
+        )?
     };
     Ok(dupes.arrange(&dupes.to_sort()))
 }

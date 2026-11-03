@@ -15,7 +15,8 @@
 //! 2. without the index ([`compare_contents`]), on worker threads: every
 //!    candidate is looked at on disk (`lstat` through
 //!    [`crate::hash::open`]): what is not a readable regular file any more
-//!    is left out, as are empty files, and of the paths of one file (hard links, the same device
+//!    is left out, as are empty files (unless [`CompareOptions::empty_files`]),
+//!    and of the paths of one file (hard links, the same device
 //!    and inode) only the first counts, so a file is never its own
 //!    duplicate. Groups are split again by the size on disk;
 //! 3. the first and last 16 KiB of each file are hashed (all of a file of
@@ -42,6 +43,14 @@ use crate::index::Index;
 use crate::progress::{Cancelled, Progress};
 use crate::sort::extension;
 use crate::store::{NodeId, NodeStore};
+
+/// How [`compare_contents`] compares files.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CompareOptions {
+    /// Empty files are duplicates of each other (all of them are equal);
+    /// off, they are left out.
+    pub empty_files: bool,
+}
 
 /// Most properties one duplicate term compares.
 pub const MAX_PROPERTIES: usize = 8;
@@ -373,6 +382,7 @@ struct Looked {
 pub fn compare_contents(
     grouped: Grouped,
     cache: Option<&Mutex<HashCache>>,
+    options: CompareOptions,
     threads: usize,
     progress: &Progress,
 ) -> Result<Dupes, Cancelled> {
@@ -399,7 +409,7 @@ pub fn compare_contents(
         .collect();
     let opened = par_map(&all, threads, progress, |l| {
         let key = hash::open(path_of(l))?.key;
-        if key.size == 0 {
+        if key.size == 0 && !options.empty_files {
             return Err(HashError::NotAFile);
         }
         Ok(Looked { key, ..*l })
@@ -801,6 +811,7 @@ mod tests {
         let found = compare_contents(
             group(&tree.index, &empty, spec.dupes().unwrap()),
             None,
+            CompareOptions::default(),
             1,
             &Progress::new(),
         )
@@ -1050,14 +1061,54 @@ mod tests {
     }
 
     fn compare(tree: &Tree, q: &str, cache: &Mutex<HashCache>) -> Vec<String> {
+        compare_with(tree, q, Some(cache), CompareOptions::default())
+    }
+
+    fn compare_with(
+        tree: &Tree,
+        q: &str,
+        cache: Option<&Mutex<HashCache>>,
+        options: CompareOptions,
+    ) -> Vec<String> {
         let ids = search(
             &tree.index,
             &Query::parse("", QueryOptions::default()).unwrap(),
             2,
         );
         let grouped = group(&tree.index, &ids, &spec(q));
-        let dupes = compare_contents(grouped, Some(cache), 2, &Progress::new()).unwrap();
+        let dupes = compare_contents(grouped, cache, options, 2, &Progress::new()).unwrap();
         tree.show(&dupes.arrange(&dupes.to_sort()))
+    }
+
+    #[test]
+    fn empty_files_are_duplicates_only_when_asked() {
+        let tree = contents_tree("empty");
+        let empty = CompareOptions { empty_files: true };
+        let all = compare_with(&tree, "duplicates:", None, empty);
+        assert_eq!(
+            all,
+            [
+                "a.txt",
+                "sub/a.txt",
+                "d.dat",
+                "big1.bin",
+                "big2.bin",
+                "e1",
+                "e2"
+            ]
+        );
+        assert_eq!(
+            compare_with(&tree, "extra-copies:", None, empty),
+            ["sub/a.txt", "d.dat", "big2.bin", "e2"]
+        );
+        let off = compare_with(&tree, "unique:", None, CompareOptions::default());
+        assert!(!off.contains(&"e1".to_owned()), "left out, not unique");
+        // A sole empty file has no duplicate.
+        std::fs::remove_file(tree.dir.join("e2")).unwrap();
+        let mut tree = tree;
+        tree.rescan();
+        assert!(compare_with(&tree, "unique:", None, empty).contains(&"e1".to_owned()));
+        assert!(!compare_with(&tree, "duplicates:", None, empty).contains(&"e1".to_owned()));
     }
 
     #[test]
@@ -1105,12 +1156,19 @@ mod tests {
         // two indexed zero sizes need a live check before being excluded.
         assert_eq!(grouped.candidates.files(), 9);
         let progress = Progress::new();
-        compare_contents(grouped.clone(), None, 2, &progress).unwrap();
+        compare_contents(
+            grouped.clone(),
+            None,
+            CompareOptions::default(),
+            2,
+            &progress,
+        )
+        .unwrap();
         assert_eq!((progress.done(), progress.total()), (27, Some(27)));
         let progress = Progress::new();
         progress.cancel();
         assert_eq!(
-            compare_contents(grouped, None, 2, &progress),
+            compare_contents(grouped, None, CompareOptions::default(), 2, &progress),
             Err(Cancelled)
         );
     }
@@ -1242,8 +1300,14 @@ mod tests {
         );
         let run = |label: &str, cache: Option<&Mutex<HashCache>>, threads: usize| {
             let t = Instant::now();
-            let dupes =
-                compare_contents(grouped.clone(), cache, threads, &Progress::new()).unwrap();
+            let dupes = compare_contents(
+                grouped.clone(),
+                cache,
+                CompareOptions::default(),
+                threads,
+                &Progress::new(),
+            )
+            .unwrap();
             println!(
                 "compare {label}, {threads} threads: {:.0} ms, {} groups, {} listed",
                 ms(t),
@@ -1276,7 +1340,15 @@ mod tests {
         uncache(&tree);
         let progress = Progress::new();
         std::thread::scope(|scope| {
-            let worker = scope.spawn(|| compare_contents(grouped.clone(), None, 8, &progress));
+            let worker = scope.spawn(|| {
+                compare_contents(
+                    grouped.clone(),
+                    None,
+                    CompareOptions::default(),
+                    8,
+                    &progress,
+                )
+            });
             std::thread::sleep(std::time::Duration::from_millis(50));
             let t = Instant::now();
             progress.cancel();

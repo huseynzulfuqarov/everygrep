@@ -3859,3 +3859,12 @@ msgstr "Tapılan mətn sətir sonunu keçə bilsin"
 
 msgid "A space in a content: text also matches a line end with the spaces around it, and a regular expression can match line ends too. Files over 16 MB are searched line by line. Off: a match ends at the end of its line."
 msgstr "content: mətnindəki boşluq ətrafdakı boşluqlarla birlikdə sətir sonuna da uyğun gəlir, müntəzəm ifadə də sətir sonlarını tapa bilir. 16 MB-dan böyük fayllarda axtarış sətir-sətir gedir. Bağlı olanda tapılan mətn öz sətrinin sonunda bitir."
+
+msgid "Duplicates"
+msgstr "Dublikatlar"
+
+msgid "Count empty files as duplicates"
+msgstr "Boş faylları dublikat say"
+
+msgid "All empty files have the same contents, so with this on they form one large group. Off: empty files are left out of duplicate searches by contents."
+msgstr "Bütün boş faylların məzmunu eynidir, ona görə bu açıq olanda onlar bir böyük qrup təşkil edir. Bağlı olanda boş fayllar məzmuna görə dublikat axtarışına daxil edilmir."

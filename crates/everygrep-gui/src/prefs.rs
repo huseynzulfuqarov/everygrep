@@ -2795,11 +2795,16 @@ impl Prefs {
     /// Gives the engine the content search settings; a change searches
     /// again.
     fn apply_content(&self) {
-        let (options, hash_bytes) = {
+        let (options, hash_bytes, compare) = {
             let s = self.settings.borrow();
-            (s.content.options(), s.content.hash_cache_bytes())
+            (
+                s.content.options(),
+                s.content.hash_cache_bytes(),
+                s.content.compare(),
+            )
         };
         self.engine.set_content_options(options);
+        self.engine.set_compare_options(compare);
         self.engine.hashes.set_max_bytes(hash_bytes);
         self.engine
             .set_property_options(self.settings.borrow().properties.clone());

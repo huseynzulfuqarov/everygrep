@@ -391,7 +391,9 @@ order shown, and its members follow in that order.
   Search → Hash cache), so a second search reads only files that changed;
   the command line reads them every time.
 - Folders, empty files, links, FIFOs, devices and files that cannot be read
-  are left out. Hard links are one file: of several paths to the same file
+  are left out. Empty files count (as one group of copies) when Settings →
+  Search → Duplicates → "Count empty files as duplicates" is on (off by
+  default; the command line leaves them out). Hard links are one file: of several paths to the same file
   only the first is listed, and it is not its own duplicate.
 - Other properties are named after the colon, separated by `;` or `,`:
   `duplicates:name` (the same name in different folders), `duplicates:stem`

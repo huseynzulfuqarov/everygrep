@@ -4,7 +4,7 @@ import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, Sta
 import { PropertySettings } from "property-settings.slint";
 import { Theme } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
-import { ContentSettings, HashCacheSettings } from "content-settings.slint";
+import { ContentSettings, DuplicateSettings, HashCacheSettings } from "content-settings.slint";
 
 // A command for a keyboard shortcut, on the Keyboard shortcut page.
 export struct ShortcutCommand {
@@ -200,6 +200,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> content-pdf;
     in-out property <bool> content-on-enter;
     in-out property <bool> content-multi-line;
+    in-out property <bool> dupe-empty-files;
     in property <string> content-pdf-note;
     in-out property <int> hash-cache-max;
     in property <int> hash-cache-max-max;
@@ -774,6 +775,12 @@ export component SettingsWindow inherits Window {
                                 error: root.property-error; progress: root.property-progress;
                                 changed => { root.properties-changed(); } selected-property => { root.property-selection(); }
                                 clear => { root.clear-properties(); } scan => { root.scan-properties(); } cancel => { root.cancel-properties(); }
+                            }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Duplicates"); }
+                            DuplicateSettings {
+                                empty-files <=> root.dupe-empty-files;
+                                changed => { root.search-changed(); }
                             }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Hash cache"); }
