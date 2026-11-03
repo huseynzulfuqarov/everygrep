@@ -54,6 +54,12 @@ use everygrep_core::watch::Watcher;
 use crate::hashes::HashStore;
 use crate::schedule::Schedule;
 
+#[path = "engine_filelists.rs"]
+mod filelists;
+// Used by the window once the settings list file lists.
+#[allow(unused_imports)]
+pub use filelists::{FileListSetting, FileListStatus, ListState};
+
 /// What the index is doing, for the status line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndexState {
@@ -477,6 +483,10 @@ pub struct Engine {
     /// are connected again (or asked for in the settings).
     not_now: Mutex<HashSet<String>>,
     mounts_changed: Arc<AtomicBool>,
+    /// File lists shown as offline roots (see `engine_filelists.rs`).
+    file_lists: Mutex<filelists::Lists>,
+    /// The state reported last, to report it again after a change.
+    last_state: Mutex<Option<IndexState>>,
     tasks: Arc<Tasks>,
     /// The folders to index and the rules the index was built with (or,
     /// after a cancelled first index, was to be built with); a cancelled
@@ -571,6 +581,9 @@ struct QueryState {
     options: QueryOptions,
     filter_query: Option<(String, QueryOptions)>,
     sort: Sort,
+    /// Leave out entries of roots that are offline (drives that are not
+    /// connected, file lists).
+    hide_offline: bool,
 }
 
 /// A request whose complete results were shown, with the index version and
@@ -695,6 +708,8 @@ impl Engine {
             drive_scans: Mutex::new(Vec::new()),
             not_now: Mutex::new(HashSet::new()),
             mounts_changed: Arc::new(AtomicBool::new(false)),
+            file_lists: Mutex::default(),
+            last_state: Mutex::new(None),
             tasks: Tasks::new(on_busy),
             indexed_with: Mutex::new((Vec::new(), ScanOptions::default())),
             incomplete: AtomicBool::new(false),
@@ -964,10 +979,12 @@ impl Engine {
         let (roots, options) = self.indexed_with.lock().expect("lock").clone();
         let volumes = self.volumes.lock().expect("lock");
         let index = self.index.read().expect("index lock");
-        let drive_roots: Vec<NodeId> = volumes
+        // Drives are saved apart, and file lists not at all.
+        let mut drive_roots: Vec<NodeId> = volumes
             .iter()
             .filter_map(|v| root_id(&index, v.root.as_deref()?))
             .collect();
+        drive_roots.extend(self.list_roots(&index));
         save_root_index(&index, &roots, fingerprint(&options), &to, &drive_roots)?;
         // Commit only after successful publication, while other saves wait.
         let old = self.index_file.lock().expect("lock").replace(to.clone());
@@ -1212,6 +1229,7 @@ impl Engine {
             options,
             filter_query: filter,
             sort,
+            hide_offline: self.query.lock().expect("lock").hide_offline,
         };
         if state != settled.state || self.epoch() != settled.epoch {
             return None;
@@ -1253,6 +1271,7 @@ impl Engine {
             options,
             filter_query: filter,
             sort,
+            hide_offline: self.query.lock().expect("lock").hide_offline,
         };
         if state != stopped.0 {
             return None;
@@ -1271,6 +1290,17 @@ impl Engine {
 
     /// Changes the result order and runs the current query again. The order
     /// stays for later queries. Returns the generation of the request.
+    /// Shows or hides the entries of offline roots in the results.
+    pub fn set_hide_offline(&self, hide: bool) -> u64 {
+        let mut q = self.query.lock().expect("lock");
+        if q.hide_offline == hide {
+            return self.generation.load(Ordering::SeqCst);
+        }
+        q.hide_offline = hide;
+        self.content_state.lock().expect("lock").stopped = false;
+        self.request_search()
+    }
+
     pub fn set_sort(&self, sort: Sort) -> u64 {
         let mut q = self.query.lock().expect("lock");
         q.sort = sort;
@@ -1447,6 +1477,9 @@ impl Engine {
                     let found = match search_with_progress(&index, &query, threads, task.progress())
                     {
                         Ok(mut ids) if self.is_current(generation) => {
+                            if state.hide_offline {
+                                without_offline(&index, &mut ids);
+                            }
                             task.set_kind(TaskKind::Sorting);
                             task.progress().restart(None);
                             self.media_for_sort(
@@ -1591,6 +1624,9 @@ impl Engine {
             return Ok(None);
         };
         let mut ids = staged.results(&decisions);
+        if state.hide_offline {
+            without_offline(&index, &mut ids);
+        }
         let dupes = match query.dupes() {
             None => None,
             Some(spec) => {
@@ -1699,6 +1735,9 @@ impl Engine {
             return false;
         }
         let mut ids = staged.results(decisions);
+        if state.hide_offline {
+            without_offline(&index, &mut ids);
+        }
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let Ok((index, media)) =
             self.media_for_sort(index, &ids, state.sort, epoch, progress, false)
@@ -1911,8 +1950,17 @@ impl Engine {
     }
 
     fn report(&self, state: IndexState) {
+        *self.last_state.lock().expect("lock") = Some(state);
         let len = self.index.read().expect("index lock").len();
         (self.hooks.on_state)(state, len);
+    }
+
+    /// Reports the last state again, so the window looks at what changed.
+    fn report_again(&self) {
+        let last = *self.last_state.lock().expect("lock");
+        if let Some(state) = last {
+            self.report(state);
+        }
     }
 
     /// Indexed folders that are not watched, for the status line.
@@ -1997,7 +2045,7 @@ impl Engine {
             (self.hooks.on_stopped)(Stopped::Index);
         }
         self.load_drives();
-        let (_, mut drives_to_catch_up) = self.sync_drives(None);
+        let (_, mut drives_to_catch_up) = self.sync_sources(None);
         self.request_search();
 
         // Changes during any scan precede watch installation too.
@@ -2024,6 +2072,8 @@ impl Engine {
                 catch_up = true;
                 match self.scan_fresh(TaskKind::Rescanning, retained_watcher.as_mut()) {
                     Ok(()) => {
+                        // The new index has no file lists yet.
+                        self.sync_file_lists();
                         self.request_search();
                         self.save();
                     }
@@ -2066,7 +2116,7 @@ impl Engine {
         self.report(IndexState::Unwatched);
         while !self.interrupted(false) {
             std::thread::sleep(Duration::from_millis(250));
-            if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_drives(None).0 {
+            if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_sources(None).0 {
                 self.dirty.store(true, Ordering::SeqCst);
                 self.request_search();
                 self.report(IndexState::Unwatched);
@@ -2204,7 +2254,7 @@ impl Engine {
         let mut last_try = Instant::now();
         while !self.interrupted(true) {
             std::thread::sleep(Duration::from_millis(250));
-            if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_drives(None).0 {
+            if self.mounts_changed.swap(false, Ordering::SeqCst) && self.sync_sources(None).0 {
                 self.dirty.store(true, Ordering::SeqCst);
                 self.request_search();
                 self.report(IndexState::Static);
@@ -2362,7 +2412,7 @@ impl Engine {
         let mut pending_refresh = false;
         while !self.interrupted(true) {
             if self.mounts_changed.swap(false, Ordering::SeqCst) {
-                let (changed, drives) = self.sync_drives(Some(watcher));
+                let (changed, drives) = self.sync_sources(Some(watcher));
                 // Drives that came back (or were read) are watched already;
                 // what changed on them meanwhile is caught up here, outside
                 // the drive lock and a batch of folders at a time.
@@ -2585,10 +2635,12 @@ impl Engine {
             self.dirty.store(true, Ordering::SeqCst);
             return;
         };
-        let drive_roots: Vec<NodeId> = volumes
+        // Drives are saved apart, and file lists not at all.
+        let mut drive_roots: Vec<NodeId> = volumes
             .iter()
             .filter_map(|v| root_id(&index, v.root.as_deref()?))
             .collect();
+        drive_roots.extend(self.list_roots(&index));
         let mut ok = true;
         // An index cancelled before it was complete is never saved.
         let own_file = self
@@ -2710,6 +2762,14 @@ impl Engine {
     /// which the caller runs outside the drive lock: at once with a watcher,
     /// otherwise when watching starts. Returns whether the index or the list
     /// of drives changed.
+    /// [`sync_drives`](Self::sync_drives), then the file lists, which give
+    /// way to the drives (see `engine_filelists.rs`).
+    fn sync_sources(&self, watcher: Option<&mut Watcher>) -> (bool, Vec<NodeId>) {
+        let (changed, roots) = self.sync_drives(watcher);
+        let lists = self.sync_file_lists();
+        (changed || lists, roots)
+    }
+
     fn sync_drives(&self, mut watcher: Option<&mut Watcher>) -> (bool, Vec<NodeId>) {
         let Some(env) = &self.drive_env else {
             return (false, Vec::new());
@@ -2844,6 +2904,7 @@ impl Engine {
                 continue;
             }
             let mut index = self.index.write().expect("index lock");
+            self.drop_lists_at(&mut index, &drive.mount_point);
             if root_id(&index, &drive.mount_point).is_some() {
                 continue;
             }
@@ -3019,6 +3080,7 @@ impl Engine {
     /// take that name.
     fn free_mount_point(&self, volumes: &mut [Volume], keep: usize, mount_point: &Path) {
         let mut index = self.index.write().expect("index lock");
+        self.drop_lists_at(&mut index, mount_point);
         let Some(taken) = root_id(&index, mount_point) else {
             return;
         };
@@ -3255,6 +3317,13 @@ fn root_id(index: &Index, name: &Path) -> Option<NodeId> {
     index.find_child(None, name.as_os_str().as_bytes())
 }
 
+/// Leaves out of `ids` the entries of offline roots.
+fn without_offline(index: &Index, ids: &mut Vec<NodeId>) {
+    if !index.offline_roots().is_empty() {
+        ids.retain(|&id| !index.is_offline(id));
+    }
+}
+
 fn path_of(bytes: &[u8]) -> PathBuf {
     PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
 }
@@ -3472,6 +3541,7 @@ fn unix_now() -> i64 {
 mod tests {
     use super::*;
     use crate::settings::tests::Scratch;
+    use std::ffi::OsStr;
     use std::fs;
     use std::path::Path;
 
@@ -6108,6 +6178,7 @@ mod tests {
             text: "content:needle".into(),
             options: QueryOptions::default(),
             filter_query: None,
+            hide_offline: false,
             sort: Sort {
                 key: everygrep_core::sort::SortKey::Size,
                 descending: true,
@@ -6523,6 +6594,476 @@ mod tests {
         assert!(!fake.env.index_path("A1B2-C3D4").exists());
         assert!(!fake.env.info_path("A1B2-C3D4").exists());
         probe.engine.shutdown();
+    }
+
+    /// Waits until the first file list is in a state `check` accepts.
+    fn list_state(engine: &Engine, what: &str, check: impl Fn(&ListState) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !engine.file_lists().first().is_some_and(|l| check(&l.state)) {
+            assert!(
+                Instant::now() < deadline,
+                "no {what}: {:?}",
+                engine.file_lists()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// A real engine whose workers have finished; list transactions can now
+    /// be paused deterministically without a competing mount loop.
+    fn idle_lists(dir: &Scratch) -> Probe {
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join("z.txt"), "needle\n").unwrap();
+        let probe = Probe::start_unwatched(vec![home], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        probe.engine.shutdown();
+        probe.engine.stop.store(false, Ordering::SeqCst);
+        probe
+    }
+
+    fn list_setting(path: &Path, enabled: bool) -> FileListSetting {
+        FileListSetting {
+            path: path.to_path_buf(),
+            enabled,
+        }
+    }
+
+    fn write_test_list(path: &Path, root: &Path, name: &str) {
+        fs::write(
+            path,
+            format!(
+                "EveryGrep file list 1\nroot {}\nf\t1\t\t\t{}/{name}\n",
+                root.display(),
+                root.display()
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn list_priority_changes_remove_later_grafts_before_adding_the_winner() {
+        let dir = Scratch::new("list-priority");
+        let probe = idle_lists(&dir);
+        let e = &probe.engine;
+        let root = dir.0.join("disk");
+        let a = dir.0.join("a.eglist");
+        let b = dir.0.join("b.eglist");
+        write_test_list(&a, &root, "a.txt");
+        write_test_list(&b, &root, "b.txt");
+        e.set_file_lists(&[list_setting(&a, false), list_setting(&b, true)]);
+        assert!(e.sync_file_lists());
+        assert!(find(&e.index.read().unwrap(), &root.join("b.txt")).is_some());
+        e.set_file_lists(&[list_setting(&a, true), list_setting(&b, true)]);
+        assert!(e.sync_file_lists());
+        assert!(find(&e.index.read().unwrap(), &root.join("a.txt")).is_some());
+        assert!(matches!(e.file_lists()[1].state, ListState::Covered { .. }));
+        e.set_file_lists(&[list_setting(&b, true), list_setting(&a, true)]);
+        assert!(e.sync_file_lists());
+        let index = e.index.read().unwrap();
+        assert!(find(&index, &root.join("b.txt")).is_some());
+        assert!(find(&index, &root.join("a.txt")).is_none());
+        assert_eq!(index.roots().len(), 2);
+    }
+
+    #[test]
+    fn removing_a_list_during_load_never_publishes_it_or_saves_it() {
+        let dir = Scratch::new("list-remove-loading");
+        let probe = idle_lists(&dir);
+        let e = &probe.engine;
+        let root = dir.0.join("disk");
+        let path = dir.0.join("a.eglist");
+        write_test_list(&path, &root, "a.txt");
+        e.set_file_lists(&[list_setting(&path, true)]);
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                e.sync_file_lists_with(|path, _| {
+                    let loaded = everygrep_core::filelist::load(path);
+                    barrier.wait();
+                    barrier.wait();
+                    loaded
+                })
+            });
+            barrier.wait();
+            e.set_file_lists(&[]);
+            barrier.wait();
+            assert!(!worker.join().unwrap());
+        });
+        assert!(root_id(&e.index.read().unwrap(), &root).is_none());
+        e.sync_file_lists();
+        e.dirty.store(true, Ordering::SeqCst);
+        e.save();
+        assert_eq!(
+            persist::load(&dir.0.join("index.bin"))
+                .unwrap()
+                .index
+                .roots()
+                .len(),
+            1
+        );
+        // A shown root removed from settings is also excluded before sync.
+        e.set_file_lists(&[list_setting(&path, true)]);
+        e.sync_file_lists();
+        e.set_file_lists(&[]);
+        e.dirty.store(true, Ordering::SeqCst);
+        e.save();
+        assert_eq!(
+            persist::load(&dir.0.join("index.bin"))
+                .unwrap()
+                .index
+                .roots()
+                .len(),
+            1
+        );
+        e.move_index_file(dir.0.join("moved.bin")).unwrap();
+        assert_eq!(
+            persist::load(&dir.0.join("moved.bin"))
+                .unwrap()
+                .index
+                .roots()
+                .len(),
+            1
+        );
+        assert!(e.sync_file_lists());
+        assert!(root_id(&e.index.read().unwrap(), &root).is_none());
+    }
+
+    #[test]
+    fn parsed_root_controls_coverage_ownership_and_explicit_reload() {
+        let dir = Scratch::new("list-root-reload");
+        let probe = idle_lists(&dir);
+        let e = &probe.engine;
+        let path = dir.0.join("list.eglist");
+        let a = dir.0.join("disk-a");
+        let b = dir.0.join("disk-b");
+        write_test_list(&path, &a, "old.txt");
+        e.set_file_lists(&[list_setting(&path, true)]);
+        assert!(e.sync_file_lists_with(|path, _| {
+            write_test_list(path, &b, "new.txt");
+            everygrep_core::filelist::load(path)
+        }));
+        assert_eq!(e.file_lists()[0].root.as_deref(), Some(b.as_path()));
+        assert!(root_id(&e.index.read().unwrap(), &a).is_none());
+        // Settle the replacement's new timestamp before testing an edit
+        // which deliberately preserves that timestamp.
+        e.sync_file_lists();
+        let stamp = fs::metadata(&path).unwrap().modified().unwrap();
+        write_test_list(&path, &b, "changed.txt");
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(stamp))
+            .unwrap();
+        assert!(!e.sync_file_lists());
+        assert!(find(&e.index.read().unwrap(), &b.join("new.txt")).is_some());
+        e.reload_file_lists();
+        assert!(e.sync_file_lists());
+        assert!(find(&e.index.read().unwrap(), &b.join("changed.txt")).is_some());
+        // User cancellation during preparation preserves the existing graft.
+        e.reload_file_lists();
+        probe.armed.store(true, Ordering::SeqCst);
+        assert!(!e.sync_file_lists());
+        assert!(find(&e.index.read().unwrap(), &b.join("changed.txt")).is_some());
+        assert!(matches!(e.file_lists()[0].state, ListState::Shown { .. }));
+        // Replacement by a list of an existing live root must be covered.
+        e.reload_file_lists();
+        e.sync_file_lists_with(|path, _| {
+            write_test_list(path, &dir.0.join("home"), "untrusted.txt");
+            everygrep_core::filelist::load(path)
+        });
+        assert!(matches!(e.file_lists()[0].state, ListState::Covered { .. }));
+        assert_eq!(e.index.read().unwrap().roots().len(), 1);
+    }
+
+    #[test]
+    fn list_export_preserves_existing_files_and_parallel_exports_are_atomic() {
+        use std::os::unix::fs::symlink;
+        let dir = Scratch::new("list-export-atomic");
+        let probe = idle_lists(&dir);
+        let e = &probe.engine;
+        let folder = dir.0.join("home");
+        let to = dir.0.join("disk.eglist");
+        let part = dir.0.join("disk.eglist.part");
+        fs::write(&part, "precious").unwrap();
+        assert_eq!(
+            e.save_file_list(&folder, &to, &Progress::new(), false)
+                .unwrap(),
+            2
+        );
+        assert_eq!(fs::read_to_string(&part).unwrap(), "precious");
+        fs::write(&to, "keep destination").unwrap();
+        assert_eq!(
+            e.save_file_list(&folder, &to, &Progress::new(), false)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(fs::read_to_string(&to).unwrap(), "keep destination");
+        let cancelled = Progress::new();
+        cancelled.cancel();
+        // Cancellation must be seen before even waiting for the index lock.
+        let index_guard = e.index.write().unwrap();
+        std::thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            let (folder, to, cancelled) = (&folder, &to, &cancelled);
+            scope.spawn(move || {
+                let result = e.save_file_list(folder, to, cancelled, true);
+                tx.send(result.map_err(|e| e.kind())).unwrap();
+            });
+            let result = rx.recv_timeout(Duration::from_secs(2));
+            drop(index_guard);
+            assert_eq!(
+                result.unwrap().unwrap_err(),
+                std::io::ErrorKind::Interrupted
+            );
+        });
+        assert_eq!(
+            e.save_file_list(&folder, &to, &cancelled, true)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::Interrupted
+        );
+        assert_eq!(cancelled.done(), 0);
+        assert_eq!(fs::read_to_string(&to).unwrap(), "keep destination");
+        fs::remove_file(&part).unwrap();
+        symlink(&to, &part).unwrap();
+        let other = dir.0.join("other.eglist");
+        std::thread::scope(|scope| {
+            let one = scope.spawn(|| e.save_file_list(&folder, &other, &Progress::new(), false));
+            let two = scope.spawn(|| e.save_file_list(&folder, &other, &Progress::new(), false));
+            let (one, two) = (one.join().unwrap(), two.join().unwrap());
+            assert_ne!(one.is_ok(), two.is_ok());
+            assert_eq!(
+                one.err().or(two.err()).unwrap().kind(),
+                std::io::ErrorKind::AlreadyExists
+            );
+        });
+        assert!(everygrep_core::filelist::load(&other).is_ok());
+        // Replacing the selected file is intentional; the unrelated link stays.
+        e.save_file_list(&folder, &to, &Progress::new(), true)
+            .unwrap();
+        assert!(
+            fs::symlink_metadata(&part)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(everygrep_core::filelist::load(&to).is_ok());
+        assert!(!fs::read_dir(&dir.0).unwrap().any(|e| {
+            e.unwrap()
+                .file_name()
+                .as_bytes()
+                .starts_with(b".disk.eglist.tmp-")
+        }));
+    }
+
+    #[test]
+    fn hidden_offline_matches_are_filtered_before_content_limits_and_partial_results() {
+        let dir = Scratch::new("list-content-hide");
+        let probe = idle_lists(&dir);
+        let e = &probe.engine;
+        let root = dir.0.join("disk");
+        let path = dir.0.join("list.eglist");
+        write_test_list(&path, &root, "report");
+        e.set_file_lists(&[list_setting(&path, true)]);
+        e.sync_file_lists();
+        let state = QueryState {
+            text: "report|content:needle limit:1".into(),
+            hide_offline: true,
+            ..QueryState::default()
+        };
+        let query = Query::parse(&state.text, state.options).unwrap();
+        let generation = e.generation.load(Ordering::SeqCst);
+        let terms = Arc::new(Vec::new());
+        let (ids, _, epoch, _) = e
+            .search_contents(generation, &state, &query, Instant::now(), &terms)
+            .unwrap()
+            .unwrap();
+        let index = e.index.read().unwrap();
+        assert_eq!(
+            ids.iter()
+                .map(|&id| index.store().name(id))
+                .collect::<Vec<_>>(),
+            [b"z.txt"]
+        );
+        let staged = search_staged(&index, &query, 1, &Progress::new()).unwrap();
+        drop(index);
+        let decisions = Decisions::new(staged.pending.len());
+        decide_all(
+            &staged.pending,
+            query.content_terms(),
+            &ContentOptions::default(),
+            None,
+            1,
+            &Progress::new(),
+            &decisions,
+            || {},
+        )
+        .unwrap();
+        while probe.results.try_recv().is_ok() {}
+        assert!(e.show_partial(
+            generation,
+            &state,
+            &query,
+            &staged,
+            &decisions,
+            epoch,
+            Instant::now(),
+            &terms,
+            &Progress::new()
+        ));
+        let partial = probe.results.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(*partial.ids, ids);
+        assert_eq!(e.why_stopped(generation, true), Stopped::ContentSearch);
+        // A name-based duplicate operator follows the same early filter.
+        let state = QueryState {
+            text: "distinct:name file: limit:1".into(),
+            ..state
+        };
+        let query = Query::parse(&state.text, state.options).unwrap();
+        let (ids, _, _, _) = e
+            .search_contents(generation, &state, &query, Instant::now(), &terms)
+            .unwrap()
+            .unwrap();
+        let index = e.index.read().unwrap();
+        assert_eq!(
+            ids.iter()
+                .map(|&id| index.store().name(id))
+                .collect::<Vec<_>>(),
+            [b"z.txt"]
+        );
+    }
+
+    #[test]
+    fn file_lists_are_offline_entries_that_give_way_to_the_live_index() {
+        let dir = Scratch::new("file-lists");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join("notes.txt"), "").unwrap();
+        let bak = dir.0.join("media/BAK");
+        let list = dir.0.join("bak.eglist");
+        let odd = "tab\\there \\xFF.jpg";
+        fs::write(
+            &list,
+            format!(
+                "EveryGrep file list 1\nroot {r}\nf\t3\t\t\t{r}/photos/beach.jpg\nf\t1\t\t\t{r}/{odd}\n",
+                r = bak.display()
+            ),
+        )
+        .unwrap();
+        let index_file = dir.0.join("index.bin");
+        let probe = Probe::start_with(
+            vec![home.clone()],
+            Vec::new(),
+            index_file.clone(),
+            Some((fake.env.clone(), DriveSettings::default())),
+        );
+        probe.wait_for(IndexState::Watching);
+        let e = &probe.engine;
+        let on = |path: &Path, enabled| FileListSetting {
+            path: path.to_path_buf(),
+            enabled,
+        };
+
+        // Shown as offline entries, odd names byte for byte.
+        e.set_file_lists(&[on(&list, true)]);
+        until(e, "the list", |i| {
+            find(i, &bak.join("photos/beach.jpg")).is_some_and(|id| i.is_offline(id))
+        });
+        list_state(e, "shown", |s| *s == ListState::Shown { entries: 4 });
+        assert_eq!(e.file_lists()[0].root.as_deref(), Some(bak.as_path()));
+        let raw = OsStr::from_bytes(b"tab\there \xff.jpg");
+        assert!(find(&e.index.read().unwrap(), &bak.join(raw)).is_some());
+        assert_eq!(probe.names("beach"), ["beach.jpg"]);
+
+        // The switch hides offline entries without touching the index.
+        e.set_hide_offline(true);
+        assert!(probe.names("beach").is_empty());
+        assert_eq!(probe.names("notes"), ["notes.txt"]);
+        e.set_hide_offline(false);
+        assert_eq!(probe.names("beach"), ["beach.jpg"]);
+
+        // Turned off, then on again.
+        e.set_file_lists(&[on(&list, false)]);
+        list_state(e, "off", |s| *s == ListState::Off);
+        assert!(probe.names("beach").is_empty());
+        e.set_file_lists(&[on(&list, true)]);
+        list_state(e, "shown again", |s| matches!(s, ListState::Shown { .. }));
+
+        // The disk is plugged in: its live entries take the list's place,
+        // with no duplicates.
+        fs::create_dir_all(bak.join("photos")).unwrap();
+        fs::write(bak.join("photos/beach.jpg"), "jpg").unwrap();
+        fs::write(bak.join("photos/live.jpg"), "jpg").unwrap();
+        fake.mount("BAK-0001", "sdy1", "BAK");
+        until(e, "the live drive", |i| {
+            find(i, &bak.join("photos/live.jpg")).is_some_and(|id| !i.is_offline(id))
+        });
+        list_state(e, "covered", |s| {
+            *s == ListState::Covered { by: bak.clone() }
+        });
+        assert_eq!(probe.names("beach"), ["beach.jpg"]);
+        let index = e.index.read().unwrap();
+        let beach = find(&index, &bak.join("photos/beach.jpg")).unwrap();
+        assert!(!index.is_offline(beach));
+        assert!(find(&index, &bak.join(raw)).is_none());
+        drop(index);
+
+        // Removed and kept offline: the drive's own entries stay, the list
+        // is still covered.
+        fake.unmount_all();
+        until(e, "the drive offline", |i| {
+            find(i, &bak.join("photos/live.jpg")).is_some_and(|id| i.is_offline(id))
+        });
+        e.reload_file_lists();
+        std::thread::sleep(Duration::from_millis(600));
+        list_state(e, "still covered", |s| {
+            matches!(s, ListState::Covered { .. })
+        });
+        assert_eq!(probe.names("beach"), ["beach.jpg"]);
+
+        // Forgotten: the list comes back.
+        e.forget_drive("BAK-0001");
+        list_state(e, "shown after forgetting", |s| {
+            matches!(s, ListState::Shown { .. })
+        });
+        assert_eq!(probe.names("beach"), ["beach.jpg"]);
+        assert!(probe.names("live").is_empty());
+
+        // A list of an indexed folder is covered by it; a broken one says why.
+        let of_home = dir.0.join("home.eglist");
+        let broken = dir.0.join("broken.eglist");
+        fs::write(&broken, "not a list\n").unwrap();
+        let written = e
+            .save_file_list(&home, &of_home, &Progress::new(), false)
+            .unwrap();
+        assert_eq!(written, 2);
+        let saved = everygrep_core::filelist::parse(&fs::read(&of_home).unwrap()).unwrap();
+        assert_eq!(
+            saved.root,
+            fs::canonicalize(&home).unwrap().as_os_str().as_bytes()
+        );
+        assert!(
+            e.save_file_list(&dir.0.join("nowhere"), &broken, &Progress::new(), false)
+                .is_err()
+        );
+        e.set_file_lists(&[on(&of_home, true), on(&broken, true), on(&list, true)]);
+        list_state(e, "covered by home", |s| {
+            matches!(s, ListState::Covered { .. })
+        });
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !matches!(e.file_lists()[1].state, ListState::Failed(_)) {
+            assert!(Instant::now() < deadline, "{:?}", e.file_lists());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        // Lists are never saved with the index.
+        e.shutdown();
+        let saved = persist::load(&index_file).unwrap();
+        assert_eq!(saved.index.len(), 2);
     }
 
     #[test]

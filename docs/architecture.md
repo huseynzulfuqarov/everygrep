@@ -569,6 +569,37 @@ it) are queued and carried out on the index thread. File actions are
 refused for rows on an offline root (`Index::is_offline`): its paths may
 now belong to another disk mounted at the same place, or to nothing.
 
+### File lists (`filelist.rs`, `engine_filelists.rs`)
+
+A file list is the entries of one folder (normally a disk) in a text file
+of its own, so they can be searched while the folder is not there. The
+format (`filelist.rs`, extension `.eglist`) is UTF-8 text: a line
+`EveryGrep file list 1` (a newer version is refused), a line
+`root <path>`, then one line per entry with five tab-separated fields:
+`d` or `f`, the size in bytes (empty for folders), the modification and
+creation times in nanoseconds since 1970 (empty when unknown) and the
+absolute path. Paths keep their bytes: `\\`, `\t`, `\n`, `\r`, and `\xHH`
+for other control bytes, DEL and bytes that are not valid UTF-8. Empty
+lines and `#` lines are skipped; folders without a line of their own are
+added; a path listed twice keeps its last line. Errors name the line.
+
+The engine keeps the lists of the settings in order. On the index
+thread, next to the drives, each enabled list is read (its root first,
+from the first lines) and grafted as an offline root, unless its folder
+is, holds or lies in a folder to index, another root of the index (a
+drive, connected or kept offline) or an earlier list: the live index
+wins, so nothing is listed twice. A drive mounted where a list is shown
+removes the list before its own entries come in. A list whose file
+changed is read again when the lists are looked at; after a new scan the
+lists are read again. List roots are left out of the saved index. Being
+offline roots, their entries are drawn as offline and file actions on
+them are refused. The Hide offline entries switch filters the results of
+the search thread (part of its request, so a tab's kept results follow
+it); the index is not changed. A list is made from any folder of the
+index (`Engine::save_file_list`): its entries are copied under the read
+lock, then written to `<file>.part` with creation times read from disk
+while the folder is connected, synced and renamed into place.
+
 ### File actions (`actions.rs`, `open.rs`)
 
 Opening runs `xdg-open`. The containing folder is shown with the items
