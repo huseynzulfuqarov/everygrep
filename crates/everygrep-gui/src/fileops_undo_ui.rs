@@ -92,6 +92,7 @@ fn refresh(w: &FileUndoWindow) {
     // become the target of a different history snapshot.
     w.set_current(-1);
     w.set_rows(ModelRc::default());
+    w.set_path_details(ModelRc::default());
     w.set_operation_ids(ModelRc::default());
     std::thread::spawn(move || {
         let view = fileops_undo::view(filter);
@@ -100,20 +101,37 @@ fn refresh(w: &FileUndoWindow) {
                 return;
             }
             let mut ids = Vec::new();
+            let mut details = Vec::new();
             let rows: Vec<ModelRc<StandardListViewItem>> = view
                 .rows
                 .into_iter()
                 .map(|r| {
                     ids.push(slint::SharedString::from(r.id.to_string()));
+                    details.push(slint::SharedString::from(format!(
+                        "{}: {}\n{}: {}",
+                        tr("Source path"),
+                        r.cells[1],
+                        tr("Destination"),
+                        r.cells[2]
+                    )));
                     let cells: Vec<_> = r
                         .cells
                         .into_iter()
-                        .map(|text| StandardListViewItem::from(slint::SharedString::from(text)))
+                        .enumerate()
+                        .map(|(column, text)| {
+                            let text = if column == 1 || column == 2 {
+                                crate::format::middle_path(&text, 28)
+                            } else {
+                                text
+                            };
+                            StandardListViewItem::from(slint::SharedString::from(text))
+                        })
                         .collect();
                     ModelRc::new(VecModel::from(cells))
                 })
                 .collect();
             w.set_operation_ids(ModelRc::new(VecModel::from(ids)));
+            w.set_path_details(ModelRc::new(VecModel::from(details)));
             w.set_rows(ModelRc::new(VecModel::from(rows)));
             w.set_can_undo(view.can_undo);
             w.set_can_redo(view.can_redo);

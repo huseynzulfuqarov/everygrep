@@ -284,9 +284,52 @@ pub fn short_path(path: &str, home: Option<&str>, max: usize) -> String {
     shown
 }
 
+/// A compact path that preserves the final component. For an unusually long
+/// filename, retain both its beginning and its end (including its extension).
+pub fn middle_path(path: &str, max: usize) -> String {
+    let count = path.chars().count();
+    if count <= max {
+        return path.into();
+    }
+    if max == 0 {
+        return String::new();
+    }
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let n = name.chars().count();
+    if n + 2 <= max {
+        let prefix: String = path.chars().take(max - n - 2).collect();
+        return format!("{prefix}…/{name}");
+    }
+    let start = (max - 1) / 2;
+    let end = max - 1 - start;
+    format!(
+        "{}…{}",
+        name.chars().take(start).collect::<String>(),
+        name.chars().skip(n - end).collect::<String>()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_paths_keep_the_filename_and_elide_the_middle() {
+        assert_eq!(middle_path("/short/file.txt", 30), "/short/file.txt");
+        assert_eq!(
+            middle_path("/very/long/folder/report.txt", 20),
+            "/very/lo…/report.txt"
+        );
+        assert_eq!(middle_path("/uzun/qovluq/şəkil.txt", 12), "/…/şəkil.txt");
+        assert_eq!(
+            middle_path("/dir/very-long-filename.txt", 12),
+            "very-…me.txt"
+        );
+        for limit in 0..30 {
+            let text = middle_path("/qovluq/şəkillər/çox-uzun-ad.txt", limit);
+            assert!(text.chars().count() <= limit);
+        }
+    }
 
     #[test]
     fn counts_are_grouped() {

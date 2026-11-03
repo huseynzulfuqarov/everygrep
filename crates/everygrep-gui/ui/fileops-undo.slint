@@ -1,4 +1,4 @@
-import { Button, ComboBox, StandardTableView, Palette } from "std-widgets.slint";
+import { Button, ComboBox, StandardTableView, Palette, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 export component FileUndoWindow inherits Window {
     title: @tr("File undo history");
@@ -10,6 +10,7 @@ export component FileUndoWindow inherits Window {
     default-font-size: Theme.body;
     in property <[[StandardListViewItem]]> rows;
     in property <[string]> operation-ids;
+    in property <[string]> path-details;
     in property <bool> busy;
     in-out property <int> revision;
     in property <bool> can-undo;
@@ -49,6 +50,15 @@ export component FileUndoWindow inherits Window {
                     { title: @tr("Destination"), width: 240px, horizontal-stretch: 1 },
                     { title: @tr("State"), width: 180px },
                 ];
+            }
+            // StandardTableView has no cell tooltip/custom delegate. Keep
+            // the complete selected paths in a scrollable details area.
+            if root.current >= 0: ScrollView {
+                preferred-height: 64px;
+                max-height: 80px;
+                VerticalLayout {
+                    Text { text: root.path-details[root.current]; color: Theme.text; wrap: word-wrap; }
+                }
             }
             Text { text: root.notice; color: Theme.text-muted; wrap: word-wrap; }
             Text { text: @tr("Undo through a selected step also undoes every newer step, including actions hidden by the filter."); color: Theme.text-muted; wrap: word-wrap; }
