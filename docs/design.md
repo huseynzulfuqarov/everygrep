@@ -151,8 +151,12 @@ screen; when a change conflicts with them, the rules win or are changed first.
   state and says so in the note. Its key is not decided yet.
 - **Folder panel,** hidden by default on the left: indexed roots and folders,
   with expand/collapse buttons, keyboard arrows and Enter to search the folder.
-  Include subfolders is on by default. Choosing a folder replaces the field with
-  an explicit, boundary-safe location query. The context menu opens the folder
+  Include subfolders is on by default. Choosing a folder replaces the search
+  with an explicit, boundary-safe location query; the field shows it as a
+  label with the folder's name (full path as its tip, "(no subfolders)" when
+  subfolders are left out) in front of the text, so terms typed after it
+  search inside the folder. The label's ×, or Backspace in the empty field,
+  removes it; Esc clears both. Tab titles show the label too. The context menu opens the folder
   or searches it in another tab/window. Locate selected result reveals its folder.
   Visibility and the dragged width are saved. Opening it scrolls the result
   list back to its left edge, so the names start in view. Expansion, selection, keyboard cursor and scroll position belong to

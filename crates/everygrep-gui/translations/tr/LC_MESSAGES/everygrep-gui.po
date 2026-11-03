@@ -3502,3 +3502,9 @@ msgstr "Diğer filtreler…"
 
 msgid "More bookmarks…"
 msgstr "Diğer yer imleri…"
+
+msgid "{} (no subfolders)"
+msgstr "{} (alt klasörler hariç)"
+
+msgid "Remove the folder from the search"
+msgstr "Klasörü aramadan çıkar"

@@ -372,6 +372,22 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     window.on_query_edited(query_edit(true));
+    window.on_split_location(|text| {
+        let Some(found) = fileops_search::location(&text) else {
+            return LocationSplit {
+                rest: text,
+                ..Default::default()
+            };
+        };
+        let rest = &text[found.len..];
+        LocationSplit {
+            label: found.label().into(),
+            detail: found.display().into(),
+            scope: text[..found.len].into(),
+            scope_bytes: i32::try_from(found.len).unwrap_or(i32::MAX),
+            rest: rest.strip_prefix(' ').unwrap_or(rest).into(),
+        }
+    });
     window.on_generated_query_edited(query_edit(false));
     window.on_refresh({
         let engine = engine.clone();

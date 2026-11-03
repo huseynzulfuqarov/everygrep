@@ -77,6 +77,121 @@ pub(crate) fn query(
     }
 }
 
+/// A folder search made by [`query`] at the start of a search text, which
+/// the search field shows as a short label (the folder's name) in front of
+/// the rest of the text.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Location {
+    /// The folder, ending with `/`.
+    pub path: Vec<u8>,
+    pub recursive: bool,
+    /// Length in bytes of the location part of the text; the rest follows
+    /// after one space.
+    pub len: usize,
+}
+
+const RECURSIVE_END: &str = "(?s-u:.+)\"";
+const FOLDER_END: &str = "(?-u:[^/]+)$\"";
+
+/// Reads back a location query made by [`query`] for a folder, when the text
+/// starts with one; anything else (also a hand-edited one) gives `None`.
+pub(crate) fn location(text: &str) -> Option<Location> {
+    let body = text.strip_prefix("case:path:regex:\"^")?;
+    let (path, after) = unliteral(body)?;
+    let (recursive, after) = if let Some(after) = after.strip_prefix(RECURSIVE_END) {
+        (true, after)
+    } else {
+        (false, after.strip_prefix(FOLDER_END)?)
+    };
+    if !(after.is_empty() || after.starts_with(' '))
+        || !path.starts_with(b"/")
+        || !path.ends_with(b"/")
+    {
+        return None;
+    }
+    Some(Location {
+        path,
+        recursive,
+        len: text.len() - after.len(),
+    })
+}
+
+impl Location {
+    /// The folder's name for the search field ("/" for the root).
+    pub(crate) fn label(&self) -> String {
+        let trimmed = &self.path[..self.path.len() - 1];
+        let name = match trimmed.iter().rposition(|&b| b == b'/') {
+            Some(i) if i + 1 < trimmed.len() => &trimmed[i + 1..],
+            _ => b"/".as_slice(),
+        };
+        let name = String::from_utf8_lossy(name).into_owned();
+        if self.recursive {
+            name
+        } else {
+            fill(tr("{} (no subfolders)"), &[&name])
+        }
+    }
+
+    /// The whole folder path, readable.
+    pub(crate) fn display(&self) -> String {
+        String::from_utf8_lossy(&self.path).into_owned()
+    }
+}
+
+/// A search text as a tab title: a location part becomes its label.
+pub(crate) fn readable(text: &str) -> String {
+    match location(text) {
+        Some(l) => {
+            let rest = text[l.len..].trim_start();
+            if rest.is_empty() {
+                l.label()
+            } else {
+                format!("{}: {rest}", l.label())
+            }
+        }
+        None => text.to_owned(),
+    }
+}
+
+/// The reverse of [`literal`]: the bytes and the text after the literal.
+fn unliteral(text: &str) -> Option<(Vec<u8>, &str)> {
+    if let Some(mut rest) = text.strip_prefix("(?-u:") {
+        let mut out = Vec::new();
+        loop {
+            if let Some(after) = rest.strip_prefix(')') {
+                return Some((out, after));
+            }
+            let hex = rest.strip_prefix("\\x")?;
+            out.push(u8::from_str_radix(hex.get(..2)?, 16).ok()?);
+            rest = &hex[2..];
+        }
+    }
+    let mut out = String::new();
+    let mut chars = text.char_indices();
+    loop {
+        let (i, c) = chars.next()?;
+        match c {
+            '(' => return Some((out.into_bytes(), &text[i..])),
+            '\\' => {
+                let (j, next) = chars.next()?;
+                if next == 'x' {
+                    let open = j + 1;
+                    let close = open + text[open..].find('}')?;
+                    let hex = text[open..close].strip_prefix('{')?;
+                    out.push(char::from_u32(u32::from_str_radix(hex, 16).ok()?)?);
+                    while chars.next()?.0 < close {}
+                } else if ".+*?()|[]{}^$\\".contains(next) {
+                    out.push(next);
+                } else {
+                    return None;
+                }
+            }
+            c if c == '"' || ".+*?)|[]{}^$".contains(c) => return None,
+            c => out.push(c),
+        }
+    }
+}
+
 pub(crate) fn window_args(base: &[OsString], query: &str, options: QueryOptions) -> Vec<OsString> {
     let mut args = base.to_vec();
     // Giving a filter supplies explicit options, overriding a saved global
@@ -231,6 +346,64 @@ mod tests {
         let q = query(&store.path(file), false, true, false, true, false).unwrap();
         assert!(check(q, file));
         assert!(query(Path::new("/"), true, true, true, true, false).is_none());
+    }
+
+    #[test]
+    fn location_queries_read_back_with_the_rest_of_the_text() {
+        for path in [
+            b"/home/me/S\xc9\x99n\xc9\x99dl\xc9\x99r".to_vec(),
+            b"/tmp/a \"|<>*?.+()[]{}^$\\x".to_vec(),
+            b"/tmp/new\nline\ttab".to_vec(),
+            b"/tmp/raw\xff".to_vec(),
+            b"/".to_vec(),
+        ] {
+            for recursive in [false, true] {
+                let os = std::ffi::OsString::from_vec(path.clone());
+                let q = query(Path::new(&os), true, false, recursive, false, true).unwrap();
+                let mut expected = path.clone();
+                if !expected.ends_with(b"/") {
+                    expected.push(b'/');
+                }
+                let found = location(&q).unwrap();
+                assert_eq!(
+                    found,
+                    Location {
+                        path: expected.clone(),
+                        recursive,
+                        len: q.len()
+                    }
+                );
+                let text = format!("{q} ext:txt");
+                let found = location(&text).unwrap();
+                assert_eq!(&text[found.len..], " ext:txt");
+                assert_eq!(found.path, expected);
+                assert!(location(&format!("{q}x")).is_none());
+            }
+        }
+        let q = query(
+            Path::new("/home/me/Documents"),
+            true,
+            false,
+            true,
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(location(&q).unwrap().label(), "Documents");
+        assert_eq!(readable(&format!("{q} ext:pdf")), "Documents: ext:pdf");
+        assert_eq!(readable("plain text"), "plain text");
+        assert_eq!(
+            location(&query(Path::new("/"), true, false, true, false, true).unwrap())
+                .unwrap()
+                .label(),
+            "/"
+        );
+        // Hand-edited or other generated forms stay plain text.
+        assert!(location("case:path:regex:\"^/tmp/a.b/(?s-u:.+)\"").is_none());
+        assert!(location("case:path:regex:\"^tmp/(?s-u:.+)\"").is_none());
+        assert!(location("case:path:regex:\"^/tmp/x").is_none());
+        let file = query(Path::new("/tmp/a.txt"), false, false, true, true, true).unwrap();
+        assert!(location(&file).is_none());
     }
 
     #[test]

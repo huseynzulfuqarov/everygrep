@@ -67,6 +67,17 @@ export struct MenuChoice {
     checked: bool,
 }
 
+// A search text split by split-location(): a folder search at its start is
+// shown as `label` in front of the rest of the text (empty `scope` when the
+// text starts with none).
+export struct LocationSplit {
+    label: string,
+    detail: string,
+    scope: string,
+    scope-bytes: int,
+    rest: string,
+}
+
 // One entry of a list shown in a menu (an open tab, a bookmark, a filter):
 // `index` is its place in the whole list, since a long list shows only part
 // of it (see menus.rs).
@@ -228,6 +239,58 @@ component ModeToggle inherits Rectangle {
     }
 }
 
+// The folder a search is limited to, in front of the search text.
+component ScopeChip inherits Rectangle {
+    in property <string> label;
+    in property <string> detail;
+    out property <bool> hovered: touch.has-hover || close.has-hover;
+    callback cleared();
+
+    height: Theme.field-height - 2 * Theme.s1 - 2px;
+    border-radius: 4px;
+    background: Theme.selection;
+    accessible-role: button;
+    accessible-label: root.detail;
+    accessible-description: @tr("Remove the folder from the search");
+    accessible-action-default => { root.cleared(); }
+    touch := TouchArea { }
+    HorizontalLayout {
+        padding-left: Theme.s2;
+        padding-right: Theme.s1;
+        spacing: Theme.s1;
+        Image {
+            source: @image-url("icons/types/folder.svg");
+            width: Theme.icon;
+            height: Theme.icon;
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: root.label;
+            max-width: 220px;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: Theme.body;
+            color: Theme.selection-text;
+        }
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 9px;
+            background: close.has-hover ? Theme.hover : transparent;
+            Text {
+                text: "×";
+                color: Theme.selection-text;
+                font-size: Theme.body;
+            }
+            close := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.cleared(); }
+            }
+        }
+    }
+}
+
 component SearchField inherits Rectangle {
     in-out property <string> text <=> input.text;
     out property <bool> focused: input.has-focus;
@@ -240,13 +303,21 @@ component SearchField inherits Rectangle {
     // A click into the field while it does not have the focus selects all
     // of its text; the next click places the caret.
     in property <bool> select-on-click;
+    // A folder search in front of the text, shown as the folder's name
+    // (`scope-label`; the full path is its tip). Its × or Backspace at the
+    // start of an empty field removes it.
+    in property <string> scope-label;
+    in property <string> scope-detail;
+    callback scope-cleared();
     // The tip of the toggle under the mouse and where to show it.
-    out property <string> hover-tip: case-toggle.hovered ? case-toggle.tip
+    out property <string> hover-tip: scope-chip.hovered ? root.scope-detail
+        : case-toggle.hovered ? case-toggle.tip
         : words-toggle.hovered ? words-toggle.tip
         : path-toggle.hovered ? path-toggle.tip
         : marks-toggle.hovered ? marks-toggle.tip
         : regex-toggle.hovered ? regex-toggle.tip : "";
-    out property <length> hover-x: case-toggle.hovered ? case-toggle.absolute-position.x
+    out property <length> hover-x: scope-chip.hovered ? scope-chip.absolute-position.x
+        : case-toggle.hovered ? case-toggle.absolute-position.x
         : words-toggle.hovered ? words-toggle.absolute-position.x
         : path-toggle.hovered ? path-toggle.absolute-position.x
         : marks-toggle.hovered ? marks-toggle.absolute-position.x
@@ -286,59 +357,80 @@ component SearchField inherits Rectangle {
             height: Theme.icon;
             y: (parent.height - self.height) / 2;
         }
-        // The field takes the width the layout gives it, not the width of the
-        // text: long text scrolls inside the clip instead of pushing the
-        // toggles and the filter selector aside.
-        Rectangle {
+        // The label and the text, without a gap while there is no label.
+        HorizontalLayout {
             horizontal-stretch: 1;
-            // A TextInput of width 0 cannot take focus.
-            min-width: 1px;
-            clip: true;
-            input := TextInput {
-                // Scroll offset that keeps the text cursor visible.
-                property <length> scroll-x;
-
-                x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-x));
-                width: max(parent.width - self.text-cursor-width, self.preferred-width);
-                height: 100%;
-                vertical-alignment: center;
-                font-size: Theme.body + 1px;
-                color: Theme.text;
-                selection-background-color: Theme.selection;
-                selection-foreground-color: Theme.selection-text;
-                single-line: true;
-                cursor-position-changed(position) => {
-                    if (position.x + self.scroll-x < 0px) {
-                        self.scroll-x = -position.x;
-                    } else if (position.x + self.scroll-x > parent.width - self.text-cursor-width) {
-                        self.scroll-x = parent.width - position.x - self.text-cursor-width;
-                    }
-                }
-                edited => { root.edited(self.text); }
-                accepted => { root.accepted(); }
-                key-pressed(event) => {
-                    if (root.shortcut(event)) {
-                        return accept;
-                    }
-                    if (event.text == Key.DownArrow) {
-                        root.down-pressed();
-                        return accept;
-                    }
-                    if (event.text == Key.Escape) {
-                        root.escape-pressed();
-                        return accept;
-                    }
-                    reject
+            spacing: root.scope-label != "" ? Theme.s2 : 0px;
+            scope-chip := ScopeChip {
+                visible: root.scope-label != "";
+                width: self.visible ? self.preferred-width : 0px;
+                y: (parent.height - self.height) / 2;
+                label: root.scope-label;
+                detail: root.scope-detail;
+                cleared => {
+                    root.scope-cleared();
+                    input.focus();
                 }
             }
-            // Takes the first click while the field has no focus; once it
-            // has, clicks go to the text input and place the caret.
-            TouchArea {
-                enabled: root.select-on-click && !input.has-focus;
-                mouse-cursor: MouseCursor.text;
-                clicked => {
-                    input.focus();
-                    input.select-all();
+            // The field takes the width the layout gives it, not the width of the
+            // text: long text scrolls inside the clip instead of pushing the
+            // toggles and the filter selector aside.
+            Rectangle {
+                horizontal-stretch: 1;
+                // A TextInput of width 0 cannot take focus.
+                min-width: 1px;
+                clip: true;
+                input := TextInput {
+                    // Scroll offset that keeps the text cursor visible.
+                    property <length> scroll-x;
+
+                    x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.scroll-x));
+                    width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                    height: 100%;
+                    vertical-alignment: center;
+                    font-size: Theme.body + 1px;
+                    color: Theme.text;
+                    selection-background-color: Theme.selection;
+                    selection-foreground-color: Theme.selection-text;
+                    single-line: true;
+                    cursor-position-changed(position) => {
+                        if (position.x + self.scroll-x < 0px) {
+                            self.scroll-x = -position.x;
+                        } else if (position.x + self.scroll-x > parent.width - self.text-cursor-width) {
+                            self.scroll-x = parent.width - position.x - self.text-cursor-width;
+                        }
+                    }
+                    edited => { root.edited(self.text); }
+                    accepted => { root.accepted(); }
+                    key-pressed(event) => {
+                        if (root.shortcut(event)) {
+                            return accept;
+                        }
+                        if (event.text == Key.DownArrow) {
+                            root.down-pressed();
+                            return accept;
+                        }
+                        if (event.text == Key.Escape) {
+                            root.escape-pressed();
+                            return accept;
+                        }
+                        if (event.text == Key.Backspace && root.scope-label != ""
+                            && self.text == "") {
+                            root.scope-cleared();
+                            return accept;
+                        }
+                        reject
+                    }
+                }
+                // Takes the first click while the field has no focus; once it
+                // has, clicks go to the text input and place the caret.
+                TouchArea {
+                    enabled: root.select-on-click && !input.has-focus;
+                    mouse-cursor: MouseCursor.text;
+                    clicked => {
+                        input.focus();
+                        input.select-all();
+                    }
                 }
             }
         }
@@ -388,7 +480,7 @@ component SearchField inherits Rectangle {
     }
     placeholder := Text {
         x: Theme.s3 + Theme.icon + Theme.s2;
-        visible: input.text == "";
+        visible: input.text == "" && root.scope-label == "";
         text: @tr("Search files and folders");
         color: Theme.text-muted;
         font-size: Theme.body + 1px;
@@ -980,8 +1072,30 @@ export component AppWindow inherits Window {
     in property <bool> message-error;
     in property <string> message-details;
     in-out property <int> current: -1;
-    // Text of the search field.
-    in-out property <string> query <=> search.text;
+    // The whole search text. A folder search at its start (from the folder
+    // panel) is shown as a label in front of the field; the field holds the
+    // rest. A new text set from outside is split again (sync-scope).
+    in-out property <string> query;
+    property <string> scope;
+    property <int> scope-bytes;
+    property <string> scope-label;
+    property <string> scope-detail;
+    pure callback split-location(string) -> LocationSplit;
+    function compose(text: string) -> string {
+        root.scope == "" ? text : text == "" ? root.scope : root.scope + " " + text
+    }
+    function sync-scope() {
+        if (root.query == root.compose(search.text)) {
+            return;
+        }
+        let split = root.split-location(root.query);
+        root.scope = split.scope;
+        root.scope-bytes = split.scope-bytes;
+        root.scope-label = split.label;
+        root.scope-detail = split.detail;
+        search.text = split.rest;
+    }
+    changed query => { root.sync-scope(); }
 
     // Sort column (0 name, 1 folder, 2 size, 3 modified, 4 type, 5 extension,
     // 6 created, 7 accessed, 8 attributes; 9 MD5, 10 SHA-256 and 11 CRC-32,
@@ -2166,7 +2280,10 @@ export component AppWindow inherits Window {
     // Puts the search field's text cursor at `offset` (in bytes), nothing
     // selected; used after the query is set from the history.
     public function place-search-caret(offset: int) {
-        search.place-caret(offset);
+        // The offset counts in the whole text; the field holds what follows
+        // the folder label.
+        root.sync-scope();
+        search.place-caret(root.scope == "" ? offset : max(0, offset - root.scope-bytes - 1));
     }
 
     public function focus-list() {
@@ -2282,12 +2399,21 @@ export component AppWindow inherits Window {
                     search := SearchField {
                         horizontal-stretch: 1;
                         select-on-click: root.select-search-on-click;
+                        scope-label: root.scope-label;
+                        scope-detail: root.scope-detail;
+                        scope-cleared => {
+                            root.scope = "";
+                            root.scope-label = "";
+                            root.query = self.text;
+                            self.edited(self.text);
+                        }
                         edited(text) => {
+                            root.query = root.compose(text);
                             root.current = root.results.length > 0 ? 0 : -1;
                             list.content-y = 0;
                             root.history-full = false;
                             root.history-current = -1;
-                            root.query-edited(text);
+                            root.query-edited(root.query);
                             root.history-open = root.history-suggestions && root.history-rows.length > 0;
                         }
                         modes-changed => { root.options-edited(); }
@@ -2313,7 +2439,10 @@ export component AppWindow inherits Window {
                             root.move-to(root.current < 0 ? 0 : root.is-selected(root.current) ? root.current + 1 : root.current, 0);
                         }
                         escape-pressed => {
+                            root.scope = "";
+                            root.scope-label = "";
                             self.text = "";
+                            root.query = "";
                             root.query-edited("");
                         }
                     }

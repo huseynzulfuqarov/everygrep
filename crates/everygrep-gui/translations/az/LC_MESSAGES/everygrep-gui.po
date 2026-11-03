@@ -3502,3 +3502,9 @@ msgstr "Digər filtrlər…"
 
 msgid "More bookmarks…"
 msgstr "Digər əlfəcinlər…"
+
+msgid "{} (no subfolders)"
+msgstr "{} (alt qovluqlarsız)"
+
+msgid "Remove the folder from the search"
+msgstr "Qovluğu axtarışdan çıxar"

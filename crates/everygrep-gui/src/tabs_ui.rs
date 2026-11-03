@@ -321,7 +321,7 @@ fn title(tab: &Tab) -> String {
     if tab.search.query.is_empty() {
         tr("New tab").into()
     } else {
-        tab.search.query.clone()
+        crate::fileops_search::readable(&tab.search.query)
     }
 }
 
