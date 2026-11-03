@@ -1076,3 +1076,10 @@ mod find_tests {
         assert!(!super::bookmark_matches("Photos", "ext:png", "pdf"));
     }
 }
+
+pub fn imported(library: Library) {
+    with(|s| {
+        s.replace(library);
+        s.fill();
+    });
+}

@@ -48,6 +48,7 @@ mod search_history;
 mod selection;
 mod session;
 mod settings;
+mod settings_bundle;
 mod sort_dialog;
 mod stalled;
 mod tabs;

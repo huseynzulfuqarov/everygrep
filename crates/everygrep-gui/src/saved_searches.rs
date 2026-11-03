@@ -308,6 +308,10 @@ impl Library {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e),
         };
+        Self::parse(&text)
+    }
+
+    pub fn parse(text: &str) -> io::Result<Self> {
         let mut lines = text.lines();
         if lines.next() != Some(HEADER) {
             return Err(invalid(tr("Invalid saved searches header.")));
@@ -430,7 +434,67 @@ impl Library {
         Ok(library)
     }
 
-    fn text(&self) -> String {
+    /// Merge portable records with fresh identities; snapshots stay self-contained.
+    /// Existing equivalent entries are reused, making repeated imports harmless.
+    pub fn merge_import(&mut self, incoming: &Self) -> io::Result<()> {
+        let mut merged = self.clone();
+        let mut ids = std::collections::HashMap::new();
+        for filter in &incoming.filters {
+            let mut filter = filter.clone();
+            filter.name = filter.name.trim().into();
+            Query::parse(&filter.search, filter.options)
+                .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
+            let id = if let Some(same) = merged.filters.iter().find(|f| {
+                f.name == filter.name && f.search == filter.search && f.options == filter.options
+            }) {
+                same.id
+            } else if filter.id <= 9 {
+                merged.filters.retain(|f| f.id != filter.id);
+                merged.filters.push(filter.clone());
+                filter.id
+            } else {
+                merged.put_filter(None, &filter.name, &filter.search, filter.options)?
+            };
+            ids.insert(filter.id, id);
+        }
+        for bookmark in &incoming.bookmarks {
+            let mut bookmark = bookmark.clone();
+            bookmark.name = bookmark.name.trim().into();
+            if let Some(id) = ids.get(&bookmark.filter.id) {
+                bookmark.filter.id = *id;
+            }
+            let equivalent = merged.bookmarks.iter().any(|b| {
+                b.name == bookmark.name
+                    && b.search == bookmark.search
+                    && b.options == bookmark.options
+                    && b.filter == bookmark.filter
+                    && b.sort_column == bookmark.sort_column
+                    && b.descending == bookmark.descending
+            });
+            if !equivalent {
+                merged.put_bookmark(None, bookmark)?;
+            }
+        }
+        *self = merged;
+        Ok(())
+    }
+    pub fn portable(&self, filters: bool, bookmarks: bool) -> Self {
+        Self {
+            filters: if filters {
+                self.filters.clone()
+            } else {
+                Vec::new()
+            },
+            bookmarks: if bookmarks {
+                self.bookmarks.clone()
+            } else {
+                Vec::new()
+            },
+            shortcuts: Vec::new(),
+            next_id: self.next_id,
+        }
+    }
+    pub fn text(&self) -> String {
         let mut text = format!("{HEADER}\n{}\n", self.next_id);
         for f in &self.filters {
             text.push_str(&format!(

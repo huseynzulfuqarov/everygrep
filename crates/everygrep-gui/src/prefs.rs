@@ -270,7 +270,11 @@ pub struct Prefs {
 /// A replacement of every setting that waits for the user to agree.
 enum Pending {
     /// The settings read from this file.
-    Import(Box<Settings>, PathBuf),
+    Import(
+        Box<Settings>,
+        PathBuf,
+        Option<crate::saved_searches::Library>,
+    ),
     ResetAll,
 }
 
@@ -1551,8 +1555,13 @@ impl Prefs {
         if self.choosing.replace(true) {
             return;
         }
-        let text = self.settings.borrow().to_text();
+        let settings = self.settings.borrow().clone();
         std::thread::spawn(move || {
+            let text = settings::config_dir()
+                .ok_or_else(|| std::io::Error::other("settings path unavailable"))
+                .and_then(|dir| {
+                    crate::settings_bundle::export(&settings, &dir.join("saved-searches"))
+                });
             let filters = [crate::portal::SaveFilter {
                 name: labels::settings_files(),
                 pattern: "*.txt",
@@ -1565,7 +1574,7 @@ impl Prefs {
             );
             let outcome = match chosen {
                 Ok(Some((path, _))) => Some(
-                    settings::write_atomic(&path, text.as_bytes())
+                    text.and_then(|text| settings::write_atomic(&path, text.as_bytes()))
                         .map(|()| path)
                         .map_err(|e| labels::cannot_save(&e)),
                 ),
@@ -1608,7 +1617,9 @@ impl Prefs {
                         if settings::known_lines(&text) == 0 && !empty {
                             Err(labels::not_a_settings_file(&path))
                         } else {
-                            Ok((Settings::parse(&text), path))
+                            crate::settings_bundle::attachment(&text)
+                                .map(|library| (Settings::parse(&text), path.clone(), library))
+                                .map_err(|e| labels::cannot_read(&path, &e))
                         }
                     }
                     Err(e) => Err(labels::cannot_read(&path, &e)),
@@ -1620,8 +1631,9 @@ impl Prefs {
                 with(|p| {
                     p.choosing.set(false);
                     match outcome {
-                        Some(Ok((read, path))) => {
-                            *p.pending.borrow_mut() = Some(Pending::Import(Box::new(read), path));
+                        Some(Ok((read, path, library))) => {
+                            *p.pending.borrow_mut() =
+                                Some(Pending::Import(Box::new(read), path, library));
                             p.refresh();
                         }
                         Some(Err(e)) => p.set_error(Some(e)),
@@ -1642,7 +1654,11 @@ impl Prefs {
             return;
         }
         match pending {
-            Pending::Import(read, path) => {
+            Pending::Import(read, path, library) => {
+                if let Some(library) = library {
+                    self.import_saved_settings(*read, path, library);
+                    return;
+                }
                 let bad = read.problems.len();
                 self.replace_all(*read, true);
                 self.note_settings(labels::settings_imported(&path, bad));
@@ -1652,6 +1668,46 @@ impl Prefs {
                 self.note_settings(labels::settings_reset().to_owned());
             }
         }
+    }
+
+    fn import_saved_settings(
+        &self,
+        read: Settings,
+        path: PathBuf,
+        library: crate::saved_searches::Library,
+    ) {
+        self.choosing.set(true);
+        let at = self.writer.asked();
+        std::thread::spawn(move || {
+            let result = settings::config_dir()
+                .ok_or_else(|| std::io::Error::other("settings path unavailable"))
+                .and_then(|dir| {
+                    crate::saved_searches::update(&dir.join("saved-searches"), |current| {
+                        current.merge_import(&library)
+                    })
+                });
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    p.choosing.set(false);
+                    match result {
+                        Ok((library, ())) => {
+                            crate::saved_ui::imported(library);
+                            if p.writer.asked() != at {
+                                p.set_error(Some(i18n::tr("Saved searches imported. Settings changed meanwhile; import again to replace them.").into()));
+                                return;
+                            }
+                            let bad = read.problems.len();
+                            p.replace_all(read, true);
+                            p.note_settings(labels::settings_imported(&path, bad));
+                        }
+                        Err(e) => p.set_error(Some(i18n::fill(
+                            i18n::tr("Cannot save saved searches: {}"),
+                            &[&e],
+                        ))),
+                    }
+                })
+            });
+        });
     }
 
     fn note_settings(&self, text: String) {
@@ -2181,6 +2237,8 @@ impl Prefs {
         w.set_commands(ModelRc::new(VecModel::from(commands)));
         w.set_shortcut_steps(labels::shortcut_steps().into());
         self.fill_keys(w);
+        w.set_export_filters(s.export_filters);
+        w.set_export_bookmarks(s.export_bookmarks);
         w.set_settings_file(
             self.path
                 .as_ref()
@@ -2190,7 +2248,7 @@ impl Prefs {
         );
         w.set_settings_writable(self.path.is_some() && self.read_error.is_none());
         let (text, action) = match &*self.pending.borrow() {
-            Some(Pending::Import(_, file)) => (
+            Some(Pending::Import(_, file, _)) => (
                 labels::confirm_import(file),
                 labels::import_action().to_owned(),
             ),
@@ -2754,6 +2812,15 @@ impl Prefs {
         });
         w.on_reset_page(on_index(|p, i| p.reset(i)));
         w.on_export_settings(on(|p| p.export_settings()));
+        w.on_export_options_changed(on(|p| {
+            let window = p.window.borrow();
+            let Some(w) = window.as_ref() else { return };
+            let (filters, bookmarks) = (w.get_export_filters(), w.get_export_bookmarks());
+            p.change(move |s| {
+                s.export_filters = filters;
+                s.export_bookmarks = bookmarks;
+            });
+        }));
         w.on_raw_filter_changed(on(|p| {
             p.raw_kept.borrow_mut().clear();
             p.refresh();

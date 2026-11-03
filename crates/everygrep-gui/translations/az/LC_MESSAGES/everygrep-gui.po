@@ -3955,3 +3955,18 @@ msgstr "Fayl əməliyyatı gözlənilmədən dayandı. Undo tarixçəsi təmizl�
 
 msgid "File operation running…"
 msgstr "Fayl əməliyyatı işləyir…"
+
+msgid "Include filters in settings export"
+msgstr "Ayarların ixracına filtrləri daxil et"
+
+msgid "Include bookmarks in settings export"
+msgstr "Ayarların ixracına bookmark-ları daxil et"
+
+msgid "Included saved searches are merged on import. Their keyboard shortcuts are not included."
+msgstr "Daxil edilmiş saxlanmış axtarışlar idxal zamanı birləşdirilir. Onların klaviatura qısayolları daxil edilmir."
+
+msgid "Saved searches imported. Settings changed meanwhile; import again to replace them."
+msgstr "Saxlanmış axtarışlar idxal edildi. Bu arada ayarlar dəyişdi; onları əvəz etmək üçün yenidən idxal edin."
+
+msgid "Cannot save saved searches: {}"
+msgstr "Saxlanmış axtarışlar yazıla bilmir: {}"

@@ -319,6 +319,9 @@ export component SettingsWindow inherits Window {
     callback export-settings();
     callback import-settings();
     callback reset-all-settings();
+    in-out property <bool> export-filters;
+    in-out property <bool> export-bookmarks;
+    callback export-options-changed();
     in property <string> pending-text;
     in property <string> pending-action;
     callback pending-answered(bool);
@@ -1387,6 +1390,9 @@ export component SettingsWindow inherits Window {
                                     clicked => { root.reset-all-settings(); }
                                 }
                             }
+                            CheckBox { text: @tr("Include filters in settings export"); checked <=> root.export-filters; toggled => { root.export-options-changed(); } }
+                            CheckBox { text: @tr("Include bookmarks in settings export"); checked <=> root.export-bookmarks; toggled => { root.export-options-changed(); } }
+                            Note { text: @tr("Included saved searches are merged on import. Their keyboard shortcuts are not included."); }
                             Note { text: @tr("Export writes the settings as they are saved: the settings that differ from the defaults, and your keys. Import replaces every setting with those of the chosen file; Reset all puts every setting back to its default. Both ask first, and both index again when the folders to index or their rules change. The search history is never part of the settings."); }
                             if root.pending-text != "": Rectangle {
                                 border-radius: Theme.radius;

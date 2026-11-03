@@ -3955,3 +3955,18 @@ msgstr "Dosya işlemi beklenmedik şekilde durdu. Geri alma geçmişi temizlendi
 
 msgid "File operation running…"
 msgstr "Dosya işlemi sürüyor…"
+
+msgid "Include filters in settings export"
+msgstr "Ayar dışa aktarımına filtreleri dahil et"
+
+msgid "Include bookmarks in settings export"
+msgstr "Ayar dışa aktarımına yer imlerini dahil et"
+
+msgid "Included saved searches are merged on import. Their keyboard shortcuts are not included."
+msgstr "Dahil edilen kayıtlı aramalar içe aktarılırken birleştirilir. Klavye kısayolları dahil edilmez."
+
+msgid "Saved searches imported. Settings changed meanwhile; import again to replace them."
+msgstr "Kayıtlı aramalar içe aktarıldı. Bu sırada ayarlar değişti; değiştirmek için yeniden içe aktarın."
+
+msgid "Cannot save saved searches: {}"
+msgstr "Kayıtlı aramalar kaydedilemiyor: {}"

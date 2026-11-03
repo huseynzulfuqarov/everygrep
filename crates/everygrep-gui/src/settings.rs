@@ -352,6 +352,8 @@ pub struct Settings {
     pub open_searches_in_tabs: bool,
     pub switch_to_new_tab: bool,
     pub restore_session: bool,
+    pub export_filters: bool,
+    pub export_bookmarks: bool,
     pub on_close: OnClose,
     /// What the Size column shows for folders, and sorts them by. The one
     /// default that differs from the behaviour before settings existed
@@ -460,6 +462,8 @@ impl Default for Settings {
             open_searches_in_tabs: true,
             switch_to_new_tab: true,
             restore_session: false,
+            export_filters: false,
+            export_bookmarks: false,
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
             remember_columns: true,
@@ -748,6 +752,8 @@ impl Settings {
             "open-searches-in-tabs" => put_flag(&mut self.open_searches_in_tabs),
             "switch-to-new-tab" => put_flag(&mut self.switch_to_new_tab),
             "restore-session" => put_flag(&mut self.restore_session),
+            "export-filters" => put_flag(&mut self.export_filters),
+            "export-bookmarks" => put_flag(&mut self.export_bookmarks),
             "on-close" => OnClose::ALL
                 .into_iter()
                 .find(|o| o.id() == value)
@@ -1312,6 +1318,18 @@ impl Settings {
             "always-search-suggestions",
             self.always_suggestions,
             d.always_suggestions,
+        );
+        flag(
+            &mut out,
+            "export-filters",
+            self.export_filters,
+            d.export_filters,
+        );
+        flag(
+            &mut out,
+            "export-bookmarks",
+            self.export_bookmarks,
+            d.export_bookmarks,
         );
         if all || self.history_sort != d.history_sort {
             line(&mut out, "history-sort", self.history_sort.id());

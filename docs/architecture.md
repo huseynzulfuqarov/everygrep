@@ -419,6 +419,14 @@ saving it again) when it differs from the running settings and no save was
 asked for since it was read. Choosing other folders
 or rules to index is saved at once, as before.
 
+Settings exports can include filters and bookmarks independently (both off by
+initial choice). A versioned, escaped library attachment lives in the same text
+file; no history or session records are attached. Import validates the attachment
+before changing anything and merges equivalent saved searches using fresh ids.
+Bookmark filter snapshots survive a bookmark-only export. Item shortcuts remain
+local. A newer local settings edit prevents an in-flight library import from
+replacing those settings; the completed library merge is reported separately.
+
 ### Search history (`history.rs`, `search_history.rs`)
 
 `history.rs` owns the bounded session navigation trail. `search_history.rs`
