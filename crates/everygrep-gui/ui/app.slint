@@ -1771,6 +1771,29 @@ export component AppWindow inherits Window {
         return c != Command.none;
     }
 
+    // A menu gives the focus back to the control that had it when the menu
+    // closes, which is after its item ran (Slint 1.18). A command that moves
+    // the focus therefore moves it once more just after that: 1 the folder
+    // tree, 2 the result list (the search field when there are no results).
+    property <int> focus-after-menu;
+    focus-later := Timer {
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            if (root.focus-after-menu == 1 && root.folders-visible) {
+                folders.focus-tree();
+            } else if (root.focus-after-menu == 2) {
+                if (root.results.length > 0) { root.focus-list(); } else { root.focus-search(); }
+            }
+            root.focus-after-menu = 0;
+        }
+    }
+    function focus-soon(target: int) {
+        root.focus-after-menu = target;
+        focus-later.running = true;
+    }
+
     // Runs a command.
     function run(c: Command) {
         if (c == Command.new-tab || c == Command.close-tab || c == Command.duplicate-tab || c == Command.next-tab || c == Command.previous-tab || c == Command.select-tab-1 || c == Command.select-tab-2 || c == Command.select-tab-3 || c == Command.select-tab-4 || c == Command.select-tab-5 || c == Command.select-tab-6 || c == Command.select-tab-7 || c == Command.select-tab-8 || c == Command.select-tab-9 || c == Command.select-tab-10 || c == Command.list-tabs || c == Command.close-multiple-tabs || c == Command.close-left-tabs || c == Command.close-right-tabs || c == Command.close-other-tabs || c == Command.reopen-tab || c == Command.reopen-all-tabs) {
@@ -1984,6 +2007,7 @@ export component AppWindow inherits Window {
             root.folders-visible = false;
             root.folders-changed();
             if (root.results.length > 0) { root.focus-list(); } else { root.focus-search(); }
+            root.focus-soon(2);
         } else if (c == Command.folders-panel) {
             root.folders-visible = !root.folders-visible;
             root.folders-changed();
@@ -1991,6 +2015,7 @@ export component AppWindow inherits Window {
             root.folders-visible = true;
             root.folders-changed();
             folders.focus-tree();
+            root.focus-soon(1);
         } else if (c == Command.refresh) {
             root.refresh();
         } else if (c == Command.organize-columns) {
