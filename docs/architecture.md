@@ -715,7 +715,10 @@ budget, none of that group is recorded and older applied history is cleared;
 redo is invalidated and the result warns about omitted history. Each item carries a sorted, non-following tree snapshot (relative
 paths, device, inode, byte size, mode and nanosecond modification and change times). Undo
 checks the snapshot and destination vacancy on a worker, then uses strict
-`RENAME_NOREPLACE`; unsupported filesystems fail safely. Copy undo uses the
+`RENAME_NOREPLACE`; unsupported filesystems fail safely. Case-only renames on
+case-insensitive filesystems stage the source before checking target vacancy,
+then publish without replacement; a failed publication restores the source.
+Copy undo uses the
 desktop trash, while redo creates an exact-path copy from a verified source.
 It never relies on discovering a trash identifier. Cross-filesystem moves,
 overwrites and destructive deletion are excluded. No history goes to disk.

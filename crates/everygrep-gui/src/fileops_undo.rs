@@ -512,14 +512,47 @@ impl Entry {
                 (&self.to, &self.from)
             };
             self.expected.check(from)?;
-            ensure_absent(to)?;
-            transfer::rename_strict(from, to).map_err(|e| e.to_string())?;
+            reverse_rename(
+                from,
+                to,
+                actions::case_only(from, to),
+                transfer::rename_strict,
+            )?;
             self.expected = Snapshot::read(to).map_err(|e| e.to_string())?;
         }
         self.applied = redo;
         Ok(())
     }
 }
+
+fn reverse_rename(
+    from: &Path,
+    to: &Path,
+    case_alias: bool,
+    rename: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> Result<(), String> {
+    if !case_alias {
+        ensure_absent(to)?;
+        return rename(from, to).map_err(|e| e.to_string());
+    }
+    // Once the old spelling is staged, both spellings are vacant on a
+    // case-insensitive filesystem; publication never replaces another entry.
+    let parent = from
+        .parent()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput).to_string())?;
+    let staged = transfer::stage_rename(from, parent).map_err(|e| e.to_string())?;
+    let result = ensure_absent(to).and_then(|()| rename(&staged, to).map_err(|e| e.to_string()));
+    if result.is_err()
+        && let Err(e) = rename(&staged, from)
+    {
+        return Err(fill(
+            tr("Could not restore the source; it remains at {0}: {1}"),
+            &[&staged.display(), &e],
+        ));
+    }
+    result
+}
+
 fn ensure_absent(path: &Path) -> Result<(), String> {
     match fs::symlink_metadata(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -1582,5 +1615,43 @@ mod safety_tests {
         drop(guard);
         answer_tx.send(()).unwrap();
         worker.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod case_tests {
+    use super::*;
+    #[test]
+    fn case_insensitive_no_replace_rename_is_undoable_and_redoable() {
+        let dir = std::env::temp_dir().join(format!("everygrep-case-undo-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let lower = dir.join("a.txt");
+        let upper = dir.join("A.txt");
+        fs::write(&lower, "keep").unwrap();
+        let insensitive = |from: &Path, to: &Path| {
+            if from
+                .file_name()
+                .unwrap()
+                .eq_ignore_ascii_case(to.file_name().unwrap())
+            {
+                return Err(io::ErrorKind::AlreadyExists.into());
+            }
+            transfer::rename_strict(from, to)
+        };
+        assert_eq!(
+            insensitive(&lower, &upper).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        reverse_rename(&lower, &upper, true, insensitive).unwrap();
+        reverse_rename(&upper, &lower, true, insensitive).unwrap();
+        reverse_rename(&lower, &upper, true, insensitive).unwrap();
+        assert_eq!(fs::read(&upper).unwrap(), b"keep");
+        fs::write(&lower, "occupied").unwrap();
+        assert!(reverse_rename(&upper, &lower, false, transfer::rename_strict).is_err());
+        assert!(reverse_rename(&upper, &lower, true, transfer::rename_strict).is_err());
+        assert_eq!(fs::read(&lower).unwrap(), b"occupied");
+        assert_eq!(fs::read(&upper).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+        fs::remove_dir_all(dir).unwrap();
     }
 }

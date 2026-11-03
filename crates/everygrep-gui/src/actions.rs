@@ -201,7 +201,10 @@ pub fn validate_name(new_name: &str) -> Result<(), RenameError> {
 /// folder has no entry of exactly that name. A hard link under another
 /// name, also one that differs only in case, is the same item too, but a
 /// clash.
-fn case_only(old: &Path, target: &Path) -> bool {
+pub(crate) fn case_only(old: &Path, target: &Path) -> bool {
+    if old.parent() != target.parent() {
+        return false;
+    }
     let (Some(a), Some(b)) = (old.file_name(), target.file_name()) else {
         return false;
     };
