@@ -5,6 +5,7 @@ pub mod content;
 pub mod details;
 pub mod drives;
 pub mod dupe;
+pub mod filelist;
 pub mod filter;
 pub mod fold;
 pub mod frequency;
