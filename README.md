@@ -919,12 +919,16 @@ inclusive. Empty ends impose no limit. Use query (or Enter in a text field) repl
 Search as you type; with that setting off, press Enter to run it. Unsupported
 metadata conditions are omitted.
 
-Its File contents section adds one `content:` term: a word or phrase found on
-one line of the file, with its own Match case, Whole words and Regular
+Its File contents section adds one `content:` term: a word or phrase found in
+the file (over line ends unless that is off in Settings), with its own Match case, Whole words and Regular
 expression switches (the ones above apply to names), and the text encoding:
 Automatic (`content:`), the code page from Settings (`content-codepage:`), UTF-8
 (`content-utf8:`), UTF-16 LE (`content-utf16le:`) or UTF-16 BE (`content-utf16be:`).
 The text is quoted, so operators and modifiers in it are text to find.
+Its Duplicates section adds one duplicate term: what to list (all copies
+`duplicates:`, extra copies `extra-copies:`, one of each `distinct:`, only
+files without a copy `unique:`) and what they share (contents, name, name
+and size, size, name without extension, extension or date modified).
 
 Advanced Search rejects extension lists combined with Folders or Files without
 an extension. Its form and the saved-item editor scroll in short work areas.

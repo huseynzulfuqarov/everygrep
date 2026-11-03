@@ -30,7 +30,18 @@ pub struct Fields {
     // 0 automatic, 1 the code page of Settings, 2 UTF-8, 3 UTF-16 LE,
     // 4 UTF-16 BE.
     pub content_encoding: i32,
+    /// 0 no duplicate term, else an index into [`DUPE_TERMS`].
+    pub dupe_mode: i32,
+    /// What duplicates share: an index into [`DUPE_PROPERTIES`].
+    pub dupe_by: i32,
 }
+
+/// The duplicate terms of the window, after "none".
+const DUPE_TERMS: [&str; 4] = ["duplicates", "extra-copies", "distinct", "unique"];
+
+/// What duplicates share in the window: contents, name, name and size,
+/// size, name without extension, extension, date modified.
+const DUPE_PROPERTIES: [&str; 7] = ["", "name", "name;size", "size", "stem", "ext", "modified"];
 
 /// The query function that reads contents in each encoding of the window.
 const CONTENT_FUNCTIONS: [&str; 5] = [
@@ -154,6 +165,22 @@ impl Fields {
     /// One `content:` term for the content fields: its own case, whole-word
     /// and regex settings (the window's apply to names), the text quoted so
     /// no operator or modifier inside it takes effect.
+    /// The duplicate term of the Duplicates fields, if one is chosen.
+    fn dupe_term(&self) -> Result<Option<String>, String> {
+        if self.dupe_mode == 0 {
+            return Ok(None);
+        }
+        let choice = |i: i32, list: &[&'static str]| {
+            usize::try_from(i)
+                .ok()
+                .and_then(|i| list.get(i).copied())
+                .ok_or_else(|| tr("Choose a supported duplicate search.").to_owned())
+        };
+        let term = choice(self.dupe_mode - 1, &DUPE_TERMS)?;
+        let by = choice(self.dupe_by, &DUPE_PROPERTIES)?;
+        Ok(Some(format!("{term}:{by}")))
+    }
+
     fn content_term(&self) -> Result<Option<String>, String> {
         let function = usize::try_from(self.content_encoding)
             .ok()
@@ -301,6 +328,9 @@ impl Fields {
         }
         if let Some(content) = self.content_term()? {
             parts.push(content);
+        }
+        if let Some(dupe) = self.dupe_term()? {
+            parts.push(dupe);
         }
         let query = parts.join(" ");
         Query::parse(
@@ -682,6 +712,34 @@ mod tests {
             content: text.into(),
             ..Fields::default()
         }
+    }
+
+    #[test]
+    fn duplicate_fields_add_one_duplicate_term() {
+        let build = |mode: i32, by: i32, extensions: &str| {
+            Fields {
+                dupe_mode: mode,
+                dupe_by: by,
+                extensions: extensions.into(),
+                ..Fields::default()
+            }
+            .build(QueryOptions::default())
+        };
+        assert_eq!(build(0, 3, "").unwrap(), "");
+        assert_eq!(build(1, 0, "").unwrap(), "duplicates:");
+        assert_eq!(build(2, 2, "").unwrap(), "extra-copies:name;size");
+        assert_eq!(build(3, 4, "").unwrap(), "distinct:stem");
+        assert_eq!(build(4, 6, "").unwrap(), "unique:modified");
+        let q = build(1, 1, "jpg").unwrap();
+        assert!(q.ends_with(" duplicates:name"), "{q}");
+        let spec = Query::parse(&q, QueryOptions::default()).unwrap();
+        assert_eq!(
+            spec.dupes().unwrap().properties,
+            [everygrep_core::dupe::DupeProperty::Name]
+        );
+        assert!(build(5, 0, "").is_err());
+        assert!(build(1, 7, "").is_err());
+        assert!(build(1, -1, "").is_err());
     }
 
     #[test]

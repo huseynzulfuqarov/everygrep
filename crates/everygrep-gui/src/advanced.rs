@@ -122,6 +122,8 @@ impl State {
             content_whole_words: w.get_content_whole_words(),
             content_regex: w.get_content_regex(),
             content_encoding: w.get_content_encoding(),
+            dupe_mode: w.get_dupe_mode(),
+            dupe_by: w.get_dupe_by(),
         };
         let options = QueryOptions {
             case_sensitive: w.get_match_case(),

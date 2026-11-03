@@ -590,6 +590,10 @@ parse validates the output before changing the field. Filter choices are held
 by value, so a concurrent organizer edit cannot make an index select another
 filter. No form data is persisted.
 
+The Duplicates fields add one duplicate term after it (`duplicates:`,
+`extra-copies:`, `distinct:` or `unique:` with `name`, `name;size`, `size`,
+`stem`, `ext` or `modified`, nothing for contents); the window's Match case
+applies to names in it, as for typed terms.
 The File contents fields add one `content:` term at the end, always with
 explicit `case:`/`nocase:`, `wholeword:`/`nowholeword:` and `regex:`/`noregex:` modifiers so the
 window's name options do not apply to it, and the encoding function chosen

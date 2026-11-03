@@ -303,6 +303,8 @@ First version, 0.1.0, not released yet.
   42%" in the status line, and can be cancelled; a cancel keeps the
   matches found so far. File changes during the reading search again
   afterwards, reading only the files that changed.
+- Advanced Search has a Duplicates section: what to list and what the
+  copies share, written as one duplicate term.
 - While searching as you type, searches that read files (`content:`,
   duplicates by contents) wait for Enter, so typing does not read the disk
   at every key; Settings → Search → File contents turns this off.

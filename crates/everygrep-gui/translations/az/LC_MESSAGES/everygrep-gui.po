@@ -3874,3 +3874,48 @@ msgstr "Dublikatları bayt-bayt müqayisə et"
 
 msgid "Files with equal hashes are read once more and compared byte by byte, so even files made on purpose to have the same hash are not shown as copies. Slower: each file of a group is read again. Use it before deleting copies."
 msgstr "Heşi eyni olan fayllar bir daha oxunur və bayt-bayt müqayisə edilir, beləcə qəsdən eyni heşlə düzəldilmiş fayllar da kopya kimi göstərilmir. Daha yavaşdır: qrupdakı hər fayl yenidən oxunur. Kopyaları silməzdən əvvəl istifadə edin."
+
+msgid "Choose a supported duplicate search."
+msgstr "Dəstəklənən dublikat axtarışı seçin."
+
+msgid "List"
+msgstr "Göstər"
+
+msgid "Duplicates to list"
+msgstr "Göstəriləcək dublikatlar"
+
+msgid "No duplicate search"
+msgstr "Dublikat axtarışı yoxdur"
+
+msgid "All copies (duplicates:)"
+msgstr "Bütün nüsxələr (duplicates:)"
+
+msgid "Extra copies, not the first (extra-copies:)"
+msgstr "Artıq nüsxələr, birincisi yox (extra-copies:)"
+
+msgid "One of each (distinct:)"
+msgstr "Hər birindən bir (distinct:)"
+
+msgid "Only files without a copy (unique:)"
+msgstr "Yalnız nüsxəsi olmayan fayllar (unique:)"
+
+msgid "Same"
+msgstr "Eyni olan"
+
+msgid "What duplicates share"
+msgstr "Dublikatlarda eyni olan"
+
+msgid "Contents"
+msgstr "Məzmun"
+
+msgid "Name and size"
+msgstr "Ad və ölçü"
+
+msgid "Name without extension"
+msgstr "Uzantısız ad"
+
+msgid "Date modified"
+msgstr "Dəyişmə tarixi"
+
+msgid "The results of the other fields are compared among themselves. Comparing contents reads the files of equal size from disk."
+msgstr "Digər sahələrin nəticələri öz aralarında müqayisə olunur. Məzmun müqayisəsi eyni ölçülü faylları diskdən oxuyur."

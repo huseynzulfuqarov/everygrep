@@ -43,6 +43,11 @@ export component AdvancedWindow inherits Window {
     in-out property <bool> content-regex;
     // 0 automatic, 1 the code page of Settings, 2 UTF-8, 3 UTF-16 LE, 4 UTF-16 BE.
     in-out property <int> content-encoding;
+    // 0 none, 1 duplicates:, 2 extra-copies:, 3 distinct:, 4 unique:.
+    in-out property <int> dupe-mode;
+    // 0 contents, 1 name, 2 name and size, 3 size, 4 name without
+    // extension, 5 extension, 6 date modified.
+    in-out property <int> dupe-by;
     in property <[string]> filter-names;
     in-out property <int> filter-index;
     in property <string> notice;
@@ -107,6 +112,19 @@ export component AdvancedWindow inherits Window {
                 CheckBox { text: @tr("Regular expression"); accessible-label: @tr("Regular expression in file contents"); checked <=> root.content-regex; }
             }
             Text { text: @tr("File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. A space in the text also matches a line end unless that is off in Settings; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."); color: Theme.text-muted; wrap: word-wrap; }
+            Text { text: @tr("Duplicates"); color: Theme.text; font-weight: 600; }
+            GridLayout {
+                spacing: Theme.gap;
+                Row {
+                    Text { text: @tr("List"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    ComboBox { accessible-label: @tr("Duplicates to list"); model: [@tr("No duplicate search"), @tr("All copies (duplicates:)"), @tr("Extra copies, not the first (extra-copies:)"), @tr("One of each (distinct:)"), @tr("Only files without a copy (unique:)")]; current-index <=> root.dupe-mode; }
+                }
+                Row {
+                    Text { text: @tr("Same"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    ComboBox { accessible-label: @tr("What duplicates share"); enabled: root.dupe-mode > 0; model: [@tr("Contents"), @tr("Name"), @tr("Name and size"), @tr("Size"), @tr("Name without extension"), @tr("Extension"), @tr("Date modified")]; current-index <=> root.dupe-by; }
+                }
+            }
+            Text { text: @tr("The results of the other fields are compared among themselves. Comparing contents reads the files of equal size from disk."); color: Theme.text-muted; wrap: word-wrap; }
             GridLayout {
                 spacing: Theme.gap;
                 Row {
