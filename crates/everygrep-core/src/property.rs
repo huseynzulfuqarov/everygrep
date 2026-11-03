@@ -27,10 +27,30 @@ pub enum Property {
     HardLinks,
     ShortcutTarget,
     Owner,
+    Width,
+    Height,
+    Dimensions,
+    Length,
+    BitRate,
+    Title,
+    Artist,
+    Album,
+    Year,
+    Track,
+    Genre,
+    Rating,
+    Tags,
+    PageCount,
+    WordCount,
+    CameraMaker,
+    CameraModel,
+    DateTaken,
+    GpsLat,
+    GpsLong,
 }
 
 impl Property {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 37] = [
         Self::FullPath,
         Self::ParentPath,
         Self::Stem,
@@ -48,7 +68,30 @@ impl Property {
         Self::HardLinks,
         Self::ShortcutTarget,
         Self::Owner,
+        Self::Width,
+        Self::Height,
+        Self::Dimensions,
+        Self::Length,
+        Self::BitRate,
+        Self::Title,
+        Self::Artist,
+        Self::Album,
+        Self::Year,
+        Self::Track,
+        Self::Genre,
+        Self::Rating,
+        Self::Tags,
+        Self::PageCount,
+        Self::WordCount,
+        Self::CameraMaker,
+        Self::CameraModel,
+        Self::DateTaken,
+        Self::GpsLat,
+        Self::GpsLong,
     ];
+    pub fn is_media(self) -> bool {
+        self as u8 >= Self::Width as u8
+    }
     pub fn from_column(column: i32) -> Option<Self> {
         usize::try_from(column - 15)
             .ok()
@@ -65,6 +108,8 @@ pub enum Value {
     #[default]
     Empty,
     Number(u64),
+    Signed(i64),
+    Decimal(i64),
     Text(String),
 }
 impl Ord for Value {
@@ -72,6 +117,7 @@ impl Ord for Value {
         use Value::*;
         match (self, other) {
             (Number(a), Number(b)) => a.cmp(b),
+            (Signed(a), Signed(b)) | (Decimal(a), Decimal(b)) => a.cmp(b),
             (Text(a), Text(b)) => {
                 crate::collate::collate(a.as_bytes(), b.as_bytes()).then_with(|| a.cmp(b))
             }
@@ -80,7 +126,17 @@ impl Ord for Value {
             (_, Empty) => std::cmp::Ordering::Greater,
             (Number(_), Text(_)) => std::cmp::Ordering::Less,
             (Text(_), Number(_)) => std::cmp::Ordering::Greater,
+            (a, b) => value_rank(a).cmp(&value_rank(b)),
         }
+    }
+}
+fn value_rank(v: &Value) -> u8 {
+    match v {
+        Value::Empty => 0,
+        Value::Number(_) => 1,
+        Value::Signed(_) => 2,
+        Value::Decimal(_) => 3,
+        Value::Text(_) => 4,
     }
 }
 impl PartialOrd for Value {
@@ -93,6 +149,8 @@ impl std::fmt::Display for Value {
         match self {
             Self::Empty => Ok(()),
             Self::Number(n) => n.fmt(f),
+            Self::Signed(n) => n.fmt(f),
+            Self::Decimal(n) => write!(f, "{:.6}", *n as f64 / 1_000_000.),
             Self::Text(s) => s.fmt(f),
         }
     }
@@ -160,6 +218,17 @@ pub fn read(
                 .count()
                 .saturating_sub(usize::from(!store.is_dir(id))) as u64,
         ),
+        p if p.is_media() => {
+            if index.is_offline(id) || store.is_dir(id) {
+                Value::Empty
+            } else {
+                crate::media::read(&path, &[p], progress)
+                    .into_iter()
+                    .find(|(key, _)| *key == p)
+                    .map(|(_, value)| value)
+                    .unwrap_or_default()
+            }
+        }
         DiskSize | HardLinks | ShortcutTarget | Owner => {
             if index.is_offline(id) {
                 Value::Empty
@@ -179,7 +248,25 @@ pub fn read(
                 Value::Empty
             }
         }
+        _ => Value::Empty,
     })
+}
+
+impl Property {
+    pub fn display(self, value: &Value) -> String {
+        match (self, value) {
+            (Self::Length, Value::Number(ms)) => format!(
+                "{}:{:02}:{:02}",
+                ms / 3_600_000,
+                (ms / 60_000) % 60,
+                (ms / 1000) % 60
+            ),
+            (Self::Dimensions, Value::Number(n)) => {
+                format!("{} × {}", n >> 32, n & u32::MAX as u64)
+            }
+            _ => value.to_string(),
+        }
+    }
 }
 
 /// Resolve through NSS on a worker. A numeric uid remains useful without getent.

@@ -316,7 +316,7 @@ fn options(s: &str) -> io::Result<everygrep_core::query::QueryOptions> {
     saved_searches::decode_options(p[0], p[1], p[2])
 }
 /// The optional columns a tab can show, by their name in the file.
-fn column_flags(c: &Columns) -> [(&'static str, bool); 28] {
+fn column_flags(c: &Columns) -> [(&'static str, bool); 48] {
     [
         ("type", c.show_type),
         ("ext", c.show_ext),
@@ -346,6 +346,26 @@ fn column_flags(c: &Columns) -> [(&'static str, bool); 28] {
         ("hard-links", c.show_hard_links),
         ("shortcut-target", c.show_shortcut_target),
         ("owner", c.show_owner),
+        ("width", c.show_width),
+        ("height", c.show_height),
+        ("dimensions", c.show_dimensions),
+        ("length", c.show_length),
+        ("bit-rate", c.show_bit_rate),
+        ("title", c.show_title),
+        ("artist", c.show_artist),
+        ("album", c.show_album),
+        ("year", c.show_year),
+        ("track", c.show_track),
+        ("genre", c.show_genre),
+        ("rating", c.show_rating),
+        ("tags", c.show_tags),
+        ("page-count", c.show_page_count),
+        ("word-count", c.show_word_count),
+        ("camera-maker", c.show_camera_maker),
+        ("camera-model", c.show_camera_model),
+        ("date-taken", c.show_date_taken),
+        ("gps-lat", c.show_gps_lat),
+        ("gps-long", c.show_gps_long),
     ]
 }
 
@@ -379,12 +399,32 @@ fn column_flag<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut bool> {
         "hard-links" => &mut c.show_hard_links,
         "shortcut-target" => &mut c.show_shortcut_target,
         "owner" => &mut c.show_owner,
+        "width" => &mut c.show_width,
+        "height" => &mut c.show_height,
+        "dimensions" => &mut c.show_dimensions,
+        "length" => &mut c.show_length,
+        "bit-rate" => &mut c.show_bit_rate,
+        "title" => &mut c.show_title,
+        "artist" => &mut c.show_artist,
+        "album" => &mut c.show_album,
+        "year" => &mut c.show_year,
+        "track" => &mut c.show_track,
+        "genre" => &mut c.show_genre,
+        "rating" => &mut c.show_rating,
+        "tags" => &mut c.show_tags,
+        "page-count" => &mut c.show_page_count,
+        "word-count" => &mut c.show_word_count,
+        "camera-maker" => &mut c.show_camera_maker,
+        "camera-model" => &mut c.show_camera_model,
+        "date-taken" => &mut c.show_date_taken,
+        "gps-lat" => &mut c.show_gps_lat,
+        "gps-long" => &mut c.show_gps_long,
         _ => return None,
     })
 }
 
 /// The column widths of a tab, by their name in the file.
-fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 32] {
+fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 52] {
     [
         ("name", c.name),
         ("folder", c.folder),
@@ -418,6 +458,26 @@ fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 32] {
         ("hard-links", c.hard_links),
         ("shortcut-target", c.shortcut_target),
         ("owner", c.owner),
+        ("width", c.width),
+        ("height", c.height),
+        ("dimensions", c.dimensions),
+        ("length", c.length),
+        ("bit-rate", c.bit_rate),
+        ("title", c.title),
+        ("artist", c.artist),
+        ("album", c.album),
+        ("year", c.year),
+        ("track", c.track),
+        ("genre", c.genre),
+        ("rating", c.rating),
+        ("tags", c.tags),
+        ("page-count", c.page_count),
+        ("word-count", c.word_count),
+        ("camera-maker", c.camera_maker),
+        ("camera-model", c.camera_model),
+        ("date-taken", c.date_taken),
+        ("gps-lat", c.gps_lat),
+        ("gps-long", c.gps_long),
     ]
 }
 
@@ -455,6 +515,26 @@ fn column_width<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut Option<f32
         "hard-links" => &mut c.hard_links,
         "shortcut-target" => &mut c.shortcut_target,
         "owner" => &mut c.owner,
+        "width" => &mut c.width,
+        "height" => &mut c.height,
+        "dimensions" => &mut c.dimensions,
+        "length" => &mut c.length,
+        "bit-rate" => &mut c.bit_rate,
+        "title" => &mut c.title,
+        "artist" => &mut c.artist,
+        "album" => &mut c.album,
+        "year" => &mut c.year,
+        "track" => &mut c.track,
+        "genre" => &mut c.genre,
+        "rating" => &mut c.rating,
+        "tags" => &mut c.tags,
+        "page-count" => &mut c.page_count,
+        "word-count" => &mut c.word_count,
+        "camera-maker" => &mut c.camera_maker,
+        "camera-model" => &mut c.camera_model,
+        "date-taken" => &mut c.date_taken,
+        "gps-lat" => &mut c.gps_lat,
+        "gps-long" => &mut c.gps_long,
         _ => return None,
     })
 }

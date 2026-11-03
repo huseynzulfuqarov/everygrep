@@ -3612,3 +3612,63 @@ msgstr "Qısayolun hədəfi"
 msgid "Owner"
 msgstr "Sahib"
 
+msgid "Width"
+msgstr "En"
+
+msgid "Height"
+msgstr "Hündürlük"
+
+msgid "Dimensions"
+msgstr "Ölçülər"
+
+msgid "Length"
+msgstr "Müddət"
+
+msgid "Bit rate"
+msgstr "Bit sürəti"
+
+msgid "Title"
+msgstr "Başlıq"
+
+msgid "Artist"
+msgstr "İfaçı"
+
+msgid "Album"
+msgstr "Albom"
+
+msgid "Year"
+msgstr "İl"
+
+msgid "Track"
+msgstr "Trek"
+
+msgid "Genre"
+msgstr "Janr"
+
+msgid "Rating"
+msgstr "Reytinq"
+
+msgid "Tags"
+msgstr "Teqlər"
+
+msgid "Page count"
+msgstr "Səhifə sayı"
+
+msgid "Word count"
+msgstr "Söz sayı"
+
+msgid "Camera maker"
+msgstr "Kamera istehsalçısı"
+
+msgid "Camera model"
+msgstr "Kamera modeli"
+
+msgid "Date taken"
+msgstr "Çəkiliş tarixi"
+
+msgid "GPS latitude"
+msgstr "GPS enliyi"
+
+msgid "GPS longitude"
+msgstr "GPS uzunluğu"
+

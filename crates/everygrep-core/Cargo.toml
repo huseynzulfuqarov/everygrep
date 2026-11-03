@@ -23,6 +23,8 @@ crc32fast = "1.5.3"
 encoding_rs = "0.8.35"
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
+kamadak-exif = { version = "=0.6.1", default-features = false }
+lofty = { version = "=0.25.5", default-features = false, features = ["id3v2_compression_support"] }
 md-5 = { version = "0.11.0", default-features = false }
 # Regular expressions in queries. The locked version and default features
 # add no crates that were not in Cargo.lock already.

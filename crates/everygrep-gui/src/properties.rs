@@ -45,14 +45,26 @@ impl Reader {
                         continue;
                     }
                     let mut values = vec![String::new(); Property::ALL.len()];
+                    let path = index.store().path(r.id);
+                    let online_file = !index.is_offline(r.id) && !index.store().is_dir(r.id);
+                    let mut media = Vec::new();
                     for (i, property) in Property::ALL.iter().enumerate() {
                         if r.columns.get(i) == Some(&true) {
-                            values[i] = property::read(&index, r.id, *property, &p)
-                                .unwrap_or_default()
-                                .to_string();
+                            if property.is_media() {
+                                media.push(*property);
+                            } else {
+                                values[i] = property::read(&index, r.id, *property, &p)
+                                    .unwrap_or_default()
+                                    .to_string();
+                            }
                         }
                     }
                     drop(index);
+                    if online_file && !media.is_empty() {
+                        for (property, value) in everygrep_core::media::read(&path, &media, &p) {
+                            values[property as usize] = property.display(&value);
+                        }
+                    }
                     if r.serial == serial.load(Ordering::SeqCst) {
                         deliver(Batch {
                             serial: r.serial,

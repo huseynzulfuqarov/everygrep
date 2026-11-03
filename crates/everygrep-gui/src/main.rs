@@ -364,6 +364,7 @@ fn main() -> Result<(), slint::PlatformError> {
         move |text: slint::SharedString| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
+            with_model(&w, |m| m.forget_properties());
             if manual {
                 prefs.restore_parse_options(&w);
             }
@@ -2304,6 +2305,26 @@ fn apply_detail_columns(w: &AppWindow) {
             w.get_show_hard_links(),
             w.get_show_shortcut_target(),
             w.get_show_owner(),
+            w.get_show_width(),
+            w.get_show_height(),
+            w.get_show_dimensions(),
+            w.get_show_length(),
+            w.get_show_bit_rate(),
+            w.get_show_title(),
+            w.get_show_artist(),
+            w.get_show_album(),
+            w.get_show_year(),
+            w.get_show_track(),
+            w.get_show_genre(),
+            w.get_show_rating(),
+            w.get_show_tags(),
+            w.get_show_page_count(),
+            w.get_show_word_count(),
+            w.get_show_camera_maker(),
+            w.get_show_camera_model(),
+            w.get_show_date_taken(),
+            w.get_show_gps_lat(),
+            w.get_show_gps_long(),
         ]);
         m.set_detail_columns(columns);
         m.set_hash_columns(hashes);

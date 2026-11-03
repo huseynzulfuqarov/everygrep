@@ -15,6 +15,7 @@ pub mod inotify;
 pub mod kind;
 mod listing;
 pub mod localtime;
+pub mod media;
 pub mod order;
 pub mod persist;
 pub mod progress;
@@ -27,6 +28,7 @@ pub mod search;
 pub mod sort;
 pub mod store;
 pub mod sync;
+pub mod video;
 pub mod watch;
 
 /// Version of the engine, taken from the crate manifest.

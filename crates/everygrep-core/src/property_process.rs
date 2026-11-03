@@ -44,3 +44,56 @@ pub(crate) fn output(
         .ok()?;
     Some(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn missing_failed_cancelled_and_timed_out_helpers_are_empty() {
+        let p = Progress::new();
+        let args = |s: &'static str| [OsStr::new("-c"), OsStr::new(s)];
+        assert_eq!(
+            output(
+                "sh",
+                &args("printf 'Pages: 3\\n'"),
+                Duration::from_secs(1),
+                &p
+            ),
+            Some(b"Pages: 3\n".to_vec())
+        );
+        assert_eq!(
+            output("sh", &args("exit 1"), Duration::from_secs(1), &p),
+            None
+        );
+        assert_eq!(
+            output(
+                "/missing/property-helper",
+                &[],
+                Duration::from_millis(30),
+                &p
+            ),
+            None
+        );
+        let started = Instant::now();
+        assert_eq!(
+            output(
+                "sh",
+                &args("while :; do :; done"),
+                Duration::from_millis(30),
+                &p
+            ),
+            None
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        p.cancel();
+        assert_eq!(
+            output(
+                "sh",
+                &args("while :; do :; done"),
+                Duration::from_secs(2),
+                &p
+            ),
+            None
+        );
+    }
+}

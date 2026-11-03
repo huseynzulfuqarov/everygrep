@@ -226,6 +226,46 @@ pub struct Columns {
     pub shortcut_target: Option<f32>,
     pub show_owner: bool,
     pub owner: Option<f32>,
+    pub show_width: bool,
+    pub width: Option<f32>,
+    pub show_height: bool,
+    pub height: Option<f32>,
+    pub show_dimensions: bool,
+    pub dimensions: Option<f32>,
+    pub show_length: bool,
+    pub length: Option<f32>,
+    pub show_bit_rate: bool,
+    pub bit_rate: Option<f32>,
+    pub show_title: bool,
+    pub title: Option<f32>,
+    pub show_artist: bool,
+    pub artist: Option<f32>,
+    pub show_album: bool,
+    pub album: Option<f32>,
+    pub show_year: bool,
+    pub year: Option<f32>,
+    pub show_track: bool,
+    pub track: Option<f32>,
+    pub show_genre: bool,
+    pub genre: Option<f32>,
+    pub show_rating: bool,
+    pub rating: Option<f32>,
+    pub show_tags: bool,
+    pub tags: Option<f32>,
+    pub show_page_count: bool,
+    pub page_count: Option<f32>,
+    pub show_word_count: bool,
+    pub word_count: Option<f32>,
+    pub show_camera_maker: bool,
+    pub camera_maker: Option<f32>,
+    pub show_camera_model: bool,
+    pub camera_model: Option<f32>,
+    pub show_date_taken: bool,
+    pub date_taken: Option<f32>,
+    pub show_gps_lat: bool,
+    pub gps_lat: Option<f32>,
+    pub show_gps_long: bool,
+    pub gps_long: Option<f32>,
     pub name: Option<f32>,
     /// Folder's own width, kept only while the columns are wider than the
     /// window (Folder otherwise takes the room the others leave).
@@ -877,6 +917,126 @@ impl Settings {
                 self.columns.owner = Some(w);
                 true
             }
+            "show-width-column" => put_flag(&mut self.columns.show_width),
+            "width-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.width = Some(w);
+                true
+            }
+            "show-height-column" => put_flag(&mut self.columns.show_height),
+            "height-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.height = Some(w);
+                true
+            }
+            "show-dimensions-column" => put_flag(&mut self.columns.show_dimensions),
+            "dimensions-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.dimensions = Some(w);
+                true
+            }
+            "show-length-column" => put_flag(&mut self.columns.show_length),
+            "length-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.length = Some(w);
+                true
+            }
+            "show-bit-rate-column" => put_flag(&mut self.columns.show_bit_rate),
+            "bit-rate-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.bit_rate = Some(w);
+                true
+            }
+            "show-title-column" => put_flag(&mut self.columns.show_title),
+            "title-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.title = Some(w);
+                true
+            }
+            "show-artist-column" => put_flag(&mut self.columns.show_artist),
+            "artist-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.artist = Some(w);
+                true
+            }
+            "show-album-column" => put_flag(&mut self.columns.show_album),
+            "album-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.album = Some(w);
+                true
+            }
+            "show-year-column" => put_flag(&mut self.columns.show_year),
+            "year-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.year = Some(w);
+                true
+            }
+            "show-track-column" => put_flag(&mut self.columns.show_track),
+            "track-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.track = Some(w);
+                true
+            }
+            "show-genre-column" => put_flag(&mut self.columns.show_genre),
+            "genre-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.genre = Some(w);
+                true
+            }
+            "show-rating-column" => put_flag(&mut self.columns.show_rating),
+            "rating-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.rating = Some(w);
+                true
+            }
+            "show-tags-column" => put_flag(&mut self.columns.show_tags),
+            "tags-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.tags = Some(w);
+                true
+            }
+            "show-page-count-column" => put_flag(&mut self.columns.show_page_count),
+            "page-count-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.page_count = Some(w);
+                true
+            }
+            "show-word-count-column" => put_flag(&mut self.columns.show_word_count),
+            "word-count-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.word_count = Some(w);
+                true
+            }
+            "show-camera-maker-column" => put_flag(&mut self.columns.show_camera_maker),
+            "camera-maker-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.camera_maker = Some(w);
+                true
+            }
+            "show-camera-model-column" => put_flag(&mut self.columns.show_camera_model),
+            "camera-model-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.camera_model = Some(w);
+                true
+            }
+            "show-date-taken-column" => put_flag(&mut self.columns.show_date_taken),
+            "date-taken-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.date_taken = Some(w);
+                true
+            }
+            "show-gps-lat-column" => put_flag(&mut self.columns.show_gps_lat),
+            "gps-lat-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.gps_lat = Some(w);
+                true
+            }
+            "show-gps-long-column" => put_flag(&mut self.columns.show_gps_long),
+            "gps-long-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.gps_long = Some(w);
+                true
+            }
             "name-width"
             | "folder-width"
             | "size-width"
@@ -1325,7 +1485,57 @@ impl Settings {
             false,
         );
         flag(&mut out, "show-owner-column", c.show_owner, false);
+        flag(&mut out, "show-width-column", c.show_width, false);
+        flag(&mut out, "show-height-column", c.show_height, false);
+        flag(&mut out, "show-dimensions-column", c.show_dimensions, false);
+        flag(&mut out, "show-length-column", c.show_length, false);
+        flag(&mut out, "show-bit-rate-column", c.show_bit_rate, false);
+        flag(&mut out, "show-title-column", c.show_title, false);
+        flag(&mut out, "show-artist-column", c.show_artist, false);
+        flag(&mut out, "show-album-column", c.show_album, false);
+        flag(&mut out, "show-year-column", c.show_year, false);
+        flag(&mut out, "show-track-column", c.show_track, false);
+        flag(&mut out, "show-genre-column", c.show_genre, false);
+        flag(&mut out, "show-rating-column", c.show_rating, false);
+        flag(&mut out, "show-tags-column", c.show_tags, false);
+        flag(&mut out, "show-page-count-column", c.show_page_count, false);
+        flag(&mut out, "show-word-count-column", c.show_word_count, false);
+        flag(
+            &mut out,
+            "show-camera-maker-column",
+            c.show_camera_maker,
+            false,
+        );
+        flag(
+            &mut out,
+            "show-camera-model-column",
+            c.show_camera_model,
+            false,
+        );
+        flag(&mut out, "show-date-taken-column", c.show_date_taken, false);
+        flag(&mut out, "show-gps-lat-column", c.show_gps_lat, false);
+        flag(&mut out, "show-gps-long-column", c.show_gps_long, false);
         let widths = [
+            ("width-width", c.width),
+            ("height-width", c.height),
+            ("dimensions-width", c.dimensions),
+            ("length-width", c.length),
+            ("bit-rate-width", c.bit_rate),
+            ("title-width", c.title),
+            ("artist-width", c.artist),
+            ("album-width", c.album),
+            ("year-width", c.year),
+            ("track-width", c.track),
+            ("genre-width", c.genre),
+            ("rating-width", c.rating),
+            ("tags-width", c.tags),
+            ("page-count-width", c.page_count),
+            ("word-count-width", c.word_count),
+            ("camera-maker-width", c.camera_maker),
+            ("camera-model-width", c.camera_model),
+            ("date-taken-width", c.date_taken),
+            ("gps-lat-width", c.gps_lat),
+            ("gps-long-width", c.gps_long),
             ("full-path-width", c.full_path),
             ("parent-path-width", c.parent_path),
             ("stem-width", c.stem),

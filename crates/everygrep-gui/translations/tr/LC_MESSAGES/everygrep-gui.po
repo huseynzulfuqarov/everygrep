@@ -3612,3 +3612,63 @@ msgstr "Kısayol hedefi"
 msgid "Owner"
 msgstr "Sahip"
 
+msgid "Width"
+msgstr "Genişlik"
+
+msgid "Height"
+msgstr "Yükseklik"
+
+msgid "Dimensions"
+msgstr "Boyutlar"
+
+msgid "Length"
+msgstr "Süre"
+
+msgid "Bit rate"
+msgstr "Bit hızı"
+
+msgid "Title"
+msgstr "Başlık"
+
+msgid "Artist"
+msgstr "Sanatçı"
+
+msgid "Album"
+msgstr "Albüm"
+
+msgid "Year"
+msgstr "Yıl"
+
+msgid "Track"
+msgstr "Parça"
+
+msgid "Genre"
+msgstr "Tür"
+
+msgid "Rating"
+msgstr "Puan"
+
+msgid "Tags"
+msgstr "Etiketler"
+
+msgid "Page count"
+msgstr "Sayfa sayısı"
+
+msgid "Word count"
+msgstr "Sözcük sayısı"
+
+msgid "Camera maker"
+msgstr "Kamera üreticisi"
+
+msgid "Camera model"
+msgstr "Kamera modeli"
+
+msgid "Date taken"
+msgstr "Çekim tarihi"
+
+msgid "GPS latitude"
+msgstr "GPS enlemi"
+
+msgid "GPS longitude"
+msgstr "GPS boylamı"
+

@@ -690,6 +690,26 @@ component Row inherits Rectangle {
     in property <length> hard-links-width;
     in property <length> shortcut-target-width;
     in property <length> owner-width;
+    in property <length> width-width;
+    in property <length> height-width;
+    in property <length> dimensions-width;
+    in property <length> length-width;
+    in property <length> bit-rate-width;
+    in property <length> title-width;
+    in property <length> artist-width;
+    in property <length> album-width;
+    in property <length> year-width;
+    in property <length> track-width;
+    in property <length> genre-width;
+    in property <length> rating-width;
+    in property <length> tags-width;
+    in property <length> page-count-width;
+    in property <length> word-count-width;
+    in property <length> camera-maker-width;
+    in property <length> camera-model-width;
+    in property <length> date-taken-width;
+    in property <length> gps-lat-width;
+    in property <length> gps-long-width;
     // The name is being edited in place.
     in property <bool> editing;
     in-out property <string> edit-text;
@@ -1134,6 +1154,227 @@ component Row inherits Rectangle {
         width: root.owner-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.properties[16];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    property <length> width-x: root.owner-x + root.owner-width;
+    if root.width-width > 0: Text {
+        x: root.width-x + Theme.s2;
+        width: root.width-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[17];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> height-x: root.width-x + root.width-width;
+    if root.height-width > 0: Text {
+        x: root.height-x + Theme.s2;
+        width: root.height-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[18];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> dimensions-x: root.height-x + root.height-width;
+    if root.dimensions-width > 0: Text {
+        x: root.dimensions-x + Theme.s2;
+        width: root.dimensions-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[19];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> length-x: root.dimensions-x + root.dimensions-width;
+    if root.length-width > 0: Text {
+        x: root.length-x + Theme.s2;
+        width: root.length-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[20];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> bit-rate-x: root.length-x + root.length-width;
+    if root.bit-rate-width > 0: Text {
+        x: root.bit-rate-x + Theme.s2;
+        width: root.bit-rate-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[21];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> title-x: root.bit-rate-x + root.bit-rate-width;
+    if root.title-width > 0: Text {
+        x: root.title-x + Theme.s2;
+        width: root.title-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[22];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> artist-x: root.title-x + root.title-width;
+    if root.artist-width > 0: Text {
+        x: root.artist-x + Theme.s2;
+        width: root.artist-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[23];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> album-x: root.artist-x + root.artist-width;
+    if root.album-width > 0: Text {
+        x: root.album-x + Theme.s2;
+        width: root.album-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[24];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> year-x: root.album-x + root.album-width;
+    if root.year-width > 0: Text {
+        x: root.year-x + Theme.s2;
+        width: root.year-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[25];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> track-x: root.year-x + root.year-width;
+    if root.track-width > 0: Text {
+        x: root.track-x + Theme.s2;
+        width: root.track-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[26];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> genre-x: root.track-x + root.track-width;
+    if root.genre-width > 0: Text {
+        x: root.genre-x + Theme.s2;
+        width: root.genre-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[27];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> rating-x: root.genre-x + root.genre-width;
+    if root.rating-width > 0: Text {
+        x: root.rating-x + Theme.s2;
+        width: root.rating-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[28];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> tags-x: root.rating-x + root.rating-width;
+    if root.tags-width > 0: Text {
+        x: root.tags-x + Theme.s2;
+        width: root.tags-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[29];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> page-count-x: root.tags-x + root.tags-width;
+    if root.page-count-width > 0: Text {
+        x: root.page-count-x + Theme.s2;
+        width: root.page-count-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[30];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> word-count-x: root.page-count-x + root.page-count-width;
+    if root.word-count-width > 0: Text {
+        x: root.word-count-x + Theme.s2;
+        width: root.word-count-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[31];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> camera-maker-x: root.word-count-x + root.word-count-width;
+    if root.camera-maker-width > 0: Text {
+        x: root.camera-maker-x + Theme.s2;
+        width: root.camera-maker-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[32];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> camera-model-x: root.camera-maker-x + root.camera-maker-width;
+    if root.camera-model-width > 0: Text {
+        x: root.camera-model-x + Theme.s2;
+        width: root.camera-model-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[33];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> date-taken-x: root.camera-model-x + root.camera-model-width;
+    if root.date-taken-width > 0: Text {
+        x: root.date-taken-x + Theme.s2;
+        width: root.date-taken-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[34];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> gps-lat-x: root.date-taken-x + root.date-taken-width;
+    if root.gps-lat-width > 0: Text {
+        x: root.gps-lat-x + Theme.s2;
+        width: root.gps-lat-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[35];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> gps-long-x: root.gps-lat-x + root.gps-lat-width;
+    if root.gps-long-width > 0: Text {
+        x: root.gps-long-x + Theme.s2;
+        width: root.gps-long-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.properties[36];
         color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
@@ -1707,6 +1948,106 @@ export component AppWindow inherits Window {
     out property <length> owner-min: 60px;
     property <length> owner-width: self.show-owner ? max(self.owner-min, self.owner-want) : 0px;
     changed show-owner => { root.detail-columns-changed(); }
+    in-out property <bool> show-width: false;
+    in-out property <length> width-want: 160px;
+    out property <length> width-min: 60px;
+    property <length> width-width: self.show-width ? max(self.width-min, self.width-want) : 0px;
+    changed show-width => { root.detail-columns-changed(); }
+    in-out property <bool> show-height: false;
+    in-out property <length> height-want: 160px;
+    out property <length> height-min: 60px;
+    property <length> height-width: self.show-height ? max(self.height-min, self.height-want) : 0px;
+    changed show-height => { root.detail-columns-changed(); }
+    in-out property <bool> show-dimensions: false;
+    in-out property <length> dimensions-want: 160px;
+    out property <length> dimensions-min: 60px;
+    property <length> dimensions-width: self.show-dimensions ? max(self.dimensions-min, self.dimensions-want) : 0px;
+    changed show-dimensions => { root.detail-columns-changed(); }
+    in-out property <bool> show-length: false;
+    in-out property <length> length-want: 160px;
+    out property <length> length-min: 60px;
+    property <length> length-width: self.show-length ? max(self.length-min, self.length-want) : 0px;
+    changed show-length => { root.detail-columns-changed(); }
+    in-out property <bool> show-bit-rate: false;
+    in-out property <length> bit-rate-want: 160px;
+    out property <length> bit-rate-min: 60px;
+    property <length> bit-rate-width: self.show-bit-rate ? max(self.bit-rate-min, self.bit-rate-want) : 0px;
+    changed show-bit-rate => { root.detail-columns-changed(); }
+    in-out property <bool> show-title: false;
+    in-out property <length> title-want: 160px;
+    out property <length> title-min: 60px;
+    property <length> title-width: self.show-title ? max(self.title-min, self.title-want) : 0px;
+    changed show-title => { root.detail-columns-changed(); }
+    in-out property <bool> show-artist: false;
+    in-out property <length> artist-want: 160px;
+    out property <length> artist-min: 60px;
+    property <length> artist-width: self.show-artist ? max(self.artist-min, self.artist-want) : 0px;
+    changed show-artist => { root.detail-columns-changed(); }
+    in-out property <bool> show-album: false;
+    in-out property <length> album-want: 160px;
+    out property <length> album-min: 60px;
+    property <length> album-width: self.show-album ? max(self.album-min, self.album-want) : 0px;
+    changed show-album => { root.detail-columns-changed(); }
+    in-out property <bool> show-year: false;
+    in-out property <length> year-want: 160px;
+    out property <length> year-min: 60px;
+    property <length> year-width: self.show-year ? max(self.year-min, self.year-want) : 0px;
+    changed show-year => { root.detail-columns-changed(); }
+    in-out property <bool> show-track: false;
+    in-out property <length> track-want: 160px;
+    out property <length> track-min: 60px;
+    property <length> track-width: self.show-track ? max(self.track-min, self.track-want) : 0px;
+    changed show-track => { root.detail-columns-changed(); }
+    in-out property <bool> show-genre: false;
+    in-out property <length> genre-want: 160px;
+    out property <length> genre-min: 60px;
+    property <length> genre-width: self.show-genre ? max(self.genre-min, self.genre-want) : 0px;
+    changed show-genre => { root.detail-columns-changed(); }
+    in-out property <bool> show-rating: false;
+    in-out property <length> rating-want: 160px;
+    out property <length> rating-min: 60px;
+    property <length> rating-width: self.show-rating ? max(self.rating-min, self.rating-want) : 0px;
+    changed show-rating => { root.detail-columns-changed(); }
+    in-out property <bool> show-tags: false;
+    in-out property <length> tags-want: 160px;
+    out property <length> tags-min: 60px;
+    property <length> tags-width: self.show-tags ? max(self.tags-min, self.tags-want) : 0px;
+    changed show-tags => { root.detail-columns-changed(); }
+    in-out property <bool> show-page-count: false;
+    in-out property <length> page-count-want: 160px;
+    out property <length> page-count-min: 60px;
+    property <length> page-count-width: self.show-page-count ? max(self.page-count-min, self.page-count-want) : 0px;
+    changed show-page-count => { root.detail-columns-changed(); }
+    in-out property <bool> show-word-count: false;
+    in-out property <length> word-count-want: 160px;
+    out property <length> word-count-min: 60px;
+    property <length> word-count-width: self.show-word-count ? max(self.word-count-min, self.word-count-want) : 0px;
+    changed show-word-count => { root.detail-columns-changed(); }
+    in-out property <bool> show-camera-maker: false;
+    in-out property <length> camera-maker-want: 160px;
+    out property <length> camera-maker-min: 60px;
+    property <length> camera-maker-width: self.show-camera-maker ? max(self.camera-maker-min, self.camera-maker-want) : 0px;
+    changed show-camera-maker => { root.detail-columns-changed(); }
+    in-out property <bool> show-camera-model: false;
+    in-out property <length> camera-model-want: 160px;
+    out property <length> camera-model-min: 60px;
+    property <length> camera-model-width: self.show-camera-model ? max(self.camera-model-min, self.camera-model-want) : 0px;
+    changed show-camera-model => { root.detail-columns-changed(); }
+    in-out property <bool> show-date-taken: false;
+    in-out property <length> date-taken-want: 160px;
+    out property <length> date-taken-min: 60px;
+    property <length> date-taken-width: self.show-date-taken ? max(self.date-taken-min, self.date-taken-want) : 0px;
+    changed show-date-taken => { root.detail-columns-changed(); }
+    in-out property <bool> show-gps-lat: false;
+    in-out property <length> gps-lat-want: 160px;
+    out property <length> gps-lat-min: 60px;
+    property <length> gps-lat-width: self.show-gps-lat ? max(self.gps-lat-min, self.gps-lat-want) : 0px;
+    changed show-gps-lat => { root.detail-columns-changed(); }
+    in-out property <bool> show-gps-long: false;
+    in-out property <length> gps-long-want: 160px;
+    out property <length> gps-long-min: 60px;
+    property <length> gps-long-width: self.show-gps-long ? max(self.gps-long-min, self.gps-long-want) : 0px;
+    changed show-gps-long => { root.detail-columns-changed(); }
     // Created, Accessed, Attributes, a hash or a frequency column was shown
     // or hidden: their values are read (or counted) only while shown.
     callback detail-columns-changed();
@@ -1774,7 +2115,27 @@ export component AppWindow inherits Window {
         + self.folder-depth-width
         + self.hard-links-width
         + self.shortcut-target-width
-        + self.owner-width;
+        + self.owner-width
+        + self.width-width
+        + self.height-width
+        + self.dimensions-width
+        + self.length-width
+        + self.bit-rate-width
+        + self.title-width
+        + self.artist-width
+        + self.album-width
+        + self.year-width
+        + self.track-width
+        + self.genre-width
+        + self.rating-width
+        + self.tags-width
+        + self.page-count-width
+        + self.word-count-width
+        + self.camera-maker-width
+        + self.camera-model-width
+        + self.date-taken-width
+        + self.gps-lat-width
+        + self.gps-long-width;
     property <length> name-width: max(self.name-min, self.name-want);
     property <length> folder-width: max(self.folder-min, max(self.folder-want,
         list.visible-width - self.name-width - self.fixed-width));
@@ -1821,6 +2182,26 @@ export component AppWindow inherits Window {
     property <length> hard-links-x: self.folder-depth-x + self.folder-depth-width;
     property <length> shortcut-target-x: self.hard-links-x + self.hard-links-width;
     property <length> owner-x: self.shortcut-target-x + self.shortcut-target-width;
+    property <length> width-x: self.owner-x + self.owner-width;
+    property <length> height-x: self.width-x + self.width-width;
+    property <length> dimensions-x: self.height-x + self.height-width;
+    property <length> length-x: self.dimensions-x + self.dimensions-width;
+    property <length> bit-rate-x: self.length-x + self.length-width;
+    property <length> title-x: self.bit-rate-x + self.bit-rate-width;
+    property <length> artist-x: self.title-x + self.title-width;
+    property <length> album-x: self.artist-x + self.artist-width;
+    property <length> year-x: self.album-x + self.album-width;
+    property <length> track-x: self.year-x + self.year-width;
+    property <length> genre-x: self.track-x + self.track-width;
+    property <length> rating-x: self.genre-x + self.genre-width;
+    property <length> tags-x: self.rating-x + self.rating-width;
+    property <length> page-count-x: self.tags-x + self.tags-width;
+    property <length> word-count-x: self.page-count-x + self.page-count-width;
+    property <length> camera-maker-x: self.word-count-x + self.word-count-width;
+    property <length> camera-model-x: self.camera-maker-x + self.camera-maker-width;
+    property <length> date-taken-x: self.camera-model-x + self.camera-model-width;
+    property <length> gps-lat-x: self.date-taken-x + self.date-taken-width;
+    property <length> gps-long-x: self.gps-lat-x + self.gps-lat-width;
     // Width, minimum width and wanted width of column 3 (Modified) to 14
     // (Same size), numbered as sort-column.
     function col-width(c: int) -> length {
@@ -1841,6 +2222,26 @@ export component AppWindow inherits Window {
         if (c == 29) { return root.hard-links-width; }
         if (c == 30) { return root.shortcut-target-width; }
         if (c == 31) { return root.owner-width; }
+        if (c == 32) { return root.width-width; }
+        if (c == 33) { return root.height-width; }
+        if (c == 34) { return root.dimensions-width; }
+        if (c == 35) { return root.length-width; }
+        if (c == 36) { return root.bit-rate-width; }
+        if (c == 37) { return root.title-width; }
+        if (c == 38) { return root.artist-width; }
+        if (c == 39) { return root.album-width; }
+        if (c == 40) { return root.year-width; }
+        if (c == 41) { return root.track-width; }
+        if (c == 42) { return root.genre-width; }
+        if (c == 43) { return root.rating-width; }
+        if (c == 44) { return root.tags-width; }
+        if (c == 45) { return root.page-count-width; }
+        if (c == 46) { return root.word-count-width; }
+        if (c == 47) { return root.camera-maker-width; }
+        if (c == 48) { return root.camera-model-width; }
+        if (c == 49) { return root.date-taken-width; }
+        if (c == 50) { return root.gps-lat-width; }
+        if (c == 51) { return root.gps-long-width; }
         return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
             : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : c == 11 ? root.crc32-width : c == 12 ? root.name-freq-width : c == 13 ? root.ext-freq-width : root.size-freq-width;
     }
@@ -1862,6 +2263,26 @@ export component AppWindow inherits Window {
         if (c == 29) { return root.hard-links-min; }
         if (c == 30) { return root.shortcut-target-min; }
         if (c == 31) { return root.owner-min; }
+        if (c == 32) { return root.width-min; }
+        if (c == 33) { return root.height-min; }
+        if (c == 34) { return root.dimensions-min; }
+        if (c == 35) { return root.length-min; }
+        if (c == 36) { return root.bit-rate-min; }
+        if (c == 37) { return root.title-min; }
+        if (c == 38) { return root.artist-min; }
+        if (c == 39) { return root.album-min; }
+        if (c == 40) { return root.year-min; }
+        if (c == 41) { return root.track-min; }
+        if (c == 42) { return root.genre-min; }
+        if (c == 43) { return root.rating-min; }
+        if (c == 44) { return root.tags-min; }
+        if (c == 45) { return root.page-count-min; }
+        if (c == 46) { return root.word-count-min; }
+        if (c == 47) { return root.camera-maker-min; }
+        if (c == 48) { return root.camera-model-min; }
+        if (c == 49) { return root.date-taken-min; }
+        if (c == 50) { return root.gps-lat-min; }
+        if (c == 51) { return root.gps-long-min; }
         return c == 3 ? root.date-min : c == 4 ? root.type-min : c == 5 ? root.ext-min
             : c == 6 ? root.created-min : c == 7 ? root.accessed-min : c == 8 ? root.attr-min : c == 9 ? root.md5-min : c == 10 ? root.sha256-min : c == 11 ? root.crc32-min : c == 12 ? root.name-freq-min : c == 13 ? root.ext-freq-min : root.size-freq-min;
     }
@@ -1883,6 +2304,26 @@ export component AppWindow inherits Window {
         if (c == 29) { root.hard-links-want = w; return; }
         if (c == 30) { root.shortcut-target-want = w; return; }
         if (c == 31) { root.owner-want = w; return; }
+        if (c == 32) { root.width-want = w; return; }
+        if (c == 33) { root.height-want = w; return; }
+        if (c == 34) { root.dimensions-want = w; return; }
+        if (c == 35) { root.length-want = w; return; }
+        if (c == 36) { root.bit-rate-want = w; return; }
+        if (c == 37) { root.title-want = w; return; }
+        if (c == 38) { root.artist-want = w; return; }
+        if (c == 39) { root.album-want = w; return; }
+        if (c == 40) { root.year-want = w; return; }
+        if (c == 41) { root.track-want = w; return; }
+        if (c == 42) { root.genre-want = w; return; }
+        if (c == 43) { root.rating-want = w; return; }
+        if (c == 44) { root.tags-want = w; return; }
+        if (c == 45) { root.page-count-want = w; return; }
+        if (c == 46) { root.word-count-want = w; return; }
+        if (c == 47) { root.camera-maker-want = w; return; }
+        if (c == 48) { root.camera-model-want = w; return; }
+        if (c == 49) { root.date-taken-want = w; return; }
+        if (c == 50) { root.gps-lat-want = w; return; }
+        if (c == 51) { root.gps-long-want = w; return; }
         if (c == 3) {
             root.date-want = w;
         } else if (c == 4) {
@@ -1928,6 +2369,26 @@ export component AppWindow inherits Window {
         if (c == 29) { return @tr("Hard link count"); }
         if (c == 30) { return @tr("Shortcut target"); }
         if (c == 31) { return @tr("Owner"); }
+        if (c == 32) { return @tr("Width"); }
+        if (c == 33) { return @tr("Height"); }
+        if (c == 34) { return @tr("Dimensions"); }
+        if (c == 35) { return @tr("Length"); }
+        if (c == 36) { return @tr("Bit rate"); }
+        if (c == 37) { return @tr("Title"); }
+        if (c == 38) { return @tr("Artist"); }
+        if (c == 39) { return @tr("Album"); }
+        if (c == 40) { return @tr("Year"); }
+        if (c == 41) { return @tr("Track"); }
+        if (c == 42) { return @tr("Genre"); }
+        if (c == 43) { return @tr("Rating"); }
+        if (c == 44) { return @tr("Tags"); }
+        if (c == 45) { return @tr("Page count"); }
+        if (c == 46) { return @tr("Word count"); }
+        if (c == 47) { return @tr("Camera maker"); }
+        if (c == 48) { return @tr("Camera model"); }
+        if (c == 49) { return @tr("Date taken"); }
+        if (c == 50) { return @tr("GPS latitude"); }
+        if (c == 51) { return @tr("GPS longitude"); }
         return c == 0 ? @tr("Name") : c == 1 ? @tr("Folder") : c == 2 ? @tr("Size")
             : c == 3 ? @tr("Modified") : c == 4 ? @tr("Type") : c == 5 ? @tr("Extension")
             : c == 6 ? @tr("Created") : c == 7 ? @tr("Accessed") : c == 8 ? @tr("Attributes") : c == 9 ? @tr("MD5") : c == 10 ? @tr("SHA-256") : c == 11 ? @tr("CRC-32") : c == 12 ? @tr("Same name") : c == 13 ? @tr("Same extension") : @tr("Same size");
@@ -1962,7 +2423,27 @@ export component AppWindow inherits Window {
             || (c == 28 && root.show-folder-depth)
             || (c == 29 && root.show-hard-links)
             || (c == 30 && root.show-shortcut-target)
-            || (c == 31 && root.show-owner);
+            || (c == 31 && root.show-owner)
+            || (c == 32 && root.show-width)
+            || (c == 33 && root.show-height)
+            || (c == 34 && root.show-dimensions)
+            || (c == 35 && root.show-length)
+            || (c == 36 && root.show-bit-rate)
+            || (c == 37 && root.show-title)
+            || (c == 38 && root.show-artist)
+            || (c == 39 && root.show-album)
+            || (c == 40 && root.show-year)
+            || (c == 41 && root.show-track)
+            || (c == 42 && root.show-genre)
+            || (c == 43 && root.show-rating)
+            || (c == 44 && root.show-tags)
+            || (c == 45 && root.show-page-count)
+            || (c == 46 && root.show-word-count)
+            || (c == 47 && root.show-camera-maker)
+            || (c == 48 && root.show-camera-model)
+            || (c == 49 && root.show-date-taken)
+            || (c == 50 && root.show-gps-lat)
+            || (c == 51 && root.show-gps-long);
     }
 
     // Texts measured to size a column to fit: the widest-looking cells of
@@ -2054,6 +2535,26 @@ export component AppWindow inherits Window {
         if (root.show-hard-links) { root.fit-column(29); }
         if (root.show-shortcut-target) { root.fit-column(30); }
         if (root.show-owner) { root.fit-column(31); }
+        if (root.show-width) { root.fit-column(32); }
+        if (root.show-height) { root.fit-column(33); }
+        if (root.show-dimensions) { root.fit-column(34); }
+        if (root.show-length) { root.fit-column(35); }
+        if (root.show-bit-rate) { root.fit-column(36); }
+        if (root.show-title) { root.fit-column(37); }
+        if (root.show-artist) { root.fit-column(38); }
+        if (root.show-album) { root.fit-column(39); }
+        if (root.show-year) { root.fit-column(40); }
+        if (root.show-track) { root.fit-column(41); }
+        if (root.show-genre) { root.fit-column(42); }
+        if (root.show-rating) { root.fit-column(43); }
+        if (root.show-tags) { root.fit-column(44); }
+        if (root.show-page-count) { root.fit-column(45); }
+        if (root.show-word-count) { root.fit-column(46); }
+        if (root.show-camera-maker) { root.fit-column(47); }
+        if (root.show-camera-model) { root.fit-column(48); }
+        if (root.show-date-taken) { root.fit-column(49); }
+        if (root.show-gps-lat) { root.fit-column(50); }
+        if (root.show-gps-long) { root.fit-column(51); }
         root.fit-column(0);
     }
 
@@ -2092,13 +2593,33 @@ export component AppWindow inherits Window {
         let w29 = root.fit-width(29);
         let w30 = root.fit-width(30);
         let w31 = root.fit-width(31);
+        let w32 = root.fit-width(32);
+        let w33 = root.fit-width(33);
+        let w34 = root.fit-width(34);
+        let w35 = root.fit-width(35);
+        let w36 = root.fit-width(36);
+        let w37 = root.fit-width(37);
+        let w38 = root.fit-width(38);
+        let w39 = root.fit-width(39);
+        let w40 = root.fit-width(40);
+        let w41 = root.fit-width(41);
+        let w42 = root.fit-width(42);
+        let w43 = root.fit-width(43);
+        let w44 = root.fit-width(44);
+        let w45 = root.fit-width(45);
+        let w46 = root.fit-width(46);
+        let w47 = root.fit-width(47);
+        let w48 = root.fit-width(48);
+        let w49 = root.fit-width(49);
+        let w50 = root.fit-width(50);
+        let w51 = root.fit-width(51);
         let total = w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7 + w8
             + w9
             + w10
             + w11
             + w12
             + w13
-            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31;
+            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31 + w32 + w33 + w34 + w35 + w36 + w37 + w38 + w39 + w40 + w41 + w42 + w43 + w44 + w45 + w46 + w47 + w48 + w49 + w50 + w51;
         if (total <= 0px) {
             return;
         }
@@ -2135,6 +2656,26 @@ export component AppWindow inherits Window {
         if (root.show-hard-links) { root.hard-links-want = max(root.hard-links-min, w29 * f); }
         if (root.show-shortcut-target) { root.shortcut-target-want = max(root.shortcut-target-min, w30 * f); }
         if (root.show-owner) { root.owner-want = max(root.owner-min, w31 * f); }
+        if (root.show-width) { root.width-want = max(root.width-min, w32 * f); }
+        if (root.show-height) { root.height-want = max(root.height-min, w33 * f); }
+        if (root.show-dimensions) { root.dimensions-want = max(root.dimensions-min, w34 * f); }
+        if (root.show-length) { root.length-want = max(root.length-min, w35 * f); }
+        if (root.show-bit-rate) { root.bit-rate-want = max(root.bit-rate-min, w36 * f); }
+        if (root.show-title) { root.title-want = max(root.title-min, w37 * f); }
+        if (root.show-artist) { root.artist-want = max(root.artist-min, w38 * f); }
+        if (root.show-album) { root.album-want = max(root.album-min, w39 * f); }
+        if (root.show-year) { root.year-want = max(root.year-min, w40 * f); }
+        if (root.show-track) { root.track-want = max(root.track-min, w41 * f); }
+        if (root.show-genre) { root.genre-want = max(root.genre-min, w42 * f); }
+        if (root.show-rating) { root.rating-want = max(root.rating-min, w43 * f); }
+        if (root.show-tags) { root.tags-want = max(root.tags-min, w44 * f); }
+        if (root.show-page-count) { root.page-count-want = max(root.page-count-min, w45 * f); }
+        if (root.show-word-count) { root.word-count-want = max(root.word-count-min, w46 * f); }
+        if (root.show-camera-maker) { root.camera-maker-want = max(root.camera-maker-min, w47 * f); }
+        if (root.show-camera-model) { root.camera-model-want = max(root.camera-model-min, w48 * f); }
+        if (root.show-date-taken) { root.date-taken-want = max(root.date-taken-min, w49 * f); }
+        if (root.show-gps-lat) { root.gps-lat-want = max(root.gps-lat-min, w50 * f); }
+        if (root.show-gps-long) { root.gps-long-want = max(root.gps-long-min, w51 * f); }
         root.name-set = true;
     }
 
@@ -2157,6 +2698,26 @@ export component AppWindow inherits Window {
         if (c > 17 && root.show-stem) { return 17; }
         if (c > 16 && root.show-parent-path) { return 16; }
         if (c > 15 && root.show-full-path) { return 15; }
+        if (c > 51 && root.show-gps-long) { return 51; }
+        if (c > 50 && root.show-gps-lat) { return 50; }
+        if (c > 49 && root.show-date-taken) { return 49; }
+        if (c > 48 && root.show-camera-model) { return 48; }
+        if (c > 47 && root.show-camera-maker) { return 47; }
+        if (c > 46 && root.show-word-count) { return 46; }
+        if (c > 45 && root.show-page-count) { return 45; }
+        if (c > 44 && root.show-tags) { return 44; }
+        if (c > 43 && root.show-rating) { return 43; }
+        if (c > 42 && root.show-genre) { return 42; }
+        if (c > 41 && root.show-track) { return 41; }
+        if (c > 40 && root.show-year) { return 40; }
+        if (c > 39 && root.show-album) { return 39; }
+        if (c > 38 && root.show-artist) { return 38; }
+        if (c > 37 && root.show-title) { return 37; }
+        if (c > 36 && root.show-bit-rate) { return 36; }
+        if (c > 35 && root.show-length) { return 35; }
+        if (c > 34 && root.show-dimensions) { return 34; }
+        if (c > 33 && root.show-height) { return 33; }
+        if (c > 32 && root.show-width) { return 32; }
         return c > 13 && root.show-ext-freq ? 13
             : c > 12 && root.show-name-freq ? 12
             : c > 11 && root.show-crc32 ? 11
@@ -2186,6 +2747,26 @@ export component AppWindow inherits Window {
         if (root.show-stem) { return 17; }
         if (root.show-parent-path) { return 16; }
         if (root.show-full-path) { return 15; }
+        if (root.show-gps-long) { return 51; }
+        if (root.show-gps-lat) { return 50; }
+        if (root.show-date-taken) { return 49; }
+        if (root.show-camera-model) { return 48; }
+        if (root.show-camera-maker) { return 47; }
+        if (root.show-word-count) { return 46; }
+        if (root.show-page-count) { return 45; }
+        if (root.show-tags) { return 44; }
+        if (root.show-rating) { return 43; }
+        if (root.show-genre) { return 42; }
+        if (root.show-track) { return 41; }
+        if (root.show-year) { return 40; }
+        if (root.show-album) { return 39; }
+        if (root.show-artist) { return 38; }
+        if (root.show-title) { return 37; }
+        if (root.show-bit-rate) { return 36; }
+        if (root.show-length) { return 35; }
+        if (root.show-dimensions) { return 34; }
+        if (root.show-height) { return 33; }
+        if (root.show-width) { return 32; }
         return root.show-size-freq ? 14
             : root.show-ext-freq ? 13
             : root.show-name-freq ? 12
@@ -2214,7 +2795,7 @@ export component AppWindow inherits Window {
                 root.crc32-width,
                 root.name-freq-width,
                 root.ext-freq-width,
-                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width],
+                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width, root.width-width, root.height-width, root.dimensions-width, root.length-width, root.bit-rate-width, root.title-width, root.artist-width, root.album-width, root.year-width, root.track-width, root.genre-width, root.rating-width, root.tags-width, root.page-count-width, root.word-count-width, root.camera-maker-width, root.camera-model-width, root.date-taken-width, root.gps-lat-width, root.gps-long-width],
             mins: [root.name-min, root.folder-min, root.size-min, root.date-min, root.type-min,
                 root.ext-min, root.created-min, root.accessed-min, root.attr-min,
                 root.md5-min,
@@ -2222,7 +2803,7 @@ export component AppWindow inherits Window {
                 root.crc32-min,
                 root.name-freq-min,
                 root.ext-freq-min,
-                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min],
+                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min, root.width-min, root.height-min, root.dimensions-min, root.length-min, root.bit-rate-min, root.title-min, root.artist-min, root.album-min, root.year-min, root.track-min, root.genre-min, root.rating-min, root.tags-min, root.page-count-min, root.word-count-min, root.camera-maker-min, root.camera-model-min, root.date-taken-min, root.gps-lat-min, root.gps-long-min],
             window: list.visible-width,
             folder-want: root.folder-want,
         }, left, right, delta);
@@ -2311,6 +2892,26 @@ export component AppWindow inherits Window {
         { title: @tr("Hard link count"), column: 29, checked: root.show-hard-links, enabled: true },
         { title: @tr("Shortcut target"), column: 30, checked: root.show-shortcut-target, enabled: true },
         { title: @tr("Owner"), column: 31, checked: root.show-owner, enabled: true },
+        { title: @tr("Width"), column: 32, checked: root.show-width, enabled: true },
+        { title: @tr("Height"), column: 33, checked: root.show-height, enabled: true },
+        { title: @tr("Dimensions"), column: 34, checked: root.show-dimensions, enabled: true },
+        { title: @tr("Length"), column: 35, checked: root.show-length, enabled: true },
+        { title: @tr("Bit rate"), column: 36, checked: root.show-bit-rate, enabled: true },
+        { title: @tr("Title"), column: 37, checked: root.show-title, enabled: true },
+        { title: @tr("Artist"), column: 38, checked: root.show-artist, enabled: true },
+        { title: @tr("Album"), column: 39, checked: root.show-album, enabled: true },
+        { title: @tr("Year"), column: 40, checked: root.show-year, enabled: true },
+        { title: @tr("Track"), column: 41, checked: root.show-track, enabled: true },
+        { title: @tr("Genre"), column: 42, checked: root.show-genre, enabled: true },
+        { title: @tr("Rating"), column: 43, checked: root.show-rating, enabled: true },
+        { title: @tr("Tags"), column: 44, checked: root.show-tags, enabled: true },
+        { title: @tr("Page count"), column: 45, checked: root.show-page-count, enabled: true },
+        { title: @tr("Word count"), column: 46, checked: root.show-word-count, enabled: true },
+        { title: @tr("Camera maker"), column: 47, checked: root.show-camera-maker, enabled: true },
+        { title: @tr("Camera model"), column: 48, checked: root.show-camera-model, enabled: true },
+        { title: @tr("Date taken"), column: 49, checked: root.show-date-taken, enabled: true },
+        { title: @tr("GPS latitude"), column: 50, checked: root.show-gps-lat, enabled: true },
+        { title: @tr("GPS longitude"), column: 51, checked: root.show-gps-long, enabled: true },
     ];
 
     // Shows or hides optional column c (4 to 14).
@@ -2332,6 +2933,26 @@ export component AppWindow inherits Window {
         if (c == 29) { root.show-hard-links = on; root.column-shown(c, on); return; }
         if (c == 30) { root.show-shortcut-target = on; root.column-shown(c, on); return; }
         if (c == 31) { root.show-owner = on; root.column-shown(c, on); return; }
+        if (c == 32) { root.show-width = on; root.column-shown(c, on); return; }
+        if (c == 33) { root.show-height = on; root.column-shown(c, on); return; }
+        if (c == 34) { root.show-dimensions = on; root.column-shown(c, on); return; }
+        if (c == 35) { root.show-length = on; root.column-shown(c, on); return; }
+        if (c == 36) { root.show-bit-rate = on; root.column-shown(c, on); return; }
+        if (c == 37) { root.show-title = on; root.column-shown(c, on); return; }
+        if (c == 38) { root.show-artist = on; root.column-shown(c, on); return; }
+        if (c == 39) { root.show-album = on; root.column-shown(c, on); return; }
+        if (c == 40) { root.show-year = on; root.column-shown(c, on); return; }
+        if (c == 41) { root.show-track = on; root.column-shown(c, on); return; }
+        if (c == 42) { root.show-genre = on; root.column-shown(c, on); return; }
+        if (c == 43) { root.show-rating = on; root.column-shown(c, on); return; }
+        if (c == 44) { root.show-tags = on; root.column-shown(c, on); return; }
+        if (c == 45) { root.show-page-count = on; root.column-shown(c, on); return; }
+        if (c == 46) { root.show-word-count = on; root.column-shown(c, on); return; }
+        if (c == 47) { root.show-camera-maker = on; root.column-shown(c, on); return; }
+        if (c == 48) { root.show-camera-model = on; root.column-shown(c, on); return; }
+        if (c == 49) { root.show-date-taken = on; root.column-shown(c, on); return; }
+        if (c == 50) { root.show-gps-lat = on; root.column-shown(c, on); return; }
+        if (c == 51) { root.show-gps-long = on; root.column-shown(c, on); return; }
         if (c == 4) { root.show-type = on; }
         else if (c == 5) { root.show-ext = on; }
         else if (c == 6) { root.show-created = on; }
@@ -2381,6 +3002,26 @@ export component AppWindow inherits Window {
         root.show-hard-links = false; root.hard-links-want = 160px;
         root.show-shortcut-target = false; root.shortcut-target-want = 160px;
         root.show-owner = false; root.owner-want = 160px;
+        root.show-width = false; root.width-want = 160px;
+        root.show-height = false; root.height-want = 160px;
+        root.show-dimensions = false; root.dimensions-want = 160px;
+        root.show-length = false; root.length-want = 160px;
+        root.show-bit-rate = false; root.bit-rate-want = 160px;
+        root.show-title = false; root.title-want = 160px;
+        root.show-artist = false; root.artist-want = 160px;
+        root.show-album = false; root.album-want = 160px;
+        root.show-year = false; root.year-want = 160px;
+        root.show-track = false; root.track-want = 160px;
+        root.show-genre = false; root.genre-want = 160px;
+        root.show-rating = false; root.rating-want = 160px;
+        root.show-tags = false; root.tags-want = 160px;
+        root.show-page-count = false; root.page-count-want = 160px;
+        root.show-word-count = false; root.word-count-want = 160px;
+        root.show-camera-maker = false; root.camera-maker-want = 160px;
+        root.show-camera-model = false; root.camera-model-want = 160px;
+        root.show-date-taken = false; root.date-taken-want = 160px;
+        root.show-gps-lat = false; root.gps-lat-want = 160px;
+        root.show-gps-long = false; root.gps-long-want = 160px;
         root.size-want = 96px;
         root.date-want = 120px;
         root.type-want = 130px;
@@ -2799,6 +3440,26 @@ export component AppWindow inherits Window {
         { title: @tr("Hard link count"), column: 29, checked: root.sort-column == 29, enabled: root.show-hard-links },
         { title: @tr("Shortcut target"), column: 30, checked: root.sort-column == 30, enabled: root.show-shortcut-target },
         { title: @tr("Owner"), column: 31, checked: root.sort-column == 31, enabled: root.show-owner },
+        { title: @tr("Width"), column: 32, checked: root.sort-column == 32, enabled: root.show-width },
+        { title: @tr("Height"), column: 33, checked: root.sort-column == 33, enabled: root.show-height },
+        { title: @tr("Dimensions"), column: 34, checked: root.sort-column == 34, enabled: root.show-dimensions },
+        { title: @tr("Length"), column: 35, checked: root.sort-column == 35, enabled: root.show-length },
+        { title: @tr("Bit rate"), column: 36, checked: root.sort-column == 36, enabled: root.show-bit-rate },
+        { title: @tr("Title"), column: 37, checked: root.sort-column == 37, enabled: root.show-title },
+        { title: @tr("Artist"), column: 38, checked: root.sort-column == 38, enabled: root.show-artist },
+        { title: @tr("Album"), column: 39, checked: root.sort-column == 39, enabled: root.show-album },
+        { title: @tr("Year"), column: 40, checked: root.sort-column == 40, enabled: root.show-year },
+        { title: @tr("Track"), column: 41, checked: root.sort-column == 41, enabled: root.show-track },
+        { title: @tr("Genre"), column: 42, checked: root.sort-column == 42, enabled: root.show-genre },
+        { title: @tr("Rating"), column: 43, checked: root.sort-column == 43, enabled: root.show-rating },
+        { title: @tr("Tags"), column: 44, checked: root.sort-column == 44, enabled: root.show-tags },
+        { title: @tr("Page count"), column: 45, checked: root.sort-column == 45, enabled: root.show-page-count },
+        { title: @tr("Word count"), column: 46, checked: root.sort-column == 46, enabled: root.show-word-count },
+        { title: @tr("Camera maker"), column: 47, checked: root.sort-column == 47, enabled: root.show-camera-maker },
+        { title: @tr("Camera model"), column: 48, checked: root.sort-column == 48, enabled: root.show-camera-model },
+        { title: @tr("Date taken"), column: 49, checked: root.sort-column == 49, enabled: root.show-date-taken },
+        { title: @tr("GPS latitude"), column: 50, checked: root.sort-column == 50, enabled: root.show-gps-lat },
+        { title: @tr("GPS longitude"), column: 51, checked: root.sort-column == 51, enabled: root.show-gps-long },
     ];
     property <[MenuChoice]> sort-order-items: [
         { title: @tr("Ascending"), checked: !root.sort-descending },
@@ -3537,6 +4198,146 @@ export component AppWindow inherits Window {
                                     clicked => { root.sort-by(31); }
                                     right-pressed(x, y) => { root.menu-column = 31; header-menu.show({ x: self.x + x, y: y }); }
                                 }
+                                if root.show-width: HeaderCell {
+                                    x: root.width-x; width: root.width-width; height: parent.height;
+                                    label: @tr("Width");
+                                    sorted: root.sort-column == 32; descending: root.sort-descending;
+                                    clicked => { root.sort-by(32); }
+                                    right-pressed(x, y) => { root.menu-column = 32; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-height: HeaderCell {
+                                    x: root.height-x; width: root.height-width; height: parent.height;
+                                    label: @tr("Height");
+                                    sorted: root.sort-column == 33; descending: root.sort-descending;
+                                    clicked => { root.sort-by(33); }
+                                    right-pressed(x, y) => { root.menu-column = 33; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-dimensions: HeaderCell {
+                                    x: root.dimensions-x; width: root.dimensions-width; height: parent.height;
+                                    label: @tr("Dimensions");
+                                    sorted: root.sort-column == 34; descending: root.sort-descending;
+                                    clicked => { root.sort-by(34); }
+                                    right-pressed(x, y) => { root.menu-column = 34; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-length: HeaderCell {
+                                    x: root.length-x; width: root.length-width; height: parent.height;
+                                    label: @tr("Length");
+                                    sorted: root.sort-column == 35; descending: root.sort-descending;
+                                    clicked => { root.sort-by(35); }
+                                    right-pressed(x, y) => { root.menu-column = 35; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-bit-rate: HeaderCell {
+                                    x: root.bit-rate-x; width: root.bit-rate-width; height: parent.height;
+                                    label: @tr("Bit rate");
+                                    sorted: root.sort-column == 36; descending: root.sort-descending;
+                                    clicked => { root.sort-by(36); }
+                                    right-pressed(x, y) => { root.menu-column = 36; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-title: HeaderCell {
+                                    x: root.title-x; width: root.title-width; height: parent.height;
+                                    label: @tr("Title");
+                                    sorted: root.sort-column == 37; descending: root.sort-descending;
+                                    clicked => { root.sort-by(37); }
+                                    right-pressed(x, y) => { root.menu-column = 37; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-artist: HeaderCell {
+                                    x: root.artist-x; width: root.artist-width; height: parent.height;
+                                    label: @tr("Artist");
+                                    sorted: root.sort-column == 38; descending: root.sort-descending;
+                                    clicked => { root.sort-by(38); }
+                                    right-pressed(x, y) => { root.menu-column = 38; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-album: HeaderCell {
+                                    x: root.album-x; width: root.album-width; height: parent.height;
+                                    label: @tr("Album");
+                                    sorted: root.sort-column == 39; descending: root.sort-descending;
+                                    clicked => { root.sort-by(39); }
+                                    right-pressed(x, y) => { root.menu-column = 39; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-year: HeaderCell {
+                                    x: root.year-x; width: root.year-width; height: parent.height;
+                                    label: @tr("Year");
+                                    sorted: root.sort-column == 40; descending: root.sort-descending;
+                                    clicked => { root.sort-by(40); }
+                                    right-pressed(x, y) => { root.menu-column = 40; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-track: HeaderCell {
+                                    x: root.track-x; width: root.track-width; height: parent.height;
+                                    label: @tr("Track");
+                                    sorted: root.sort-column == 41; descending: root.sort-descending;
+                                    clicked => { root.sort-by(41); }
+                                    right-pressed(x, y) => { root.menu-column = 41; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-genre: HeaderCell {
+                                    x: root.genre-x; width: root.genre-width; height: parent.height;
+                                    label: @tr("Genre");
+                                    sorted: root.sort-column == 42; descending: root.sort-descending;
+                                    clicked => { root.sort-by(42); }
+                                    right-pressed(x, y) => { root.menu-column = 42; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-rating: HeaderCell {
+                                    x: root.rating-x; width: root.rating-width; height: parent.height;
+                                    label: @tr("Rating");
+                                    sorted: root.sort-column == 43; descending: root.sort-descending;
+                                    clicked => { root.sort-by(43); }
+                                    right-pressed(x, y) => { root.menu-column = 43; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-tags: HeaderCell {
+                                    x: root.tags-x; width: root.tags-width; height: parent.height;
+                                    label: @tr("Tags");
+                                    sorted: root.sort-column == 44; descending: root.sort-descending;
+                                    clicked => { root.sort-by(44); }
+                                    right-pressed(x, y) => { root.menu-column = 44; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-page-count: HeaderCell {
+                                    x: root.page-count-x; width: root.page-count-width; height: parent.height;
+                                    label: @tr("Page count");
+                                    sorted: root.sort-column == 45; descending: root.sort-descending;
+                                    clicked => { root.sort-by(45); }
+                                    right-pressed(x, y) => { root.menu-column = 45; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-word-count: HeaderCell {
+                                    x: root.word-count-x; width: root.word-count-width; height: parent.height;
+                                    label: @tr("Word count");
+                                    sorted: root.sort-column == 46; descending: root.sort-descending;
+                                    clicked => { root.sort-by(46); }
+                                    right-pressed(x, y) => { root.menu-column = 46; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-camera-maker: HeaderCell {
+                                    x: root.camera-maker-x; width: root.camera-maker-width; height: parent.height;
+                                    label: @tr("Camera maker");
+                                    sorted: root.sort-column == 47; descending: root.sort-descending;
+                                    clicked => { root.sort-by(47); }
+                                    right-pressed(x, y) => { root.menu-column = 47; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-camera-model: HeaderCell {
+                                    x: root.camera-model-x; width: root.camera-model-width; height: parent.height;
+                                    label: @tr("Camera model");
+                                    sorted: root.sort-column == 48; descending: root.sort-descending;
+                                    clicked => { root.sort-by(48); }
+                                    right-pressed(x, y) => { root.menu-column = 48; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-date-taken: HeaderCell {
+                                    x: root.date-taken-x; width: root.date-taken-width; height: parent.height;
+                                    label: @tr("Date taken");
+                                    sorted: root.sort-column == 49; descending: root.sort-descending;
+                                    clicked => { root.sort-by(49); }
+                                    right-pressed(x, y) => { root.menu-column = 49; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-gps-lat: HeaderCell {
+                                    x: root.gps-lat-x; width: root.gps-lat-width; height: parent.height;
+                                    label: @tr("GPS latitude");
+                                    sorted: root.sort-column == 50; descending: root.sort-descending;
+                                    clicked => { root.sort-by(50); }
+                                    right-pressed(x, y) => { root.menu-column = 50; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-gps-long: HeaderCell {
+                                    x: root.gps-long-x; width: root.gps-long-width; height: parent.height;
+                                    label: @tr("GPS longitude");
+                                    sorted: root.sort-column == 51; descending: root.sort-descending;
+                                    clicked => { root.sort-by(51); }
+                                    right-pressed(x, y) => { root.menu-column = 51; header-menu.show({ x: self.x + x, y: y }); }
+                                }
                             }
                             // Boundary grips, on top of the cells.
                             // A double-click on a grip sizes the column on its left to fit.
@@ -3709,6 +4510,106 @@ export component AppWindow inherits Window {
                                 x: root.owner-x - self.width / 2; height: parent.height;
                                 dragged(d) => { root.drag-boundary(31, d); }
                                 fit => { root.fit-column(root.left-of(31)); }
+                            }
+                            if root.show-width: ColumnGrip {
+                                x: root.width-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(32, d); }
+                                fit => { root.fit-column(root.left-of(32)); }
+                            }
+                            if root.show-height: ColumnGrip {
+                                x: root.height-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(33, d); }
+                                fit => { root.fit-column(root.left-of(33)); }
+                            }
+                            if root.show-dimensions: ColumnGrip {
+                                x: root.dimensions-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(34, d); }
+                                fit => { root.fit-column(root.left-of(34)); }
+                            }
+                            if root.show-length: ColumnGrip {
+                                x: root.length-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(35, d); }
+                                fit => { root.fit-column(root.left-of(35)); }
+                            }
+                            if root.show-bit-rate: ColumnGrip {
+                                x: root.bit-rate-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(36, d); }
+                                fit => { root.fit-column(root.left-of(36)); }
+                            }
+                            if root.show-title: ColumnGrip {
+                                x: root.title-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(37, d); }
+                                fit => { root.fit-column(root.left-of(37)); }
+                            }
+                            if root.show-artist: ColumnGrip {
+                                x: root.artist-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(38, d); }
+                                fit => { root.fit-column(root.left-of(38)); }
+                            }
+                            if root.show-album: ColumnGrip {
+                                x: root.album-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(39, d); }
+                                fit => { root.fit-column(root.left-of(39)); }
+                            }
+                            if root.show-year: ColumnGrip {
+                                x: root.year-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(40, d); }
+                                fit => { root.fit-column(root.left-of(40)); }
+                            }
+                            if root.show-track: ColumnGrip {
+                                x: root.track-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(41, d); }
+                                fit => { root.fit-column(root.left-of(41)); }
+                            }
+                            if root.show-genre: ColumnGrip {
+                                x: root.genre-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(42, d); }
+                                fit => { root.fit-column(root.left-of(42)); }
+                            }
+                            if root.show-rating: ColumnGrip {
+                                x: root.rating-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(43, d); }
+                                fit => { root.fit-column(root.left-of(43)); }
+                            }
+                            if root.show-tags: ColumnGrip {
+                                x: root.tags-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(44, d); }
+                                fit => { root.fit-column(root.left-of(44)); }
+                            }
+                            if root.show-page-count: ColumnGrip {
+                                x: root.page-count-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(45, d); }
+                                fit => { root.fit-column(root.left-of(45)); }
+                            }
+                            if root.show-word-count: ColumnGrip {
+                                x: root.word-count-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(46, d); }
+                                fit => { root.fit-column(root.left-of(46)); }
+                            }
+                            if root.show-camera-maker: ColumnGrip {
+                                x: root.camera-maker-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(47, d); }
+                                fit => { root.fit-column(root.left-of(47)); }
+                            }
+                            if root.show-camera-model: ColumnGrip {
+                                x: root.camera-model-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(48, d); }
+                                fit => { root.fit-column(root.left-of(48)); }
+                            }
+                            if root.show-date-taken: ColumnGrip {
+                                x: root.date-taken-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(49, d); }
+                                fit => { root.fit-column(root.left-of(49)); }
+                            }
+                            if root.show-gps-lat: ColumnGrip {
+                                x: root.gps-lat-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(50, d); }
+                                fit => { root.fit-column(root.left-of(50)); }
+                            }
+                            if root.show-gps-long: ColumnGrip {
+                                x: root.gps-long-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(51, d); }
+                                fit => { root.fit-column(root.left-of(51)); }
                             }
                             // The right edge of the last column: dragged to the right, the
                             // columns get wider than the window.
@@ -3945,6 +4846,26 @@ export component AppWindow inherits Window {
                                 hard-links-width: root.hard-links-width;
                                 shortcut-target-width: root.shortcut-target-width;
                                 owner-width: root.owner-width;
+                                width-width: root.width-width;
+                                height-width: root.height-width;
+                                dimensions-width: root.dimensions-width;
+                                length-width: root.length-width;
+                                bit-rate-width: root.bit-rate-width;
+                                title-width: root.title-width;
+                                artist-width: root.artist-width;
+                                album-width: root.album-width;
+                                year-width: root.year-width;
+                                track-width: root.track-width;
+                                genre-width: root.genre-width;
+                                rating-width: root.rating-width;
+                                tags-width: root.tags-width;
+                                page-count-width: root.page-count-width;
+                                word-count-width: root.word-count-width;
+                                camera-maker-width: root.camera-maker-width;
+                                camera-model-width: root.camera-model-width;
+                                date-taken-width: root.date-taken-width;
+                                gps-lat-width: root.gps-lat-width;
+                                gps-long-width: root.gps-long-width;
                                 pressed(mods) => {
                                     root.jump-reset();
                                     root.current = i;

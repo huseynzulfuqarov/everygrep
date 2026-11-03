@@ -729,3 +729,13 @@ column changes cancel stale requests. Directory counts describe the index,
 without recursively reading live directories. Disk allocation and link counts
 use non-following metadata. Owner names use a bounded NSS helper with a numeric
 uid fallback. Property visibility and widths follow settings, tabs and sessions.
+
+Media properties share one 8 MiB / 250 ms cooperative read budget per file.
+Regular files are opened without following links, and seeking skips payloads.
+Audio tags and properties use lofty with cover art disabled; photo tags and
+orientation use kamadak-exif. Small MP4/MOV and MKV/WebM readers skip video
+packets. PDF page counts run pdfinfo with a deadline and bounded output; a
+missing helper leaves an empty cell. Word counts cover complete UTF-8 text and
+code files within the budget. Rating and tags read common embedded or sidecar
+XMP fields. Unavailable metadata stays empty. Media sorts use the existing
+background progress and cancellation path, without a result-count limit.

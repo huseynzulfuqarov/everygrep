@@ -1038,6 +1038,58 @@ impl Prefs {
             .for_each(|v| w.set_shortcut_target_want(v));
         w.set_show_owner(c.show_owner);
         c.owner.into_iter().for_each(|v| w.set_owner_want(v));
+        w.set_show_width(c.show_width);
+        c.width.into_iter().for_each(|v| w.set_width_want(v));
+        w.set_show_height(c.show_height);
+        c.height.into_iter().for_each(|v| w.set_height_want(v));
+        w.set_show_dimensions(c.show_dimensions);
+        c.dimensions
+            .into_iter()
+            .for_each(|v| w.set_dimensions_want(v));
+        w.set_show_length(c.show_length);
+        c.length.into_iter().for_each(|v| w.set_length_want(v));
+        w.set_show_bit_rate(c.show_bit_rate);
+        c.bit_rate.into_iter().for_each(|v| w.set_bit_rate_want(v));
+        w.set_show_title(c.show_title);
+        c.title.into_iter().for_each(|v| w.set_title_want(v));
+        w.set_show_artist(c.show_artist);
+        c.artist.into_iter().for_each(|v| w.set_artist_want(v));
+        w.set_show_album(c.show_album);
+        c.album.into_iter().for_each(|v| w.set_album_want(v));
+        w.set_show_year(c.show_year);
+        c.year.into_iter().for_each(|v| w.set_year_want(v));
+        w.set_show_track(c.show_track);
+        c.track.into_iter().for_each(|v| w.set_track_want(v));
+        w.set_show_genre(c.show_genre);
+        c.genre.into_iter().for_each(|v| w.set_genre_want(v));
+        w.set_show_rating(c.show_rating);
+        c.rating.into_iter().for_each(|v| w.set_rating_want(v));
+        w.set_show_tags(c.show_tags);
+        c.tags.into_iter().for_each(|v| w.set_tags_want(v));
+        w.set_show_page_count(c.show_page_count);
+        c.page_count
+            .into_iter()
+            .for_each(|v| w.set_page_count_want(v));
+        w.set_show_word_count(c.show_word_count);
+        c.word_count
+            .into_iter()
+            .for_each(|v| w.set_word_count_want(v));
+        w.set_show_camera_maker(c.show_camera_maker);
+        c.camera_maker
+            .into_iter()
+            .for_each(|v| w.set_camera_maker_want(v));
+        w.set_show_camera_model(c.show_camera_model);
+        c.camera_model
+            .into_iter()
+            .for_each(|v| w.set_camera_model_want(v));
+        w.set_show_date_taken(c.show_date_taken);
+        c.date_taken
+            .into_iter()
+            .for_each(|v| w.set_date_taken_want(v));
+        w.set_show_gps_lat(c.show_gps_lat);
+        c.gps_lat.into_iter().for_each(|v| w.set_gps_lat_want(v));
+        w.set_show_gps_long(c.show_gps_long);
+        c.gps_long.into_iter().for_each(|v| w.set_gps_long_want(v));
         if let Some(n) = c.name {
             w.set_name_want(n);
             w.set_name_set(true);
@@ -1114,6 +1166,46 @@ impl Prefs {
             shortcut_target: Some(w.get_shortcut_target_want()),
             show_owner: w.get_show_owner(),
             owner: Some(w.get_owner_want()),
+            show_width: w.get_show_width(),
+            width: Some(w.get_width_want()),
+            show_height: w.get_show_height(),
+            height: Some(w.get_height_want()),
+            show_dimensions: w.get_show_dimensions(),
+            dimensions: Some(w.get_dimensions_want()),
+            show_length: w.get_show_length(),
+            length: Some(w.get_length_want()),
+            show_bit_rate: w.get_show_bit_rate(),
+            bit_rate: Some(w.get_bit_rate_want()),
+            show_title: w.get_show_title(),
+            title: Some(w.get_title_want()),
+            show_artist: w.get_show_artist(),
+            artist: Some(w.get_artist_want()),
+            show_album: w.get_show_album(),
+            album: Some(w.get_album_want()),
+            show_year: w.get_show_year(),
+            year: Some(w.get_year_want()),
+            show_track: w.get_show_track(),
+            track: Some(w.get_track_want()),
+            show_genre: w.get_show_genre(),
+            genre: Some(w.get_genre_want()),
+            show_rating: w.get_show_rating(),
+            rating: Some(w.get_rating_want()),
+            show_tags: w.get_show_tags(),
+            tags: Some(w.get_tags_want()),
+            show_page_count: w.get_show_page_count(),
+            page_count: Some(w.get_page_count_want()),
+            show_word_count: w.get_show_word_count(),
+            word_count: Some(w.get_word_count_want()),
+            show_camera_maker: w.get_show_camera_maker(),
+            camera_maker: Some(w.get_camera_maker_want()),
+            show_camera_model: w.get_show_camera_model(),
+            camera_model: Some(w.get_camera_model_want()),
+            show_date_taken: w.get_show_date_taken(),
+            date_taken: Some(w.get_date_taken_want()),
+            show_gps_lat: w.get_show_gps_lat(),
+            gps_lat: Some(w.get_gps_lat_want()),
+            show_gps_long: w.get_show_gps_long(),
+            gps_long: Some(w.get_gps_long_want()),
             name: w.get_name_set().then(|| w.get_name_want().round()),
             folder: (w.get_folder_want() >= 0.5).then(|| w.get_folder_want().round()),
             size: differs(w.get_size_want(), SIZE_WIDTH),
