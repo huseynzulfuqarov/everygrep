@@ -3197,3 +3197,8 @@ msgstr "Ayarlar klasörü bulunamıyor: ne XDG_CONFIG_HOME ne de HOME tanımlı.
 
 msgid "Opening the settings file…"
 msgstr "Ayarlar dosyası açılıyor…"
+
+msgid "Export only the selected result"
+msgid_plural "Export only the {} selected results"
+msgstr[0] "Yalnızca seçili sonucu dışa aktar"
+msgstr[1] "Yalnızca seçili {} sonucu dışa aktar"

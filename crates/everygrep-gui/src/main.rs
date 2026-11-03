@@ -1528,6 +1528,20 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
     window.on_export_results(move || {
         let Some(w) = weak.upgrade() else { return };
         let (ids, epoch) = model.snapshot();
+        // With part of the list selected, the dialog offers to export only
+        // that part (not ticked at the start: the whole list, as without a
+        // selection).
+        let selected = model.selected_ids();
+        let only_label = (!selected.is_empty() && selected.len() < ids.len()).then(|| {
+            fill(
+                trn(
+                    "Export only the selected result",
+                    "Export only the {} selected results",
+                    selected.len(),
+                ),
+                &[&format::count(selected.len())],
+            )
+        });
         if ids.is_empty() {
             info(&w, tr("There are no results to export.").into());
             return;
@@ -1554,11 +1568,26 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
                 .zip(&patterns)
                 .map(|(name, pattern)| portal::SaveFilter { name, pattern })
                 .collect();
-            let chosen = portal::save_file(title, accept, "everygrep-results.csv", &filters);
+            let check = only_label.as_deref().map(|label| portal::SaveCheck {
+                label,
+                ticked: false,
+            });
+            let chosen = portal::save_file_with_check(
+                title,
+                accept,
+                "everygrep-results.csv",
+                &filters,
+                check,
+            );
             let outcome = match chosen {
-                Ok(Some((path, filter))) => {
+                Ok(Some((path, filter, only_selected))) => {
                     let format = filter.and_then(|i| export::Format::ALL.get(i).copied());
                     let (target, format) = export::target(path, format);
+                    let ids = if only_selected {
+                        Arc::new(selected)
+                    } else {
+                        ids
+                    };
                     exporting_note(&weak, ids.len());
                     Some(write_export(&engine, &ids, epoch, &target, format).map(|n| (n, target)))
                 }

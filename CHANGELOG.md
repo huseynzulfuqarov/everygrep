@@ -308,7 +308,8 @@ First version, 0.1.0, not released yet.
   size, modified, offline) or as a list of full paths (one per line, a
   backslash, line break or tab in a path escaped), through the desktop's
   save dialog, written atomically. Also as TSV, an M3U8 playlist, JSON or
-  an HTML table.
+  an HTML table, and of the selected results only (a check box of the save
+  dialog).
 - Selection with the mouse and keyboard; open, open the containing folder,
   copy names or paths, rename in place, move to the trash and delete
   permanently, from keys, a context menu and the menu bar.

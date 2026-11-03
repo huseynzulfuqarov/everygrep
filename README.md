@@ -231,7 +231,9 @@ the CSV columns separated by tabs, with the same escapes in the name and the
 folder; `.m3u8` a UTF-8 playlist (`#EXTM3U`, then one full path per line; a
 path with a line break is left out); `.json` an array of objects with
 `name`, `folder`, `size`, `modified` (`null` when unknown) and `offline`;
-`.html` a web page with a table of the CSV columns. The file is written to
+`.html` a web page with a table of the CSV columns. When only part of the
+list is selected, the save dialog has a check box "Export only the N
+selected results" (not ticked at the start). The file is written to
 a temporary file and renamed into place.
 
 The menu bar (File, Edit, View, Search, Index, Tools, Help) holds the same actions,

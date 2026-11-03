@@ -558,6 +558,11 @@ impl ResultsModel {
             .is_some_and(|&id| self.selection.borrow().contains(id))
     }
 
+    /// The selected ids, in the order shown.
+    pub fn selected_ids(&self) -> Vec<NodeId> {
+        self.selection.borrow().selected(&self.ids.borrow())
+    }
+
     pub fn selected_count(&self) -> usize {
         self.selection.borrow().count(self.ids.borrow().len())
     }

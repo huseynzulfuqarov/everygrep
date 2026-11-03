@@ -3197,3 +3197,8 @@ msgstr "Ayarlar qovluğu tapılmır: nə XDG_CONFIG_HOME, nə də HOME təyin ed
 
 msgid "Opening the settings file…"
 msgstr "Ayarlar faylı açılır…"
+
+msgid "Export only the selected result"
+msgid_plural "Export only the {} selected results"
+msgstr[0] "Yalnız seçilmiş nəticəni ixrac et"
+msgstr[1] "Yalnız seçilmiş {} nəticəni ixrac et"

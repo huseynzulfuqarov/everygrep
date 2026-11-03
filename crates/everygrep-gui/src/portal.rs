@@ -171,6 +171,29 @@ pub fn save_file(
     current_name: &str,
     filters: &[SaveFilter],
 ) -> Result<Option<(PathBuf, Option<usize>)>, String> {
+    save_file_with_check(title, accept, current_name, filters, None)
+        .map(|r| r.map(|(path, filter, _)| (path, filter)))
+}
+
+/// A check box of the save dialog: its label and whether it starts ticked.
+pub struct SaveCheck<'a> {
+    pub label: &'a str,
+    pub ticked: bool,
+}
+
+/// The id of the check box in the portal's `choices`.
+const CHECK_ID: &str = "check";
+
+/// [`save_file`] with an optional check box in the dialog; also returns
+/// whether it was ticked (its start value when the dialog does not report
+/// it, as file choosers without check boxes do).
+pub fn save_file_with_check(
+    title: &str,
+    accept: &str,
+    current_name: &str,
+    filters: &[SaveFilter],
+    check: Option<SaveCheck>,
+) -> Result<Option<(PathBuf, Option<usize>, bool)>, String> {
     // a(sa(us)): name, then (0 = glob pattern, pattern).
     let list: Vec<(&str, Vec<(u32, &str)>)> = filters
         .iter()
@@ -185,6 +208,9 @@ pub fn save_file(
     if let Some(first) = list.first() {
         options.push(("current_filter", Value::from(first.clone())));
     }
+    if let Some(check) = &check {
+        options.push(("choices", Value::from(check_choices(check))));
+    }
     let Some(results) = file_chooser("SaveFile", title, options)? else {
         return Ok(None);
     };
@@ -195,7 +221,29 @@ pub fn save_file(
         .get("current_filter")
         .and_then(|v| <(String, Vec<(u32, String)>)>::try_from(v.try_clone().ok()?).ok())
         .and_then(|(name, _)| filters.iter().position(|f| f.name == name));
-    Ok(Some((path, chosen)))
+    let reported = results
+        .get("choices")
+        .and_then(|v| Vec::<(String, String)>::try_from(v.try_clone().ok()?).ok());
+    let ticked = check.is_some_and(|c| ticked(reported.as_deref(), c.ticked));
+    Ok(Some((path, chosen, ticked)))
+}
+
+/// One entry of the portal's `choices`: id, label, options, start value.
+type Choice<'a> = (&'a str, &'a str, Vec<(&'a str, &'a str)>, &'a str);
+
+/// The portal's `choices` option for one check box, `a(ssa(ss)s)`: id,
+/// label, no options (a check box), start value.
+fn check_choices<'a>(check: &SaveCheck<'a>) -> Vec<Choice<'a>> {
+    let start = if check.ticked { "true" } else { "false" };
+    vec![(CHECK_ID, check.label, Vec::new(), start)]
+}
+
+/// Whether the check box was ticked, from the `choices` the dialog
+/// reported (`a(ss)`); `start` when it reported none.
+fn ticked(reported: Option<&[(String, String)]>, start: bool) -> bool {
+    reported
+        .and_then(|r| r.iter().find(|(id, _)| id == CHECK_ID))
+        .map_or(start, |(_, value)| value == "true")
 }
 
 /// The `uris` of a file chooser response.
@@ -330,6 +378,29 @@ pub fn file_path(uri: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_check_box_is_offered_and_read_back() {
+        let check = SaveCheck {
+            label: "Only the selection",
+            ticked: false,
+        };
+        let value = Value::from(check_choices(&check));
+        assert_eq!(value.value_signature().to_string(), "a(ssa(ss)s)");
+        assert_eq!(
+            check_choices(&check),
+            [(CHECK_ID, "Only the selection", vec![], "false")]
+        );
+        let yes = [(CHECK_ID.to_owned(), "true".to_owned())];
+        let no = [(CHECK_ID.to_owned(), "false".to_owned())];
+        let other = [("other".to_owned(), "true".to_owned())];
+        assert!(ticked(Some(&yes), false));
+        assert!(!ticked(Some(&no), true));
+        // A dialog that does not report the box keeps its start value.
+        assert!(!ticked(None, false));
+        assert!(ticked(None, true));
+        assert!(!ticked(Some(&other), false));
+    }
 
     #[test]
     fn color_scheme_values() {
