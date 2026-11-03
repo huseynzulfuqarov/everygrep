@@ -616,7 +616,7 @@ impl State {
                     true,
                 );
             }
-            Command::DuplicateTab => t.add(t.open[t.active].clone(), true),
+            Command::DuplicateTab => t.duplicate(),
             Command::CloseTab => t.close(&[t.active]),
             Command::NextTab => t.step(true),
             Command::PreviousTab => t.step(false),

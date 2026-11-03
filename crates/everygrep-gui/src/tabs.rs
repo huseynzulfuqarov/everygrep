@@ -166,6 +166,12 @@ impl Tabs {
         }
     }
 
+    pub fn duplicate(&mut self) {
+        let index = self.active + 1;
+        self.open.insert(index, self.open[self.active].clone());
+        self.active = index;
+    }
+
     pub fn select(&mut self, index: usize) {
         if index < self.open.len() {
             self.active = index;
@@ -389,6 +395,22 @@ mod tests {
         t.select(100);
         assert_eq!(t.active, 3);
     }
+    #[test]
+    fn duplicate_is_inserted_after_its_source() {
+        for source in 0..3 {
+            let mut tabs = filled(3);
+            tabs.select(source);
+            tabs.duplicate();
+            assert_eq!(tabs.active, source + 1);
+            assert_eq!(tabs.open[tabs.active].search, tabs.open[source].search);
+            let mut expected = vec!["0".to_owned(), "1".to_owned(), "2".to_owned()];
+            expected.insert(source + 1, source.to_string());
+            assert_eq!(names(&tabs), expected);
+            tabs.open[tabs.active].search.query.push('x');
+            assert_eq!(tabs.open[source].search.query, source.to_string());
+        }
+    }
+
     #[test]
     fn bulk_close_preserves_active_and_handles_duplicates() {
         let mut t = filled(6);
