@@ -1366,21 +1366,22 @@ impl Prefs {
         if !self.index.borrow().saved || self.index_path().is_none() {
             return;
         }
-        let folder = folder.map(|f| std::fs::canonicalize(&f).unwrap_or(f));
-        let file = match &folder {
-            Some(f) => f.join(settings::INDEX_FILE_NAME),
-            None => match everygrep_core::persist::default_path() {
-                Some(f) => f,
-                None => return,
-            },
-        };
-        // The cache folder chosen by hand is the default.
-        let folder =
-            folder.filter(|_| Some(&file) != everygrep_core::persist::default_path().as_ref());
         let engine = Arc::clone(&self.engine);
         let _ = std::thread::Builder::new()
             .name("move index".into())
             .spawn(move || {
+                let folder = folder.map(|f| std::fs::canonicalize(&f).unwrap_or(f));
+                let file = match &folder {
+                    Some(f) => f.join(settings::INDEX_FILE_NAME),
+                    None => match everygrep_core::persist::default_path() {
+                        Some(f) => f,
+                        None => return,
+                    },
+                };
+                // The cache folder chosen by hand is the default.
+                let folder = folder
+                    .filter(|_| Some(&file) != everygrep_core::persist::default_path().as_ref());
+
                 let writable = file
                     .parent()
                     .map_or(Ok(()), std::fs::create_dir_all)
@@ -1388,10 +1389,7 @@ impl Prefs {
                     .map(|(_, temp)| {
                         let _ = std::fs::remove_file(temp);
                     });
-                if writable.is_ok() {
-                    engine.move_index_file(file.clone());
-                    engine.save();
-                }
+                let writable = writable.and_then(|()| engine.move_index_file(file.clone()));
                 let _ = slint::invoke_from_event_loop(move || {
                     with(|p| match writable {
                         Ok(()) => {
