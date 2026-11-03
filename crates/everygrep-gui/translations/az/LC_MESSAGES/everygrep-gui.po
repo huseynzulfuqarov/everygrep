@@ -3536,3 +3536,6 @@ msgid_plural "Redid {} items."
 msgstr[0] "{} element təkrarlandı."
 msgstr[1] "{} element təkrarlandı."
 
+
+msgid " and {} more"
+msgstr " və daha {} element"

@@ -174,10 +174,15 @@ pub fn availability() -> (bool, bool) {
     journal.availability(config.enabled)
 }
 
+struct SkippedItem {
+    name: String,
+    reason: String,
+}
+
 #[derive(Default)]
 struct StepOutcome {
     done: usize,
-    skipped: Vec<String>,
+    skipped: Vec<SkippedItem>,
 }
 
 impl Journal {
@@ -284,9 +289,20 @@ impl Journal {
             {
                 break;
             }
+            let entry = &self.entries[index?];
+            let path = if entry.applied {
+                &entry.to
+            } else {
+                &entry.from
+            };
+            let name = path
+                .file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned();
             match self.step_one(redo, trash, progress)? {
                 Ok(()) => outcome.done += 1,
-                Err(why) => outcome.skipped.push(why),
+                Err(reason) => outcome.skipped.push(SkippedItem { name, reason }),
             }
             if progress.is_cancelled() {
                 break;
@@ -653,14 +669,28 @@ pub fn run(request: Request, progress: &Progress) -> (String, bool) {
     (text, outcomes.iter().any(|o| !o.skipped.is_empty()))
 }
 
-fn unique_reasons(reasons: &[String]) -> String {
-    let mut unique = Vec::new();
-    for reason in reasons {
-        if !unique.contains(&reason.as_str()) {
-            unique.push(reason.as_str());
+fn skipped_reasons(skipped: &[&SkippedItem]) -> String {
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for item in skipped {
+        if let Some((_, names)) = groups.iter_mut().find(|(reason, _)| *reason == item.reason) {
+            if !names.contains(&item.name.as_str()) {
+                names.push(&item.name);
+            }
+        } else {
+            groups.push((&item.reason, vec![&item.name]));
         }
     }
-    unique.join("; ")
+    groups
+        .into_iter()
+        .map(|(reason, names)| {
+            let mut shown = names.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+            if names.len() > 3 {
+                shown.push_str(&fill(tr(" and {} more"), &[&(names.len() - 3)]));
+            }
+            format!("{shown}: {reason}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn reverse_summary(redo: bool, outcomes: &[StepOutcome]) -> String {
@@ -711,12 +741,9 @@ fn reverse_summary(redo: bool, outcomes: &[StepOutcome]) -> String {
             &[&outcome.skipped.len()],
         ));
     }
-    let reasons: Vec<_> = outcomes
-        .iter()
-        .flat_map(|o| o.skipped.iter().cloned())
-        .collect();
+    let reasons: Vec<_> = outcomes.iter().flat_map(|o| o.skipped.iter()).collect();
     if !reasons.is_empty() {
-        parts.push(unique_reasons(&reasons));
+        parts.push(skipped_reasons(&reasons));
     }
     parts.join(" ")
 }
@@ -807,12 +834,15 @@ mod tests {
         let outcomes: Vec<_> = (0..2)
             .map(|_| StepOutcome {
                 done: 0,
-                skipped: vec!["Changed externally.".into()],
+                skipped: vec![SkippedItem {
+                    name: "a.txt".into(),
+                    reason: "Changed externally.".into(),
+                }],
             })
             .collect();
         assert_eq!(
             reverse_summary(false, &outcomes),
-            "Skipped 2 steps. Changed externally."
+            "Skipped 2 steps. a.txt: Changed externally."
         );
     }
 
@@ -836,6 +866,7 @@ mod tests {
         let outcome = j.step(false, &trash, &Progress::new()).unwrap();
         assert_eq!(outcome.done, 2);
         assert_eq!(outcome.skipped.len(), 1);
+        assert_eq!(outcome.skipped[0].name, "copy-1");
         assert!(t.0.join("copy-0.trashed").exists());
         assert!(t.0.join("copy-2.trashed").exists());
         assert_eq!(fs::read(changed).unwrap(), b"changed contents");
@@ -843,6 +874,21 @@ mod tests {
         assert!(
             text.starts_with("Partly undid a step. Undid 2 items. Skipped 1 item."),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn skipped_names_are_grouped_by_reason_and_bounded() {
+        let items: Vec<_> = (0..6)
+            .map(|i| SkippedItem {
+                name: format!("file-{i}"),
+                reason: "Changed.".into(),
+            })
+            .collect();
+        let refs: Vec<_> = items.iter().chain(items[..1].iter()).collect();
+        assert_eq!(
+            skipped_reasons(&refs),
+            "file-0, file-1, file-2 and 3 more: Changed."
         );
     }
 
@@ -956,10 +1002,8 @@ mod tests {
         let mut j = journal(vec![e]);
         fs::write(&b, "changed contents").unwrap();
         assert!(
-            j.step(false, &no_trash, &Progress::new())
-                .unwrap()
-                .skipped
-                .join("; ")
+            j.step(false, &no_trash, &Progress::new()).unwrap().skipped[0]
+                .reason
                 .contains("changed")
         );
         assert_eq!(j.cursor, 0);
