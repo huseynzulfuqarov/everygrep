@@ -2162,8 +2162,8 @@ msgid "Time of day of the rescan"
 msgstr "Yeniden taramanın günün hangi saatinde yapılacağı"
 
 #: ui/settings.slint
-msgid "A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."
-msgstr "Yeniden tarama, “Dizini şimdi yeniden oluştur” gibi dizine eklenen her klasörü sıfırdan okur ve hiçbir olayın bildirmediği değişiklikleri de bulur; örneğin klasörüne dokunmadan içeriği değişen bir dosya. Saatler son tam taramadan ya da EveryGrep'in açılışından itibaren sayılır; bilgisayar uykudayken geçen günlük saat bir sonraki denetimde çalışır. Dizin güncellemeleri duraklatıldığında hiçbir şey çalışmaz."
+msgid "A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan, also across restarts (from the start of EveryGrep when none is known); a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."
+msgstr "Yeniden tarama, “Dizini şimdi yeniden oluştur” gibi dizine eklenen her klasörü sıfırdan okur ve hiçbir olayın bildirmediği değişiklikleri de bulur; örneğin klasörüne dokunmadan içeriği değişen bir dosya. Saatler son tam taramadan itibaren, yeniden başlatmalarda da sayılır (bilinen bir tarama yoksa EveryGrep'in açılışından itibaren); bilgisayar uykudayken geçen günlük saat bir sonraki denetimde çalışır. Dizin güncellemeleri duraklatıldığında hiçbir şey çalışmaz."
 
 #: src/labels.rs
 msgid "Never"

@@ -414,7 +414,7 @@ the program behaves as before, except that folders show their total size.
 |---|---|---|
 | Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
 | | watch for changes (off: nothing is watched and the status line says so; on again catches up) | on |
-| | rescan the folders: never, every N hours (1 to 168, counted from the last full scan or the start) or every day at a time (`HH:MM`; a time passed while the computer slept runs at the next check); not while index updates are paused | never (24 hours, 03:00 when chosen) |
+| | rescan the folders: never, every N hours (1 to 168, counted from the last full scan, also across restarts: its time is kept in `last-full-scan` next to the index file; from the start when there is none) or every day at a time (`HH:MM`; a time passed while the computer slept runs at the next check); not while index updates are paused | never (24 hours, 03:00 when chosen) |
 | | index file sizes and modification times (off: only names are read, which is faster; Size and Modified are empty for files, folders have no total size, `size:` and `modified:` find no files; changing it indexes again) | on |
 | | use the exclude list (excluded folders and file filters) | on |
 | | excluded folders, by path (folder chooser) or pattern; left out of the index with all they hold | none |
@@ -423,7 +423,7 @@ the program behaves as before, except that folders show their total size.
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
 | | "Rebuild index now" | — |
-| | index file: the folder of `index.bin` (and `hashes.bin` next to it), "Choose folder…" moves it there at once and removes the old file once the new one is written; drive indexes stay in the cache folder; not for a window started with `--root` or `--index-file` | the cache folder |
+| | index file: the folder of `index.bin` (and `hashes.bin` and `last-full-scan` next to it), "Choose folder…" moves it there at once and removes the old file once the new one is written; drive indexes stay in the cache folder; not for a window started with `--root` or `--index-file` | the cache folder |
 | | index details: files, folders, size of the files, folders to index, drives in the index (connected), memory, the index file and its size, the last full scan, folders not watched; counted when the settings open and with "Count again" | — |
 | Search | search as you type (off: the search runs when Enter is pressed in the search field) | on |
 | | a click into the search field selects its text (a second click places the cursor) | on |

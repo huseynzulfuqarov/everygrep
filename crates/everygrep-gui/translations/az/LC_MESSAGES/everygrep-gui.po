@@ -2162,8 +2162,8 @@ msgid "Time of day of the rescan"
 msgstr "Yenidən skanın günün hansı saatında olacağı"
 
 #: ui/settings.slint
-msgid "A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."
-msgstr "Yenidən skan indekslənən bütün qovluqları, “İndeksi indi yenidən qur” kimi, sıfırdan oxuyur və heç bir hadisənin bildirmədiyi dəyişiklikləri də tapır, məsələn qovluğuna toxunmadan məzmunu dəyişən faylı. Saatlar son tam skandan və ya EveryGrep-in açılışından sayılır; kompüter yuxu rejimində ikən keçən gündəlik vaxt növbəti yoxlamada icra olunur. İndeksin yenilənməsinə fasilə verilibsə, heç nə icra olunmur."
+msgid "A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan, also across restarts (from the start of EveryGrep when none is known); a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."
+msgstr "Yenidən skan indekslənən bütün qovluqları, “İndeksi indi yenidən qur” kimi, sıfırdan oxuyur və heç bir hadisənin bildirmədiyi dəyişiklikləri də tapır, məsələn qovluğuna toxunmadan məzmunu dəyişən faylı. Saatlar son tam skandan sayılır, proqram yenidən açılanda da (heç bir skan məlum deyilsə, EveryGrep-in açılışından); kompüter yuxu rejimində ikən keçən gündəlik vaxt növbəti yoxlamada icra olunur. İndeksin yenilənməsinə fasilə verilibsə, heç nə icra olunmur."
 
 #: src/labels.rs
 msgid "Never"

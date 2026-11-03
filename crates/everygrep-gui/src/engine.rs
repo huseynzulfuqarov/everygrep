@@ -509,7 +509,8 @@ pub struct Engine {
     /// [`Index::frequencies`]).
     frequency_columns: AtomicBool,
     /// When the folders to index are scanned again by themselves, the time
-    /// of the last full scan (or of the start) and of the last look at the
+    /// of the last full scan (kept in [`LAST_FULL_SCAN_FILE`] across
+    /// restarts; the start when there is none) and of the last look at the
     /// schedule, in seconds since 1970, and the local time zone, read on
     /// the index thread when first needed.
     schedule: Mutex<Schedule>,
@@ -519,6 +520,8 @@ pub struct Engine {
     last_scheduled_scan: AtomicI64,
     /// Whether the folders were scanned from scratch since the start.
     scanned_this_session: AtomicBool,
+    /// Whether `last_full_scan` was read from [`LAST_FULL_SCAN_FILE`].
+    last_full_scan_saved: AtomicBool,
     schedule_checked: AtomicI64,
     zone: std::sync::OnceLock<everygrep_core::localtime::Zone>,
 }
@@ -574,6 +577,25 @@ pub struct StoppedSearch(QueryState);
 
 /// The hash cache's file, next to the index file.
 pub const HASH_FILE: &str = "hashes.bin";
+
+/// The time of the last full scan (seconds since 1970, as text), next to the
+/// index file, so a rescan every N hours counts across restarts.
+pub const LAST_FULL_SCAN_FILE: &str = "last-full-scan";
+
+/// The time saved by [`save_last_full_scan`] next to `index_file`.
+fn load_last_full_scan(index_file: &Path) -> Option<i64> {
+    let text = std::fs::read_to_string(index_file.with_file_name(LAST_FULL_SCAN_FILE)).ok()?;
+    text.trim().parse().ok().filter(|&t| t > 0)
+}
+
+/// Saves `at` next to `index_file`, replacing the old file in one step. A
+/// failure only means the next start counts from its own start again.
+fn save_last_full_scan(index_file: &Path, at: i64) -> std::io::Result<()> {
+    let path = index_file.with_file_name(LAST_FULL_SCAN_FILE);
+    let temporary = path.with_extension("new");
+    std::fs::write(&temporary, format!("{at}\n"))?;
+    std::fs::rename(&temporary, &path)
+}
 
 const REFRESH_EVERY: Duration = Duration::from_millis(500);
 /// While files are read for a content search, the matches so far are shown
@@ -673,6 +695,7 @@ impl Engine {
             last_full_scan: AtomicI64::new(unix_now()),
             last_scheduled_scan: AtomicI64::new(0),
             scanned_this_session: AtomicBool::new(false),
+            last_full_scan_saved: AtomicBool::new(false),
             schedule_checked: AtomicI64::new(unix_now()),
             zone: std::sync::OnceLock::new(),
         });
@@ -830,8 +853,12 @@ impl Engine {
     }
 
     fn note_full_scan(&self) {
-        self.last_full_scan.store(unix_now(), Ordering::SeqCst);
+        let now = unix_now();
+        self.last_full_scan.store(now, Ordering::SeqCst);
         self.scanned_this_session.store(true, Ordering::SeqCst);
+        if let Some(file) = self.index_file() {
+            let _ = save_last_full_scan(&file, now);
+        }
     }
 
     /// Counts what the index holds. Walks every entry under the read lock
@@ -904,7 +931,13 @@ impl Engine {
         drop(index);
         drop(volumes);
         self.hashes.move_to(to.with_file_name(HASH_FILE));
+        if self.last_full_scan_saved.load(Ordering::SeqCst)
+            || self.scanned_this_session.load(Ordering::SeqCst)
+        {
+            let _ = save_last_full_scan(&to, self.last_full_scan.load(Ordering::SeqCst));
+        }
         if let Some(old) = old.filter(|old| old != &to) {
+            let _ = std::fs::remove_file(old.with_file_name(LAST_FULL_SCAN_FILE));
             let _ = std::fs::remove_file(old);
         }
         Ok(())
@@ -1730,6 +1763,14 @@ impl Engine {
 
     fn index_loop(&self) {
         self.report(IndexState::Loading);
+        // Before the first look at the schedule, which only happens while
+        // changes are watched, after the index is loaded or built.
+        if let Some(at) = self.index_file().as_deref().and_then(load_last_full_scan) {
+            // A time ahead of the clock (it was set back) counts from now.
+            self.last_full_scan
+                .store(at.min(unix_now()), Ordering::SeqCst);
+            self.last_full_scan_saved.store(true, Ordering::SeqCst);
+        }
         let mut loaded = false;
         let saved = self.index_file().and_then(|path| {
             persist::load(&path)
@@ -4609,6 +4650,56 @@ mod tests {
         assert_eq!(probe.engine.roots(), both);
         assert_eq!(probe.engine.resolved_roots(&[other_link, link]), both);
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn the_last_full_scan_time_counts_across_restarts() {
+        let dir = Scratch::new("last-full-scan-file");
+        let a = dir.0.join("a");
+        fs::create_dir_all(&a).unwrap();
+        fs::write(a.join("one.txt"), "1").unwrap();
+        let index = dir.0.join("index.bin");
+        let saved = dir.0.join(LAST_FULL_SCAN_FILE);
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        let first = load_last_full_scan(&index).expect("saved after the first scan");
+        assert_eq!(first, probe.engine.last_full_scan.load(Ordering::SeqCst));
+        probe.engine.dirty.store(true, Ordering::SeqCst);
+        probe.engine.shutdown();
+        drop(probe);
+        // Two hours ago, as if the program had been closed since.
+        let two_hours_ago = unix_now() - 7200;
+        fs::write(&saved, format!("{two_hours_ago}\n")).unwrap();
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(
+            probe.engine.stats().last_full_scan,
+            None,
+            "the saved index was loaded"
+        );
+        assert_eq!(
+            probe.engine.last_full_scan.load(Ordering::SeqCst),
+            two_hours_ago
+        );
+        // Every hour: due at once, although the program just started.
+        probe.engine.set_schedule(Schedule::EveryHours(1));
+        wait_full_scan_after(&probe.engine, two_hours_ago);
+        probe.engine.set_schedule(Schedule::Never);
+        probe.wait_for(IndexState::Watching);
+        assert!(load_last_full_scan(&index).unwrap() > two_hours_ago);
+        // Moving the index file takes the time along.
+        let moved = dir.0.join("moved/index.bin");
+        fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        probe.engine.move_index_file(moved.clone()).unwrap();
+        assert_eq!(
+            load_last_full_scan(&moved),
+            Some(probe.engine.last_full_scan.load(Ordering::SeqCst))
+        );
+        assert!(!saved.exists());
+        probe.engine.shutdown();
+        // A damaged file is not used.
+        fs::write(moved.with_file_name(LAST_FULL_SCAN_FILE), "soon").unwrap();
+        assert_eq!(load_last_full_scan(&moved), None);
     }
 
     #[test]

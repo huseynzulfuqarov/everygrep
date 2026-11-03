@@ -485,7 +485,7 @@ export component SettingsWindow inherits Window {
                                     font-size: Theme.small;
                                     wrap: word-wrap;
                                 }
-                                Note { text: @tr("A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."); }
+                                Note { text: @tr("A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan, also across restarts (from the start of EveryGrep when none is known); a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."); }
                             }
                             CheckBox {
                                 text: @tr("Use the exclude list");

@@ -316,7 +316,9 @@ epoch are never used.
 The index thread also scans the folders to index again by itself when the
 rescan schedule (`schedule.rs`: every N hours since the last full scan, or
 when the local clock passes a time of day) says so; it looks at it at most
-once a second while it watches, and not while watching is off.
+once a second while it watches, and not while watching is off. The time of
+the last full scan is kept in `last-full-scan` next to the index file and read
+when the index thread starts, so the hours count across restarts.
 
 The search thread is woken again when the index finishes loading and at most
 every 500 ms while changes arrive, so the shown results stay current. The
