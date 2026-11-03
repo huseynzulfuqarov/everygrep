@@ -389,7 +389,11 @@ order shown, and its members follow in that order.
   last 16 KiB, and only files that still agree are read in full (XXH3-128,
   a 128-bit hash). The window keeps the hashes in a cache (Settings →
   Search → Hash cache), so a second search reads only files that changed;
-  the command line reads them every time.
+  the command line reads them every time. With Settings → Search →
+  Duplicates → "Compare duplicates byte by byte" (off by default) files
+  with equal hashes are also read side by side and compared byte by byte,
+  so even files crafted to share a hash are not shown as copies; it reads
+  every file of a group once more.
 - Folders, empty files, links, FIFOs, devices and files that cannot be read
   are left out. Empty files count (as one group of copies) when Settings →
   Search → Duplicates → "Count empty files as duplicates" is on (off by

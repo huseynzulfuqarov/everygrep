@@ -193,6 +193,32 @@ pub fn ends_hash(file: &OpenFile, progress: &Progress) -> Result<u128, HashError
     Ok(h.finish_128())
 }
 
+/// Whether `a` and `b` hold the same bytes, read side by side in pieces of
+/// [`BUFFER`]; files of different sizes do not. A cancel of `progress` is
+/// seen before each piece.
+pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<bool, HashError> {
+    let size = a.key.size;
+    if size != b.key.size {
+        return Ok(false);
+    }
+    let piece = (BUFFER as u64).min(size) as usize;
+    let (mut x, mut y) = (vec![0u8; piece], vec![0u8; piece]);
+    let mut at = 0u64;
+    while at < size {
+        if progress.is_cancelled() {
+            return Err(HashError::Cancelled);
+        }
+        let n = (size - at).min(BUFFER as u64) as usize;
+        read_exact_at(&a.file, &mut x[..n], at)?;
+        read_exact_at(&b.file, &mut y[..n], at)?;
+        if x[..n] != y[..n] {
+            return Ok(false);
+        }
+        at += n as u64;
+    }
+    Ok(true)
+}
+
 fn read_exact_at(file: &File, buf: &mut [u8], at: u64) -> Result<(), HashError> {
     file.read_exact_at(buf, at)
         .map_err(|_| HashError::Unreadable)

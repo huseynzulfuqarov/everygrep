@@ -98,6 +98,7 @@ export component ContentSettings inherits VerticalLayout {
 // How duplicate searches by contents compare files; on the Search page.
 export component DuplicateSettings inherits VerticalLayout {
     in-out property <bool> empty-files;
+    in-out property <bool> verify-bytes;
     callback changed();
     spacing: Theme.s3;
     CheckBox {
@@ -107,6 +108,17 @@ export component DuplicateSettings inherits VerticalLayout {
     }
     Text {
         text: @tr("All empty files have the same contents, so with this on they form one large group. Off: empty files are left out of duplicate searches by contents.");
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+    CheckBox {
+        text: @tr("Compare duplicates byte by byte");
+        checked <=> root.verify-bytes;
+        toggled => { root.changed(); }
+    }
+    Text {
+        text: @tr("Files with equal hashes are read once more and compared byte by byte, so even files made on purpose to have the same hash are not shown as copies. Slower: each file of a group is read again. Use it before deleting copies.");
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;

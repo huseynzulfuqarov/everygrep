@@ -440,6 +440,7 @@ the program behaves as before, except that folders show their total size.
 | | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
 | | search inside PDF files (with `pdftotext` from poppler; the page says when it is missing) | off |
 | | duplicates by contents: count empty files as duplicates (they form one group) | off |
+| | duplicates by contents: compare byte by byte too (files with equal hashes are read once more) | off |
 | | hash cache of duplicate searches: largest size in MB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
@@ -605,6 +606,7 @@ and `content-pdf` set how files are read for `content:`; `content-on-enter`
 (`false`) lets searches that read files run as you type too;
 `content-multi-line` (`false`) makes a content match end at its line end;
 `dupe-empty-files` (`true`) counts empty files in duplicate searches;
+`dupe-verify-bytes` (`true`) compares their files byte by byte as well;
 `hash-cache-max-mb` the size of the hash cache.
 `index-folder` holds the folder of the index file, `reload-changed-settings`
 (`false`) ignores changes made to the file outside the window until the next start,

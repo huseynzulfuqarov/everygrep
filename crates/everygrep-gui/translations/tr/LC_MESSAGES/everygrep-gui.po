@@ -3868,3 +3868,9 @@ msgstr "Boş dosyaları yinelenen say"
 
 msgid "All empty files have the same contents, so with this on they form one large group. Off: empty files are left out of duplicate searches by contents."
 msgstr "Tüm boş dosyaların içeriği aynıdır; bu açıkken hepsi tek büyük bir grup oluşturur. Kapalıyken boş dosyalar içeriğe göre yinelenen aramalarının dışında kalır."
+
+msgid "Compare duplicates byte by byte"
+msgstr "Yinelenenleri bayt bayt karşılaştır"
+
+msgid "Files with equal hashes are read once more and compared byte by byte, so even files made on purpose to have the same hash are not shown as copies. Slower: each file of a group is read again. Use it before deleting copies."
+msgstr "Özetleri eşit olan dosyalar bir kez daha okunur ve bayt bayt karşılaştırılır; böylece bilerek aynı özetle hazırlanmış dosyalar bile kopya olarak gösterilmez. Daha yavaştır: bir gruptaki her dosya yeniden okunur. Kopyaları silmeden önce kullanın."

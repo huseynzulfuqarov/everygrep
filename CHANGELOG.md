@@ -266,7 +266,8 @@ First version, 0.1.0, not released yet.
   lists every copy but the first of each group, `distinct:` one of each,
   `unique:` the results without a duplicate. Groups stay together in the
   order shown.  Empty files are left out unless
-  Settings → Search → Duplicates counts them.
+  Settings → Search → Duplicates counts them; the same page can have files
+  with equal hashes compared byte by byte as well.
 
 ### Command line
 

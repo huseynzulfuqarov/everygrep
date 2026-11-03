@@ -201,6 +201,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> content-on-enter;
     in-out property <bool> content-multi-line;
     in-out property <bool> dupe-empty-files;
+    in-out property <bool> dupe-verify-bytes;
     in property <string> content-pdf-note;
     in-out property <int> hash-cache-max;
     in property <int> hash-cache-max-max;
@@ -780,6 +781,7 @@ export component SettingsWindow inherits Window {
                             Heading { text: @tr("Duplicates"); }
                             DuplicateSettings {
                                 empty-files <=> root.dupe-empty-files;
+                                verify-bytes <=> root.dupe-verify-bytes;
                                 changed => { root.search-changed(); }
                             }
                             Rectangle { height: Theme.s2; }

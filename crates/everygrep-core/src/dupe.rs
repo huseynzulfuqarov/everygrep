@@ -50,6 +50,10 @@ pub struct CompareOptions {
     /// Empty files are duplicates of each other (all of them are equal);
     /// off, they are left out.
     pub empty_files: bool,
+    /// Files with equal hashes are compared byte by byte as well, so even
+    /// files made to have the same hash are not taken for copies. Each
+    /// file of a group is read once more.
+    pub verify_bytes: bool,
 }
 
 /// Most properties one duplicate term compares.
@@ -387,7 +391,8 @@ pub fn compare_contents(
     progress: &Progress,
 ) -> Result<Dupes, Cancelled> {
     let Grouped { dupes, candidates } = grouped;
-    progress.restart(Some(candidates.files() as u64 * 3));
+    let steps = 3 + u64::from(options.verify_bytes);
+    progress.restart(Some(candidates.files() as u64 * steps));
     let id_of = |l: &Looked| candidates.groups[l.group][l.member].0;
     let path_of =
         |l: &Looked| Path::new(OsStr::from_bytes(&candidates.groups[l.group][l.member].1));
@@ -482,20 +487,26 @@ pub fn compare_contents(
     let large = settle(&large, full, progress, 1, |l| dropped.insert(id_of(l)));
     progress.add(large.len() as u64);
 
-    let mut decided: Vec<(usize, u64, bool, u128, usize)> = small
+    let mut decided: Vec<(bool, Looked)> = small
         .iter()
-        .map(|l| (l.group, l.key.size, false, l.hash, l.member))
-        .chain(
-            large
-                .iter()
-                .map(|l| (l.group, l.key.size, true, l.hash, l.member)),
-        )
+        .map(|l| (false, *l))
+        .chain(large.iter().map(|l| (true, *l)))
         .collect();
-    decided.sort_unstable();
-    let groups: Vec<Vec<NodeId>> = decided
-        .chunk_by(|a, b| (a.0, a.1, a.2, a.3) == (b.0, b.1, b.2, b.3))
+    let same = |(big, l): &(bool, Looked)| (l.group, l.key.size, *big, l.hash);
+    decided.sort_unstable_by_key(|d| (same(d), d.1.member));
+    let mut runs: Vec<Vec<Looked>> = decided
+        .chunk_by(|a, b| same(a) == same(b))
         .filter(|run| run.len() > 1)
-        .map(|run| run.iter().map(|r| candidates.groups[r.0][r.4].0).collect())
+        .map(|run| run.iter().map(|r| r.1).collect())
+        .collect();
+    if options.verify_bytes {
+        let (verified, counted) = verify(runs, threads, progress, &path_of)?;
+        runs = verified;
+        progress.add(candidates.files() as u64 - counted);
+    }
+    let groups: Vec<Vec<NodeId>> = runs
+        .iter()
+        .map(|run| run.iter().map(id_of).collect())
         .collect();
     let listed = dupes
         .listed
@@ -504,6 +515,57 @@ pub fn compare_contents(
         .collect();
     progress.check()?;
     Ok(Dupes::new(dupes.mode, listed, &groups))
+}
+
+/// Splits the groups of equal hashes by comparing their files byte by
+/// byte: each round compares every member with the first of its group, and
+/// the members that differ (or could not be read) form a group of their
+/// own for the next round. Returns the groups of equal files and the
+/// number of files looked at (one progress step each).
+fn verify<'a>(
+    mut pending: Vec<Vec<Looked>>,
+    threads: usize,
+    progress: &Progress,
+    path_of: &(impl Fn(&Looked) -> &'a Path + Sync),
+) -> Result<(Vec<Vec<Looked>>, u64), Cancelled> {
+    let mut done = Vec::new();
+    let mut counted: HashSet<(usize, usize)> = HashSet::new();
+    while !pending.is_empty() {
+        let pairs: Vec<(Looked, Looked)> = pending
+            .iter()
+            .flat_map(|g| g[1..].iter().map(move |o| (g[0], *o)))
+            .collect();
+        let same = par_map(&pairs, threads, progress, |(a, b)| {
+            let a = reopen(path_of(a), &a.key)?;
+            let b = reopen(path_of(b), &b.key)?;
+            hash::same_contents(&a, &b, progress)
+        })?;
+        let mut same = same.into_iter();
+        let mut next = Vec::new();
+        for group in pending {
+            let mut equal = vec![group[0]];
+            let mut other = Vec::new();
+            for &member in &group[1..] {
+                match same.next().flatten() {
+                    Some(true) => equal.push(member),
+                    _ => other.push(member),
+                }
+            }
+            for l in &group {
+                if counted.insert((l.group, l.member)) {
+                    progress.add(1);
+                }
+            }
+            if equal.len() > 1 {
+                done.push(equal);
+            }
+            if other.len() > 1 {
+                next.push(other);
+            }
+        }
+        pending = next;
+    }
+    Ok((done, counted.len() as u64))
 }
 
 /// The hash `pick` takes from the cache entry of `key`.
@@ -1081,9 +1143,82 @@ mod tests {
     }
 
     #[test]
+    fn byte_by_byte_checks_split_groups_whose_hashes_only_look_equal() {
+        let tree = contents_tree("verify");
+        let verified = CompareOptions {
+            verify_bytes: true,
+            ..CompareOptions::default()
+        };
+        for q in ["duplicates:", "extra-copies:", "distinct:", "unique:"] {
+            assert_eq!(
+                compare_with(&tree, q, None, verified),
+                compare_with(&tree, q, None, CompareOptions::default()),
+                "{q}"
+            );
+        }
+        // Progress has a fourth step per file.
+        let ids = search(
+            &tree.index,
+            &Query::parse("", QueryOptions::default()).unwrap(),
+            2,
+        );
+        let grouped = group(&tree.index, &ids, &spec("duplicates:"));
+        let progress = Progress::new();
+        compare_contents(grouped, None, verified, 2, &progress).unwrap();
+        assert_eq!((progress.done(), progress.total()), (36, Some(36)));
+        // A group whose hashes were taken as equal: a, b and d hold the same
+        // bytes, c and e others of the same size, f is gone.
+        let names = ["a", "b", "c", "d", "e", "f"];
+        let paths: Vec<PathBuf> = names.iter().map(|n| tree.dir.join(n)).collect();
+        for (path, bytes) in paths
+            .iter()
+            .zip([b"xxxx", b"xxxx", b"yyyy", b"xxxx", b"zzzz", b"wwww"])
+        {
+            std::fs::write(path, bytes).unwrap();
+        }
+        let looked: Vec<Looked> = paths
+            .iter()
+            .enumerate()
+            .map(|(member, p)| Looked {
+                group: 0,
+                member,
+                key: hash::open(p).unwrap().key,
+                hash: 7,
+            })
+            .collect();
+        std::fs::remove_file(&paths[5]).unwrap();
+        let path_of = |l: &Looked| paths[l.member].as_path();
+        let progress = Progress::new();
+        progress.restart(Some(6));
+        let (groups, counted) = verify(vec![looked], 2, &progress, &path_of).unwrap();
+        let members: Vec<Vec<usize>> = groups
+            .iter()
+            .map(|g| g.iter().map(|l| l.member).collect())
+            .collect();
+        assert_eq!(members, [vec![0, 1, 3]]);
+        assert_eq!((counted, progress.done()), (6, 6));
+        let cancelled = Progress::new();
+        cancelled.cancel();
+        let again = vec![
+            (0..2)
+                .map(|m| Looked {
+                    group: 0,
+                    member: m,
+                    key: hash::open(&paths[m]).unwrap().key,
+                    hash: 7,
+                })
+                .collect(),
+        ];
+        assert!(verify(again, 1, &cancelled, &path_of).is_err());
+    }
+
+    #[test]
     fn empty_files_are_duplicates_only_when_asked() {
         let tree = contents_tree("empty");
-        let empty = CompareOptions { empty_files: true };
+        let empty = CompareOptions {
+            empty_files: true,
+            ..CompareOptions::default()
+        };
         let all = compare_with(&tree, "duplicates:", None, empty);
         assert_eq!(
             all,

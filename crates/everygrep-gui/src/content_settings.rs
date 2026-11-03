@@ -28,6 +28,8 @@ pub struct Settings {
     pub multi_line: bool,
     /// Duplicate searches by contents count empty files as copies.
     pub empty_files: bool,
+    /// Duplicate searches by contents compare files byte by byte too.
+    pub verify_bytes: bool,
 }
 
 impl Default for Settings {
@@ -40,6 +42,7 @@ impl Default for Settings {
             on_enter: true,
             multi_line: true,
             empty_files: false,
+            verify_bytes: false,
         }
     }
 }
@@ -59,6 +62,7 @@ impl Settings {
     pub fn compare(&self) -> everygrep_core::dupe::CompareOptions {
         everygrep_core::dupe::CompareOptions {
             empty_files: self.empty_files,
+            verify_bytes: self.verify_bytes,
         }
     }
 
@@ -86,6 +90,7 @@ impl Settings {
         w.set_content_on_enter(self.on_enter);
         w.set_content_multi_line(self.multi_line);
         w.set_dupe_empty_files(self.empty_files);
+        w.set_dupe_verify_bytes(self.verify_bytes);
         w.set_content_pdf_note(pdf_note(content::pdf_reader_available()).into());
         w.set_hash_cache_max(i32::try_from(self.hash_cache_mb).unwrap_or(i32::MAX));
         w.set_hash_cache_max_max(i32::try_from(MAX_SIZE_MB).unwrap_or(i32::MAX));
@@ -104,6 +109,7 @@ impl Settings {
             on_enter: w.get_content_on_enter(),
             multi_line: w.get_content_multi_line(),
             empty_files: w.get_dupe_empty_files(),
+            verify_bytes: w.get_dupe_verify_bytes(),
             hash_cache_mb: u64::try_from(w.get_hash_cache_max())
                 .unwrap_or(0)
                 .min(MAX_SIZE_MB),
@@ -131,6 +137,7 @@ impl Settings {
             "content-on-enter" => flag(value).map(|on| self.on_enter = on).is_some(),
             "content-multi-line" => flag(value).map(|on| self.multi_line = on).is_some(),
             "dupe-empty-files" => flag(value).map(|on| self.empty_files = on).is_some(),
+            "dupe-verify-bytes" => flag(value).map(|on| self.verify_bytes = on).is_some(),
             _ => false,
         }
     }
@@ -159,6 +166,9 @@ impl Settings {
         }
         if all || self.empty_files != d.empty_files {
             out.push_str(&format!("dupe-empty-files = {}\n", self.empty_files));
+        }
+        if all || self.verify_bytes != d.verify_bytes {
+            out.push_str(&format!("dupe-verify-bytes = {}\n", self.verify_bytes));
         }
     }
 }
@@ -218,9 +228,19 @@ mod tests {
                 d.hash_cache_mb,
                 d.on_enter,
                 d.multi_line,
-                d.empty_files
+                d.empty_files,
+                d.verify_bytes
             ),
-            (100, CodePage::Windows1254, false, 512, true, true, false)
+            (
+                100,
+                CodePage::Windows1254,
+                false,
+                512,
+                true,
+                true,
+                false,
+                false
+            )
         );
         assert_eq!(d.hash_cache_bytes(), 512 * 1024 * 1024);
         assert_eq!(
@@ -230,8 +250,9 @@ mod tests {
         assert!(!Settings::default().to_text().contains("content-"));
         assert!(!Settings::default().to_text().contains("hash-cache"));
         let mut s = Settings::parse(
-            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\ncontent-on-enter = no\ncontent-multi-line = off\ndupe-empty-files = yes\n",
+            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\ncontent-on-enter = no\ncontent-multi-line = off\ndupe-empty-files = yes\ndupe-verify-bytes = on\n",
         );
+        assert!(s.content.verify_bytes && s.content.compare().verify_bytes);
         assert!(s.content.empty_files && s.content.compare().empty_files);
         assert!(!s.content.on_enter);
         assert!(!s.content.multi_line && !s.content.options().multi_line);
@@ -247,9 +268,9 @@ mod tests {
         s.reset(Page::Search);
         assert_eq!(s.content, super::Settings::default());
         let bad = Settings::parse(
-            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\ncontent-on-enter = later\ncontent-multi-line = 2\ndupe-empty-files = some\n",
+            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\ncontent-on-enter = later\ncontent-multi-line = 2\ndupe-empty-files = some\ndupe-verify-bytes = sure\n",
         );
-        assert_eq!(bad.problems.len(), 8);
+        assert_eq!(bad.problems.len(), 9);
         assert_eq!(bad.content, super::Settings::default());
     }
 
