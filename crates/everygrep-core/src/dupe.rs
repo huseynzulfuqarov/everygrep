@@ -11,11 +11,11 @@
 //!
 //! 1. with the index ([`group`]): files of the same size form candidate
 //!    groups; a file whose size no other file has is unique without being
-//!    read. Folders and empty files are left out;
+//!    read. Folders are left out; zero indexed sizes are treated as unknown;
 //! 2. without the index ([`compare_contents`]), on worker threads: every
 //!    candidate is looked at on disk (`lstat` through
 //!    [`crate::hash::open`]): what is not a readable regular file any more
-//!    is left out, and of the paths of one file (hard links, the same device
+//!    is left out, as are empty files, and of the paths of one file (hard links, the same device
 //!    and inode) only the first counts, so a file is never its own
 //!    duplicate. Groups are split again by the size on disk;
 //! 3. the first and last 16 KiB of each file are hashed (all of a file of
@@ -297,7 +297,6 @@ pub fn group(index: &Index, ids: &[NodeId], spec: &DupeSpec) -> Grouped {
         .iter()
         .copied()
         .filter(|&id| !(files_only && store.is_dir(id)))
-        .filter(|&id| !(contents && store.meta(id).size == 0))
         .collect();
     // Positions keep the order of the results within a group.
     let mut order: Vec<u32> = (0..kept.len() as u32).collect();
@@ -315,7 +314,10 @@ pub fn group(index: &Index, ids: &[NodeId], spec: &DupeSpec) -> Grouped {
         {
             end += 1;
         }
-        if end - start > 1 {
+        // Zero may mean metadata was not indexed. Include even a singleton
+        // so the file stage can distinguish a real empty file from unknown
+        // size without doing disk I/O under the index lock.
+        if end - start > 1 || (contents && store.meta(first).size == 0) {
             groups.push(
                 order[start..end]
                     .iter()
@@ -393,10 +395,11 @@ pub fn compare_contents(
         })
         .collect();
     let opened = par_map(&all, threads, progress, |l| {
-        Ok(Looked {
-            key: hash::open(path_of(l))?.key,
-            ..*l
-        })
+        let key = hash::open(path_of(l))?.key;
+        if key.size == 0 {
+            return Err(HashError::NotAFile);
+        }
+        Ok(Looked { key, ..*l })
     })?;
     // Per group: hard links with other names (another group) are no
     // duplicates of each other there either.
@@ -740,6 +743,49 @@ mod tests {
     }
 
     #[test]
+    fn content_duplicates_work_without_indexed_file_details() {
+        let mut tree = Tree::new(
+            "no-details",
+            &[
+                ("a", b"same"),
+                ("b", b"same"),
+                ("c", b"unique"),
+                ("empty", b""),
+            ],
+        );
+        let mut store = NodeStore::new();
+        scan(
+            &mut store,
+            std::slice::from_ref(&tree.dir),
+            &ScanOptions {
+                with_metadata: false,
+                ..ScanOptions::default()
+            },
+        );
+        tree.index = Index::new(store);
+        assert_eq!(tree.paths("duplicates:"), ["a", "b"]);
+        assert_eq!(tree.paths("extra-copies:"), ["b"]);
+        assert_eq!(tree.paths("distinct:"), ["a", "c"]);
+        assert_eq!(tree.paths("unique:"), ["c"]);
+        // A sole zero-sized indexed entry must still be checked for emptiness.
+        let empty = tree
+            .index
+            .order()
+            .iter()
+            .filter(|&id| tree.index.store().name(id) == b"empty")
+            .collect::<Vec<_>>();
+        let spec = Query::parse("unique:", QueryOptions::default()).unwrap();
+        let found = compare_contents(
+            group(&tree.index, &empty, spec.dupes().unwrap()),
+            None,
+            1,
+            &Progress::new(),
+        )
+        .unwrap();
+        assert!(found.to_sort().is_empty());
+    }
+
+    #[test]
     fn a_duplicate_term_replaces_the_one_in_the_query() {
         let set = |q: &str, t: &str| replace_term(q, Some(t));
         assert_eq!(set("", "duplicates:"), "duplicates:");
@@ -1023,11 +1069,12 @@ mod tests {
             2,
         );
         let grouped = group(&tree.index, &ids, &spec("duplicates:"));
-        // Size 4: a, sub/a, d, diff; size 100 000: three big ones.
-        assert_eq!(grouped.candidates.files(), 7);
+        // Size 4: a, sub/a, d, diff; size 100 000: three big ones;
+        // two indexed zero sizes need a live check before being excluded.
+        assert_eq!(grouped.candidates.files(), 9);
         let progress = Progress::new();
         compare_contents(grouped.clone(), None, 2, &progress).unwrap();
-        assert_eq!((progress.done(), progress.total()), (21, Some(21)));
+        assert_eq!((progress.done(), progress.total()), (27, Some(27)));
         let progress = Progress::new();
         progress.cancel();
         assert_eq!(
