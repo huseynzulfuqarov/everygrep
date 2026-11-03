@@ -2584,8 +2584,6 @@ msgstr "Kayıtlı aramanın seçenekleri geçersiz."
 msgid "Invalid saved search text."
 msgstr "Kayıtlı aramanın metni geçersiz."
 
-msgid "Invalid query."
-msgstr "Sorgu geçersiz."
 
 msgid "The entry was removed in another window."
 msgstr "Kayıt başka bir pencerede silindi."
@@ -3539,3 +3537,12 @@ msgstr[1] "{} öğe yinelendi."
 
 msgid " and {} more"
 msgstr " ve {} öğe daha"
+
+msgid "Invalid character class range."
+msgstr "Karakter sınıfı aralığı geçersiz."
+
+msgid "Invalid repetition count."
+msgstr "Yineleme sayısı geçersiz."
+
+msgid "The repetition count starts above its end."
+msgstr "Yineleme sayısının başlangıcı bitişinden büyük."

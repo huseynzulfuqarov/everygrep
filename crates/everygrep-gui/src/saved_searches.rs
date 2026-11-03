@@ -140,7 +140,8 @@ impl Library {
         if name.trim().is_empty() {
             return Err(invalid(tr("Enter a name.")));
         }
-        Query::parse(search, options).map_err(|_| invalid(tr("Invalid query.")))?;
+        Query::parse(search, options)
+            .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
         let id = match id {
             Some(id) => {
                 if !self.filters.iter().any(|f| f.id == id) {
@@ -189,9 +190,10 @@ impl Library {
         if entry.name.trim().is_empty() || !crate::is_sort_column(entry.sort_column) {
             return Err(invalid(tr("Invalid bookmark.")));
         }
-        Query::parse(&entry.search, entry.options).map_err(|_| invalid(tr("Invalid query.")))?;
+        Query::parse(&entry.search, entry.options)
+            .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
         Query::parse(&entry.filter.search, entry.filter.options)
-            .map_err(|_| invalid(tr("Invalid query.")))?;
+            .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
         entry.name = entry.name.trim().into();
         entry.id = if let Some(id) = id {
             if !self.bookmarks.iter().any(|b| b.id == id) {
@@ -625,6 +627,18 @@ mod tests {
             sort_column: 8,
             descending: true,
         }
+    }
+
+    #[test]
+    fn filter_validation_keeps_the_translated_parser_reason() {
+        let mut library = Library::default();
+        let error = library
+            .put_filter(None, "Broken", "regex:(", QueryOptions::default())
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            crate::search_errors::message("bad regular expression: unclosed group")
+        );
     }
 
     #[test]

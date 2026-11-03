@@ -100,6 +100,14 @@ fn translated(error: &str, tr: impl Fn(&'static str) -> &'static str) -> String 
             }
             "unrecognized escape sequence" => tr("Unrecognized escape sequence."),
             "the expression is too large" => tr("The expression is too large."),
+            "invalid character class range"
+            | "invalid character class range, the start must be <= the end" => {
+                tr("Invalid character class range.")
+            }
+            "invalid repetition count" => tr("Invalid repetition count."),
+            "invalid repetition count range, the start must be <= the end" => {
+                tr("The repetition count starts above its end.")
+            }
             _ => return tr("Invalid regular expression.").into(),
         };
         return fill(tr("Invalid regular expression: {}"), &[&localized]);
@@ -124,6 +132,8 @@ mod tests {
             "duplicates:unknown",
             "duplicates: duplicates:",
             "regex:(",
+            "regex:[z-a]",
+            "regex:a{2,1}",
             "\"unfinished",
             ">",
             "<a",
@@ -142,6 +152,18 @@ mod tests {
                 assert!(!text.contains("Invalid search query"));
                 assert!(!text.contains("a query can have at most"));
                 assert!(!text.contains("unclosed group"));
+                if query == "regex:[z-a]" {
+                    assert!(
+                        text.contains(tr_in(lang, "Invalid character class range.")),
+                        "{text}"
+                    );
+                }
+                if query == "regex:a{2,1}" {
+                    assert!(
+                        text.contains(tr_in(lang, "The repetition count starts above its end.")),
+                        "{text}"
+                    );
+                }
             }
         }
     }

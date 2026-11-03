@@ -2584,8 +2584,6 @@ msgstr "Saxlanmış axtarışın seçimləri yanlışdır."
 msgid "Invalid saved search text."
 msgstr "Saxlanmış axtarışın mətni yanlışdır."
 
-msgid "Invalid query."
-msgstr "Sorğu yanlışdır."
 
 msgid "The entry was removed in another window."
 msgstr "Qeyd başqa pəncərədə silinib."
@@ -3539,3 +3537,12 @@ msgstr[1] "{} element təkrarlandı."
 
 msgid " and {} more"
 msgstr " və daha {} element"
+
+msgid "Invalid character class range."
+msgstr "Simvol sinfinin aralığı yanlışdır."
+
+msgid "Invalid repetition count."
+msgstr "Təkrarlanma sayı yanlışdır."
+
+msgid "The repetition count starts above its end."
+msgstr "Təkrarlanma sayının başlanğıcı sonundan böyükdür."

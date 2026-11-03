@@ -309,7 +309,7 @@ impl Fields {
                 ..options
             },
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::search_errors::message(&e.to_string()))?;
         Ok(query)
     }
 }
@@ -350,6 +350,19 @@ mod tests {
             );
         }
         unreachable!()
+    }
+
+    #[test]
+    fn invalid_content_regex_uses_the_gui_diagnostic() {
+        let fields = Fields {
+            content: "(".into(),
+            content_regex: true,
+            ..Fields::default()
+        };
+        assert_eq!(
+            fields.build(QueryOptions::default()).unwrap_err(),
+            crate::search_errors::message("bad regular expression: unclosed group")
+        );
     }
 
     #[test]
