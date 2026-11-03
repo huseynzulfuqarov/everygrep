@@ -4788,15 +4788,17 @@ export component AppWindow inherits Window {
                                 root.jump-reset();
                                 return reject;
                             }
-                            if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
+                            // Moving the cursor forgets the letters typed to jump.
+                            if (event.text == Key.DownArrow) { root.jump-reset(); root.move-to(root.current + 1, self.move-mode); return accept; }
                             if (event.text == Key.UpArrow) {
+                                root.jump-reset();
                                 if (root.current <= 0 && !event.modifiers.shift) { search.focus-and-select(); } else { root.move-to(root.current - 1, self.move-mode); }
                                 return accept;
                             }
-                            if (event.text == Key.PageDown) { root.move-to(root.current + root.page, self.move-mode); return accept; }
-                            if (event.text == Key.PageUp) { root.move-to(root.current - root.page, self.move-mode); return accept; }
-                            if (event.text == Key.Home) { root.move-to(0, self.move-mode); return accept; }
-                            if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
+                            if (event.text == Key.PageDown) { root.jump-reset(); root.move-to(root.current + root.page, self.move-mode); return accept; }
+                            if (event.text == Key.PageUp) { root.jump-reset(); root.move-to(root.current - root.page, self.move-mode); return accept; }
+                            if (event.text == Key.Home) { root.jump-reset(); root.move-to(0, self.move-mode); return accept; }
+                            if (event.text == Key.End) { root.jump-reset(); root.move-to(root.results.length - 1, self.move-mode); return accept; }
                             // Esc clears the selection first, then goes back to the search.
                             if (event.text == Key.Escape) {
                                 root.jump-reset();

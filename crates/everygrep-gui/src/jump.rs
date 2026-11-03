@@ -195,6 +195,22 @@ mod tests {
         assert_eq!(j.typed("2", t).unwrap().prefix, b"2");
     }
 
+    /// The arrow, page, Home and End keys of the result list forget the
+    /// letters typed so far, so the next letter starts a new jump text.
+    #[test]
+    fn moving_the_cursor_forgets_the_typed_letters() {
+        let ui = include_str!("../ui/app.slint");
+        let ui = &ui[ui.find("keys := FocusScope").expect("the list's keys")..];
+        let keys = ["DownArrow", "UpArrow", "PageDown", "PageUp", "Home", "End"];
+        for key in keys {
+            let at = ui
+                .find(&format!("if (event.text == Key.{key})"))
+                .unwrap_or_else(|| panic!("{key} handled"));
+            let handler = &ui[at..at + ui[at..].find("return accept;").unwrap()];
+            assert!(handler.contains("root.jump-reset();"), "{key}: {handler}");
+        }
+    }
+
     #[test]
     fn find_handles_empty_lists_and_no_cursor() {
         assert_eq!(find(0, None, false, |_| true), None);
