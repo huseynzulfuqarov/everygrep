@@ -255,14 +255,13 @@ pub fn select_builtin(w: &AppWindow, filter: Filter) {
         w.set_filter_index(index.unwrap_or(s.library.borrow().filters.len()) as i32);
         fill_filters(w);
         if index.is_none() {
-            w.set_notice(
+            crate::info(
+                w,
                 fill(
                     tr("Using the original built-in filter: {}."),
                     &[&original.title()],
-                )
-                .into(),
+                ),
             );
-            w.set_notice_error(false);
         }
     });
 }

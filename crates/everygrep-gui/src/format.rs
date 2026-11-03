@@ -309,9 +309,57 @@ pub fn middle_path(path: &str, max: usize) -> String {
     )
 }
 
+/// Visible, single-line cell text. Search spans and file operations keep
+/// using the original name; escape each piece only after splitting it.
+pub fn visible_name(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || is_direction_mark(c))
+    {
+        return text.into();
+    }
+    let mut shown = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\n' | '\u{2028}' | '\u{2029}' => shown.push('⏎'),
+            '\t' => shown.push('⇥'),
+            '\x00'..='\x1f' => shown.push(char::from_u32(0x2400 + c as u32).unwrap()),
+            '\x7f' => shown.push('␡'),
+            c if c.is_control() || is_direction_mark(c) => {
+                use std::fmt::Write;
+                let _ = write!(shown, "\\u{{{:x}}}", c as u32);
+            }
+            c => shown.push(c),
+        }
+    }
+    shown.into()
+}
+
+/// Marks that change the direction of the text around them.
+fn is_direction_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direction_marks_are_shown_without_reordering_names() {
+        for c in ('\u{202a}'..='\u{202e}')
+            .chain('\u{2066}'..='\u{2069}')
+            .chain(['\u{200e}', '\u{200f}', '\u{061c}'])
+        {
+            let name = format!("file{c}.txt");
+            let shown = visible_name(&name);
+            assert!(!shown.contains(c));
+            assert!(shown.starts_with("file\\u{"));
+            assert!(shown.ends_with("}.txt"));
+        }
+    }
 
     #[test]
     fn history_paths_keep_the_filename_and_elide_the_middle() {

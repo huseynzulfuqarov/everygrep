@@ -361,7 +361,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 return;
             }
             run_query(&w, &engine);
-            w.set_notice("".into());
+            info(&w, String::new());
             let epoch = prefs.history_epoch.get();
             let prefs = prefs.clone();
             pause.start(TimerMode::SingleShot, HISTORY_PAUSE, move || {
@@ -478,7 +478,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 run_query(&w, &engine);
                 typing::with(|t| t.searched());
                 w.set_search_pending(false);
-                w.set_notice("".into());
+                info(&w, String::new());
             }
         }
     });
@@ -499,7 +499,7 @@ fn main() -> Result<(), slint::PlatformError> {
             run_query(&w, &engine);
             typing::with(|t| t.searched());
             w.set_search_pending(false);
-            w.set_notice("".into());
+            info(&w, String::new());
         }
     });
     window.on_open_settings({
@@ -758,7 +758,7 @@ pub fn relabel(w: &AppWindow) {
     set_help(w);
     show_badges(w);
     with_model(w, |m| m.relabel());
-    w.set_notice("".into());
+    info(w, String::new());
     refresh_status(w);
 }
 
@@ -1000,7 +1000,7 @@ fn present(
     }
     let p = presentation(&request.args, prefs.search_policy());
     if p.query.is_some() {
-        w.set_notice("".into());
+        info(w, String::new());
     }
     if prefs.open_searches_in_tabs() && p.query.is_some() {
         tabs_ui::open_search(
@@ -1217,7 +1217,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             w.set_rename_stem(actions::rename_selection(&name, is_dir, name_only) as i32);
             w.set_rename_text(name.into());
             w.set_rename_row(r as i32);
-            w.set_notice("".into());
+            info(&w, String::new());
         }
     });
     window.on_rename_commit({
@@ -1242,7 +1242,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                             w.invoke_rename_cancel();
                             match note {
                                 Some(note) => info(&w, note),
-                                None => w.set_notice("".into()),
+                                None => info(&w, String::new()),
                             }
                         }
                         Err(e) => error(&w, e.to_string()),
@@ -1533,8 +1533,8 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                         }
                         if out.history_cleared && !failed && !out.cancelled {
                             w.set_notice(tr("Paste finished; undo history cleared.").into());
-                            w.set_notice_details(text.into());
-                            w.set_notice_details_label(w.get_notice());
+                            w.set_notice_details(format::visible_name(&text).as_ref().into());
+                            w.set_notice_has_details(true);
                         }
                         // A cut is pasted once; after a failure or a cancel it
                         // stays, so pasting again moves what is left.
@@ -1869,15 +1869,17 @@ fn online_targets(
 }
 
 fn info(w: &AppWindow, text: String) {
+    w.set_notice_has_details(false);
     w.set_notice_details(text.clone().into());
     w.set_notice_error(false);
-    w.set_notice(text.into());
+    w.set_notice(format::visible_name(&text).as_ref().into());
 }
 
 fn error(w: &AppWindow, text: String) {
+    w.set_notice_has_details(false);
     w.set_notice_details(text.clone().into());
     w.set_notice_error(true);
-    w.set_notice(text.into());
+    w.set_notice(format::visible_name(&text).as_ref().into());
 }
 
 fn ask(w: &AppWindow, title: String, text: &str, action: &str) {
@@ -2194,7 +2196,7 @@ fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
 fn wait_for_enter(w: &AppWindow) {
     w.set_search_pending(true);
     w.set_notice_error(false);
-    w.set_notice(tr("Press Enter to search.").into());
+    info(w, tr("Press Enter to search.").into());
 }
 
 /// Runs the search in the field now and keeps it in the history.
@@ -2202,7 +2204,7 @@ pub fn search_now(w: &AppWindow, engine: &Engine) {
     let query = w.get_query();
     run_query(w, engine);
     w.set_search_pending(false);
-    w.set_notice("".into());
+    info(w, String::new());
     prefs::with(|p| p.record(&query));
 }
 

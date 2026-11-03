@@ -3405,7 +3405,7 @@ msgid "Close folders panel"
 msgstr "Qovluq panelini bağla"
 
 msgid "Modified: {}"
-msgstr "Dəyişdirilmə: {}"
+msgstr "Dəyişdirilib: {}"
 
 msgid "Paste error"
 msgstr "Yapışdırma xətası"
@@ -3420,8 +3420,8 @@ msgstr[1] "{} addım geri alındı."
 
 msgid "Redid {} step."
 msgid_plural "Redid {} steps."
-msgstr[0] "{} addım təkrar icra edildi."
-msgstr[1] "{} addım təkrar icra edildi."
+msgstr[0] "{} addım təkrarlandı."
+msgstr[1] "{} addım təkrarlandı."
 
 msgid "Skipped {} step."
 msgid_plural "Skipped {} steps."
@@ -3438,7 +3438,7 @@ msgid "Missing closing quote."
 msgstr "Bağlayan dırnaq çatışmır."
 
 msgid "Use only one of duplicates:, extra-copies:, distinct: and unique: per query."
-msgstr "Bir sorğuda duplicates:, extra-copies:, distinct: və unique: funksiyalarından yalnız birini işlədin."
+msgstr "Bir sorğuda duplicates:, extra-copies:, distinct: və unique:-dən yalnız birini işlədin."
 
 msgid "A query can have at most {} content terms."
 msgstr "Sorğuda ən çox {} məzmun şərti ola bilər."
@@ -3450,7 +3450,7 @@ msgid "Invalid size: {}"
 msgstr "Yanlış ölçü: {}"
 
 msgid "Invalid limit: {}. Use a number, for example limit:100."
-msgstr "Yanlış say: {}. Rəqəm işlədin, məsələn limit:100."
+msgstr "Yanlış say: {}. Ədəd yazın, məsələn limit:100."
 
 msgid "Invalid date: {}. Use YYYY, YYYY-MM or YYYY-MM-DD."
 msgstr "Yanlış tarix: {}. YYYY, YYYY-MM və ya YYYY-MM-DD işlədin."
@@ -3546,3 +3546,6 @@ msgstr "Təkrarlanma sayı yanlışdır."
 
 msgid "The repetition count starts above its end."
 msgstr "Təkrarlanma sayının başlanğıcı sonundan böyükdür."
+
+msgid "Source path: {0}\nDestination: {1}"
+msgstr "Mənbə yolu: {0}\nTəyinat: {1}"

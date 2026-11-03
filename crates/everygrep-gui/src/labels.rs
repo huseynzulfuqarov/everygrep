@@ -155,7 +155,7 @@ pub fn item_details(size: &str, modified: &str, path: &str, offline: bool) -> St
         offline,
         Some(size.to_owned()),
         modified,
-        Some(path.to_owned()),
+        Some(format::visible_name(path).into_owned()),
     ]
     .into_iter()
     .flatten()

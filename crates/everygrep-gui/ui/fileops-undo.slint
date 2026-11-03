@@ -53,11 +53,10 @@ export component FileUndoWindow inherits Window {
             }
             // StandardTableView has no cell tooltip/custom delegate. Keep
             // the complete selected paths in a scrollable details area.
-            if root.current >= 0: ScrollView {
-                preferred-height: 64px;
-                max-height: 80px;
+            ScrollView {
+                height: 64px;
                 VerticalLayout {
-                    Text { text: root.path-details[root.current]; color: Theme.text; wrap: word-wrap; }
+                    Text { text: root.current >= 0 ? root.path-details[root.current] : ""; color: Theme.text; wrap: word-wrap; }
                 }
             }
             Text { text: root.notice; color: Theme.text-muted; wrap: word-wrap; }

@@ -52,8 +52,7 @@ impl Dialog {
                             Err(e) => w.set_fileops_rename_error(e.into()),
                             Ok(note) => {
                                 if let Some(note) = note {
-                                    w.set_notice_error(false);
-                                    w.set_notice(note.into());
+                                    crate::info(w, note);
                                 }
                                 dialog.close(w);
                                 crate::fileops_undo_ui::refresh_open();
@@ -96,9 +95,7 @@ impl Dialog {
             return false;
         }
         w.set_fileops_rename_location(
-            path.parent()
-                .unwrap_or(&path)
-                .to_string_lossy()
+            crate::format::visible_name(&path.parent().unwrap_or(&path).to_string_lossy())
                 .as_ref()
                 .into(),
         );

@@ -312,7 +312,9 @@ pub fn describe(paths: &[PathBuf]) -> String {
     match paths {
         [one] => format!(
             "“{}”",
-            String::from_utf8_lossy(one.file_name().unwrap_or(one.as_os_str()).as_bytes())
+            crate::format::visible_name(&String::from_utf8_lossy(
+                one.file_name().unwrap_or(one.as_os_str()).as_bytes()
+            ))
         ),
         many => crate::labels::items(many.len()),
     }

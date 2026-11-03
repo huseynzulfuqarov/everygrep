@@ -47,7 +47,7 @@ pub fn resolver(weak: slint::Weak<AppWindow>) -> Resolver {
                 let text = match &question.error {
                     Some(error) => fill(
                         tr("Cannot paste {0}: {1}"),
-                        &[&question.source.display(), error],
+                        &[&crate::format::visible_name(&question.source.to_string_lossy()), error],
                     ),
                     None => {
                         let safety = if question.can_overwrite {
@@ -58,8 +58,8 @@ pub fn resolver(weak: slint::Weak<AppWindow>) -> Resolver {
                             ""
                         };
                         fill(tr("A name already exists.\nFrom: {0}\n{1}\nTo: {2}\n{3}\n{4}"),
-                            &[&question.source.display(), &question.source_details,
-                              &question.target.display(), &question.target_details, &safety])
+                            &[&crate::format::visible_name(&question.source.to_string_lossy()), &question.source_details,
+                              &crate::format::visible_name(&question.target.to_string_lossy()), &question.target_details, &safety])
                     },
                 };
                 ANSWER.with(|a| *a.borrow_mut() = Some(tx));

@@ -444,8 +444,7 @@ impl Prefs {
         let bad = read.problems.len();
         self.replace_all(read, false);
         if let Some(m) = self.main.upgrade() {
-            m.set_notice_error(false);
-            m.set_notice(labels::settings_reloaded(bad).into());
+            crate::info(&m, labels::settings_reloaded(bad));
         }
     }
 
@@ -593,8 +592,7 @@ impl Prefs {
         let text = i18n::fill(i18n::tr("Could not update search history: {}"), &[e]);
         self.history_message(&text, true);
         if let Some(w) = self.main.upgrade() {
-            w.set_notice(text.as_str().into());
-            w.set_notice_error(true);
+            crate::error(&w, text.clone());
         }
         self.set_error(Some(text));
     }
@@ -2293,8 +2291,7 @@ impl Prefs {
                 w.invoke_copy_text(command.into());
             }
             if let Some(m) = p.main.upgrade() {
-                m.set_notice_error(false);
-                m.set_notice(labels::command_copied().into());
+                crate::info(&m, labels::command_copied().into());
             }
         }));
         w.on_key_filter_edited({

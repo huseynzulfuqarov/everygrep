@@ -217,7 +217,7 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
                         .rows
                         .iter()
                         .map(|r| FolderEntry {
-                            name: r.name.as_str().into(),
+                            name: crate::format::visible_name(&r.name).as_ref().into(),
                             depth: r.depth,
                             children: r.children,
                             expanded: r.expanded,

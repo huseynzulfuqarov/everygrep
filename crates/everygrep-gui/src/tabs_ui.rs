@@ -494,7 +494,7 @@ impl State {
         if pending {
             crate::wait_for_enter(w);
         } else {
-            w.set_notice("".into());
+            crate::info(w, String::new());
         }
         crate::refresh_status(w);
         w.invoke_focus_search();

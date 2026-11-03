@@ -120,15 +120,16 @@ fn refresh(w: &FileUndoWindow) {
                 .into_iter()
                 .map(|r| {
                     ids.push(slint::SharedString::from(r.id.to_string()));
-                    details.push(slint::SharedString::from(format!(
-                        "{}: {}\n{}: {}",
-                        tr("Source path"),
-                        r.cells[1],
-                        tr("Destination"),
-                        r.cells[2]
-                    )));
                     let cells: Vec<_> = r
                         .cells
+                        .iter()
+                        .map(|s| crate::format::visible_name(s).into_owned())
+                        .collect();
+                    details.push(slint::SharedString::from(fill(
+                        tr("Source path: {0}\nDestination: {1}"),
+                        &[&cells[1], &cells[2]],
+                    )));
+                    let cells: Vec<_> = cells
                         .into_iter()
                         .enumerate()
                         .map(|(column, text)| {

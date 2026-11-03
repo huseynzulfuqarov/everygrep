@@ -142,7 +142,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   (summed up to 100 000 selected items). A setting turns the details off.
   The details are elided first, so the count, the index state, the badges,
   the note and the time stay visible. The note (for example "Copied 3
-  paths.") is shown in full up to 360 px; hints such as "Select one folder
+  paths.") uses the available space, with full details in its accessible description and hover tip; hints such as "Select one folder
   to paste into." use the muted text color, and only failures (an I/O
   error, a failed paste, trash or export) are drawn in the danger color. A long operation that has run for
   300 ms shows its progress after the left part ("Indexing: 42%", or a count

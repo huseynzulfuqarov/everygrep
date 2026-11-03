@@ -1319,7 +1319,7 @@ export component AppWindow inherits Window {
     in property <string> notice;
     in property <bool> notice-error;
     in property <string> notice-details;
-    in property <string> notice-details-label;
+    in property <bool> notice-has-details;
 
     // In-place rename: the row being edited (-1 for none), its text and the
     // part selected at the start.
@@ -3185,15 +3185,22 @@ export component AppWindow inherits Window {
                         }
                         }
 
-                        message-hover := TouchArea { visible: root.message-error && root.message != ""; }
-                        Text {
+                        Rectangle {
                             visible: root.message != "";
-                            text: root.message;
-                            color: root.message-error ? Theme.danger : Theme.text-muted;
-                            font-size: Theme.body;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            wrap: word-wrap;
+                            width: min(message-text.preferred-width, parent.width - 2 * Theme.s3);
+                            height: message-text.preferred-height;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            message-text := Text {
+                                width: parent.width;
+                                text: root.message;
+                                color: root.message-error ? Theme.danger : Theme.text-muted;
+                                font-size: Theme.body;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                                accessible-description: root.message-details;
+                            }
+                            message-hover := TouchArea { visible: root.message-error; }
                         }
                     }
 
@@ -3279,8 +3286,10 @@ export component AppWindow inherits Window {
                     // Shown in full up to a width that leaves room for the rest
                     // of the line even in a narrow window.
                     notice-cell := Rectangle {
+                        accessible-role: text;
+                        accessible-label: root.notice;
+                        accessible-description: root.notice-has-details ? root.notice-details : root.notice;
                         min-width: min(notice-text.preferred-width, 360px);
-                        max-width: 360px;
                         horizontal-stretch: 0;
                         notice-text := Text {
                             width: parent.width;
@@ -3377,7 +3386,7 @@ export component AppWindow inherits Window {
             x: Theme.s2;
             y: Theme.s2;
             width: parent.width - 2 * Theme.s2;
-            text: root.notice == root.notice-details-label ? root.notice-details : root.notice;
+            text: root.notice-has-details ? root.notice-details : root.notice;
             wrap: word-wrap;
             font-size: Theme.small;
             color: root.notice-error ? Theme.danger : Theme.text;
@@ -3385,8 +3394,8 @@ export component AppWindow inherits Window {
     }
 
     if message-hover.has-hover && root.message-error && root.message-details != "": Rectangle {
-        x: Theme.s3;
-        y: max(Theme.s3, root.height - Theme.status-height - self.height - Theme.s2);
+        x: max(Theme.s3, min(message-hover.absolute-position.x - origin.absolute-position.x, root.width - self.width - Theme.s3));
+        y: max(Theme.s3, min(message-hover.absolute-position.y - origin.absolute-position.y + message-hover.height + Theme.s2, root.height - self.height - Theme.s3));
         width: min(620px, root.width - 2 * Theme.s3);
         height: diagnostic.preferred-height + 2 * Theme.s2;
         background: Theme.surface;

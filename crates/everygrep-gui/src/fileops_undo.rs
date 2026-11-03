@@ -313,11 +313,13 @@ impl Journal {
             } else {
                 &entry.from
             };
-            let name = path
-                .file_name()
-                .unwrap_or(path.as_os_str())
-                .to_string_lossy()
-                .into_owned();
+            let name = crate::format::visible_name(
+                &path
+                    .file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy(),
+            )
+            .into_owned();
             match self.step_one(redo, trash, progress)? {
                 Ok(()) => outcome.done += 1,
                 Err(reason) => outcome.skipped.push(SkippedItem { name, reason }),

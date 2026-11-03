@@ -21,7 +21,7 @@ use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
 use crate::engine::{Engine, IndexState, SearchResult, SettledSearch};
 use crate::filetype::{self, KindIcon};
-use crate::format;
+use crate::format::{self, visible_name};
 use crate::hash_columns::{HashBatch, HashColumns, HashReader, HashRequest};
 use crate::labels;
 use crate::selection::{Changed, Selection};
@@ -1217,32 +1217,6 @@ fn tilde_spans(spans: &[Range<usize>], cut: usize) -> Vec<Range<usize>> {
             .filter(|r| r.start < r.end)
             .collect(),
     )
-}
-
-/// Visible, single-line cell text. Search spans and file operations keep
-/// using the original name; escape each piece only after splitting it.
-fn visible_name(text: &str) -> std::borrow::Cow<'_, str> {
-    if !text
-        .chars()
-        .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
-    {
-        return text.into();
-    }
-    let mut shown = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '\n' | '\u{2028}' | '\u{2029}' => shown.push('⏎'),
-            '\t' => shown.push('⇥'),
-            '\x00'..='\x1f' => shown.push(char::from_u32(0x2400 + c as u32).unwrap()),
-            '\x7f' => shown.push('␡'),
-            c if c.is_control() => {
-                use std::fmt::Write;
-                let _ = write!(shown, "\\u{{{:x}}}", c as u32);
-            }
-            c => shown.push(c),
-        }
-    }
-    shown.into()
 }
 
 /// `text` split into plain and bold pieces around `spans` (sorted, not

@@ -482,7 +482,7 @@ mod tests {
             (
                 Lang::Az,
                 "{} addım geri alındı.",
-                "{} addım təkrar icra edildi.",
+                "{} addım təkrarlandı.",
                 "{} addım ötürüldü.",
             ),
             (
