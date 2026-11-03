@@ -32,7 +32,7 @@ export component FileUndoWindow inherits Window {
             reject
         }
         VerticalLayout {
-            padding: Theme.s4;
+            padding: Theme.margin;
             spacing: Theme.s3;
             Text { text: @tr("Session history only. Trash, permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."); color: Theme.text-muted; wrap: word-wrap; }
             ComboBox {

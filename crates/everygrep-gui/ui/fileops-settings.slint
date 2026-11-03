@@ -31,6 +31,7 @@ export component FileopsSettings inherits VerticalLayout {
     }
     Text { text: @tr("Maximum undo steps"); color: Theme.text; }
     HorizontalLayout {
+        spacing: Theme.gap;
         history-limit := SpinBox { value: root.undo-limit; minimum: 1; maximum: 1000; }
         Button {
             text: @tr("Apply history limit");

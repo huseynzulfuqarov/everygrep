@@ -391,7 +391,7 @@ export component SettingsWindow inherits Window {
                 ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
-                        padding: Theme.s5;
+                        padding: Theme.dialog-padding;
                         spacing: Theme.s4;
 
                         if root.error != "": Text {
@@ -1365,7 +1365,7 @@ export component SettingsWindow inherits Window {
                 // The value of the chosen setting and its buttons stay in
                 // view below the page, which is taller than the window.
                 if root.page == 5: VerticalLayout {
-                    padding: Theme.s5;
+                    padding: Theme.dialog-padding;
                     padding-top: Theme.s2;
                     spacing: Theme.s2;
                     Text {
@@ -1413,7 +1413,7 @@ export component SettingsWindow inherits Window {
                 }
                 if root.page < 4: HorizontalLayout {
                     alignment: end;
-                    padding: Theme.s5;
+                    padding: Theme.dialog-padding;
                     padding-top: Theme.s2;
                     Button {
                         text: @tr("Reset to defaults");
@@ -1452,7 +1452,7 @@ export component SettingsWindow inherits Window {
                 drop-shadow-color: #00000040;
                 clip: true;
                 dialog-layout := VerticalLayout {
-                    padding: Theme.s5;
+                    padding: Theme.dialog-padding;
                     spacing: Theme.s3;
                     Text {
                         text: root.key-dialog-title;

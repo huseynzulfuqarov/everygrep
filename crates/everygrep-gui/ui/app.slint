@@ -995,7 +995,7 @@ component InfoDialog inherits Rectangle {
         // Clicks on the card stay on it.
         TouchArea { }
         card-layout := VerticalLayout {
-            padding: Theme.s5;
+            padding: Theme.dialog-padding;
             spacing: Theme.s3;
             Text {
                 text: root.title;
@@ -3330,6 +3330,7 @@ export component AppWindow inherits Window {
                 padding: Theme.s2;
                 spacing: Theme.s1;
                 HorizontalLayout {
+                    spacing: Theme.gap;
                     Text { text: @tr("Sort history by"); color: Theme.text; vertical-alignment: center; }
                     ComboBox {
                         accessible-label: @tr("Sort history by");
@@ -3458,7 +3459,7 @@ export component AppWindow inherits Window {
             drop-shadow-blur: 16px;
             drop-shadow-color: #00000040;
             dialog-layout := VerticalLayout {
-                padding: Theme.s5;
+                padding: Theme.dialog-padding;
                 spacing: Theme.s3;
                 Text {
                     text: root.confirm-title;

@@ -47,9 +47,10 @@ export component HistoryWindow inherits Window {
             reject
         }
         VerticalLayout {
-            padding: Theme.s4;
+            padding: Theme.margin;
             spacing: Theme.s3;
             HorizontalLayout {
+                spacing: Theme.gap;
                 Text { text: @tr("Filter history"); color: Theme.text; vertical-alignment: center; }
                 filter := LineEdit {
                     accessible-label: @tr("Filter history");

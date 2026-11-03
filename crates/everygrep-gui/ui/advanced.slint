@@ -14,6 +14,9 @@ export component AdvancedWindow inherits Window {
     default-font-size: Theme.body;
     forward-focus: all;
     in-out property <string> all-words;
+    // The form's labels share one column, so its fields line up.
+    property <length> label-width: max(m0.preferred-width, m1.preferred-width, m2.preferred-width, m3.preferred-width, m4.preferred-width, m5.preferred-width, m6.preferred-width,
+        m7.preferred-width, m8.preferred-width, m9.preferred-width, m10.preferred-width, m11.preferred-width, m12.preferred-width, m13.preferred-width);
     in-out property <string> phrase;
     in-out property <string> any-words;
     in-out property <string> none-words;
@@ -58,24 +61,24 @@ export component AdvancedWindow inherits Window {
         VerticalLayout {
         ScrollView {
         VerticalLayout {
-            padding: Theme.s4;
+            padding: Theme.margin;
             spacing: Theme.s2;
             GridLayout {
-                spacing: Theme.s2;
+                spacing: Theme.gap;
                 Row {
-                    Text { text: @tr("All of these words"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("All of these words"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     all := LineEdit { accessible-label: @tr("All of these words"); text <=> root.all-words; accepted => { root.use-query(); } }
                 }
                 Row {
-                    Text { text: @tr("This exact phrase"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("This exact phrase"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("This exact phrase"); text <=> root.phrase; accepted => { root.use-query(); } }
                 }
                 Row {
-                    Text { text: @tr("Any of these words"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Any of these words"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Any of these words"); text <=> root.any-words; accepted => { root.use-query(); } }
                 }
                 Row {
-                    Text { text: @tr("None of these words"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("None of these words"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("None of these words"); text <=> root.none-words; accepted => { root.use-query(); } }
                 }
             }
@@ -88,13 +91,13 @@ export component AdvancedWindow inherits Window {
             }
             Text { text: @tr("File contents"); color: Theme.text; font-weight: 600; }
             GridLayout {
-                spacing: Theme.s2;
+                spacing: Theme.gap;
                 Row {
-                    Text { text: @tr("Word or phrase in the file"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Word or phrase in the file"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Word or phrase in the file"); text <=> root.content-text; accepted => { root.use-query(); } }
                 }
                 Row {
-                    Text { text: @tr("Text encoding"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Text encoding"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     ComboBox { accessible-label: @tr("Text encoding"); model: [@tr("Automatic"), @tr("Code page from Settings"), "UTF-8", "UTF-16 LE", "UTF-16 BE"]; current-index <=> root.content-encoding; }
                 }
             }
@@ -105,51 +108,51 @@ export component AdvancedWindow inherits Window {
             }
             Text { text: @tr("File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. Text is matched line by line; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."); color: Theme.text-muted; wrap: word-wrap; }
             GridLayout {
-                spacing: Theme.s2;
+                spacing: Theme.gap;
                 Row {
-                    Text { text: @tr("Located in"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Located in"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Located in"); text <=> root.location; accepted => { root.use-query(); } }
                 }
                 Row {
-                    Text { text: ""; }
+                    Text { text: ""; width: root.label-width; }
                     CheckBox { text: @tr("Include subfolders"); checked <=> root.recursive; }
                 }
                 Row {
-                    Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     ComboBox { accessible-label: @tr("Filter"); model: root.filter-names; current-index <=> root.filter-index; }
                 }
                 Row {
-                    Text { text: @tr("Type"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Type"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     ComboBox { accessible-label: @tr("Type"); model: [@tr("Files and folders"), @tr("Files"), @tr("Folders"), @tr("Files without an extension")]; current-index <=> root.kind; }
                 }
                 Row {
-                    Text { text: @tr("Extensions"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Extensions"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Extensions"); text <=> root.extensions; accepted => { root.use-query(); } placeholder-text: @tr("For example pdf;txt"); }
                 }
             }
             GridLayout {
-                spacing: Theme.s2;
+                spacing: Theme.gap;
                 Row {
-                    Text { text: @tr("Size from"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Size from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Minimum size"); text <=> root.min-size; accepted => { root.use-query(); } }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
                     LineEdit { accessible-label: @tr("Maximum size"); text <=> root.max-size; accepted => { root.use-query(); } }
                     ComboBox { accessible-label: @tr("Size unit"); model: [@tr("bytes"), @tr("KiB"), @tr("MiB"), @tr("GiB")]; current-index <=> root.size-unit; }
                 }
                 Row {
-                    Text { text: @tr("Modified from"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Modified from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Modified from"); text <=> root.modified-from; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
                     LineEdit { accessible-label: @tr("Modified to"); text <=> root.modified-to; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                 }
                 Row {
-                    Text { text: @tr("Created from"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Created from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Created from"); text <=> root.created-from; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
                     LineEdit { accessible-label: @tr("Created to"); text <=> root.created-to; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                 }
                 Row {
-                    Text { text: @tr("Accessed from"); color: Theme.text; vertical-alignment: center; }
+                    Text { text: @tr("Accessed from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { accessible-label: @tr("Accessed from"); text <=> root.accessed-from; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
                     LineEdit { accessible-label: @tr("Accessed to"); text <=> root.accessed-to; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
@@ -161,8 +164,8 @@ export component AdvancedWindow inherits Window {
         Rectangle { height: 1px; background: Theme.line; }
         HorizontalLayout {
             padding: Theme.s3;
-            padding-left: Theme.s4;
-            padding-right: Theme.s4;
+            padding-left: Theme.margin;
+            padding-right: Theme.margin;
             spacing: Theme.s2;
             Text {
                 text: root.notice;
@@ -182,4 +185,19 @@ export component AdvancedWindow inherits Window {
         }
         }
     }
+    // Only measure the labels above (not shown).
+    m0 := Text { visible: false; text: @tr("All of these words"); }
+    m1 := Text { visible: false; text: @tr("This exact phrase"); }
+    m2 := Text { visible: false; text: @tr("Any of these words"); }
+    m3 := Text { visible: false; text: @tr("None of these words"); }
+    m4 := Text { visible: false; text: @tr("Word or phrase in the file"); }
+    m5 := Text { visible: false; text: @tr("Text encoding"); }
+    m6 := Text { visible: false; text: @tr("Located in"); }
+    m7 := Text { visible: false; text: @tr("Filter"); }
+    m8 := Text { visible: false; text: @tr("Type"); }
+    m9 := Text { visible: false; text: @tr("Extensions"); }
+    m10 := Text { visible: false; text: @tr("Size from"); }
+    m11 := Text { visible: false; text: @tr("Modified from"); }
+    m12 := Text { visible: false; text: @tr("Created from"); }
+    m13 := Text { visible: false; text: @tr("Accessed from"); }
 }

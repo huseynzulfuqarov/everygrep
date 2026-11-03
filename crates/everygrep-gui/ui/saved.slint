@@ -22,6 +22,10 @@ export component SavedWindow inherits Window {
     in property <[[StandardListViewItem]]> rows;
     in-out property <int> current <=> table.current-row;
     in-out property <bool> editing;
+    // The editor's labels share one column, so its fields line up.
+    property <length> label-width: max(m-name.preferred-width, m-search.preferred-width,
+        m-filter.preferred-width, m-sort.preferred-width, m-key.preferred-width,
+        m-hidden.preferred-width);
     in-out property <string> entry-name;
     in-out property <string> search-text;
     in property <[string]> kinds;
@@ -80,7 +84,7 @@ export component SavedWindow inherits Window {
         }
         ScrollView {
         VerticalLayout {
-            padding: Theme.s4;
+            padding: Theme.margin;
             spacing: Theme.s2;
             table := StandardTableView {
                 accessible-label: root.bookmarks ? @tr("Bookmarks") : @tr("Filters");
@@ -104,24 +108,29 @@ export component SavedWindow inherits Window {
             VerticalLayout {
                 spacing: Theme.s2;
                 HorizontalLayout {
-                    Text { text: @tr("Name"); color: Theme.text; vertical-alignment: center; }
+                    spacing: Theme.gap;
+                    Text { text: @tr("Name"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     name := LineEdit { enabled: root.editing; accessible-label: @tr("Name"); text <=> root.entry-name; }
                 }
                 HorizontalLayout {
-                    Text { text: @tr("Search"); color: Theme.text; vertical-alignment: center; }
+                    spacing: Theme.gap;
+                    Text { text: @tr("Search"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     LineEdit { enabled: root.editing; accessible-label: @tr("Search"); text <=> root.search-text; }
                 }
                 HorizontalLayout {
-                    Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; }
+                    spacing: Theme.gap;
+                    Text { text: @tr("Filter"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     ComboBox { enabled: root.editing; accessible-label: @tr("Filter"); model: root.kinds; current-index <=> root.kind; }
                 }
                 if root.bookmarks: HorizontalLayout {
-                    Text { text: @tr("Sort by"); color: Theme.text; vertical-alignment: center; }
+                    spacing: Theme.gap;
+                    Text { text: @tr("Sort by"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     ComboBox { enabled: root.editing; accessible-label: @tr("Sort by"); model: root.sort-names; current-index <=> root.sort-column; }
                     CheckBox { enabled: root.editing; text: @tr("Descending"); checked <=> root.descending; }
                 }
                 HorizontalLayout {
-                    Text { text: @tr("Keyboard shortcut"); color: Theme.text; vertical-alignment: center; }
+                    spacing: Theme.gap;
+                    Text { text: @tr("Keyboard shortcut"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     capture := FocusScope {
                         height: 36px; min-width: 160px; horizontal-stretch: 1;
                         accessible-role: text-input;
@@ -152,13 +161,16 @@ export component SavedWindow inherits Window {
                 }
                 Text { text: @tr("Shortcuts use the active keyboard layout."); color: Theme.text-muted; wrap: word-wrap; }
                 HorizontalLayout {
-                    Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; }
+                    spacing: Theme.gap;
+                    Text { text: @tr("Hidden files"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
                     ComboBox { enabled: root.editing; accessible-label: @tr("Hidden files"); model: root.hidden-names; current-index <=> root.hidden-mode; }
                 }
                 CheckBox { enabled: root.editing; text: @tr("Evaluate AND before OR"); checked <=> root.and-before-or; }
                 CheckBox { enabled: root.editing; text: @tr("Allow literal AND / OR / NOT operators"); checked <=> root.literal-operators; }
                 CheckBox { enabled: root.editing; text: @tr("Match wildcards anywhere in the filename"); checked <=> root.wildcards-anywhere; }
                 GridLayout {
+                    spacing-vertical: Theme.s2;
+                    spacing-horizontal: Theme.gap;
                     Row {
                         CheckBox { enabled: root.editing; text: @tr("Match case"); checked <=> root.match-case; }
                         CheckBox { enabled: root.editing; text: @tr("Whole words"); checked <=> root.whole-words; }
@@ -176,17 +188,20 @@ export component SavedWindow inherits Window {
                     }
                 }
                 HorizontalLayout {
+                    spacing: Theme.gap;
                     Button { enabled: root.editing; text: @tr("Save"); clicked => { root.save-entry(); } }
                     Button { text: @tr("Cancel"); clicked => { root.editing = false; } }
                     Rectangle { horizontal-stretch: 1; }
                 }
             }
             if root.deleting: HorizontalLayout {
+                spacing: Theme.gap;
                 Text { text: @tr("Delete “{}”?", root.confirm-name); color: Theme.text; wrap: word-wrap; }
                 Button { text: @tr("Delete"); clicked => { root.deleting = false; root.remove-entry(); } }
                 Button { text: @tr("Cancel"); clicked => { root.deleting = false; } }
             }
             if root.resetting: HorizontalLayout {
+                spacing: Theme.gap;
                 Text { text: @tr("Save a copy of unreadable saved searches and reset them?"); color: Theme.text; wrap: word-wrap; }
                 Button { text: @tr("Save a copy and reset"); clicked => { root.resetting = false; root.recover(); } }
                 Button { text: @tr("Cancel"); clicked => { root.resetting = false; } }
@@ -197,11 +212,13 @@ export component SavedWindow inherits Window {
             }
             if root.notice != "": Text { text: root.notice; color: root.notice-error ? Theme.danger : Theme.text-muted; wrap: word-wrap; }
             if root.confirming && !root.bookmarks: HorizontalLayout {
+                spacing: Theme.gap;
                 Text { text: @tr("Restore built-in filters and keep your own filters?"); color: Theme.text; wrap: word-wrap; }
                 Button { text: @tr("Restore"); clicked => { root.confirming = false; root.restore(); } }
                 Button { text: @tr("Cancel"); clicked => { root.confirming = false; } }
             }
             HorizontalLayout {
+                spacing: Theme.gap;
                 Button { visible: !root.bookmarks; text: @tr("Restore default filters"); enabled: !root.busy; clicked => { root.confirming = true; } }
                 Rectangle { horizontal-stretch: 1; }
                 Button { text: @tr("Close"); clicked => { root.close-window(); } }
@@ -209,4 +226,11 @@ export component SavedWindow inherits Window {
         }
         }
     }
+    // Only measure the labels above (not shown).
+    m-name := Text { visible: false; text: @tr("Name"); }
+    m-search := Text { visible: false; text: @tr("Search"); }
+    m-filter := Text { visible: false; text: @tr("Filter"); }
+    m-sort := Text { visible: false; text: @tr("Sort by"); }
+    m-key := Text { visible: false; text: @tr("Keyboard shortcut"); }
+    m-hidden := Text { visible: false; text: @tr("Hidden files"); }
 }
