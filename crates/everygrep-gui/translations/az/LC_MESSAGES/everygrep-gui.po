@@ -2529,7 +2529,7 @@ msgid "{} (invalid query)"
 msgstr "{} (yanlış sorğu)"
 
 msgid "{} (snapshot)"
-msgstr "{} (surət)"
+msgstr "{} (saxlanmış)"
 
 msgid "Using the original built-in filter: {}."
 msgstr "İlkin daxili filtr tətbiq edilir: {}."

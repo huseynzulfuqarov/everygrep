@@ -2529,7 +2529,7 @@ msgid "{} (invalid query)"
 msgstr "{} (geçersiz sorgu)"
 
 msgid "{} (snapshot)"
-msgstr "{} (kopya)"
+msgstr "{} (kayıtlı)"
 
 msgid "Using the original built-in filter: {}."
 msgstr "Özgün yerleşik filtre kullanılıyor: {}."
