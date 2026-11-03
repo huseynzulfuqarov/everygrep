@@ -2141,6 +2141,14 @@ msgstr "Saxlanmış indeks zədələnib və ya başqa versiyaya aiddir, ona gör
 msgid "The saved index could not be read ({}), so it is built again."
 msgstr "Saxlanmış indeksi oxumaq olmadı ({}), ona görə yenidən qurulur."
 
+#: src/labels.rs
+msgid "Watch limit reached: the changed index settings are applied with a full scan."
+msgstr "İzləmə limiti dolub: dəyişdirilmiş indeks ayarları tam skanla tətbiq olunur."
+
+#: src/labels.rs
+msgid "Some folders are not watched: the changed index settings are applied with a full scan."
+msgstr "Bəzi qovluqlar izlənmir: dəyişdirilmiş indeks ayarları tam skanla tətbiq olunur."
+
 #: ui/settings.slint
 msgid "Rescan the folders"
 msgstr "Qovluqları yenidən skan et"

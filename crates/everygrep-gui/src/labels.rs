@@ -574,6 +574,15 @@ pub fn notice(n: &Notice) -> String {
             tr("The saved index could not be read ({}), so it is built again."),
             &[error],
         ),
+        Notice::FullScanUnwatched {
+            limit_reached: true,
+            ..
+        } => tr("Watch limit reached: the changed index settings are applied with a full scan.")
+            .to_owned(),
+        Notice::FullScanUnwatched { .. } => tr(
+            "Some folders are not watched: the changed index settings are applied with a full scan.",
+        )
+        .to_owned(),
     }
 }
 

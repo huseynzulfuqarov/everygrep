@@ -179,6 +179,44 @@ the catch-up and the watcher alike; an excluded folder gets no entry and is
 not read. Name patterns compare bytes (`*.ext` is a suffix test); only
 patterns that need it build the full path or run a regular expression.
 
+Settings updates use `scan::update_with_progress` on the index worker. Normalized
+roots partition coverage: existing trees are copied in memory, removed trees are
+omitted, and only new coverage is walked. Promotion of a nested folder to a root
+keeps the root exemption from filters. A new enclosing root walks uncovered
+ancestors/siblings and reuses covered subtrees. Directory totals are recomputed.
+
+`IndexRules::can_refilter_from` proves restrictions by list containment (old
+excludes remain, new include alternatives are a subset, or the old include list
+was empty). Such changes only prune existing entries. Removed exact-path folder
+exclusions reopen their parent listings and the newly admitted trees; other
+subtrees are copied. Broader file filters, removed folder patterns, or pattern
+replacements whose containment is unproven fall back to a full scan, as do file
+metadata changes. The core API requires an up-to-date source. The engine drains
+the old watcher before reuse, retains its event queue during the scan, then remaps
+its directory ids to the replacement and watches new coverage. Queued events use
+the new rules. Paused, incomplete or continuously busy watches, and watches that
+failed for any reason but permission (the watch limit, for one), cannot
+establish a current source and fall back; a fallback for failed watches is said
+through `Notice::FullScanUnwatched`. Unreadable folders (permission denied) keep
+reuse: their failed listing keeps no time, and the engine passes every folder
+with a failed watch as `Source::unobserved`, so it is read again. A source
+whose file details may be stale (loaded from the index file, or not watched for
+a while; `file_details_current` in the engine) has the size and time of every
+copied file read again (`Source::stale_file_details`); folders are not listed
+again. Explicit, scheduled and overflow rescans always scan fully: a full scan
+asked for stays full (`full_pending`) even when a settings change comes before
+it is swapped in. An overflow repair scans the roots and rules the index was
+built with, not a request still waiting.
+
+The replacement stays private until complete. Cancel or a newer request discards
+it. Publication updates the index, id epoch and persisted roots/rule fingerprint
+under the save lock. Retained directory times stay paired with their old listings
+so the watch-installation catch-up sees changes during the update. Drives still
+use the existing extraction/grafting path and are re-read when their options or
+root coverage change. Incremental updates do not advance the last full-scan time.
+Index settings and cancellation rollback saves use `settings::Writer` in request
+order. Path resolution happens on the index/chooser workers.
+
 ### Watching (`watch.rs`, `inotify.rs`, `sync.rs`)
 
 `Watcher::new` puts an inotify watch on every indexed folder. Events are read

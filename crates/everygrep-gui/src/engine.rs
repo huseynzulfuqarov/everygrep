@@ -24,7 +24,7 @@
 //! mounted it comes online, is caught up and watched; when it goes away its
 //! entries stay, marked offline, or are forgotten, as the settings say.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -42,7 +42,9 @@ use everygrep_core::persist;
 use everygrep_core::progress::{self, Progress};
 use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
 use everygrep_core::rules::{IndexRules, RuleSpec};
-use everygrep_core::scan::{ScanOptions, normalize_roots, scan_with_progress};
+use everygrep_core::scan::{
+    ScanOptions, Source, normalize_roots, scan_with_progress, update_with_progress,
+};
 use everygrep_core::search::{Staged, search_staged, search_with_progress};
 use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
 use everygrep_core::store::{NodeId, NodeStore};
@@ -129,6 +131,10 @@ pub enum Notice {
     /// The saved index could not be used and is built again: damaged or of
     /// another version (`damaged`), or not readable (the error).
     IndexRebuilt { damaged: bool, error: String },
+    /// Changed index settings are applied with a full scan, since `folders`
+    /// indexed folders are not watched (`limit_reached`: the limit of
+    /// watches was reached), so their listings cannot be reused.
+    FullScanUnwatched { folders: usize, limit_reached: bool },
 }
 
 /// A long operation, as the status line names it.
@@ -414,6 +420,19 @@ pub struct Engine {
     /// Set by [`Engine::reindex`]; the index thread scans again when it sees
     /// it.
     rescan: AtomicBool,
+    /// Settings changes may reuse indexed coverage; explicit scans never do.
+    incremental: AtomicBool,
+    /// An explicit or scheduled full scan was asked for and has not been
+    /// swapped in yet: a later settings change must not make it incremental.
+    /// Set and cleared under the `roots` lock.
+    full_pending: AtomicBool,
+    /// How the index thread resolved the spellings of folders it was asked
+    /// to index (see [`Engine::resolved_roots`]).
+    resolved: Mutex<HashMap<PathBuf, PathBuf>>,
+    /// File sizes and times in the index were kept current by a watcher
+    /// since it was scanned (not loaded from the index file, no time without
+    /// watches since): reuse may copy them.
+    file_details_current: AtomicBool,
     /// Counts the calls of [`Engine::reindex`], under the `roots` lock, so a
     /// cancelled new index goes back to the previous folders only when no
     /// newer request came meanwhile.
@@ -601,8 +620,20 @@ impl Engine {
         let engine = Arc::new(Self {
             index: RwLock::new(Index::new(NodeStore::new())),
             roots: Mutex::new(normalize_roots(&roots)),
+            resolved: Mutex::new(
+                roots
+                    .iter()
+                    .filter_map(|r| {
+                        let path = normalize_roots(std::slice::from_ref(r)).pop()?;
+                        Some((r.clone(), path))
+                    })
+                    .collect(),
+            ),
             options: Mutex::new(options),
             rescan: AtomicBool::new(false),
+            incremental: AtomicBool::new(false),
+            full_pending: AtomicBool::new(false),
+            file_details_current: AtomicBool::new(false),
             reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
             index_file: Mutex::new(index_file),
@@ -913,6 +944,8 @@ impl Engine {
             let _roots = self.roots.lock().expect("lock");
             self.last_scheduled_scan.store(now, Ordering::SeqCst);
             self.reindexed.fetch_add(1, Ordering::SeqCst);
+            self.incremental.store(false, Ordering::SeqCst);
+            self.full_pending.store(true, Ordering::SeqCst);
             self.rescan.store(true, Ordering::SeqCst);
         }
     }
@@ -943,13 +976,68 @@ impl Engine {
     /// cancelled: it would be replaced at once. That is not reported as a
     /// stop, and the folders and rules stay the newest ones.
     pub fn reindex(&self, roots: &[PathBuf], rules: IndexRules) {
+        self.request_index(roots, rules, false);
+    }
+
+    /// Applies changed settings, reusing covered trees and re-filtering when
+    /// safe. Broader rules or changed metadata require a full scan instead.
+    pub fn reconfigure(&self, roots: &[PathBuf], rules: IndexRules) {
+        self.request_index(roots, rules, true);
+    }
+
+    fn request_index(&self, roots: &[PathBuf], rules: IndexRules, incremental: bool) {
         let mut current = self.roots.lock().expect("lock");
-        *current = normalize_roots(roots);
+        // Resolving paths can touch slow storage; the index worker does it.
+        *current = roots.to_vec();
         self.options.lock().expect("lock").rules = rules;
+        self.incremental.store(incremental, Ordering::SeqCst);
+        if !incremental {
+            // Stays asked for until a full scan is swapped in (or cancelled).
+            self.full_pending.store(true, Ordering::SeqCst);
+        }
         self.reindexed.fetch_add(1, Ordering::SeqCst);
         self.rescan.store(true, Ordering::SeqCst);
         drop(current);
         self.tasks.cancel_rescan();
+    }
+
+    /// [`normalize_roots`], remembering how each spelling resolved. Touches
+    /// the disk: the index thread calls it.
+    fn normalize(&self, roots: &[PathBuf]) -> Vec<PathBuf> {
+        let mut resolved = Vec::with_capacity(roots.len());
+        for root in roots {
+            let one = normalize_roots(std::slice::from_ref(root));
+            if let Some(path) = one.into_iter().next() {
+                resolved.push(path.clone());
+                self.resolved
+                    .lock()
+                    .expect("lock")
+                    .insert(root.clone(), path);
+            }
+        }
+        normalize_roots(&resolved)
+    }
+
+    /// `roots` as the index thread resolved them when they were asked for
+    /// (symbolic links, `..`), without new disk access, so the window can
+    /// compare them with [`setup`](Self::setup): duplicate and nested ones
+    /// dropped, sorted. A spelling never asked for stays as it is.
+    pub fn resolved_roots(&self, roots: &[PathBuf]) -> Vec<PathBuf> {
+        let known = self.resolved.lock().expect("lock");
+        let mut sorted: Vec<PathBuf> = roots
+            .iter()
+            .map(|r| known.get(r).cloned().unwrap_or_else(|| r.clone()))
+            .collect();
+        drop(known);
+        sorted.sort();
+        sorted.dedup();
+        let mut result: Vec<PathBuf> = Vec::new();
+        for root in sorted {
+            if !result.iter().any(|kept| root.starts_with(kept)) {
+                result.push(root);
+            }
+        }
+        result
     }
 
     /// The folders to index and the rules asked for last: after a cancelled
@@ -1620,14 +1708,20 @@ impl Engine {
 
     /// Records the folders `watcher` could not watch (none without one).
     /// Returns whether that changed.
-    fn note_unwatched(&self, watcher: Option<&Watcher>) -> bool {
-        let mut now = Unwatched::default();
-        for kind in watcher.into_iter().flat_map(Watcher::failed_watch_kinds) {
-            if kind != std::io::ErrorKind::PermissionDenied {
-                now.folders += 1;
-                now.limit_reached |= kind == std::io::ErrorKind::StorageFull;
-            }
+    /// [`watch_gaps`]; tests can add a folder past the watch limit.
+    fn reuse_gaps(&self, watcher: &Watcher) -> Unwatched {
+        #[allow(unused_mut)]
+        let mut gaps = watch_gaps(watcher);
+        #[cfg(test)]
+        if tests::listed(&tests::WATCH_LIMITS, self.index_file().as_deref()) {
+            gaps.folders += 1;
+            gaps.limit_reached = true;
         }
+        gaps
+    }
+
+    fn note_unwatched(&self, watcher: Option<&Watcher>) -> bool {
+        let now = watcher.map(watch_gaps).unwrap_or_default();
         let mut unwatched = self.unwatched.lock().expect("lock");
         let changed = *unwatched != now;
         *unwatched = now;
@@ -1669,7 +1763,7 @@ impl Engine {
                 }
             }
         }
-        if !loaded && self.scan_fresh(TaskKind::Indexing).is_err() {
+        if !loaded && self.scan_fresh(TaskKind::Indexing, None).is_err() {
             // Nothing is saved until a new index is complete; the next
             // start indexes again.
             self.incomplete.store(true, Ordering::SeqCst);
@@ -1682,7 +1776,12 @@ impl Engine {
 
         // Changes during any scan precede watch installation too.
         let mut catch_up = true;
+        let mut retained_watcher = None;
         while !self.stop.load(Ordering::SeqCst) {
+            if !self.watching.load(Ordering::SeqCst) && retained_watcher.take().is_some() {
+                // Nothing watches the index until watching is on again.
+                self.file_details_current.store(false, Ordering::SeqCst);
+            }
             if self.rescan.load(Ordering::SeqCst) {
                 // A new index is due: nothing to watch until it is built.
             } else if !self.watching.load(Ordering::SeqCst) {
@@ -1690,13 +1789,14 @@ impl Engine {
                 // Turned on again: what changed meanwhile is caught up.
                 catch_up = true;
             } else {
-                catch_up = self.watch_once(catch_up, &mut drives_to_catch_up);
+                catch_up =
+                    self.watch_once(catch_up, &mut drives_to_catch_up, &mut retained_watcher);
             }
             if self.rescan.swap(false, Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst) {
                 // Nothing watched the index during the scan: it is caught
                 // up either way.
                 catch_up = true;
-                match self.scan_fresh(TaskKind::Rescanning) {
+                match self.scan_fresh(TaskKind::Rescanning, retained_watcher.as_mut()) {
                     Ok(()) => {
                         self.request_search();
                         self.save();
@@ -1710,6 +1810,8 @@ impl Engine {
                                 self.indexed_with.lock().expect("lock").clone();
                             *roots = indexed;
                             *self.options.lock().expect("lock") = options;
+                            // The asked-for full scan was cancelled too.
+                            self.full_pending.store(false, Ordering::SeqCst);
                             drop(roots);
                             self.last_scheduled_scan.store(unix_now(), Ordering::SeqCst);
                             (self.hooks.on_stopped)(Stopped::Rescan);
@@ -1734,6 +1836,7 @@ impl Engine {
     /// Waits, without any watch, until watching is turned on, a rescan is
     /// asked for or the engine stops. Drives still come and go.
     fn wait_unwatched(&self) {
+        self.file_details_current.store(false, Ordering::SeqCst);
         self.report(IndexState::Unwatched);
         while !self.interrupted(false) {
             std::thread::sleep(Duration::from_millis(250));
@@ -1750,11 +1853,19 @@ impl Engine {
     /// waits for one (see [`Engine::wait_for_watcher`]). The watcher and all
     /// its watches are dropped on return. Returns whether a catch-up is
     /// still due.
-    fn watch_once(&self, catch_up: bool, drives_to_catch_up: &mut Vec<NodeId>) -> bool {
-        let watcher = self.new_watcher(
-            &self.index.read().expect("index lock"),
-            &self.scan_options(),
-        );
+    fn watch_once(
+        &self,
+        catch_up: bool,
+        drives_to_catch_up: &mut Vec<NodeId>,
+        retained: &mut Option<Watcher>,
+    ) -> bool {
+        let watcher = match retained.take() {
+            Some(watcher) => Ok(watcher),
+            None => self.new_watcher(
+                &self.index.read().expect("index lock"),
+                &self.scan_options(),
+            ),
+        };
         let (mut watcher, catch_up) = match watcher {
             Ok(watcher) => (watcher, catch_up),
             // Nothing watched the index meanwhile: once a watcher is made,
@@ -1806,8 +1917,54 @@ impl Engine {
         // watched it since: a catch-up is due.
         let lost = !self.watch_loop(&mut watcher);
         self.applying_changes.store(false, Ordering::SeqCst);
+        // Consume queued events under the old rules before reusing its tree.
+        // Paused/unavailable/partial watches cannot establish a current source.
+        let gaps = self.reuse_gaps(&watcher);
+        let ready = !lost && gaps.folders == 0 && self.drain_for_reuse(&mut watcher);
+        if ready {
+            *retained = Some(watcher);
+        } else {
+            // Changes from now until a new watcher is made are found by its
+            // catch-up, which reads folder times only.
+            self.file_details_current.store(false, Ordering::SeqCst);
+            if gaps.folders > 0
+                && self.rescan.load(Ordering::SeqCst)
+                && self.incremental.load(Ordering::SeqCst)
+                && !self.full_pending.load(Ordering::SeqCst)
+            {
+                // Said, so a slow settings change has a reason.
+                (self.hooks.on_notice)(Notice::FullScanUnwatched {
+                    folders: gaps.folders,
+                    limit_reached: gaps.limit_reached,
+                });
+            }
+        }
         self.note_unwatched(None);
         lost
+    }
+
+    fn drain_for_reuse(&self, watcher: &mut Watcher) -> bool {
+        if !self.rescan.load(Ordering::SeqCst) || !self.watching.load(Ordering::SeqCst) {
+            return false;
+        }
+        // A continuously busy tree must not keep a settings request waiting.
+        for _ in 0..32 {
+            let Ok(events) = watcher.wait(Some(Duration::ZERO)) else {
+                return false;
+            };
+            if events.is_empty() && !watcher.has_pending() {
+                return true;
+            }
+            let mut index = self.index.write().expect("index lock");
+            let stats = watcher.apply(&mut index, &events);
+            if stats.added + stats.removed + stats.moved + stats.updated > 0 {
+                self.dirty.store(true, Ordering::SeqCst);
+            }
+            if stats.overflow {
+                return false;
+            }
+        }
+        false
     }
 
     /// Without a watcher (no inotify instance could be made, for example
@@ -1816,6 +1973,7 @@ impl Engine {
     /// and go. A watcher is tried again every [`RETRY_WATCHER_EVERY`].
     /// Returns it, or nothing when the index thread is interrupted first.
     fn wait_for_watcher(&self) -> Option<Watcher> {
+        self.file_details_current.store(false, Ordering::SeqCst);
         self.report(IndexState::Static);
         let mut last_try = Instant::now();
         while !self.interrupted(true) {
@@ -1853,7 +2011,7 @@ impl Engine {
     /// folder when there are none) and swaps it in. When the task (shown as
     /// `kind`) is cancelled, the index stays as it was and the error holds
     /// the [`Engine::reindex`] count the scan was for.
-    fn scan_fresh(&self, kind: TaskKind) -> Result<(), u64> {
+    fn scan_fresh(&self, kind: TaskKind, watcher: Option<&mut Watcher>) -> Result<(), u64> {
         self.report(IndexState::Scanning);
         let (roots, options, request) = {
             let mut roots = self.roots.lock().expect("lock");
@@ -1866,22 +2024,81 @@ impl Engine {
             let request = self.reindexed.load(Ordering::SeqCst);
             (roots.clone(), self.scan_options(), request)
         };
+        let roots = self.normalize(&roots);
+        let incremental = kind == TaskKind::Rescanning
+            && self.incremental.load(Ordering::SeqCst)
+            && !self.full_pending.load(Ordering::SeqCst)
+            && watcher
+                .as_ref()
+                .is_some_and(|w| self.reuse_gaps(w).folders == 0)
+            && !self.incomplete.load(Ordering::SeqCst);
         let task = self.tasks.begin(kind, true);
+        // A newer request can arrive before this task was registered.
+        if self.reindexed.load(Ordering::SeqCst) != request {
+            return Err(request);
+        }
         task.progress().set_total(self.estimate(&roots, &options));
         let mut store = NodeStore::new();
-        if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
-            return Err(request);
-        }
+        let reused = if incremental {
+            let previous = self.indexed_with.lock().expect("lock").clone();
+            // Held for the whole scan: only this thread writes the index, so
+            // readers (the window, searches) are not blocked. A writer on
+            // another thread would wait here, and readers behind it.
+            let index = self.index.read().expect("index lock");
+            let mut source = Source::current(&index, &previous.0, &previous.1);
+            source.stale_file_details = !self.file_details_current.load(Ordering::SeqCst);
+            // Folders the watcher could not watch (unreadable ones, see
+            // `watch_gaps`) are read again rather than trusted.
+            if let Some(watcher) = watcher.as_ref() {
+                source.unobserved = watcher
+                    .failed_watch_dirs()
+                    .filter(|&(dir, _)| index.store().is_live(dir))
+                    .map(|(dir, _)| index.store().path(dir))
+                    .collect();
+            }
+            update_with_progress(&mut store, &roots, &options, source, task.progress())
+                .map_err(|_| request)?
+        } else {
+            scan_with_progress(&mut store, &roots, &options, task.progress())
+                .map_err(|_| request)?;
+            false
+        };
         let (fresh, left_out) = self.with_drives(Index::new(store), &roots, &options);
-        if task.progress().is_cancelled() {
+        let remap = watcher
+            .as_ref()
+            .map(|_| watcher_remap(&self.index.read().expect("index lock"), &fresh));
+        // Wait for saves and readers before taking the request mutex: UI
+        // requests must never wait behind disk I/O or a long search.
+        let saving = self.saving.lock().expect("save lock");
+        let mut index = self.index.write().expect("index lock");
+        let mut current = self.roots.lock().expect("lock");
+        if task.progress().is_cancelled() || self.reindexed.load(Ordering::SeqCst) != request {
             return Err(request);
         }
-        self.replace_index(fresh);
-        self.read_drives_again(&left_out);
-        self.note_full_scan();
-        *self.indexed_with.lock().expect("lock") = (roots, options);
+        *current = roots.clone();
+        *index = fresh;
+        self.bump_epoch();
+        *self.indexed_with.lock().expect("lock") = (roots, options.clone());
         self.incomplete.store(false, Ordering::SeqCst);
         self.dirty.store(true, Ordering::SeqCst);
+        if !reused {
+            // Every folder was read: an asked-for full scan is done.
+            self.full_pending.store(false, Ordering::SeqCst);
+        }
+        // Read now, or copied (read again when they were not current); a
+        // retained watcher applies what changed during the scan. A time
+        // without watches from now on clears it again.
+        self.file_details_current.store(true, Ordering::SeqCst);
+        drop(current);
+        drop(index);
+        drop(saving);
+        if let (Some(watcher), Some(remap)) = (watcher, remap) {
+            watcher.rebind(&self.index.read().expect("index lock"), &remap, &options);
+        }
+        self.read_drives_again(&left_out);
+        if !reused {
+            self.note_full_scan();
+        }
         Ok(())
     }
 
@@ -2046,13 +2263,17 @@ impl Engine {
     /// Cancelled, the old index stays with its watcher and is caught up.
     fn rescan_after_overflow(&self, watcher: &mut Watcher) -> bool {
         self.report(IndexState::Scanning);
-        let roots = self.roots.lock().expect("lock").clone();
-        let options = self.scan_options();
+        // The folders and rules of the index being repaired: a request made
+        // meanwhile (still raw, not normalized) is built next anyway.
+        let (roots, options) = self.indexed_with.lock().expect("lock").clone();
+        let roots = normalize_roots(&roots);
         let task = self.tasks.begin(TaskKind::Rescanning, true);
         task.progress().set_total(self.estimate(&roots, &options));
         let mut store = NodeStore::new();
         if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
             drop(task);
+            // Events were lost: file details may have changed unseen.
+            self.file_details_current.store(false, Ordering::SeqCst);
             // Defer before catch-up: its schedule checks must not undo a cancel.
             self.last_scheduled_scan.store(unix_now(), Ordering::SeqCst);
             // The previous index stays and is caught up instead, which
@@ -2082,6 +2303,7 @@ impl Engine {
             }
             Err(_) => false,
         };
+        self.file_details_current.store(watched, Ordering::SeqCst);
         drop(index);
         self.read_drives_again(&left_out);
         self.note_full_scan();
@@ -2737,6 +2959,22 @@ fn online_roots(index: &Index) -> Vec<NodeId> {
         .collect()
 }
 
+/// The indexed folders `watcher` could not watch that matter: unreadable
+/// folders (`PermissionDenied`) are left out, since none of their entries are
+/// indexed and their listing is never reused (a failed listing keeps no
+/// time). Any other gap (the watch limit, for one) leaves live folders
+/// unobserved, so the index cannot be reused as current.
+fn watch_gaps(watcher: &Watcher) -> Unwatched {
+    let mut gaps = Unwatched::default();
+    for kind in watcher.failed_watch_kinds() {
+        if kind != std::io::ErrorKind::PermissionDenied {
+            gaps.folders += 1;
+            gaps.limit_reached |= kind == std::io::ErrorKind::StorageFull;
+        }
+    }
+    gaps
+}
+
 /// A drive's name for the status line: its label, or where it is mounted.
 fn drive_name(drive: &Drive) -> String {
     if drive.label.is_empty() {
@@ -2744,6 +2982,37 @@ fn drive_name(drive: &Drive) -> String {
     } else {
         drive.label.clone()
     }
+}
+
+/// For each folder of `previous`, the same folder in `fresh`, if any, so a
+/// watcher of `previous` can go on with `fresh` (see [`Watcher::rebind`]).
+fn watcher_remap(previous: &Index, fresh: &Index) -> Vec<Option<NodeId>> {
+    let roots: Vec<_> = fresh
+        .roots()
+        .into_iter()
+        .map(|id| (fresh.store().path(id), id))
+        .collect();
+    let mut remap = vec![None; previous.store().len()];
+    for old in previous
+        .order()
+        .iter()
+        .filter(|&id| previous.store().is_dir(id))
+    {
+        let path = previous.store().path(old);
+        for (root_path, root) in &roots {
+            let Ok(relative) = path.strip_prefix(root_path) else {
+                continue;
+            };
+            let mut found = Some(*root);
+            for part in relative.components() {
+                found = found
+                    .and_then(|parent| fresh.find_child(Some(parent), part.as_os_str().as_bytes()));
+            }
+            remap[old.index()] = found.filter(|&id| fresh.store().is_dir(id));
+            break;
+        }
+    }
+    remap
 }
 
 /// The root of the index named `name`.
@@ -3887,7 +4156,463 @@ mod tests {
     }
 
     #[test]
-    fn cancelled_rescan_keeps_the_previous_index_and_folders() {
+    fn incremental_settings_save_reload_and_keep_watching() {
+        let dir = Scratch::new("incremental-settings");
+        let a = dir.0.join("a");
+        let b = dir.0.join("b");
+        fs::create_dir_all(a.join("nested")).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("nested/one.txt"), "one").unwrap();
+        fs::write(a.join("ignored.tmp"), "tmp").unwrap();
+        fs::write(b.join("two.txt"), "two").unwrap();
+        let file = dir.0.join("index.bin");
+        let probe = Probe::start(vec![a.clone()], Vec::new(), file.clone());
+        probe.wait_for(IndexState::Watching);
+        let last = unix_now() - 100;
+        probe.engine.last_full_scan.store(last, Ordering::SeqCst);
+        let roots = vec![a.clone(), b.clone()];
+        probe.engine.reconfigure(&roots, IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.engine.last_full_scan.load(Ordering::SeqCst), last);
+        assert_eq!(probe.names("txt"), ["one.txt", "two.txt"]);
+        let rules = IndexRules::new(RuleSpec {
+            exclude_files: "*.tmp".into(),
+            ..RuleSpec::default()
+        })
+        .unwrap();
+        probe.engine.reconfigure(&roots, rules.clone());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.engine.last_full_scan.load(Ordering::SeqCst), last);
+        assert!(probe.names("ext:tmp").is_empty());
+        let saved = persist::load(&file).unwrap();
+        assert_eq!(saved.roots, roots);
+        let options = ScanOptions {
+            rules: rules.clone(),
+            ..ScanOptions::default()
+        };
+        assert_eq!(saved.rules_hash, Some(fingerprint(&options)));
+        let mut full = NodeStore::new();
+        everygrep_core::scan::scan(&mut full, &roots, &options);
+        let snapshot = |index: &Index| {
+            let mut rows: Vec<_> = index
+                .order()
+                .iter()
+                .map(|id| {
+                    (
+                        index.store().path(id),
+                        index.store().meta(id),
+                        index.store().items(id),
+                    )
+                })
+                .collect();
+            rows.sort_by(|a, b| a.0.cmp(&b.0));
+            rows
+        };
+        assert_eq!(snapshot(&saved.index), snapshot(&Index::new(full)));
+        // Drop an enclosing root, keep its explicitly requested child.
+        let nested = vec![a.join("nested"), b.clone()];
+        probe.engine.reconfigure(&nested, rules);
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.engine.last_full_scan.load(Ordering::SeqCst), last);
+        fs::write(a.join("nested/new.txt"), "new").unwrap();
+        until(&probe.engine, "retained nested root is watched", |index| {
+            find(index, &a.join("nested/new.txt")).is_some()
+        });
+        fs::write(b.join("new.tmp"), "tmp").unwrap();
+        probe.engine.shutdown();
+        let (tx, states) = mpsc::channel();
+        let engine = Engine::start(
+            nested.clone(),
+            options,
+            true,
+            Some(file),
+            None,
+            Hooks {
+                on_state: Box::new(move |state, _| {
+                    let _ = tx.send(state);
+                }),
+                on_results: Box::new(|_| {}),
+                on_busy: Box::new(|| {}),
+                on_stopped: Box::new(|_| {}),
+                on_notice: Box::new(|_| {}),
+            },
+        );
+        loop {
+            let state = states.recv_timeout(Duration::from_secs(20)).unwrap();
+            assert_ne!(
+                state,
+                IndexState::Scanning,
+                "saved incremental index must load"
+            );
+            if state == IndexState::Watching {
+                break;
+            }
+        }
+        assert_eq!(engine.stats().last_full_scan, None);
+        // Relaxing file rules needs a full scan, including the file absent
+        // from the saved filtered index.
+        engine.last_full_scan.store(1, Ordering::SeqCst);
+        engine.reconfigure(&nested, IndexRules::default());
+        for expected in [IndexState::Scanning, IndexState::Watching] {
+            while states.recv_timeout(Duration::from_secs(20)).unwrap() != expected {}
+        }
+        assert!(find(&engine.index.read().unwrap(), &b.join("new.tmp")).is_some());
+        assert!(engine.last_full_scan.load(Ordering::SeqCst) > 1);
+        engine.shutdown();
+    }
+
+    #[test]
+    fn incremental_update_keeps_file_events_while_the_new_coverage_is_scanned() {
+        let dir = Scratch::new("incremental-event-queue");
+        let a = dir.0.join("a");
+        let b = dir.0.join("b");
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        let file = a.join("one.txt");
+        fs::write(&file, "old").unwrap();
+        fs::write(b.join("two.txt"), "two").unwrap();
+        let probe = Probe::start(vec![a.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        let parent_time = fs::metadata(&a).unwrap().modified().unwrap();
+        let (release, wait) = mpsc::channel();
+        *probe.hold.lock().unwrap() = Some(wait);
+        probe.engine.last_full_scan.store(1, Ordering::SeqCst);
+        probe
+            .engine
+            .reconfigure(&[a.clone(), b], IndexRules::default());
+        probe.held.recv_timeout(Duration::from_secs(20)).unwrap();
+        // No directory time changes, so catch-up alone cannot find this.
+        fs::write(&file, "new contents during the update").unwrap();
+        assert_eq!(fs::metadata(&a).unwrap().modified().unwrap(), parent_time);
+        release.send(()).unwrap();
+        probe.wait_for(IndexState::Watching);
+        until(
+            &probe.engine,
+            "buffered file modification applied",
+            |index| {
+                find(index, &file).is_some_and(|id| {
+                    index.store().meta(id).size == b"new contents during the update".len() as u64
+                })
+            },
+        );
+        assert_eq!(probe.engine.last_full_scan.load(Ordering::SeqCst), 1);
+        assert_eq!(probe.names("txt"), ["one.txt", "two.txt"]);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn settings_update_without_watches_rebuilds_an_untrusted_source() {
+        let dir = Scratch::new("incremental-paused");
+        let a = dir.0.join("a");
+        let b = dir.0.join("b");
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("one.txt"), "one").unwrap();
+        let probe = Probe::start_unwatched(vec![a.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        fs::write(a.join("one.txt"), "changed without a folder time change").unwrap();
+        probe.engine.last_full_scan.store(1, Ordering::SeqCst);
+        probe
+            .engine
+            .reconfigure(&[a.clone(), b], IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Unwatched);
+        assert!(probe.engine.last_full_scan.load(Ordering::SeqCst) > 1);
+        let index = probe.engine.index.read().unwrap();
+        let id = find(&index, &a.join("one.txt")).unwrap();
+        assert_eq!(
+            index.store().meta(id).size,
+            fs::metadata(a.join("one.txt")).unwrap().len()
+        );
+        drop(index);
+        probe.engine.shutdown();
+    }
+
+    /// The index in memory, as (path, folder, size and time) rows sorted by
+    /// path, to compare with a full scan.
+    fn rows(index: &Index) -> Vec<(PathBuf, bool, everygrep_core::store::Meta)> {
+        let mut rows: Vec<_> = index
+            .order()
+            .iter()
+            .map(|id| {
+                let store = index.store();
+                (store.path(id), store.is_dir(id), store.meta(id))
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows
+    }
+
+    fn full_rows(
+        roots: &[PathBuf],
+        options: &ScanOptions,
+    ) -> Vec<(PathBuf, bool, everygrep_core::store::Meta)> {
+        let mut store = NodeStore::new();
+        everygrep_core::scan::scan(&mut store, &normalize_roots(roots), options);
+        rows(&Index::new(store))
+    }
+
+    fn wait_full_scan_after(engine: &Engine, after: i64) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while engine.last_full_scan.load(Ordering::SeqCst) <= after {
+            assert!(Instant::now() < deadline, "no full scan");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn rebuild_asked_for_stays_full_when_settings_change_before_it_is_done() {
+        let dir = Scratch::new("full-pending-rebuild");
+        let (a, b) = (dir.0.join("a"), dir.0.join("b"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("one.txt"), "1").unwrap();
+        fs::write(b.join("two.txt"), "2").unwrap();
+        let probe = Probe::start(vec![a.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        probe.engine.last_full_scan.store(1, Ordering::SeqCst);
+        let (release, wait) = mpsc::channel();
+        *probe.hold.lock().unwrap() = Some(wait);
+        probe
+            .engine
+            .reindex(std::slice::from_ref(&a), IndexRules::default());
+        probe.held.recv_timeout(Duration::from_secs(20)).unwrap();
+        // A settings change while the asked-for full scan runs.
+        probe
+            .engine
+            .reconfigure(&[a.clone(), b.clone()], IndexRules::default());
+        release.send(()).unwrap();
+        wait_full_scan_after(&probe.engine, 1);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt", "two.txt"]);
+        assert!(!probe.engine.full_pending.load(Ordering::SeqCst));
+        // Done: the next settings change may reuse again.
+        let last = probe.engine.last_full_scan.load(Ordering::SeqCst) - 100;
+        probe.engine.last_full_scan.store(last, Ordering::SeqCst);
+        probe.engine.reconfigure(&[a], IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.engine.last_full_scan.load(Ordering::SeqCst), last);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn scheduled_rescan_stays_full_when_settings_change_before_it_is_done() {
+        let dir = Scratch::new("full-pending-schedule");
+        let (a, b) = (dir.0.join("a"), dir.0.join("b"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join("two.txt"), "2").unwrap();
+        let probe = Probe::start(vec![a.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        let (release, wait) = mpsc::channel();
+        *probe.hold.lock().unwrap() = Some(wait);
+        probe.engine.last_full_scan.store(1, Ordering::SeqCst);
+        // Due at the next look of the index thread.
+        probe.engine.set_schedule(Schedule::EveryHours(1));
+        probe.held.recv_timeout(Duration::from_secs(20)).unwrap();
+        assert!(probe.engine.full_pending.load(Ordering::SeqCst));
+        probe
+            .engine
+            .reconfigure(&[a.clone(), b.clone()], IndexRules::default());
+        release.send(()).unwrap();
+        wait_full_scan_after(&probe.engine, 1);
+        probe.engine.set_schedule(Schedule::Never);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["two.txt"]);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn an_unreadable_folder_does_not_stop_reuse() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("incremental-unreadable");
+        let (a, b) = (dir.0.join("a"), dir.0.join("b"));
+        let locked = a.join("locked");
+        fs::create_dir_all(locked.join("inside")).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(a.join("one.txt"), "1").unwrap();
+        fs::write(b.join("two.txt"), "2").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let probe = Probe::start(vec![a.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        // Not shown as a gap: nothing in it is indexed.
+        assert_eq!(probe.engine.unwatched(), Unwatched::default());
+        let last = unix_now() - 100;
+        probe.engine.last_full_scan.store(last, Ordering::SeqCst);
+        let roots = [a.clone(), b.clone()];
+        probe.engine.reconfigure(&roots, IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(
+            probe.engine.last_full_scan.load(Ordering::SeqCst),
+            last,
+            "reused"
+        );
+        let rows_now = rows(&probe.engine.index.read().unwrap());
+        let expected = full_rows(&roots, &ScanOptions::default());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(rows_now, expected);
+        assert!(probe.notices.try_recv().is_err());
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn settings_change_past_the_watch_limit_scans_in_full_and_says_why() {
+        let dir = Scratch::new("incremental-watch-limit");
+        let (a, b) = (dir.0.join("a"), dir.0.join("b"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join("two.txt"), "2").unwrap();
+        let index = dir.0.join("index.bin");
+        WATCH_LIMITS.lock().unwrap().push(index.clone());
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        probe.engine.last_full_scan.store(1, Ordering::SeqCst);
+        probe.engine.reconfigure(&[a, b], IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        WATCH_LIMITS.lock().unwrap().retain(|p| p != &index);
+        assert!(probe.engine.last_full_scan.load(Ordering::SeqCst) > 1);
+        assert_eq!(probe.names("txt"), ["two.txt"]);
+        assert_eq!(
+            probe.notices.recv_timeout(Duration::from_secs(20)).unwrap(),
+            Notice::FullScanUnwatched {
+                folders: 1,
+                limit_reached: true
+            }
+        );
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn reuse_after_loading_the_index_file_reads_file_details_again() {
+        let dir = Scratch::new("incremental-loaded-details");
+        let a = dir.0.join("a");
+        fs::create_dir_all(a.join("sub")).unwrap();
+        fs::write(a.join("one.txt"), "old").unwrap();
+        fs::write(a.join("sub/two.txt"), "two").unwrap();
+        let index = dir.0.join("index.bin");
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index.clone());
+        probe.wait_for(IndexState::Watching);
+        probe.engine.dirty.store(true, Ordering::SeqCst);
+        probe.engine.save();
+        probe.engine.shutdown();
+        drop(probe);
+        // Rewritten while the program is closed: no folder time changes, so
+        // the catch-up after loading keeps the old size.
+        let folder_time = fs::metadata(&a).unwrap().modified().unwrap();
+        fs::write(a.join("one.txt"), "rewritten while closed").unwrap();
+        assert_eq!(fs::metadata(&a).unwrap().modified().unwrap(), folder_time);
+        let probe = Probe::start(vec![a.clone()], Vec::new(), index);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.engine.stats().last_full_scan, None, "loaded");
+        probe.engine.last_full_scan.store(1, Ordering::SeqCst);
+        let rules = IndexRules::new(RuleSpec {
+            exclude_files: "*.tmp".into(),
+            ..RuleSpec::default()
+        })
+        .unwrap();
+        probe
+            .engine
+            .reconfigure(std::slice::from_ref(&a), rules.clone());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(
+            probe.engine.last_full_scan.load(Ordering::SeqCst),
+            1,
+            "reused"
+        );
+        let options = ScanOptions {
+            rules,
+            ..ScanOptions::default()
+        };
+        assert_eq!(
+            rows(&probe.engine.index.read().unwrap()),
+            full_rows(&[a], &options)
+        );
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn repair_after_lost_events_scans_the_indexed_folders_not_a_raw_request() {
+        let dir = Scratch::new("overflow-indexed-roots");
+        let a = dir.0.join("a");
+        fs::create_dir_all(a.join("b")).unwrap();
+        fs::write(a.join("b/two.txt"), "2").unwrap();
+        let probe = Probe::start_unwatched(vec![a.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        // As a settings request leaves them until the index thread takes it:
+        // not resolved, nested.
+        *probe.engine.roots.lock().unwrap() = vec![a.join("b"), a.clone(), a.join(".")];
+        let options = probe.engine.scan_options();
+        let mut watcher = Watcher::new(&probe.engine.index.read().unwrap(), &options).unwrap();
+        assert!(probe.engine.rescan_after_overflow(&mut watcher));
+        let canonical = fs::canonicalize(&a).unwrap();
+        let index = probe.engine.index.read().unwrap();
+        let two = index
+            .order()
+            .iter()
+            .filter(|&id| index.store().name(id) == b"two.txt")
+            .count();
+        assert_eq!(two, 1, "indexed once");
+        drop(index);
+        assert_eq!(probe.engine.indexed_with.lock().unwrap().0, [canonical]);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn folders_compare_as_the_index_thread_resolved_them() {
+        let dir = Scratch::new("resolved-roots");
+        let a = dir.0.join("a");
+        fs::create_dir_all(a.join("b")).unwrap();
+        let link = dir.0.join("link");
+        std::os::unix::fs::symlink(&a, &link).unwrap();
+        let canonical = fs::canonicalize(&a).unwrap();
+        let probe = Probe::start(vec![link.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.engine.roots(), std::slice::from_ref(&canonical));
+        assert_eq!(
+            probe
+                .engine
+                .resolved_roots(&[link.clone(), canonical.join("b")]),
+            std::slice::from_ref(&canonical),
+            "known spellings resolve; nested folders are dropped"
+        );
+        assert_eq!(
+            probe.engine.resolved_roots(&[link.join("b")]),
+            [link.join("b")],
+            "a spelling never asked for stays as it is"
+        );
+        // Asked for later: resolved by the index thread, then known.
+        let other = dir.0.join("other");
+        fs::create_dir_all(&other).unwrap();
+        let other_link = dir.0.join("other-link");
+        std::os::unix::fs::symlink(&other, &other_link).unwrap();
+        assert_eq!(
+            probe
+                .engine
+                .resolved_roots(std::slice::from_ref(&other_link)),
+            std::slice::from_ref(&other_link)
+        );
+        probe
+            .engine
+            .reconfigure(&[link.clone(), other_link.clone()], IndexRules::default());
+        probe.wait_for(IndexState::Scanning);
+        probe.wait_for(IndexState::Watching);
+        let mut both = vec![canonical, fs::canonicalize(&other).unwrap()];
+        both.sort();
+        assert_eq!(probe.engine.roots(), both);
+        assert_eq!(probe.engine.resolved_roots(&[other_link, link]), both);
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn cancelled_incremental_update_keeps_the_previous_index_and_folders() {
         let dir = Scratch::new("cancel-rescan");
         let root = |p: &str| dir.0.join(p);
         for f in ["a/one.txt", "b/two.txt"] {
@@ -3906,7 +4631,7 @@ mod tests {
         probe.armed.store(true, Ordering::SeqCst);
         probe
             .engine
-            .reindex(&[root("b")], folders(vec![root("a/never")]));
+            .reconfigure(&[root("a"), root("b")], folders(vec![root("a/never")]));
         assert_eq!(probe.wait_stopped(), Stopped::Rescan);
         probe.wait_for(IndexState::Watching);
         assert_eq!(probe.names("txt"), ["one.txt"]);
@@ -3937,14 +4662,16 @@ mod tests {
         // The new index of "b" waits right after it is listed, as if slow.
         let (release, wait) = mpsc::channel();
         *probe.hold.lock().unwrap() = Some(wait);
-        probe.engine.reindex(&[root("b")], IndexRules::default());
+        probe
+            .engine
+            .reconfigure(&[root("b")], IndexRules::default());
         probe
             .held
             .recv_timeout(Duration::from_secs(20))
             .expect("the new index begins");
         // Meanwhile "c" is asked for, then the "b" one is cancelled.
         let excluded = folders(vec![root("c/never")]);
-        probe.engine.reindex(&[root("c")], excluded.clone());
+        probe.engine.reconfigure(&[root("c")], excluded.clone());
         let running = probe.engine.tasks.list.lock().unwrap().clone();
         for task in running {
             probe.engine.cancel(task.id);
@@ -5148,6 +5875,7 @@ mod tests {
     /// new watcher.
     pub(super) static OVERFLOWS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
     pub(super) static FAILING_WATCHERS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    pub(super) static WATCH_LIMITS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
     /// Whether a test listed the engine with `index_file` in `list`.
     pub(super) fn listed(list: &Mutex<Vec<PathBuf>>, index_file: Option<&Path>) -> bool {
@@ -5444,14 +6172,14 @@ mod tests {
             ..Default::default()
         })
         .unwrap();
-        e.reindex(std::slice::from_ref(&home), no_tmp);
+        e.reconfigure(std::slice::from_ref(&home), no_tmp);
         probe.wait_for(IndexState::Scanning);
         until(e, "the drive read with the new rules", |i| {
             find(i, &usb.join("junk.tmp")).is_none() && find(i, &usb.join("keep.txt")).is_some()
         });
 
         // A folder to index that holds the drive: its entries once.
-        e.reindex(&[home, dir.0.join("media")], IndexRules::default());
+        e.reconfigure(&[home, dir.0.join("media")], IndexRules::default());
         probe.wait_for(IndexState::Scanning);
         probe.wait_for(IndexState::Watching);
         until(e, "the drive's entries once", |i| {

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use everygrep_core::filter::Filter;
 use everygrep_core::query::{HiddenFiles, QueryOptions};
 use everygrep_core::rules::{IndexRules, RuleSpec};
-use everygrep_core::scan::normalize_roots;
 use everygrep_core::sort::FolderSize;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 
@@ -125,41 +124,69 @@ impl IndexSetup {
         roots: Vec<PathBuf>,
         rules: RuleSpec,
         path: Option<&Path>,
-    ) -> std::io::Result<()> {
+        writer: &settings::Writer,
+    ) {
         self.roots = roots;
         self.rules = rules;
-        match path {
-            Some(path) if self.saved => settings::update(path, |s| {
-                s.roots = self.roots.clone();
-                s.set_rule_spec(&self.rules);
-            })
-            .map(drop),
-            _ => Ok(()),
+        if let Some(path) = path.filter(|_| self.saved) {
+            let (path, setup) = (path.to_path_buf(), self.clone());
+            writer.run(move || {
+                let failed = settings::update(&path, |s| setup.apply_to(s)).err();
+                let _ = slint::invoke_from_event_loop(move || {
+                    with(|p| p.set_error(failed.map(|e| labels::cannot_save(&e))));
+                });
+            });
+        }
+    }
+
+    fn apply_to(&self, settings: &mut Settings) {
+        if self.saved {
+            settings.roots = self.roots.clone();
+            settings.set_rule_spec(&self.rules);
         }
     }
 
     /// Takes over the folders and rules the engine indexes, `roots` (as
-    /// [`normalize_roots`] gives them) and `rules`, after a new index was
+    /// [`everygrep_core::scan::normalize_roots`] gives them) and `rules`, after a new index was
     /// cancelled, and saves them as [`change`](Self::change) does. Folders
     /// left empty stay empty: they stand for the folders the index has.
-    /// Returns whether anything changed.
+    /// `resolve` gives the folders listed here as the engine resolved them
+    /// (see [`crate::engine::Engine::resolved_roots`]), so a folder spelled
+    /// through a link keeps its spelling. Returns whether anything changed.
     pub fn follow(
         &mut self,
         roots: &[PathBuf],
         rules: &RuleSpec,
         path: Option<&Path>,
-    ) -> std::io::Result<bool> {
-        let same_roots = self.roots.is_empty() || normalize_roots(&self.roots) == roots;
+        writer: &settings::Writer,
+        resolve: &dyn Fn(&[PathBuf]) -> Vec<PathBuf>,
+    ) -> bool {
+        let same_roots = self.roots.is_empty() || resolve(&self.roots) == roots;
         if same_roots && self.rules == *rules {
-            return Ok(false);
+            return false;
         }
         let roots = if same_roots {
             self.roots.clone()
         } else {
             roots.to_vec()
         };
-        self.change(roots, rules.clone(), path).map(|()| true)
+        self.change(roots, rules.clone(), path, writer);
+        true
     }
+}
+
+/// Keeps the settings list tidy without resolving paths on the UI thread.
+fn listed_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut sorted = roots.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    let mut result: Vec<PathBuf> = Vec::new();
+    for root in sorted {
+        if !result.iter().any(|kept| root.starts_with(kept)) {
+            result.push(root);
+        }
+    }
+    result
 }
 
 /// Settings of the running program.
@@ -1013,11 +1040,11 @@ impl Prefs {
         if roots.is_empty() {
             self.engine.roots()
         } else {
-            normalize_roots(&roots)
+            listed_roots(&roots)
         }
     }
 
-    /// Changes the folders to index and the rules, and rebuilds the index.
+    /// Changes the folders to index and the rules, reusing unchanged coverage.
     /// Rules that do not compile change nothing: the reason is shown on the
     /// Indexing page and false returned.
     fn set_index(&self, roots: Vec<PathBuf>, rules: RuleSpec) -> bool {
@@ -1028,12 +1055,14 @@ impl Prefs {
         }
         self.rule_error.borrow_mut().clear();
         let path = self.index_path();
-        let result = self
-            .index
+        self.index
             .borrow_mut()
-            .change(roots, rules, path.as_deref());
-        self.set_error(result.err().map(|e| labels::cannot_save(&e)));
-        self.rebuild();
+            .change(roots, rules, path.as_deref(), &self.writer);
+        self.index
+            .borrow()
+            .apply_to(&mut self.settings.borrow_mut());
+        self.set_error(None);
+        self.update_index();
         true
     }
 
@@ -1059,14 +1088,19 @@ impl Prefs {
         }
         let (roots, rules) = self.engine.setup();
         let path = self.index_path();
-        let result = self
+        if !self
             .index
             .borrow_mut()
-            .follow(&roots, &rules, path.as_deref());
-        if matches!(result, Ok(false)) {
+            .follow(&roots, &rules, path.as_deref(), &self.writer, &|r| {
+                self.engine.resolved_roots(r)
+            })
+        {
             return;
         }
-        self.set_error(result.err().map(|e| labels::cannot_save(&e)));
+        self.index
+            .borrow()
+            .apply_to(&mut self.settings.borrow_mut());
+        self.set_error(None);
         if let Ok(window) = self.window.try_borrow() {
             if let Some(w) = window.as_ref() {
                 self.fill_rule_texts(w);
@@ -1328,11 +1362,14 @@ impl Prefs {
             let roots = if new.roots.is_empty() {
                 self.engine.roots()
             } else {
-                normalize_roots(&new.roots)
+                listed_roots(&new.roots)
             };
             let rules = new.rule_spec();
             let (indexed_roots, indexed_rules) = self.engine.setup();
-            let same = roots == indexed_roots
+            // Compared as resolved: the engine holds them resolved, or as
+            // asked while a new index waits to be built.
+            let same = self.engine.resolved_roots(&roots)
+                == self.engine.resolved_roots(&indexed_roots)
                 && rules == indexed_rules
                 && new.index_file_details == self.engine.file_details();
             {
@@ -1342,7 +1379,7 @@ impl Prefs {
             }
             self.engine.set_file_details(new.index_file_details);
             if !same {
-                self.rebuild();
+                self.update_index();
             }
             if new.index_folder != old.index_folder {
                 self.set_index_folder(new.index_folder.clone());
@@ -1506,6 +1543,14 @@ impl Prefs {
     /// Builds the index again from scratch over the folders to index
     /// (Index → Rebuild index now, and the button of the Indexing page).
     pub fn rebuild(&self) {
+        self.request_index(false);
+    }
+
+    fn update_index(&self) {
+        self.request_index(true);
+    }
+
+    fn request_index(&self, incremental: bool) {
         let (roots, rules) = {
             let index = self.index.borrow();
             let roots = if index.roots.is_empty() {
@@ -1515,7 +1560,11 @@ impl Prefs {
             };
             (roots, index.rules())
         };
-        self.engine.reindex(&roots, rules);
+        if incremental {
+            self.engine.reconfigure(&roots, rules);
+        } else {
+            self.engine.reindex(&roots, rules);
+        }
     }
 
     /// Shows the settings window at `page` (see [`PAGES`]), or brings it
@@ -2884,7 +2933,14 @@ impl Prefs {
         };
         let accept = labels::choose_accept();
         std::thread::spawn(move || {
-            let result = crate::portal::choose_folders(title, accept);
+            let result = crate::portal::choose_folders(title, accept).map(|chosen| {
+                chosen.map(|paths| {
+                    paths
+                        .into_iter()
+                        .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
+                        .collect::<Vec<_>>()
+                })
+            });
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
                     p.choosing.set(false);
@@ -2899,14 +2955,12 @@ impl Prefs {
     }
 
     fn add(&self, roots: bool, chosen: &[PathBuf]) {
-        let chosen = chosen
-            .iter()
-            .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()));
+        let chosen = chosen.iter().cloned();
         let mut list_roots = self.shown_roots();
         let mut rules = self.index.borrow().rules.clone();
         if roots {
             list_roots.extend(chosen);
-            list_roots = normalize_roots(&list_roots);
+            list_roots = listed_roots(&list_roots);
         } else {
             for c in chosen {
                 if !rules.folders.contains(&c) {
@@ -3067,6 +3121,11 @@ fn raw_rows_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use everygrep_core::scan::normalize_roots;
+
+    fn wait_saved(writer: &settings::Writer) {
+        assert!(writer.wait_done(std::time::Duration::from_secs(5)));
+    }
     use crate::settings::tests::Scratch;
 
     #[test]
@@ -3115,6 +3174,7 @@ mod tests {
     fn command_line_folders_are_never_saved() {
         let dir = Scratch::new("setup");
         let path = dir.0.join("settings");
+        let writer = settings::Writer::start();
         let mut saved = Settings::default();
         saved.roots = vec![PathBuf::from("/home/me")];
         saved.excludes = vec![PathBuf::from("/home/me/.cache")];
@@ -3133,16 +3193,16 @@ mod tests {
             assert!(!setup.saved);
             assert_eq!(setup.roots, roots);
             assert_eq!(setup.rules, RuleSpec::default(), "saved excludes stay out");
-            setup
-                .change(
-                    vec![PathBuf::from("/tmp/demo"), PathBuf::from("/tmp/more")],
-                    RuleSpec {
-                        folders: vec![PathBuf::from("/tmp/demo/x")],
-                        ..RuleSpec::default()
-                    },
-                    Some(&path),
-                )
-                .unwrap();
+            setup.change(
+                vec![PathBuf::from("/tmp/demo"), PathBuf::from("/tmp/more")],
+                RuleSpec {
+                    folders: vec![PathBuf::from("/tmp/demo/x")],
+                    ..RuleSpec::default()
+                },
+                Some(&path),
+                &writer,
+            );
+            wait_saved(&writer);
             assert_eq!(setup.roots.len(), 2);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
         }
@@ -3152,6 +3212,7 @@ mod tests {
     fn default_window_uses_and_saves_the_settings() {
         let dir = Scratch::new("setup-saved");
         let path = dir.0.join("settings");
+        let writer = settings::Writer::start();
         let s = Settings::parse("root = /home/me\nexclude = /home/me/tmp\nfilter = code\n");
         let mut setup = IndexSetup::new(&[], None, &s);
         assert!(setup.saved);
@@ -3163,9 +3224,13 @@ mod tests {
             include_files: String::new(),
             exclude_files: "*.tmp".into(),
         };
-        setup
-            .change(vec![PathBuf::from("/srv")], rules.clone(), Some(&path))
-            .unwrap();
+        setup.change(
+            vec![PathBuf::from("/srv")],
+            rules.clone(),
+            Some(&path),
+            &writer,
+        );
+        wait_saved(&writer);
         let back = Settings::load(&path).unwrap();
         assert_eq!(back.roots, [PathBuf::from("/srv")]);
         assert_eq!(back.rule_spec(), rules);
@@ -3180,28 +3245,90 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_spelled_through_a_link_keeps_its_spelling() {
+        let dir = Scratch::new("setup-follow-link");
+        let path = dir.0.join("settings");
+        let writer = settings::Writer::start();
+        let link = PathBuf::from("/home/me/link");
+        let target = PathBuf::from("/data/target");
+        let mut setup = IndexSetup::new(&[], None, &Settings::default());
+        setup.change(
+            vec![link.clone()],
+            RuleSpec::default(),
+            Some(&path),
+            &writer,
+        );
+        wait_saved(&writer);
+        std::fs::remove_file(&path).unwrap();
+        let resolve = |roots: &[PathBuf]| -> Vec<PathBuf> {
+            roots
+                .iter()
+                .map(|r| {
+                    if *r == link {
+                        target.clone()
+                    } else {
+                        r.clone()
+                    }
+                })
+                .collect()
+        };
+        // The engine kept the same folder, resolved: nothing changes.
+        assert!(!setup.follow(
+            std::slice::from_ref(&target),
+            &RuleSpec::default(),
+            Some(&path),
+            &writer,
+            &resolve
+        ));
+        wait_saved(&writer);
+        assert_eq!(setup.roots, std::slice::from_ref(&link));
+        assert!(!path.exists(), "not written");
+        // Another folder: taken over.
+        let other = PathBuf::from("/data/other");
+        assert!(setup.follow(
+            std::slice::from_ref(&other),
+            &RuleSpec::default(),
+            Some(&path),
+            &writer,
+            &resolve
+        ));
+        wait_saved(&writer);
+        assert_eq!(setup.roots, [other]);
+    }
+
+    #[test]
     fn a_cancelled_new_index_puts_the_saved_folders_back() {
         let dir = Scratch::new("setup-follow");
         let path = dir.0.join("settings");
+        let writer = settings::Writer::start();
         let (a, b) = (dir.0.join("a"), dir.0.join("b"));
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();
         let mut setup = IndexSetup::new(&[], None, &Settings::default());
-        setup
-            .change(vec![a.clone()], RuleSpec::default(), Some(&path))
-            .unwrap();
+        setup.change(vec![a.clone()], RuleSpec::default(), Some(&path), &writer);
+        wait_saved(&writer);
         let kept = normalize_roots(std::slice::from_ref(&a));
         // Asked for, then cancelled: the engine went back to "a".
         let asked = RuleSpec {
             exclude_files: "*.tmp".into(),
             ..RuleSpec::default()
         };
-        setup.change(vec![b], asked, Some(&path)).unwrap();
-        assert!(
-            setup
-                .follow(&kept, &RuleSpec::default(), Some(&path))
-                .unwrap()
-        );
+        let (release, blocked) = std::sync::mpsc::channel();
+        writer.run_apart(move || {
+            blocked.recv().unwrap();
+        });
+        setup.change(vec![b], asked, Some(&path), &writer);
+        assert!(setup.follow(
+            &kept,
+            &RuleSpec::default(),
+            Some(&path),
+            &writer,
+            &normalize_roots
+        ));
+        // Reaching here while the writer is blocked proves the UI calls did
+        // not wait for storage. Rollback must be written after the request.
+        release.send(()).unwrap();
+        wait_saved(&writer);
         assert_eq!(setup.roots, kept);
         assert_eq!(setup.rules, RuleSpec::default());
         let back = Settings::load(&path).unwrap();
@@ -3209,15 +3336,18 @@ mod tests {
         assert_eq!(back.rule_spec(), RuleSpec::default());
         // Nothing to take over: the file is not written.
         std::fs::remove_file(&path).unwrap();
-        assert!(
-            !setup
-                .follow(&kept, &RuleSpec::default(), Some(&path))
-                .unwrap()
-        );
+        assert!(!setup.follow(
+            &kept,
+            &RuleSpec::default(),
+            Some(&path),
+            &writer,
+            &normalize_roots
+        ));
+        wait_saved(&writer);
         assert!(!path.exists());
         // Folders left empty stay empty.
         let mut empty = IndexSetup::new(&[], None, &Settings::default());
-        assert!(!empty.follow(&kept, &RuleSpec::default(), None).unwrap());
+        assert!(!empty.follow(&kept, &RuleSpec::default(), None, &writer, &normalize_roots));
         assert!(empty.roots.is_empty());
     }
 

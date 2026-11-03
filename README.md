@@ -481,9 +481,18 @@ as the folder size setting says), modification time and full path; with
 several, their number and the total size of the files among them. The menu
 bar is new and on by default; turning it off brings back the earlier look.
 
-Changing the folders rebuilds the index in the background while the window
-stays usable; the status line shows the progress, and the new index is saved
-as soon as it is complete.
+Changing the folders updates the index in the background while the window
+stays usable. Added coverage is scanned and merged; removed coverage is dropped,
+with nested roots retained. Narrower include/exclude lists re-filter the saved
+entries. Removing an exact folder exclusion reads its parent and newly admitted
+tree. Broader or unproven pattern changes, changed file details, or an index
+without reliable live watches require a full scan (folders that cannot be read
+do not count; when folders are not watched, for example past the watch limit,
+the status line says why the change scans in full). After the saved index was
+loaded, file sizes and times are read again for the reused files. The status line shows progress
+and Cancel; cancellation keeps the old index and settings. The replacement is
+saved as soon as it is complete. Explicit and scheduled rescans still read all
+folders.
 
 ### Excluded folders and files
 

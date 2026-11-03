@@ -2141,6 +2141,14 @@ msgstr "Kayıtlı dizin bozuk ya da başka bir sürüme ait, bu yüzden yeniden 
 msgid "The saved index could not be read ({}), so it is built again."
 msgstr "Kayıtlı dizin okunamadı ({}), bu yüzden yeniden oluşturuluyor."
 
+#: src/labels.rs
+msgid "Watch limit reached: the changed index settings are applied with a full scan."
+msgstr "İzleme sınırına ulaşıldı: değiştirilen dizin ayarları tam taramayla uygulanıyor."
+
+#: src/labels.rs
+msgid "Some folders are not watched: the changed index settings are applied with a full scan."
+msgstr "Bazı klasörler izlenmiyor: değiştirilen dizin ayarları tam taramayla uygulanıyor."
+
 #: ui/settings.slint
 msgid "Rescan the folders"
 msgstr "Klasörleri yeniden tara"

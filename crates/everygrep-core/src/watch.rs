@@ -348,6 +348,12 @@ impl Watcher {
         self.watches.failed.values().copied()
     }
 
+    /// The folders of [`failed_watch_kinds`](Self::failed_watch_kinds), with
+    /// the kind of error.
+    pub fn failed_watch_dirs(&self) -> impl Iterator<Item = (NodeId, io::ErrorKind)> + '_ {
+        self.watches.failed.iter().map(|(&dir, &kind)| (dir, kind))
+    }
+
     /// Tries again to watch up to `max` of the folders that could not be
     /// watched, and reads again those whose time changed, as a catch-up
     /// would. Each call goes on where the last one stopped. Call it from time
@@ -423,7 +429,23 @@ impl Watcher {
     pub fn compact(&mut self, index: &mut Index) -> Vec<Option<NodeId>> {
         self.watches.forget(&index.take_removed());
         let remap = index.compact_in_place();
-        self.watches.remap(&remap);
+        self.remap(&remap);
+        remap
+    }
+
+    /// Keeps the live event queue while replacing an index. `remap` maps old
+    /// directory ids to the same paths in `index`. Removed coverage is
+    /// unwatched; newly indexed folders are watched before catch-up.
+    pub fn rebind(&mut self, index: &Index, remap: &[Option<NodeId>], options: &ScanOptions) {
+        self.remap(remap);
+        self.skip = Skip::new(options);
+        for root in online_roots(index) {
+            self.watch_root(index, root);
+        }
+    }
+
+    fn remap(&mut self, remap: &[Option<NodeId>]) {
+        self.watches.remap(remap);
         self.unsettled = std::mem::take(&mut self.unsettled)
             .into_iter()
             .filter_map(|(dir, meta)| Some((remap.get(dir.index()).copied().flatten()?, meta)))
@@ -446,7 +468,6 @@ impl Watcher {
             .into_iter()
             .filter_map(|dir| remap.get(dir.index()).copied().flatten())
             .collect();
-        remap
     }
 
     /// Applies a batch of events to `index`.
