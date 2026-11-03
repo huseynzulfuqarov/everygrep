@@ -1099,6 +1099,8 @@ export component AppWindow inherits Window {
     in property <[HelpRow]> help-command-line;
     in-out property <bool> help-open;
     in-out property <int> help-page;
+    // Copies a report about the program and the system (no paths).
+    callback copy-troubleshooting-info();
 
     callback query-edited(string);
     callback generated-query-edited(string);
@@ -1815,6 +1817,8 @@ export component AppWindow inherits Window {
         } else if (c == Command.command-line-help) {
             root.help-page = 2;
             root.help-open = true;
+        } else if (c == Command.copy-troubleshooting-info) {
+            root.copy-troubleshooting-info();
         } else if (c == Command.about) {
             root.about-open = true;
         } else if (c == Command.refresh) {
@@ -3658,6 +3662,13 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.command-line-help;
                 enabled: root.can-run(Command.command-line-help);
                 activated => { root.run(Command.command-line-help); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: @tr("Copy troubleshooting information");
+                shortcut: root.menu-keys.copy-troubleshooting-info;
+                enabled: root.can-run(Command.copy-troubleshooting-info);
+                activated => { root.run(Command.copy-troubleshooting-info); }
             }
             MenuSeparator { }
             MenuItem {

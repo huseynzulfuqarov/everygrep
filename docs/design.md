@@ -48,7 +48,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   theme, selection details, menu bar), Search (matching modes, including
   prefix, suffix, ignore punctuation and ignore whitespace, filters,
   previous and next filter), History (back, forward, search history), Tools (settings,
-  keyboard shortcuts settings), Help (search syntax, regular expressions, command line options, keyboard shortcuts, about). Only
+  keyboard shortcuts settings), Help (search syntax, regular expressions, command line options, copy troubleshooting information, keyboard shortcuts, about). Only
   features that exist get an entry. Every entry runs the same command as its
   key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
   bar inside the window on Linux, and its item shortcuts are matched before

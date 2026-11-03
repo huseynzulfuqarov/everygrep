@@ -3179,3 +3179,9 @@ msgstr "Sürümü yazdır ve çık"
 
 msgid "Every argument after it is a query word"
 msgstr "Ondan sonraki her bağımsız değişken bir sorgu sözcüğüdür"
+
+msgid "Copy troubleshooting information"
+msgstr "Sorun giderme bilgilerini kopyala"
+
+msgid "Troubleshooting information copied."
+msgstr "Sorun giderme bilgileri kopyalandı."

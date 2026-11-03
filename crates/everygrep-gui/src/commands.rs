@@ -1156,6 +1156,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::CopyTroubleshootingInfo,
+        id: "help.copy-troubleshooting-info",
+        category: Category::Help,
+        label: || tr("Copy troubleshooting information"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::About,
         id: "help.about",
         category: Category::Help,
@@ -1523,6 +1530,7 @@ impl Keymap {
             search_syntax_help => SearchSyntaxHelp,
             regex_help => RegexHelp,
             command_line_help => CommandLineHelp,
+            copy_troubleshooting_info => CopyTroubleshootingInfo,
             about => About,
         )
     }

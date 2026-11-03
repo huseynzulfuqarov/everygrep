@@ -8,6 +8,7 @@ mod clipboard;
 mod columns;
 mod commands;
 mod content_settings;
+mod diagnostics;
 mod engine;
 mod export;
 mod fileops_rename;
@@ -593,6 +594,7 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_actions(&window, &model);
     connect_clipboard(&window, &model, &engine);
     connect_export(&window, &model, &engine);
+    connect_troubleshooting(&window, &engine);
     ON_PRESENT.with(|p| {
         *p.borrow_mut() = Some(Box::new({
             let (weak, engine, pause, prefs) = (weak.clone(), engine.clone(), pause, prefs.clone());
@@ -1573,6 +1575,24 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
                 ),
                 Some(Err(e)) => error(&w, e),
                 None => {}
+            });
+        });
+    });
+}
+
+/// Help → Copy troubleshooting information: counts the index on a helper
+/// thread, then puts the report on the clipboard.
+fn connect_troubleshooting(window: &AppWindow, engine: &Arc<Engine>) {
+    let (weak, engine) = (window.as_weak(), engine.clone());
+    window.on_copy_troubleshooting_info(move || {
+        let (weak, engine) = (weak.clone(), engine.clone());
+        let language = i18n::current().code();
+        std::thread::spawn(move || {
+            let facts = diagnostics::Facts::gather(&engine.stats(), language);
+            let text = diagnostics::report(&facts);
+            let _ = weak.upgrade_in_event_loop(move |w| {
+                w.invoke_copy_text(text.into());
+                info(&w, tr("Troubleshooting information copied.").into());
             });
         });
     });

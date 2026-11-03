@@ -3179,3 +3179,9 @@ msgstr "Versiyanı göstər və çıx"
 
 msgid "Every argument after it is a query word"
 msgstr "Ondan sonrakı hər arqument axtarış sözüdür"
+
+msgid "Copy troubleshooting information"
+msgstr "Problem həlli üçün məlumatı kopyala"
+
+msgid "Troubleshooting information copied."
+msgstr "Problem həlli üçün məlumat kopyalandı."

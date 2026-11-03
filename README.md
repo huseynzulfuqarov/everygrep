@@ -246,7 +246,9 @@ catches up with what changed meanwhile.
 Tools → Settings… and Tools → Customize shortcuts… open the settings. Help →
 Search syntax (`F1`), Regular expressions and Command line options open the
 help window, a short reference with examples on three pages; Help →
-Keyboard shortcuts lists every key; Help → About shows the version and the
+Keyboard shortcuts lists every key; Help → Copy troubleshooting information
+puts a short report for a bug report on the clipboard (version, system,
+desktop session, language and the numbers of the index; no paths or names); Help → About shows the version and the
 license. The Edit actions show no key in the menu, because menu keys would
 take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
 the table above. With the menu bar hidden, the `⋯` button next to the filter

@@ -299,6 +299,8 @@ First version, 0.1.0, not released yet.
   a few seconds at most for the last saves.
 - Help window (`F1`, Help → Search syntax, Regular expressions, Command
   line options): a short reference with examples, translated.
+- Help → Copy troubleshooting information: version, system, desktop session,
+  language and index numbers on the clipboard, without paths or names.
 - Edit → Invert selection (`Ctrl+I`), which costs the same for any number
   of results.
 - File → Export results… (`Ctrl+S`): the results as CSV (name, folder,
