@@ -3421,3 +3421,69 @@ msgid "Skipped {} step."
 msgid_plural "Skipped {} steps."
 msgstr[0] "{} addım ötürüldü."
 msgstr[1] "{} addım ötürüldü."
+
+msgid "Unexpected '>'."
+msgstr "Gözlənilməyən '>'."
+
+msgid "Missing '>'."
+msgstr "'>' çatışmır."
+
+msgid "Missing closing quote."
+msgstr "Bağlayan dırnaq çatışmır."
+
+msgid "Use only one of duplicates:, extra-copies:, distinct: and unique: per query."
+msgstr "Bir sorğuda duplicates:, extra-copies:, distinct: və unique: funksiyalarından yalnız birini işlədin."
+
+msgid "A query can have at most {} content terms."
+msgstr "Sorğuda ən çox {} məzmun şərti ola bilər."
+
+msgid "The query is nested too deeply (more than {} levels)."
+msgstr "Sorğuda iç-içə qruplar çox dərindir ({} səviyyədən çox)."
+
+msgid "Invalid size: {}"
+msgstr "Yanlış ölçü: {}"
+
+msgid "Invalid limit: {}. Use a number, for example limit:100."
+msgstr "Yanlış say: {}. Rəqəm işlədin, məsələn limit:100."
+
+msgid "Invalid date: {}. Use YYYY, YYYY-MM or YYYY-MM-DD."
+msgstr "Yanlış tarix: {}. YYYY, YYYY-MM və ya YYYY-MM-DD işlədin."
+
+msgid "Invalid time: {}. Use a date or a relative time, for example <7d or today."
+msgstr "Yanlış vaxt: {}. Tarix və ya nisbi vaxt işlədin, məsələn <7d və ya today."
+
+msgid "Unknown property for {0}: {1}. Use content, name, stem, ext, size or modified."
+msgstr "{0} üçün naməlum xüsusiyyət: {1}. content, name, stem, ext, size və ya modified işlədin."
+
+msgid "{0}: at most {1} properties can be compared."
+msgstr "{0}: ən çox {1} xüsusiyyət müqayisə oluna bilər."
+
+msgid "Unclosed group."
+msgstr "Bağlanmamış qrup."
+
+msgid "Unopened group."
+msgstr "Açılmamış qrup."
+
+msgid "Unclosed character class."
+msgstr "Bağlanmamış simvol sinfi."
+
+msgid "Repetition operator is missing an expression."
+msgstr "Təkrarlama operatorunun ifadəsi çatışmır."
+
+msgid "Unrecognized escape sequence."
+msgstr "Tanınmayan qaçış ardıcıllığı."
+
+msgid "The expression is too large."
+msgstr "İfadə çox böyükdür."
+
+msgid "Invalid regular expression: {}"
+msgstr "Yanlış müntəzəm ifadə: {}"
+
+msgid "Invalid search query."
+msgstr "Yanlış axtarış sorğusu."
+
+msgid "Invalid regular expression."
+msgstr "Yanlış müntəzəm ifadə."
+
+msgid "Technical details"
+msgstr "Texniki təfərrüatlar"

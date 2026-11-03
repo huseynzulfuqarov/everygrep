@@ -39,6 +39,7 @@ mod results;
 mod saved_searches;
 mod saved_ui;
 mod schedule;
+mod search_errors;
 mod search_history;
 mod selection;
 mod session;
@@ -2263,8 +2264,10 @@ fn show_results(w: &AppWindow, result: SearchResult) {
     } else if w.get_current() < 0 || w.get_current() as usize >= count {
         w.set_current(0);
     }
+    w.set_message_details(result.error.as_deref().unwrap_or_default().into());
+    w.set_message_error(result.error.is_some());
     w.set_message(match result.error {
-        Some(e) => fill(tr("Cannot search: {}"), &[&e]).into(),
+        Some(e) => fill(tr("Cannot search: {}"), &[&search_errors::message(&e)]).into(),
         None => "".into(),
     });
     refresh_status(w);
@@ -2285,6 +2288,7 @@ fn refresh_status(w: &AppWindow) {
         };
     });
     if let Some(text) = message {
+        w.set_message_error(false);
         w.set_message(text.into());
     } else if is_loading_message(&w.get_message()) {
         w.set_message("".into());

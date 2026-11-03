@@ -968,6 +968,8 @@ export component AppWindow inherits Window {
     in property <bool> can-cancel;
     callback cancel-task();
     in property <string> message;
+    in property <bool> message-error;
+    in property <string> message-details;
     in-out property <int> current: -1;
     // Text of the search field.
     in-out property <string> query <=> search.text;
@@ -3035,10 +3037,11 @@ export component AppWindow inherits Window {
                         }
                         }
 
+                        message-hover := TouchArea { visible: root.message-error && root.message != ""; }
                         Text {
                             visible: root.message != "";
                             text: root.message;
-                            color: Theme.text-muted;
+                            color: root.message-error ? Theme.danger : Theme.text-muted;
                             font-size: Theme.body;
                             horizontal-alignment: center;
                             vertical-alignment: center;
@@ -3229,6 +3232,25 @@ export component AppWindow inherits Window {
             wrap: word-wrap;
             font-size: Theme.small;
             color: root.notice-error ? Theme.danger : Theme.text;
+        }
+    }
+
+    if message-hover.has-hover && root.message-error && root.message-details != "": Rectangle {
+        x: Theme.s3;
+        y: max(Theme.s3, root.height - Theme.status-height - self.height - Theme.s2);
+        width: min(620px, root.width - 2 * Theme.s3);
+        height: diagnostic.preferred-height + 2 * Theme.s2;
+        background: Theme.surface;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.line;
+        diagnostic := Text {
+            x: Theme.s2; y: Theme.s2;
+            width: parent.width - 2 * Theme.s2;
+            text: @tr("Technical details") + "\n" + root.message-details;
+            color: Theme.text;
+            font-size: Theme.small;
+            wrap: word-wrap;
         }
     }
 
