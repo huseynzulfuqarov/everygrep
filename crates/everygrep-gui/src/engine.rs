@@ -2065,8 +2065,15 @@ impl Engine {
     /// index stay locked until then (a catch-up holds the index while it
     /// reads folders); the index then stays to be saved.
     fn save_by(&self, deadline: Option<Instant>) {
-        // A cache: a failed save is tried again with the next one.
+        self.save_index_by(deadline);
+        // A cache: a failed save is tried again with the next one. It comes
+        // after the index, so a slow cache write cannot use up the time a
+        // quit has for the index.
         let _ = self.hashes.save();
+    }
+
+    /// The index part of [`save_by`](Self::save_by).
+    fn save_index_by(&self, deadline: Option<Instant>) {
         if !self.dirty.swap(false, Ordering::SeqCst) {
             return;
         }
@@ -2595,13 +2602,13 @@ impl Engine {
     /// (a catch-up holds it). A scan stuck on a drive that does not answer
     /// ends with the process, and that drive is read again from where its
     /// last save left it; an index not saved is caught up at the next start.
-    pub fn shutdown(&self) {
+    pub fn shutdown(self: &Arc<Self>) {
         self.shutdown_within(QUIT_WAIT);
     }
 
     /// [`shutdown`](Self::shutdown), waiting at most `wait`. Returns whether
-    /// every drive scan ended in time.
-    fn shutdown_within(&self, wait: Duration) -> bool {
+    /// every drive scan and cache publication ended in time.
+    fn shutdown_within(self: &Arc<Self>, wait: Duration) -> bool {
         let deadline = Instant::now() + wait;
         self.stop.store(true, Ordering::SeqCst);
         let scans = {
@@ -2626,8 +2633,27 @@ impl Engine {
         for scan in scans {
             ended &= retry_until(deadline, || scan.is_finished().then_some(())).is_some();
         }
-        self.save_by(Some(deadline));
-        self.keep_scanned_drives(deadline);
+        // Publication can block in serialization, write or fsync even after
+        // the locks were acquired. Only the worker performs cache I/O; the
+        // quitting thread bounds its wait, leaving a stalled worker to exit
+        // with the process.
+        let engine = Arc::clone(self);
+        let saved = std::thread::Builder::new()
+            .name("save-on-quit".into())
+            .spawn(move || {
+                engine.save_by(Some(deadline));
+                engine.keep_scanned_drives(deadline);
+            });
+        match saved {
+            Ok(saved) => {
+                if retry_until(deadline, || saved.is_finished().then_some(())).is_some() {
+                    ended &= saved.join().is_ok();
+                } else {
+                    ended = false;
+                }
+            }
+            Err(_) => ended = false,
+        }
         ended
     }
 
@@ -5439,6 +5465,69 @@ mod tests {
         assert_eq!(entries, total - 1);
         assert!(find(&probe.engine.index.read().unwrap(), &deleted).is_none());
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn quitting_saves_the_index_before_a_stalled_hash_cache() {
+        let dir = Scratch::new("quit-index-first");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert!(!dir.0.join("index.bin").exists());
+        let hashes = Arc::clone(&probe.engine.hashes);
+        let (held_tx, held) = mpsc::channel();
+        let (release, stalled) = mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _cache = hashes.cache().lock().unwrap();
+            held_tx.send(()).unwrap();
+            let _ = stalled.recv_timeout(Duration::from_secs(5));
+        });
+        held.recv_timeout(Duration::from_secs(5)).unwrap();
+        probe.engine.shutdown_within(Duration::from_millis(500));
+        // The hash cache is still stalled: the index was saved before it.
+        let saved = dir.0.join("index.bin").exists();
+        let _ = release.send(());
+        holder.join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while probe.engine.dirty.load(Ordering::SeqCst) || !dir.0.join("index.bin").exists() {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(saved, "the index waited for the hash cache");
+    }
+
+    #[test]
+    fn quitting_bounds_the_wait_for_a_stalled_hash_cache() {
+        let dir = Scratch::new("quit-hashes");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let hashes = Arc::clone(&probe.engine.hashes);
+        let (held_tx, held) = mpsc::channel();
+        let (release, stalled) = mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _cache = hashes.cache().lock().unwrap();
+            held_tx.send(()).unwrap();
+            let _ = stalled.recv_timeout(Duration::from_secs(2));
+        });
+        held.recv_timeout(Duration::from_secs(5)).unwrap();
+        let start = Instant::now();
+        probe.engine.shutdown_within(Duration::from_millis(100));
+        let elapsed = start.elapsed();
+        let _ = release.send(());
+        holder.join().unwrap();
+        // Let any detached publication finish before removing the scratch tree.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while probe.engine.dirty.load(Ordering::SeqCst) || !dir.0.join("index.bin").exists() {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            elapsed < Duration::from_millis(700),
+            "quit took {elapsed:?}"
+        );
     }
 
     #[test]
