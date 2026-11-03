@@ -2,31 +2,30 @@
 //!
 //! The formats:
 //!
-//! - **CSV** (RFC 4180, UTF-8, `\r\n` line ends): a header line
+//! - **CSV** (RFC 4180, original name bytes, `\r\n` line ends): a header line
 //!   `Name,Folder,Size,Modified,Offline`, then one line per result: the name,
 //!   the full path of its folder, the size in bytes (for a folder the total
 //!   size of the files below it), the local modification time as
 //!   `YYYY-MM-DD HH:MM:SS` (empty when unknown) and `yes` for an entry of a
 //!   drive that is not connected. Fields with a comma, a quote or a line
 //!   break are quoted, quotes doubled.
-//! - **TSV** (UTF-8, `\n` line ends): the same columns separated by tabs. A
+//! - **TSV** (original name bytes, `\n` line ends): the same columns separated by tabs. A
 //!   backslash, line feed, carriage return or tab in a field is written as
 //!   `\\`, `\n`, `\r` or `\t`, so every result is one line.
 //! - **Text**: one full path per line (`\n`); an entry of a drive that is not
 //!   connected is followed by a tab and `(offline)`. Paths are escaped as in
 //!   TSV.
-//! - **M3U8** (an extended playlist in UTF-8): `#EXTM3U`, then one full path
-//!   per line. A path that is not UTF-8 is written as a `file://` URI with
-//!   every byte other than an ASCII letter, digit, `-._~` and `/` as `%XX`
-//!   (RFC 8089), so the entry still names that very file. A playlist line
-//!   cannot hold a line break, so a path with one is left out.
+//! - **M3U8** (an extended playlist): `#EXTM3U`, then one full path per
+//!   line, using the original file-name bytes. A playlist line cannot hold
+//!   a line break, so a path with one is left out.
 //! - **JSON**: an array with one object per result, `{"name", "folder",
 //!   "size", "modified", "offline"}`; `modified` is the local time as above,
 //!   or `null` when unknown.
 //! - **HTML**: a page with a table of the CSV columns, for reading in a web
 //!   browser or pasting into a spreadsheet.
 //!
-//! In the other formats, bytes of names that are not UTF-8 become U+FFFD.
+//! JSON and HTML replace invalid UTF-8 with U+FFFD. Other formats retain
+//! original bytes, with only their documented delimiter escaping.
 //! The file is written to a
 //! temporary file in the same folder, synced and renamed over the target, so
 //! the target holds either its old contents or the whole export.
@@ -164,15 +163,14 @@ impl Writer {
     /// Appends one result.
     pub fn row(&mut self, row: &Row) -> io::Result<()> {
         let out = &mut self.out;
-        let name = String::from_utf8_lossy(row.name);
-        let folder = String::from_utf8_lossy(row.folder);
         match self.format {
             Format::Tsv => {
+                text_line(out, row.name)?;
+                out.write_all(b"\t")?;
+                text_line(out, row.folder)?;
                 writeln!(
                     out,
-                    "{}\t{}\t{}\t{}\t{}",
-                    text_line(&name),
-                    text_line(&folder),
+                    "\t{}\t{}\t{}",
                     row.size,
                     local_time(row.mtime_ns, &self.zone),
                     if row.offline { "yes" } else { "" }
@@ -183,12 +181,12 @@ impl Writer {
                 if path.contains(&b'\n') || path.contains(&b'\r') {
                     return Ok(());
                 }
-                match std::str::from_utf8(&path) {
-                    Ok(path) => writeln!(out, "{path}")?,
-                    Err(_) => writeln!(out, "{}", file_uri(&path))?,
-                }
+                out.write_all(&path)?;
+                out.write_all(b"\n")?;
             }
             Format::Json => {
+                let name = String::from_utf8_lossy(row.name);
+                let folder = String::from_utf8_lossy(row.folder);
                 out.write_all(if self.rows == 0 { b"\n" } else { b",\n" })?;
                 out.write_all(b"{\"name\":")?;
                 json_string(out, &name)?;
@@ -202,6 +200,8 @@ impl Writer {
                 write!(out, ",\"offline\":{}}}", row.offline)?;
             }
             Format::Html => {
+                let name = String::from_utf8_lossy(row.name);
+                let folder = String::from_utf8_lossy(row.folder);
                 out.write_all(b"<tr><td>")?;
                 html_text(out, &name)?;
                 out.write_all(b"</td><td>")?;
@@ -215,9 +215,9 @@ impl Writer {
                 )?;
             }
             Format::Csv => {
-                csv_field(out, &name)?;
+                csv_field(out, row.name)?;
                 out.write_all(b",")?;
-                csv_field(out, &folder)?;
+                csv_field(out, row.folder)?;
                 write!(
                     out,
                     ",{},{},{}\r\n",
@@ -227,7 +227,7 @@ impl Writer {
                 )?;
             }
             Format::Text => {
-                out.write_all(text_line(&full_path(row)).as_bytes())?;
+                text_line(out, &full_path_bytes(row))?;
                 if row.offline {
                     out.write_all(b"\t(offline)")?;
                 }
@@ -282,12 +282,7 @@ td:nth-child(3) { text-align: right; }\n\
 /// The end of an HTML export.
 const HTML_TAIL: &str = "</tbody>\n</table>\n</body>\n</html>\n";
 
-/// The full path of a row, `/` between its folder and its name.
-fn full_path(row: &Row) -> String {
-    String::from_utf8_lossy(&full_path_bytes(row)).into_owned()
-}
-
-/// [`full_path`] as the bytes of the file system.
+/// The full path of a row, using the bytes of the file system.
 fn full_path_bytes(row: &Row) -> Vec<u8> {
     let mut path = row.folder.to_vec();
     if !path.is_empty() && !path.ends_with(b"/") {
@@ -295,22 +290,6 @@ fn full_path_bytes(row: &Row) -> Vec<u8> {
     }
     path.extend_from_slice(row.name);
     path
-}
-
-/// A `file://` URI of an absolute `path`: its bytes as they are, except
-/// that every byte other than an ASCII letter, digit, `-._~` and `/` is
-/// written as `%XX`.
-fn file_uri(path: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut uri = String::from("file://");
-    for &b in path {
-        if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
-            uri.push(char::from(b));
-        } else {
-            let _ = write!(uri, "%{b:02X}");
-        }
-    }
-    uri
 }
 
 /// A JSON string: quoted, with `"`, `\` and control characters escaped.
@@ -349,30 +328,39 @@ fn html_text(out: &mut impl Write, text: &str) -> io::Result<()> {
 /// A path for the text format: `\`, line feed, carriage return and tab
 /// written as `\\`, `\n`, `\r` and `\t`, so it stays on its line and the
 /// tab before `(offline)` is the only one.
-fn text_line(path: &str) -> std::borrow::Cow<'_, str> {
-    if !path.contains(['\\', '\n', '\r', '\t']) {
-        return path.into();
+fn text_line(out: &mut impl Write, text: &[u8]) -> io::Result<()> {
+    let mut start = 0;
+    for (i, b) in text.iter().enumerate() {
+        let escaped: &[u8] = match b {
+            b'\\' => b"\\\\",
+            b'\n' => b"\\n",
+            b'\r' => b"\\r",
+            b'\t' => b"\\t",
+            _ => continue,
+        };
+        out.write_all(&text[start..i])?;
+        out.write_all(escaped)?;
+        start = i + 1;
     }
-    let mut out = String::with_capacity(path.len() + 8);
-    for c in path.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
-    }
-    out.into()
+    out.write_all(&text[start..])
 }
 
 /// One CSV field, quoted when it has a comma, a quote or a line break.
-fn csv_field(out: &mut impl Write, text: &str) -> io::Result<()> {
-    if text.contains([',', '"', '\n', '\r']) {
-        write!(out, "\"{}\"", text.replace('"', "\"\""))
-    } else {
-        out.write_all(text.as_bytes())
+fn csv_field(out: &mut impl Write, text: &[u8]) -> io::Result<()> {
+    if !text.iter().any(|b| b",\"\n\r".contains(b)) {
+        return out.write_all(text);
     }
+    out.write_all(b"\"")?;
+    let mut start = 0;
+    for (i, b) in text.iter().enumerate() {
+        if *b == b'"' {
+            out.write_all(&text[start..i])?;
+            out.write_all(b"\"\"")?;
+            start = i + 1;
+        }
+    }
+    out.write_all(&text[start..])?;
+    out.write_all(b"\"")
 }
 
 /// `2026-10-25 22:41:07` in the local zone; empty for an unknown time.
@@ -436,11 +424,11 @@ mod tests {
         }
         assert_eq!(w.finish().unwrap(), 3);
         assert_eq!(
-            fs::read_to_string(&csv).unwrap(),
-            "Name,Folder,Size,Modified,Offline\r\n\
+            fs::read(&csv).unwrap(),
+            b"Name,Folder,Size,Modified,Offline\r\n\
              \"report, final.pdf\",/home/u/Docs,3145728,2025-10-25 22:34:27,\r\n\
              \"say \"\"hi\"\"\n.txt\",/run/media/u/USB,0,,yes\r\n\
-             bad\u{fffd}byte,/,7,1970-01-01 00:00:00,\r\n"
+             bad\xffbyte,/,7,1970-01-01 00:00:00,\r\n"
         );
         let txt = dir.0.join("out.txt");
         let mut w = Writer::create(&txt, Format::Text, utc()).unwrap();
@@ -449,10 +437,10 @@ mod tests {
         }
         w.finish().unwrap();
         assert_eq!(
-            fs::read_to_string(&txt).unwrap(),
-            "/home/u/Docs/report, final.pdf\n\
+            fs::read(&txt).unwrap(),
+            b"/home/u/Docs/report, final.pdf\n\
              /run/media/u/USB/say \"hi\"\\n.txt\t(offline)\n\
-             /bad\u{fffd}byte\n"
+             /bad\xffbyte\n"
         );
         // A line break, tab or backslash in a name is written as an escape,
         // so every result stays one line.
@@ -466,7 +454,7 @@ mod tests {
         })
         .unwrap();
         w.finish().unwrap();
-        assert_eq!(fs::read_to_string(&txt).unwrap(), "/x/a\\\\b\\tc\\rd\\ne\n");
+        assert_eq!(fs::read(&txt).unwrap(), b"/x/a\\\\b\\tc\\rd\\ne\n");
         // No temporary files are left.
         let left: Vec<_> = fs::read_dir(&dir.0).unwrap().collect();
         assert_eq!(left.len(), 2);
@@ -474,6 +462,10 @@ mod tests {
 
     /// The file that `format` makes of [`rows`].
     fn export(format: Format, rows: &[Row]) -> String {
+        String::from_utf8(export_bytes(format, rows)).unwrap()
+    }
+
+    fn export_bytes(format: Format, rows: &[Row]) -> Vec<u8> {
         let dir = Scratch::new("export-format");
         let path = dir.0.join(format!("out.{}", format.extension()));
         let mut w = Writer::create(&path, format, utc()).unwrap();
@@ -481,17 +473,17 @@ mod tests {
             w.row(r).unwrap();
         }
         w.finish().unwrap();
-        fs::read_to_string(&path).unwrap()
+        fs::read(&path).unwrap()
     }
 
     #[test]
     fn tsv_export_escapes_tabs_and_line_breaks() {
         assert_eq!(
-            export(Format::Tsv, &rows()),
-            "Name\tFolder\tSize\tModified\tOffline\n\
+            export_bytes(Format::Tsv, &rows()),
+            b"Name\tFolder\tSize\tModified\tOffline\n\
              report, final.pdf\t/home/u/Docs\t3145728\t2025-10-25 22:34:27\t\n\
              say \"hi\"\\n.txt\t/run/media/u/USB\t0\t\tyes\n\
-             bad\u{fffd}byte\t/\t7\t1970-01-01 00:00:00\t\n"
+             bad\xffbyte\t/\t7\t1970-01-01 00:00:00\t\n"
         );
         let tab = Row {
             name: b"a\tb\\c",
@@ -514,14 +506,21 @@ mod tests {
         for r in rows() {
             w.row(&r).unwrap();
         }
-        // The name with a line break is not counted.
+        w.row(&Row {
+            name: b"track\rhidden.mp3",
+            folder: b"/music",
+            size: 1,
+            mtime_ns: 0,
+            offline: false,
+        })
+        .unwrap();
+        // Neither line feed nor carriage return can create another playlist line.
         assert_eq!(w.finish().unwrap(), 2);
         assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            "#EXTM3U\n/home/u/Docs/report, final.pdf\nfile:///bad%FFbyte\n"
+            fs::read(&path).unwrap(),
+            b"#EXTM3U\n/home/u/Docs/report, final.pdf\n/bad\xffbyte\n"
         );
-        // A path that is not UTF-8 is written as a file URI of its own
-        // bytes, so the entry still names that file.
+        // The playlist keeps the original path bytes, including invalid UTF-8.
         let odd = Row {
             name: b"song\xff #1%.mp3",
             folder: b"/m\xe9/a b",
@@ -530,9 +529,65 @@ mod tests {
             offline: false,
         };
         assert_eq!(
-            export(Format::M3u8, &[odd]),
-            "#EXTM3U\nfile:///m%E9/a%20b/song%FF%20%231%25.mp3\n"
+            export_bytes(Format::M3u8, &[odd]),
+            b"#EXTM3U\n/m\xe9/a b/song\xff #1%.mp3\n"
         );
+    }
+
+    #[test]
+    fn byte_escaping_keeps_invalid_bytes_next_to_delimiters() {
+        let row = Row {
+            name: b"a\xff,\t\"\\\n",
+            folder: b"/f\x80",
+            size: 1,
+            mtime_ns: 0,
+            offline: false,
+        };
+        let rows = std::slice::from_ref(&row);
+        assert_eq!(
+            export_bytes(Format::Csv, rows),
+            b"Name,Folder,Size,Modified,Offline\r\n\"a\xff,\t\"\"\\\n\",/f\x80,1,,\r\n"
+        );
+        assert_eq!(
+            export_bytes(Format::Tsv, rows),
+            b"Name\tFolder\tSize\tModified\tOffline\na\xff,\\t\"\\\\\\n\t/f\x80\t1\t\t\n"
+        );
+        assert_eq!(
+            export_bytes(Format::Text, rows),
+            b"/f\x80/a\xff,\\t\"\\\\\\n\n"
+        );
+        assert_eq!(export_bytes(Format::M3u8, rows), b"#EXTM3U\n");
+    }
+
+    #[test]
+    fn byte_exports_preserve_invalid_utf8_in_both_name_and_folder() {
+        let row = Row {
+            name: b"raw\xff\xfe.txt",
+            folder: b"/folder\x80",
+            size: 1,
+            mtime_ns: 0,
+            offline: false,
+        };
+        for format in [Format::Csv, Format::Tsv, Format::Text, Format::M3u8] {
+            let bytes = export_bytes(format, std::slice::from_ref(&row));
+            assert!(
+                bytes.windows(row.name.len()).any(|s| s == row.name),
+                "{format:?}"
+            );
+            assert!(
+                bytes.windows(row.folder.len()).any(|s| s == row.folder),
+                "{format:?}"
+            );
+            assert!(
+                !bytes.windows(3).any(|s| s == b"\xef\xbf\xbd"),
+                "{format:?}"
+            );
+        }
+        for format in [Format::Json, Format::Html] {
+            let bytes = export_bytes(format, std::slice::from_ref(&row));
+            assert!(std::str::from_utf8(&bytes).is_ok());
+            assert!(bytes.windows(3).any(|s| s == b"\xef\xbf\xbd"));
+        }
     }
 
     #[test]

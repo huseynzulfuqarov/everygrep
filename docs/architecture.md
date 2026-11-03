@@ -377,7 +377,10 @@ save dialog of the export (`org.freedesktop.portal.FileChooser`, `OpenFile`
 and `SaveFile`). `export.rs` writes the export (CSV, TSV, text, M3U8, JSON, HTML) on a helper
 thread, reading the index in chunks of 20 000 results under short read
 locks; if the ids change meaning meanwhile (a compaction), it stops and
-asks to export again.
+asks to export again. CSV, TSV, Text and M3U8 retain original file-name
+bytes, including invalid UTF-8; delimiter escaping remains format-specific.
+M3U8 omits paths containing CR or LF. JSON and HTML keep their UTF-8
+replacement behavior.
 
 ### Commands and keys (`commands.rs`, `ui/commands.slint`)
 
