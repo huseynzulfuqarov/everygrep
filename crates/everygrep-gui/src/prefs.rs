@@ -1960,6 +1960,7 @@ impl Prefs {
         w.set_path_click_opens_folder(s.path_click_opens_folder);
         w.set_copy_full_path_quotes(s.copy_full_path_quotes);
         w.set_export_protect_formulas(s.export_protect_formulas);
+        w.set_drive_root_labels(s.drive_root_labels);
         w.set_type_to_jump(s.type_to_jump);
         w.set_open_confirm_max(settings::MAX_OPEN_CONFIRM as i32);
         w.set_open_confirm_over(s.open_confirm_over as i32);
@@ -3052,6 +3053,7 @@ impl Prefs {
         let path_click = w.get_path_click_opens_folder();
         let quotes = w.get_copy_full_path_quotes();
         let protect_formulas = w.get_export_protect_formulas();
+        let root_labels = w.get_drive_root_labels();
         let type_to_jump = w.get_type_to_jump();
         let open_over = usize::try_from(w.get_open_confirm_over())
             .unwrap_or(0)
@@ -3073,6 +3075,7 @@ impl Prefs {
             s.path_click_opens_folder = path_click;
             s.copy_full_path_quotes = quotes;
             s.export_protect_formulas = protect_formulas;
+            s.drive_root_labels = root_labels;
             s.type_to_jump = type_to_jump;
             s.open_confirm_over = open_over;
             s.focus_on_show = focus_on_show;
@@ -3082,6 +3085,9 @@ impl Prefs {
         });
         self.apply_folder_size();
         self.apply_behaviour();
+        if let Some(m) = self.main.upgrade() {
+            crate::with_model(&m, |model| model.set_show_root_labels(root_labels));
+        }
         self.refresh();
     }
 

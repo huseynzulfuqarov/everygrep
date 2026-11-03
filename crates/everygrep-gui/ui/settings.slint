@@ -249,6 +249,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> path-click-opens-folder;
     in-out property <bool> copy-full-path-quotes;
     in-out property <bool> export-protect-formulas;
+    in-out property <bool> drive-root-labels;
     in-out property <bool> type-to-jump;
     in-out property <int> open-confirm-over;
     in property <int> open-confirm-max;
@@ -1156,6 +1157,14 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.window-changed(); }
                             }
                             Note { text: @tr("Adds an apostrophe before cells starting with =, +, -, @, tab or carriage return. Other formats keep their contents."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Drives"); }
+                            CheckBox {
+                                text: @tr("Show the drive label on drive roots");
+                                checked <=> root.drive-root-labels;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("The root of an indexed drive is shown as its label followed by the mount point, such as USB DISK (/run/media/…)."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Typing in the result list"); }
                             CheckBox {

@@ -3834,3 +3834,12 @@ msgstr "GPS enliyi sütunu"
 msgid "GPS longitude column"
 msgstr "GPS uzunluğu sütunu"
 
+msgid "Drives"
+msgstr "Disklər"
+
+msgid "Show the drive label on drive roots"
+msgstr "Disklərin kök qovluğunda disk etiketini göstər"
+
+msgid "The root of an indexed drive is shown as its label followed by the mount point, such as USB DISK (/run/media/…)."
+msgstr "İndekslənmiş diskin kök qovluğu etiketi və qoşulma yeri ilə göstərilir, məsələn USB DISK (/run/media/…)."
+

@@ -30,6 +30,11 @@ use everygrep_core::hashcache::Cached;
 
 /// Rows of the result table, backed by a list of node ids.
 pub struct ResultsModel {
+    /// Drive labels by root name, shown as `Label (root)` in the Name cell
+    /// of a drive's root; empty when that is turned off. Read again with
+    /// every result.
+    root_labels: RefCell<std::collections::HashMap<Vec<u8>, String>>,
+    show_root_labels: Cell<bool>,
     settled: RefCell<Option<SettledSearch>>,
     generation: Cell<u64>,
     engine: Arc<Engine>,
@@ -227,6 +232,8 @@ const MAX_SUMMED: usize = 100_000;
 impl ResultsModel {
     pub fn new(engine: Arc<Engine>) -> Self {
         Self {
+            root_labels: RefCell::default(),
+            show_root_labels: Cell::new(true),
             settled: RefCell::new(None),
             generation: Cell::new(0),
             engine,
@@ -278,6 +285,7 @@ impl ResultsModel {
 
     /// Never show ids from before an index rebuild; the activation search follows.
     pub fn restore(&self, snapshot: Option<&ResultSnapshot>) {
+        self.read_root_labels();
         let snapshot = snapshot.filter(|s| s.epoch == self.engine.epoch());
         *self.settled.borrow_mut() = snapshot.and_then(|s| s.settled.clone());
         self.generation.set(snapshot.map_or(0, |s| s.generation));
@@ -379,6 +387,7 @@ impl ResultsModel {
     /// selected items it lists when clearing is off. Returns the first
     /// selected row when a selection was kept for a new query.
     pub fn set_result(&self, result: &SearchResult) -> Option<usize> {
+        self.read_root_labels();
         *self.settled.borrow_mut() = result.settled.clone();
         self.generation.set(result.generation);
         let mut carried = false;
@@ -417,6 +426,28 @@ impl ResultsModel {
 
     /// Says which columns read from the file system are shown, and shows
     /// the rows again when that changed.
+    /// Shows drive labels in the Name cell of drive roots, or not.
+    pub fn set_show_root_labels(&self, on: bool) {
+        if self.show_root_labels.replace(on) != on {
+            self.read_root_labels();
+            self.relabel();
+        }
+    }
+
+    /// Keeps the labels read last while the drive list is busy. A label
+    /// comes from the drive itself, so its control and direction marks are
+    /// shown visibly, as in names.
+    fn read_root_labels(&self) {
+        if !self.show_root_labels.get() {
+            self.root_labels.borrow_mut().clear();
+        } else if let Some(labels) = self.engine.root_labels() {
+            *self.root_labels.borrow_mut() = labels
+                .into_iter()
+                .map(|(root, label)| (root, visible_name(&label).into_owned()))
+                .collect();
+        }
+    }
+
     pub fn set_detail_columns(&self, columns: DetailColumns) {
         if self.detail_columns.replace(columns) != columns {
             self.relabel();
@@ -1106,7 +1137,15 @@ impl Model for ResultsModel {
         let extension = extension.into();
         let parent = store.parent(id).map(|p| store.path(p));
         let parent = parent.as_ref().map(|p| p.as_os_str().as_bytes());
-        let (name_spans, folder_spans) = cell_spans(&name, parent, &self.terms.borrow());
+        let (mut name_spans, folder_spans) = cell_spans(&name, parent, &self.terms.borrow());
+        let name = match self.root_labels.borrow().get(raw_name) {
+            Some(label) if parent.is_none() => {
+                let (text, spans) = labelled_root(label, &name, &name_spans);
+                name_spans = spans;
+                std::borrow::Cow::Owned(text)
+            }
+            _ => name,
+        };
         let folder = parent
             .map(|p| self.folder_cell(p, &folder_spans))
             .unwrap_or_default();
@@ -1298,6 +1337,17 @@ fn tilde_spans(spans: &[Range<usize>], cut: usize) -> Vec<Range<usize>> {
 
 /// `text` split into plain and bold pieces around `spans` (sorted, not
 /// overlapping, on character boundaries).
+/// The Name cell of a drive root, `Label (root)`, with the matched spans of
+/// the root name moved behind the label.
+fn labelled_root(label: &str, name: &str, spans: &[Range<usize>]) -> (String, Vec<Range<usize>>) {
+    let shift = label.len() + 2;
+    let spans = spans
+        .iter()
+        .map(|r| r.start + shift..r.end + shift)
+        .collect();
+    (format!("{label} ({name})"), spans)
+}
+
 fn marked(text: &str, spans: &[Range<usize>]) -> Marked {
     let mut plain: [&str; MAX_MARKS + 1] = [""; MAX_MARKS + 1];
     let mut bold: [&str; MAX_MARKS] = [""; MAX_MARKS];
@@ -1363,6 +1413,14 @@ mod fit_tests {
 pub(crate) mod tests {
     use super::*;
     use everygrep_core::query::{Query, QueryOptions};
+
+    #[test]
+    fn a_drive_root_shows_its_label_with_the_matches_moved() {
+        let (text, spans) = labelled_root("USB DISK", "/run/media/u/USB", &[11..14, 0..1]);
+        assert_eq!(text, "USB DISK (/run/media/u/USB)");
+        assert_eq!(&text[spans[0].clone()], "u/U");
+        assert_eq!(&text[spans[1].clone()], "/");
+    }
 
     /// Paths whose details take a second to read, as on a file system that
     /// hardly answers.

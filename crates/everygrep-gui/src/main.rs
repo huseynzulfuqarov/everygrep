@@ -260,6 +260,7 @@ fn main() -> Result<(), slint::PlatformError> {
     engine.set_property_options(settings.properties.clone());
     properties::start_indexer(engine.clone());
     let model = Rc::new(ResultsModel::new(engine.clone()));
+    model.set_show_root_labels(settings.drive_root_labels);
     // Created, Accessed and Attributes are read off the window's thread.
     model.read_details_with(results::DetailReader::start({
         let weak = window.as_weak();

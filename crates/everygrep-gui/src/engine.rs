@@ -811,6 +811,24 @@ impl Engine {
         }
     }
 
+    /// The labels of the drives whose entries are in the index, by the name
+    /// of their root there; drives without a label are left out.
+    /// `None` while the drive list is busy (an index save holds it): the
+    /// window asks for the labels with every result list, and must not wait.
+    pub fn root_labels(&self) -> Option<std::collections::HashMap<Vec<u8>, String>> {
+        let volumes = self.volumes.try_lock().ok()?;
+        Some(
+            volumes
+                .iter()
+                .filter(|v| !v.info.label.is_empty())
+                .filter_map(|v| {
+                    let root = v.root.as_ref()?;
+                    Some((root.as_os_str().as_bytes().to_vec(), v.info.label.clone()))
+                })
+                .collect(),
+        )
+    }
+
     /// The known drives, connected ones first, then by name.
     pub fn drives(&self) -> Vec<DriveStatus> {
         let ignored = self.drive_settings.lock().expect("lock").ignored.clone();
@@ -3633,6 +3651,19 @@ mod tests {
         probe.engine.shutdown();
         let saved = persist::load(&index_file).unwrap();
         assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&plain)));
+    }
+
+    #[test]
+    fn drive_labels_do_not_wait_for_a_busy_drive_list() {
+        let dir = Scratch::new("root-labels");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let busy = probe.engine.volumes.lock().unwrap();
+        assert!(probe.engine.root_labels().is_none());
+        drop(busy);
+        assert!(probe.engine.root_labels().is_some());
     }
 
     #[test]

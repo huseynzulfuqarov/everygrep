@@ -369,6 +369,9 @@ pub struct Settings {
     /// Whether Copy full path puts each path in double quotes, as Copy
     /// full path with quotes does.
     pub copy_full_path_quotes: bool,
+    /// Whether the Name cell of a drive's root shows the drive's label,
+    /// `Label (mount point)`.
+    pub drive_root_labels: bool,
     /// Whether typing in the result list moves to a name that starts with
     /// the typed text (see `jump.rs`).
     pub type_to_jump: bool,
@@ -458,6 +461,7 @@ impl Default for Settings {
             properties: crate::property_settings::Settings::default(),
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
+            drive_root_labels: true,
             type_to_jump: true,
             export_format: crate::export::Format::Csv,
             export_protect_formulas: true,
@@ -740,6 +744,7 @@ impl Settings {
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
+            "drive-root-labels" => put_flag(&mut self.drive_root_labels),
             "type-to-jump" => put_flag(&mut self.type_to_jump),
             "export-protect-formulas" => put_flag(&mut self.export_protect_formulas),
             "export-format" => crate::export::Format::ALL
@@ -1340,6 +1345,12 @@ impl Settings {
             self.copy_full_path_quotes,
             d.copy_full_path_quotes,
         );
+        flag(
+            &mut out,
+            "drive-root-labels",
+            self.drive_root_labels,
+            d.drive_root_labels,
+        );
         flag(&mut out, "type-to-jump", self.type_to_jump, d.type_to_jump);
         flag(
             &mut out,
@@ -1735,6 +1746,7 @@ impl Settings {
                 self.fileops = d.fileops;
                 self.path_click_opens_folder = d.path_click_opens_folder;
                 self.copy_full_path_quotes = d.copy_full_path_quotes;
+                self.drive_root_labels = d.drive_root_labels;
                 self.type_to_jump = d.type_to_jump;
                 self.export_format = d.export_format;
                 self.export_protect_formulas = d.export_protect_formulas;
@@ -2459,6 +2471,7 @@ pub(crate) mod tests {
             rename_name_only: false,
             path_click_opens_folder: false,
             copy_full_path_quotes: true,
+            drive_root_labels: false,
             type_to_jump: false,
             open_confirm_over: 0,
             focus_on_show: false,
