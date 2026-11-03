@@ -106,7 +106,7 @@ export component AdvancedWindow inherits Window {
                 CheckBox { text: @tr("Whole words"); accessible-label: @tr("Whole words in file contents"); checked <=> root.content-whole-words; }
                 CheckBox { text: @tr("Regular expression"); accessible-label: @tr("Regular expression in file contents"); checked <=> root.content-regex; }
             }
-            Text { text: @tr("File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. Text is matched line by line; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."); color: Theme.text-muted; wrap: word-wrap; }
+            Text { text: @tr("File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. A space in the text also matches a line end unless that is off in Settings; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."); color: Theme.text-muted; wrap: word-wrap; }
             GridLayout {
                 spacing: Theme.gap;
                 Row {

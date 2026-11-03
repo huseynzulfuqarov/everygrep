@@ -346,8 +346,15 @@ a content term alone reads every file of the index.
   modifiers (`path:`, `prefix:`, the ignore modes, `diacritics:`) do not
   apply: diacritics are matched as written in contents, `ş` does not find
   `s`.
-- Matching works line by line: a phrase does not match across a line break,
-  and `^` and `$` match at the start and end of every line.
+- A match may run over line ends: a space in the text also matches a line
+  break with the spaces and tabs around it, so `content:"salam dünya"`
+  finds "salam" at the end of one line and "dünya" at the start of the
+  next (not across an empty line). In a regular expression `\n`, `\s` and
+  classes such as `[^a]` match line breaks too, `.` does not. Settings →
+  Search → File contents → "Let a match run over line ends" turns this off
+  (then a match ends at the end of its line); files over 16 MB are always
+  searched line by line, since a match over lines holds the whole file in
+  memory. `^` and `$` match at the start and end of every line either way.
 - Folders never match, and neither do links (the target is not read),
   FIFOs, sockets, devices, files that cannot be read, and entries of an
   offline drive.

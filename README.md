@@ -436,6 +436,7 @@ the program behaves as before, except that folders show their total size.
 | | keep the history after EveryGrep closes | off |
 | | search file contents only when Enter is pressed: while searching as you type, a search with `content:` or for duplicates by contents waits for Enter | on |
 | | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
+| | let a match run over line ends (a space also matches a line break; files over 16 MB are searched line by line) | on |
 | | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
 | | search inside PDF files (with `pdftotext` from poppler; the page says when it is missing) | off |
 | | hash cache of duplicate searches: largest size in MB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
@@ -601,6 +602,7 @@ size-width = 120
 `content-max-size-mb`, `content-code-page` (`windows-1250` … `windows-1257`)
 and `content-pdf` set how files are read for `content:`; `content-on-enter`
 (`false`) lets searches that read files run as you type too;
+`content-multi-line` (`false`) makes a content match end at its line end;
 `hash-cache-max-mb` the size of the hash cache.
 `index-folder` holds the folder of the index file, `reload-changed-settings`
 (`false`) ignores changes made to the file outside the window until the next start,

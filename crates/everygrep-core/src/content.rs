@@ -5,7 +5,8 @@
 //! encoding to read files in; [`search_file`] tells whether one file holds
 //! it. Files are read in buffers of 64 KiB with the line searcher of ripgrep
 //! (`grep-searcher`), which stops at the first match, so a match near the
-//! start of a large file costs one buffer.
+//! start of a large file costs one buffer (a search over line ends reads
+//! the whole file, see below).
 //!
 //! What is read:
 //!
@@ -23,9 +24,14 @@
 //!   on cancel or after [`PDF_TIMEOUT`], so a broken file cannot take the
 //!   program down or hang the search.
 //!
-//! Matching works line by line, so a phrase does not match across a line
-//! break; `^` and `$` match at the start and end of every line. Case is
-//! ignored unless the term asks for it (Unicode simple case folding).
+//! A match may run over line ends ([`ContentOptions::multi_line`], on by
+//! default): a space in a text also matches a line break with the spaces
+//! around it, and `\n`, `\s` and classes in a regular expression match line
+//! breaks too (`.` does not). Files larger than [`MULTI_LINE_MAX`], and every
+//! file with the option off, are searched line by line, where a match ends
+//! at the end of its line. `^` and `$` match at the start and end of every
+//! line either way. Case is ignored unless the term asks for it (Unicode
+//! simple case folding).
 //! Diacritics are matched as written: ignoring them is a mode for names only.
 //!
 //! The access time of a file is not changed when the file belongs to the
@@ -67,6 +73,11 @@ pub const PDF_READER: &str = "pdftotext";
 /// Longest line kept in memory while searching a file (a minified file can
 /// be one line); a file with a longer line is not searched further.
 const MAX_LINE: usize = 64 * 1024 * 1024;
+
+/// Largest file searched with matches over line ends: such a search holds
+/// the whole file (as UTF-8, which UTF-16 text can grow to 1.5 times) in
+/// memory. Larger files are searched line by line.
+pub const MULTI_LINE_MAX: u64 = 16 * 1024 * 1024;
 
 /// The encoding a term reads files in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -146,6 +157,8 @@ pub struct ContentOptions {
     pub code_page: CodePage,
     /// Read the text of PDF files with [`PDF_READER`].
     pub pdf: bool,
+    /// A match may run over line ends (in files up to [`MULTI_LINE_MAX`]).
+    pub multi_line: bool,
 }
 
 impl Default for ContentOptions {
@@ -154,6 +167,7 @@ impl Default for ContentOptions {
             max_size: DEFAULT_MAX_SIZE,
             code_page: CodePage::default(),
             pdf: false,
+            multi_line: true,
         }
     }
 }
@@ -161,7 +175,12 @@ impl Default for ContentOptions {
 /// A text looked for in the contents of files.
 #[derive(Clone)]
 pub struct ContentTerm {
-    matcher: RegexMatcher,
+    /// The matcher line by line; `None` for an expression that names a line
+    /// break, which no line holds.
+    matcher: Option<RegexMatcher>,
+    /// The matcher for matches over line ends, when the term can match a
+    /// line break there.
+    multi_line: Option<RegexMatcher>,
     encoding: ContentEncoding,
     /// A literal text of ASCII characters only: the legacy code pages are
     /// ASCII supersets, so a file that did not match as UTF-8 cannot match
@@ -195,15 +214,29 @@ impl ContentTerm {
         } else {
             regex::escape(text)
         };
-        let matcher = RegexMatcherBuilder::new()
-            .case_insensitive(!case)
-            .multi_line(true)
-            .line_terminator(Some(b'\n'))
-            .word(whole_word)
-            .build(&pattern)
-            .map_err(|e| e.to_string())?;
+        let build = |pattern: &str, line_terminator| {
+            RegexMatcherBuilder::new()
+                .case_insensitive(!case)
+                .multi_line(true)
+                .line_terminator(line_terminator)
+                .word(whole_word)
+                .build(pattern)
+                .map_err(|e| e.to_string())
+        };
+        // A text crosses a line end only at its spaces; an expression may
+        // anywhere.
+        let (matcher, multi_line) = if regex {
+            let multi_line = build(&pattern, None)?;
+            (build(&pattern, Some(b'\n')).ok(), Some(multi_line))
+        } else if text.contains(char::is_whitespace) {
+            let multi_line = build(&spaces_over_lines(text), None)?;
+            (Some(build(&pattern, Some(b'\n'))?), Some(multi_line))
+        } else {
+            (Some(build(&pattern, Some(b'\n'))?), None)
+        };
         Ok(Self {
             matcher,
+            multi_line,
             encoding,
             ascii_literal: !regex && text.is_ascii(),
             key: format!(
@@ -223,6 +256,51 @@ impl ContentTerm {
     pub fn encoding(&self) -> ContentEncoding {
         self.encoding
     }
+
+    /// The matcher to search a file of `size` bytes with; `None` when the
+    /// file cannot match.
+    fn matcher(&self, options: &ContentOptions, size: u64) -> Option<Matcher<'_>> {
+        match &self.multi_line {
+            Some(m) if options.multi_line && size <= MULTI_LINE_MAX => Some(Matcher {
+                regex: m,
+                multi_line: true,
+            }),
+            _ => self.matcher.as_ref().map(|regex| Matcher {
+                regex,
+                multi_line: false,
+            }),
+        }
+    }
+}
+
+/// A matcher and whether it searches over line ends.
+#[derive(Clone, Copy)]
+struct Matcher<'a> {
+    regex: &'a RegexMatcher,
+    multi_line: bool,
+}
+
+/// An expression for the literal `text` in which every run of spaces also
+/// matches a line break with the spaces and tabs around it.
+fn spaces_over_lines(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let word = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        out.push_str(&regex::escape(&rest[..word]));
+        rest = &rest[word..];
+        let space = rest
+            .find(|c: char| !c.is_whitespace())
+            .unwrap_or(rest.len());
+        if space > 0 {
+            out.push_str(&format!(
+                "(?:{}|[ \t]*\r?\n[ \t]*)",
+                regex::escape(&rest[..space])
+            ));
+            rest = &rest[space..];
+        }
+    }
+    out
 }
 
 /// What reading one file for a term gave.
@@ -268,8 +346,11 @@ pub fn search_file(
     if options.max_size != 0 && size > options.max_size {
         return Ok(Outcome::TooLarge);
     }
+    let Some(matcher) = term.matcher(options, size) else {
+        return Ok(Outcome::NoMatch);
+    };
     if options.pdf && is_pdf_name(path) {
-        return search_pdf(path, term, progress);
+        return search_pdf(path, matcher, progress);
     }
     let forced = match term.encoding {
         ContentEncoding::Auto => None,
@@ -279,9 +360,9 @@ pub fn search_file(
         ContentEncoding::Ansi => Some(options.code_page.encoding()),
     };
     if forced.is_some() {
-        return search_reader(&mut file, term, forced, progress).map(|(outcome, _)| outcome);
+        return search_reader(&mut file, matcher, forced, progress).map(|(outcome, _)| outcome);
     }
-    let (outcome, seen) = search_reader(&mut file, term, None, progress)?;
+    let (outcome, seen) = search_reader(&mut file, matcher, None, progress)?;
     if outcome != Outcome::NoMatch || seen.bom || seen.utf8.is_valid() || term.ascii_literal {
         return Ok(outcome);
     }
@@ -291,7 +372,7 @@ pub fn search_file(
     }
     search_reader(
         &mut file,
-        term,
+        matcher,
         Some(options.code_page.encoding()),
         progress,
     )
@@ -616,7 +697,11 @@ pub fn pdf_reader_available() -> bool {
 /// Searches the text `pdftotext` prints for the PDF file at `path`. The
 /// child is killed when the search ends early (a match, a cancel, the
 /// timeout) and always waited for.
-fn search_pdf(path: &Path, term: &ContentTerm, progress: &Progress) -> Result<Outcome, Cancelled> {
+fn search_pdf(
+    path: &Path,
+    matcher: Matcher<'_>,
+    progress: &Progress,
+) -> Result<Outcome, Cancelled> {
     use std::process::{Command, Stdio};
     let child = Command::new(PDF_READER)
         .args(["-q", "-enc", "UTF-8"])
@@ -645,7 +730,7 @@ fn search_pdf(path: &Path, term: &ContentTerm, progress: &Progress) -> Result<Ou
         };
         let mut sink = Found::default();
         let mut reader = reader;
-        let read = searcher(None).search_reader(&term.matcher, &mut reader, &mut sink);
+        let read = searcher(None, matcher).search_reader(matcher.regex, &mut reader, &mut sink);
         Some((sink.matched, read.is_ok() && !reader.timed_out))
     } else {
         None
@@ -730,11 +815,11 @@ struct Seen {
 /// with a byte order mark deciding).
 fn search_reader<R: Read>(
     reader: R,
-    term: &ContentTerm,
+    matcher: Matcher<'_>,
     encoding: Option<&'static encoding_rs::Encoding>,
     progress: &Progress,
 ) -> Result<(Outcome, Seen), Cancelled> {
-    let mut searcher = searcher(encoding);
+    let mut searcher = searcher(encoding, matcher);
     let mut watched = Watched {
         inner: reader,
         progress,
@@ -742,7 +827,7 @@ fn search_reader<R: Read>(
         first: true,
     };
     let mut sink = Found::default();
-    let result = searcher.search_reader(&term.matcher, &mut watched, &mut sink);
+    let result = searcher.search_reader(matcher.regex, &mut watched, &mut sink);
     progress.check()?;
     let outcome = if sink.matched {
         Outcome::Match
@@ -756,9 +841,11 @@ fn search_reader<R: Read>(
     Ok((outcome, watched.seen))
 }
 
-fn searcher(encoding: Option<&'static encoding_rs::Encoding>) -> Searcher {
+/// A searcher for `matcher`, over line ends when it is built for that.
+fn searcher(encoding: Option<&'static encoding_rs::Encoding>, matcher: Matcher<'_>) -> Searcher {
     let mut builder = SearcherBuilder::new();
     builder
+        .multi_line(matcher.multi_line)
         .line_number(false)
         .binary_detection(BinaryDetection::quit(b'\0'))
         .heap_limit(Some(MAX_LINE))
@@ -931,8 +1018,6 @@ mod tests {
         );
         assert_eq!(outcome(&notes, &term("quick BROWN")), Outcome::Match);
         assert_eq!(outcome(&notes, &term("slow")), Outcome::NoMatch);
-        // A phrase does not match across a line break.
-        assert_eq!(outcome(&notes, &term("line the")), Outcome::NoMatch);
         let case = ContentTerm::new("quick", false, true, false, ContentEncoding::Auto).unwrap();
         assert_eq!(outcome(&notes, &case), Outcome::NoMatch);
         let word = ContentTerm::new("bro", false, false, true, ContentEncoding::Auto).unwrap();
@@ -949,6 +1034,63 @@ mod tests {
         let az = dir.file("az.txt", "Şəhər mərkəzi\n".as_bytes());
         assert_eq!(outcome(&az, &term("şəhər")), Outcome::Match);
         assert_eq!(outcome(&az, &term("seher")), Outcome::NoMatch);
+    }
+
+    #[test]
+    fn matches_run_over_line_ends_unless_turned_off() {
+        let dir = Dir::new("lines");
+        let text = "first line\r\n   The Quick\tbrown fox\nlast\n\nend\n";
+        let notes = dir.file("notes.txt", text.as_bytes());
+        let lines = ContentOptions {
+            multi_line: false,
+            ..ContentOptions::default()
+        };
+        let read = |t: &ContentTerm, o: &ContentOptions| {
+            search_file(&notes, t, o, &Progress::new()).unwrap()
+        };
+        let regex =
+            |p: &str| ContentTerm::new(p, true, false, false, ContentEncoding::Auto).unwrap();
+        let word =
+            |p: &str| ContentTerm::new(p, false, false, true, ContentEncoding::Auto).unwrap();
+        let both = |t: &ContentTerm| (read(t, &ContentOptions::default()), read(t, &lines));
+        use Outcome::{Match, NoMatch};
+        // A space of the text matches a line end with the spaces around it.
+        assert_eq!(both(&term("line the quick")), (Match, NoMatch));
+        assert_eq!(both(&term("fox last")), (Match, NoMatch));
+        assert_eq!(both(&word("line the")), (Match, NoMatch));
+        // The spaces written still match as they are, and nothing else.
+        assert_eq!(both(&term("quick\tbrown")), (Match, Match));
+        assert_eq!(both(&term("quick brown")), (NoMatch, NoMatch));
+        // An empty line between is a paragraph, not a line end.
+        assert_eq!(both(&term("last end")), (NoMatch, NoMatch));
+        // Expressions: `\n` and `\s` match line ends, `.` does not, and
+        // `^`/`$` stay per line.
+        assert_eq!(both(&regex(r"line\s+the")), (Match, NoMatch));
+        assert_eq!(both(&regex(r"fox\nlast")), (Match, NoMatch));
+        assert_eq!(both(&regex("fox.last")), (NoMatch, NoMatch));
+        assert_eq!(both(&regex("^last$")), (Match, Match));
+        assert_eq!(both(&regex(r"^\s*the quick")), (Match, Match));
+        // Words without a space are found the same way either way.
+        assert_eq!(both(&term("quick")), (Match, Match));
+        // A file over the limit is searched line by line.
+        let mut big = vec![b'x'; usize::try_from(MULTI_LINE_MAX).unwrap()];
+        big.extend_from_slice(b"\nalpha\nbeta\n");
+        let big = dir.file("big.txt", &big);
+        let t = term("alpha beta");
+        let read_big = |o: &ContentOptions| search_file(&big, &t, o, &Progress::new()).unwrap();
+        assert_eq!(read_big(&ContentOptions::default()), NoMatch);
+        assert_eq!(
+            read_big(&ContentOptions {
+                max_size: 0,
+                ..lines
+            }),
+            NoMatch
+        );
+        let small = dir.file("small.txt", b"alpha\nbeta\n");
+        assert_eq!(
+            search_file(&small, &t, &ContentOptions::default(), &Progress::new()).unwrap(),
+            Match
+        );
     }
 
     #[test]
@@ -1064,7 +1206,9 @@ mod tests {
             }
         }
         let mut endless = Endless(&progress, 0);
-        let result = search_reader(&mut endless, &term("needle"), None, &progress);
+        let needle = term("needle");
+        let matcher = needle.matcher(&ContentOptions::default(), 0).unwrap();
+        let result = search_reader(&mut endless, matcher, None, &progress);
         assert_eq!(result.map(|(o, _)| o), Err(Cancelled));
         assert_eq!(endless.1, 3);
     }

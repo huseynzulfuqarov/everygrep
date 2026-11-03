@@ -10,6 +10,7 @@ export component ContentSettings inherits VerticalLayout {
     in-out property <bool> pdf;
     in property <string> pdf-note;
     in-out property <bool> on-enter;
+    in-out property <bool> multi-line;
     callback changed();
     spacing: Theme.s3;
     CheckBox {
@@ -66,6 +67,17 @@ export component ContentSettings inherits VerticalLayout {
     }
     Text {
         text: @tr("content: reads UTF-8, and UTF-16 when a file starts with a byte order mark. A file that is not UTF-8 is read again in this code page; content-codepage: always uses it. Binary files are skipped.");
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+    CheckBox {
+        text: @tr("Let a match run over line ends");
+        checked <=> root.multi-line;
+        toggled => { root.changed(); }
+    }
+    Text {
+        text: @tr("A space in a content: text also matches a line end with the spaces around it, and a regular expression can match line ends too. Files over 16 MB are searched line by line. Off: a match ends at the end of its line.");
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;

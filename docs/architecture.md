@@ -596,8 +596,8 @@ window's name options do not apply to it, and the encoding function chosen
 (`content`, `content-codepage`, `content-utf8`, `content-utf16le`, `content-utf16be`). The
 text is quoted; a literal text with a quote or control character becomes an
 escaped regex, and in a user regex a quote or control character (escaped or
-not) becomes its `\x{..}` form. A line break is refused (contents are matched
-per line). One term keeps five slots free for a filter's content terms.
+not) becomes its `\x{..}` form. A line break is refused (the field is one
+line; a space matches a line end when matches run over lines). One term keeps five slots free for a filter's content terms.
 
 ### Search tabs (`tabs.rs`, `tabs_ui.rs`, `ui/tabs.slint`)
 

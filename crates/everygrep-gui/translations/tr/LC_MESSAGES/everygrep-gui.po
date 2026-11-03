@@ -3335,16 +3335,16 @@ msgid "Regular expression in file contents"
 msgstr "Dosya içeriklerinde düzenli ifade"
 
 #: ui/advanced.slint
-msgid "File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. Text is matched line by line; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."
-msgstr "Dosya içerikleri dizinde tutulmaz: diğer alanların bıraktığı her dosya diskten okunur; daha az dosya okumak için bir klasör, tür veya ad ekleyin. Metin satır satır karşılaştırılır; Otomatik, UTF-8'i, bayt sırası işaretli (BOM) UTF-16'yı ve diğer dosyaları Ayarlardaki kod sayfasında okur."
+msgid "File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. A space in the text also matches a line end unless that is off in Settings; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."
+msgstr "Dosya içerikleri dizinde tutulmaz: diğer alanların bıraktığı her dosya diskten okunur; daha az dosya okumak için bir klasör, tür veya ad ekleyin. Ayarlarda kapatılmadıysa metindeki boşluk satır sonuyla da eşleşir; Otomatik, UTF-8'i, bayt sırası işaretli (BOM) UTF-16'yı ve diğer dosyaları Ayarlardaki kod sayfasında okur."
 
 #: src/advanced_query.rs
 msgid "Choose a supported text encoding."
 msgstr "Desteklenen bir metin kodlaması seçin."
 
 #: src/advanced_query.rs
-msgid "File contents are searched line by line; remove the line break."
-msgstr "Dosya içerikleri satır satır aranır; satır sonu karakterini silin."
+msgid "Remove the line break: a space in the text also matches a line end when matches may run over line ends (Settings)."
+msgstr "Satır sonunu kaldırın: eşleşmelerin satır sonlarını aşmasına izin verildiğinde (Ayarlar) metindeki boşluk satır sonuyla da eşleşir."
 
 #: src/commands.rs
 msgid "Organize columns"
@@ -3852,3 +3852,10 @@ msgstr "Yazarken arama açıkken content: içeren ya da içeriğe göre yinelene
 msgid "Press Enter to search file contents."
 msgstr "Dosya içeriklerinde aramak için Enter'a basın."
 
+
+
+msgid "Let a match run over line ends"
+msgstr "Eşleşme satır sonlarını aşabilsin"
+
+msgid "A space in a content: text also matches a line end with the spaces around it, and a regular expression can match line ends too. Files over 16 MB are searched line by line. Off: a match ends at the end of its line."
+msgstr "content: metnindeki bir boşluk, çevresindeki boşluklarla birlikte satır sonuyla da eşleşir; düzenli ifade de satır sonlarını bulabilir. 16 MB'tan büyük dosyalar satır satır aranır. Kapalıyken eşleşme kendi satırının sonunda biter."

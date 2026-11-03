@@ -253,7 +253,10 @@ First version, 0.1.0, not released yet.
   narrowed the list: regular files up to 100 MB, not binary files, not
   links; UTF-8, UTF-16 with a byte order mark, else Windows-1254.
   `content-utf8:`, `content-utf16le:`, `content-utf16be:` and `content-codepage:` read
-  in one encoding. Diacritics are matched as written in contents.
+  in one encoding. Diacritics are matched as written in contents. A match
+  may run over line ends (a space also matches a line break; `\n` and `\s`
+  in expressions), for files up to 16 MB; Settings → Search → File
+  contents turns it off.
 
 - `duplicates:` lists files with the same contents (size first, then a
   hash of the first and last 16 KiB, then of the whole file; hard links

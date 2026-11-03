@@ -24,6 +24,8 @@ pub struct Settings {
     /// While searching as you type, a search that reads files waits for
     /// Enter.
     pub on_enter: bool,
+    /// A content match may run over line ends.
+    pub multi_line: bool,
 }
 
 impl Default for Settings {
@@ -34,6 +36,7 @@ impl Default for Settings {
             pdf: false,
             hash_cache_mb: hashcache::DEFAULT_MAX_BYTES / (1024 * 1024),
             on_enter: true,
+            multi_line: true,
         }
     }
 }
@@ -45,6 +48,7 @@ impl Settings {
             max_size: self.max_size_mb * 1024 * 1024,
             code_page: self.code_page,
             pdf: self.pdf,
+            multi_line: self.multi_line,
         }
     }
 
@@ -70,6 +74,7 @@ impl Settings {
         );
         w.set_content_pdf(self.pdf);
         w.set_content_on_enter(self.on_enter);
+        w.set_content_multi_line(self.multi_line);
         w.set_content_pdf_note(pdf_note(content::pdf_reader_available()).into());
         w.set_hash_cache_max(i32::try_from(self.hash_cache_mb).unwrap_or(i32::MAX));
         w.set_hash_cache_max_max(i32::try_from(MAX_SIZE_MB).unwrap_or(i32::MAX));
@@ -86,6 +91,7 @@ impl Settings {
                 .unwrap_or_default(),
             pdf: w.get_content_pdf(),
             on_enter: w.get_content_on_enter(),
+            multi_line: w.get_content_multi_line(),
             hash_cache_mb: u64::try_from(w.get_hash_cache_max())
                 .unwrap_or(0)
                 .min(MAX_SIZE_MB),
@@ -111,6 +117,7 @@ impl Settings {
                 .is_some(),
             "content-pdf" => flag(value).map(|on| self.pdf = on).is_some(),
             "content-on-enter" => flag(value).map(|on| self.on_enter = on).is_some(),
+            "content-multi-line" => flag(value).map(|on| self.multi_line = on).is_some(),
             _ => false,
         }
     }
@@ -133,6 +140,9 @@ impl Settings {
         }
         if all || self.on_enter != d.on_enter {
             out.push_str(&format!("content-on-enter = {}\n", self.on_enter));
+        }
+        if all || self.multi_line != d.multi_line {
+            out.push_str(&format!("content-multi-line = {}\n", self.multi_line));
         }
     }
 }
@@ -190,9 +200,10 @@ mod tests {
                 d.code_page,
                 d.pdf,
                 d.hash_cache_mb,
-                d.on_enter
+                d.on_enter,
+                d.multi_line
             ),
-            (100, CodePage::Windows1254, false, 512, true)
+            (100, CodePage::Windows1254, false, 512, true, true)
         );
         assert_eq!(d.hash_cache_bytes(), 512 * 1024 * 1024);
         assert_eq!(
@@ -202,9 +213,10 @@ mod tests {
         assert!(!Settings::default().to_text().contains("content-"));
         assert!(!Settings::default().to_text().contains("hash-cache"));
         let mut s = Settings::parse(
-            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\ncontent-on-enter = no\n",
+            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\ncontent-on-enter = no\ncontent-multi-line = off\n",
         );
         assert!(!s.content.on_enter);
+        assert!(!s.content.multi_line && !s.content.options().multi_line);
         assert_eq!(s.content.hash_cache_bytes(), 0);
         assert_eq!(
             (s.content.max_size_mb, s.content.code_page, s.content.pdf),
@@ -217,9 +229,9 @@ mod tests {
         s.reset(Page::Search);
         assert_eq!(s.content, super::Settings::default());
         let bad = Settings::parse(
-            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\ncontent-on-enter = later\n",
+            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\ncontent-on-enter = later\ncontent-multi-line = 2\n",
         );
-        assert_eq!(bad.problems.len(), 6);
+        assert_eq!(bad.problems.len(), 7);
         assert_eq!(bad.content, super::Settings::default());
     }
 

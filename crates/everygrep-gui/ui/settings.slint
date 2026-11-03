@@ -199,6 +199,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> content-code-page;
     in-out property <bool> content-pdf;
     in-out property <bool> content-on-enter;
+    in-out property <bool> content-multi-line;
     in property <string> content-pdf-note;
     in-out property <int> hash-cache-max;
     in property <int> hash-cache-max-max;
@@ -761,6 +762,7 @@ export component SettingsWindow inherits Window {
                                 pdf <=> root.content-pdf;
                                 pdf-note: root.content-pdf-note;
                                 on-enter <=> root.content-on-enter;
+                                multi-line <=> root.content-multi-line;
                                 changed => { root.search-changed(); }
                             }
                             Rectangle { height: Theme.s2; }

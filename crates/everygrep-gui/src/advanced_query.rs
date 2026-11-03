@@ -163,9 +163,10 @@ impl Fields {
             return Ok(None);
         }
         if self.content.contains(['\n', '\r']) {
-            return Err(
-                tr("File contents are searched line by line; remove the line break.").into(),
-            );
+            return Err(tr(
+                "Remove the line break: a space in the text also matches a line end when matches may run over line ends (Settings).",
+            )
+            .into());
         }
         let case = if self.content_case { "case" } else { "nocase" };
         let whole = if self.content_whole_words {
@@ -706,7 +707,7 @@ mod tests {
                     &f,
                     &[
                         ("hit.txt", hit.as_bytes()),
-                        ("miss.txt", b"two\nwords a b c d say hi now tab here\n"),
+                        ("miss.txt", b"words\ntwo a b c d say hi now tab here\n"),
                     ]
                 ),
                 [true, false],
