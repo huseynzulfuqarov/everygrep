@@ -369,23 +369,25 @@ impl Prefs {
         let Some(path) = self.path.clone() else {
             return;
         };
-        let (seen, asked) = (Arc::clone(&self.seen), self.writer.asked_counter());
-        self.writer.run(move || {
-            let now = settings::stamp(&path);
-            let mut seen = seen.lock().unwrap_or_else(|e| e.into_inner());
-            if *seen == now {
-                return;
-            }
-            *seen = now;
-            drop(seen);
-            let Ok(read) = Settings::load(&path) else {
-                return;
-            };
-            let at = asked.load(std::sync::atomic::Ordering::SeqCst);
-            let _ = slint::invoke_from_event_loop(move || {
-                with(|p| p.changed_outside(read, at));
-            });
-        });
+        let seen = Arc::clone(&self.seen);
+        self.writer.read_at_revision(
+            move || {
+                let now = settings::stamp(&path);
+                let mut seen = seen.lock().unwrap_or_else(|e| e.into_inner());
+                if *seen == now {
+                    return None;
+                }
+                *seen = now;
+                drop(seen);
+                Settings::load(&path).ok()
+            },
+            move |read, at| {
+                let Some(read) = read else { return };
+                let _ = slint::invoke_from_event_loop(move || {
+                    with(|p| p.changed_outside(read, at));
+                });
+            },
+        );
     }
 
     /// The settings file as read by [`look_for_outside_changes`]: when it

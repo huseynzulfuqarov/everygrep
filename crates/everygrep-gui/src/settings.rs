@@ -1335,6 +1335,21 @@ impl Writer {
         self.asked.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Reads outside settings on the saving thread, with the revision
+    /// that must still be current when the result is applied.
+    pub fn read_at_revision<T: Send + 'static>(
+        &self,
+        read: impl FnOnce() -> T + Send + 'static,
+        done: impl FnOnce(T, u64) + Send + 'static,
+    ) {
+        // Capture before queuing: a local save asked while the read waits
+        // behind another job must also make its answer obsolete.
+        let at = self
+            .asked_counter()
+            .load(std::sync::atomic::Ordering::SeqCst);
+        self.run_apart(move || done(read(), at));
+    }
+
     pub fn asked_counter(&self) -> Arc<std::sync::atomic::AtomicU64> {
         Arc::clone(&self.asked)
     }
@@ -1737,6 +1752,46 @@ pub(crate) mod tests {
         assert!(writer.wait_done(Duration::from_secs(5)));
         assert_eq!(*order.lock().unwrap(), [1, 2, 3, 5, 6]);
         assert_eq!(writer.asked(), 5);
+    }
+
+    #[test]
+    fn an_outside_read_drops_local_changes_asked_while_queued_or_reading() {
+        for while_reading in [false, true] {
+            let writer = Writer::start();
+            let (release_queue, blocked_queue) = mpsc::channel();
+            writer.run_apart(move || {
+                blocked_queue.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+            let (reading_tx, reading) = mpsc::channel();
+            let (release_read, blocked_read) = mpsc::channel();
+            let (done_tx, done) = mpsc::channel();
+            writer.read_at_revision(
+                move || {
+                    reading_tx.send(()).unwrap();
+                    blocked_read.recv_timeout(Duration::from_secs(5)).unwrap();
+                    "old theme"
+                },
+                move |value, at| done_tx.send((value, at)).unwrap(),
+            );
+            if while_reading {
+                release_queue.send(()).unwrap();
+                reading.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            writer.run(|| {});
+            if !while_reading {
+                release_queue.send(()).unwrap();
+                reading.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+            release_read.send(()).unwrap();
+            let (read, at) = done.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(read, "old theme");
+            assert_ne!(
+                at,
+                writer.asked(),
+                "a stale outside read would overwrite a local change"
+            );
+            assert!(writer.wait_done(Duration::from_secs(5)));
+        }
     }
 
     #[test]
