@@ -144,7 +144,8 @@ case), how many files the extension and how many files (or folders) the
 size, so sorting by one brings the most common to the top. Drag a header border to change a column's width; past the minimum
 of the column on its right, or at the border after the last column, the
 columns get wider than the window, and the list scrolls sideways (with the
-headers) to show the rest; Folder takes the room that is left when they fit.
+headers) to show the rest (also with Left and Right in the list, Ctrl+Left
+and Ctrl+Right to its edges); Folder takes the room that is left when they fit.
 Double-click a header border to size the column on its left to fit
 the rows on screen; View → Size all columns to fit (the spare room goes to
 Folder) and Fit columns to window (every column scaled to fill the

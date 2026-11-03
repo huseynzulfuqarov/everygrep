@@ -498,7 +498,7 @@ First version, 0.1.0, not released yet.
   in the header's context menu, with keys that can be set).
 - Columns can be wider than the window: the list and its headers then scroll
   sideways together, so every shown column can be reached in a narrow
-  window. A dragged header border stays under the pointer; past the
+  window; Left and Right in the list scroll it too (Ctrl to the edges). A dragged header border stays under the pointer; past the
   minimum of the column on its right, or at the new border after the last
   column, the columns get wider than the window, and dragging back narrows
   them again before the right column gets room. Folder still takes the

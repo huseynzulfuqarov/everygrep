@@ -2167,6 +2167,8 @@ export component AppWindow inherits Window {
     property <length> table-width: self.name-width + self.folder-width + self.fixed-width;
     // How far the list can scroll sideways.
     out property <length> scroll-room: max(0px, self.table-width - list.visible-width);
+    // How far Left and Right scroll the result table sideways.
+    property <length> sideways-step: 48px;
     changed scroll-room => {
         list.content-x = max(list.content-x, -self.scroll-room);
     }
@@ -4799,6 +4801,16 @@ export component AppWindow inherits Window {
                             if (event.text == Key.PageUp) { root.jump-reset(); root.move-to(root.current - root.page, self.move-mode); return accept; }
                             if (event.text == Key.Home) { root.jump-reset(); root.move-to(0, self.move-mode); return accept; }
                             if (event.text == Key.End) { root.jump-reset(); root.move-to(root.results.length - 1, self.move-mode); return accept; }
+                            // Left and Right scroll a table wider than the
+                            // list sideways, Ctrl to its edge.
+                            if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
+                                root.jump-reset();
+                                let step = event.modifiers.control ? root.scroll-room : root.sideways-step;
+                                root.results-scroll-x = event.text == Key.LeftArrow
+                                    ? min(0px, root.results-scroll-x + step)
+                                    : max(-root.scroll-room, root.results-scroll-x - step);
+                                return accept;
+                            }
                             // Esc clears the selection first, then goes back to the search.
                             if (event.text == Key.Escape) {
                                 root.jump-reset();

@@ -2443,6 +2443,27 @@ fn is_loading_message(text: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Left and Right in the result list scroll it sideways, within the
+    /// room the table has, and Ctrl goes to the edge.
+    #[test]
+    fn left_and_right_scroll_the_list_sideways() {
+        let ui = include_str!("../ui/app.slint");
+        let keys = &ui[ui.find("keys := FocusScope").unwrap()..];
+        let at = keys
+            .find("event.text == Key.LeftArrow || event.text == Key.RightArrow")
+            .expect("handled");
+        let handler = &keys[at..at + keys[at..].find("return accept;").unwrap()];
+        for part in [
+            "root.jump-reset();",
+            "event.modifiers.control ? root.scroll-room : root.sideways-step",
+            "min(0px, root.results-scroll-x + step)",
+            "max(-root.scroll-room, root.results-scroll-x - step)",
+        ] {
+            assert!(handler.contains(part), "{part}");
+        }
+        assert!(ui.contains("property <length> sideways-step: 48px;"));
+    }
+
     fn parse(list: &[&str]) -> Result<Cli, String> {
         parse_args(list.iter().map(OsString::from))
     }
