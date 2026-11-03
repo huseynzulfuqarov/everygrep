@@ -898,6 +898,25 @@ impl ResultsModel {
                     .local_date(meta.mtime_ns.div_euclid(1_000_000_000));
                 build(Value::Day(y, m, d), case)
             }
+            // Only the days already read for the cells: the disk is never
+            // read here, on the window thread.
+            6 | 7 => {
+                let details = *self.detail_cache.borrow().get(&id)?;
+                let ns = if column == 6 {
+                    details.created_ns
+                } else {
+                    details.accessed_ns
+                }?;
+                let (y, m, d) = self.zone.local_date(ns.div_euclid(1_000_000_000));
+                build(
+                    if column == 6 {
+                        Value::Created(y, m, d)
+                    } else {
+                        Value::Accessed(y, m, d)
+                    },
+                    case,
+                )
+            }
             5 if !is_dir => {
                 let ext = name
                     .iter()

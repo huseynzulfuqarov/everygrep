@@ -14,6 +14,9 @@ pub enum Value<'a> {
     Folder(&'a Path),
     Size(u64),
     Day(i64, u32, u32),
+    /// Days of the Created and Accessed columns, read from the disk.
+    Created(i64, u32, u32),
+    Accessed(i64, u32, u32),
     Extension(&'a [u8]),
 }
 
@@ -69,13 +72,21 @@ pub fn stem(name: &[u8], is_dir: bool, exact: bool, case: bool) -> String {
     format!("< <folder: {folder} > | <file: {file} > >")
 }
 
+/// A one-day search of a date field; years the query cannot write give none.
+fn day(field: &str, y: i64, m: u32, d: u32) -> Option<String> {
+    (1..=9999)
+        .contains(&y)
+        .then(|| format!("{field}:{y:04}-{m:02}-{d:02}"))
+}
+
 pub fn build(value: Value<'_>, case: bool) -> Option<String> {
     Some(match value {
         Value::Name(bytes) => filename(bytes, true, case),
         Value::Folder(path) => query(path, true, false, false, true, true)?,
         Value::Size(bytes) => format!("size:={bytes}"),
-        Value::Day(y, m, d) if (1..=9999).contains(&y) => format!("modified:{y:04}-{m:02}-{d:02}"),
-        Value::Day(..) => return None,
+        Value::Day(y, m, d) => day("modified", y, m, d)?,
+        Value::Created(y, m, d) => day("created", y, m, d)?,
+        Value::Accessed(y, m, d) => day("accessed", y, m, d)?,
         Value::Extension(ext) => {
             let mode = if case { "case" } else { "nocase" };
             if ext.is_empty() {
@@ -328,5 +339,19 @@ mod tests {
             Some("modified:2026-11-03")
         );
         assert!(build(Value::Day(10000, 1, 1), false).is_none());
+    }
+
+    #[test]
+    fn created_and_accessed_days_search_their_own_date_field() {
+        for (value, text) in [
+            (Value::Created(2026, 1, 9), "created:2026-01-09"),
+            (Value::Accessed(2026, 11, 3), "accessed:2026-11-03"),
+        ] {
+            let q = build(value, false).unwrap();
+            assert_eq!(q, text);
+            assert!(Query::parse(&q, QueryOptions::default()).is_ok(), "{q}");
+        }
+        assert!(build(Value::Created(0, 1, 1), false).is_none());
+        assert!(build(Value::Accessed(10000, 1, 1), false).is_none());
     }
 }

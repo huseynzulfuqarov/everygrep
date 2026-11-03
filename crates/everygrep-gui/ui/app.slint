@@ -4842,7 +4842,7 @@ export component AppWindow inherits Window {
                             // menu fits a laptop screen (popups cannot scroll).
                             Menu {
                                 if root.value-available: MenuItem {
-                                    title: root.value-column == 3 ? @tr("Search this day") : @tr("Search this value");
+                                    title: root.value-column == 3 || root.value-column == 6 || root.value-column == 7 ? @tr("Search this day") : @tr("Search this value");
                                     enabled: root.can-run(Command.search-property-value);
                                     activated => { root.run(Command.search-property-value); }
                                 }

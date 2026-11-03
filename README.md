@@ -218,10 +218,12 @@ replaces the destination atomically after its identity is checked again. Links,
 folders and hard links to the source cannot be overwritten. Errors offer retry
 or skip. The worker waits for an answer while the window stays responsive.
 
-The result context menu can search the clicked Name, Folder, Size, Modified
-or Extension value. Name matches the whole literal name, Folder searches direct
-children of that exact folder, Size uses the exact indexed byte count, and
-Modified searches that local calendar day (the menu says "Search this day").
+The result context menu can search the clicked Name, Folder, Size, Modified,
+Created, Accessed or Extension value. Name matches the whole literal name, Folder
+searches direct children of that exact folder, Size uses the exact indexed byte
+count, and Modified, Created and Accessed search that local calendar day (the menu
+says "Search this day"; `created:` and `accessed:` read the dates from the disk). Created and
+Accessed are offered once the cell shows its date.
 Size searches are offered only when byte sizes are known and shown. The menu
 captures the query when it opens, so live index changes do not change its value.
 `Ctrl+Alt+V` searches the current row's Name value from the result list.
