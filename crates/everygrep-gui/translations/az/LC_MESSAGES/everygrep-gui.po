@@ -1196,6 +1196,10 @@ msgid "Copy path"
 msgstr "Yolu kopyala"
 
 #: ui/app.slint
+msgid "Copy name or path"
+msgstr "Adı və ya yolu kopyala"
+
+#: ui/app.slint
 msgid "Cut"
 msgstr "Kəs"
 

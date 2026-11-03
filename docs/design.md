@@ -44,14 +44,20 @@ screen; when a change conflicts with them, the rules win or are changed first.
   settings. File (new window, close window, export results, quit), Edit
   (cut, copy, paste into folder, copy name, path and full path, select all,
   invert selection, rename, trash, delete, focus the search field), View
-  (refresh, optional columns, size columns to fit, sort by column and direction, folder size, density,
+  (folders panel, refresh, a Columns submenu with the optional columns, size columns to fit, sort by column and direction, folder size, density,
   theme, selection details, menu bar), Search (matching modes, including
   prefix, suffix, ignore punctuation and ignore whitespace, filters,
   previous and next filter), History (back, forward, search history), Tools (settings,
   keyboard shortcuts settings, open the settings file), Help (search syntax, regular expressions, command line options, copy troubleshooting information, keyboard shortcuts, about). Only
   features that exist get an entry. Every entry runs the same command as its
   key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
-  bar inside the window on Linux, and its item shortcuts are matched before
+  bar inside the window on Linux and cannot scroll a menu: a menu taller than
+  the room below the bar is pushed up over the bar and cut off. So long menus
+  are split to fit the window at its default size (660 px): the optional
+  columns are a submenu of View, and the result list's context menu keeps
+  open, cut, copy, paste, copy full path, rename, trash and delete at its top
+  level with the search and copy variants in Search and Copy name or path
+  submenus. Its item shortcuts are matched before
   the focused widget sees the key. So a menu item shows a key only when it
   is a global key that edits no text and that the search field or the list
   does not bind otherwise (`Ctrl+N`, `Ctrl+W`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`,

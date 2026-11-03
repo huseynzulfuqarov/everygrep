@@ -2815,29 +2815,14 @@ export component AppWindow inherits Window {
                             // first freezes the row's values for the menu items; on
                             // its own it would open with the values of an older menu.
                             enabled: false;
+                            // The most used actions stay at the top level; the
+                            // search and copy variants are grouped so that the
+                            // menu fits a laptop screen (popups cannot scroll).
                             Menu {
                                 if root.value-available: MenuItem {
                                     title: root.value-column == 3 ? @tr("Search this day") : @tr("Search this value");
                                     enabled: root.can-run(Command.search-property-value);
                                     activated => { root.run(Command.search-property-value); }
-                                }
-                                MenuItem {
-                                    title: @tr("Search for this name");
-                                    enabled: root.can-run(Command.search-filename);
-                                    activated => { root.fileops-search-filename(-1, false, false); }
-                                }
-                                MenuItem {
-                                    title: @tr("Search for this exact name");
-                                    enabled: root.can-run(Command.search-exact-name);
-                                    activated => { root.fileops-search-filename(-1, true, false); }
-                                }
-                                MenuItem {
-                                    title: @tr("Search name without extension"); enabled: root.can-run(Command.search-stem);
-                                    activated => { root.fileops-search-filename(-1, false, true); }
-                                }
-                                MenuItem {
-                                    title: @tr("Search whole name without extension"); enabled: root.can-run(Command.search-whole-stem);
-                                    activated => { root.fileops-search-filename(-1, true, true); }
                                 }
                                 MenuItem {
                                     title: @tr("Open");
@@ -2854,15 +2839,40 @@ export component AppWindow inherits Window {
                                     enabled: root.can-run(Command.open-folder);
                                     activated => { root.run(Command.open-folder); }
                                 }
-                                MenuItem {
-                                    title: @tr("Search in EveryGrep");
-                                    enabled: root.can-run(Command.search-in-program);
-                                    activated => { root.run(Command.search-in-program); }
-                                }
-                                MenuItem {
-                                    title: @tr("Search path in EveryGrep");
-                                    enabled: root.can-run(Command.search-containing-folder);
-                                    activated => { root.run(Command.search-containing-folder); }
+                                MenuSeparator { }
+                                Menu {
+                                    title: @tr("Search");
+                                    MenuItem {
+                                        title: @tr("Search for this name");
+                                        enabled: root.can-run(Command.search-filename);
+                                        activated => { root.fileops-search-filename(-1, false, false); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Search for this exact name");
+                                        enabled: root.can-run(Command.search-exact-name);
+                                        activated => { root.fileops-search-filename(-1, true, false); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Search name without extension");
+                                        enabled: root.can-run(Command.search-stem);
+                                        activated => { root.fileops-search-filename(-1, false, true); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Search whole name without extension");
+                                        enabled: root.can-run(Command.search-whole-stem);
+                                        activated => { root.fileops-search-filename(-1, true, true); }
+                                    }
+                                    MenuSeparator { }
+                                    MenuItem {
+                                        title: @tr("Search in EveryGrep");
+                                        enabled: root.can-run(Command.search-in-program);
+                                        activated => { root.run(Command.search-in-program); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Search path in EveryGrep");
+                                        enabled: root.can-run(Command.search-containing-folder);
+                                        activated => { root.run(Command.search-containing-folder); }
+                                    }
                                 }
                                 MenuSeparator { }
                                 MenuItem {
@@ -2880,31 +2890,33 @@ export component AppWindow inherits Window {
                                     enabled: root.can-run(Command.paste);
                                     activated => { root.run(Command.paste); }
                                 }
-                                MenuSeparator { }
-                                MenuItem {
-                                    title: @tr("Copy name");
-                                    enabled: root.can-run(Command.copy-name);
-                                    activated => { root.run(Command.copy-name); }
-                                }
-                                MenuItem {
-                                    title: @tr("Copy path");
-                                    enabled: root.can-run(Command.copy-path);
-                                    activated => { root.run(Command.copy-path); }
-                                }
                                 MenuItem {
                                     title: @tr("Copy full path");
                                     enabled: root.can-run(Command.copy-full-path);
                                     activated => { root.run(Command.copy-full-path); }
                                 }
-                                MenuItem {
-                                    title: @tr("Copy path with quotes");
-                                    enabled: root.can-run(Command.copy-path-quoted);
-                                    activated => { root.run(Command.copy-path-quoted); }
-                                }
-                                MenuItem {
-                                    title: @tr("Copy full path with quotes");
-                                    enabled: root.can-run(Command.copy-full-path-quoted);
-                                    activated => { root.run(Command.copy-full-path-quoted); }
+                                Menu {
+                                    title: @tr("Copy name or path");
+                                    MenuItem {
+                                        title: @tr("Copy name");
+                                        enabled: root.can-run(Command.copy-name);
+                                        activated => { root.run(Command.copy-name); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Copy path");
+                                        enabled: root.can-run(Command.copy-path);
+                                        activated => { root.run(Command.copy-path); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Copy path with quotes");
+                                        enabled: root.can-run(Command.copy-path-quoted);
+                                        activated => { root.run(Command.copy-path-quoted); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Copy full path with quotes");
+                                        enabled: root.can-run(Command.copy-full-path-quoted);
+                                        activated => { root.run(Command.copy-full-path-quoted); }
+                                    }
                                 }
                                 MenuSeparator { }
                                 MenuItem {
@@ -3596,82 +3608,87 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.refresh); }
             }
             MenuSeparator { }
-            MenuItem {
-                title: @tr("Type column");
-                shortcut: root.menu-keys.type-column;
-                checkable: true;
-                checked <=> root.show-type;
-                activated => { root.toggled(Command.type-column); }
-            }
-            MenuItem {
-                title: @tr("Extension column");
-                shortcut: root.menu-keys.extension-column;
-                checkable: true;
-                checked <=> root.show-ext;
-                activated => { root.toggled(Command.extension-column); }
-            }
-            MenuItem {
-                title: @tr("Created column");
-                shortcut: root.menu-keys.created-column;
-                checkable: true;
-                checked <=> root.show-created;
-                activated => { root.toggled(Command.created-column); }
-            }
-            MenuItem {
-                title: @tr("Accessed column");
-                shortcut: root.menu-keys.accessed-column;
-                checkable: true;
-                checked <=> root.show-accessed;
-                activated => { root.toggled(Command.accessed-column); }
-            }
-            MenuItem {
-                title: @tr("Attributes column");
-                shortcut: root.menu-keys.attributes-column;
-                checkable: true;
-                checked <=> root.show-attrs;
-                activated => { root.toggled(Command.attributes-column); }
-            }
-            MenuItem {
-                title: @tr("MD5 column");
-                shortcut: root.menu-keys.md5-column;
-                checkable: true;
-                checked <=> root.show-md5;
-                activated => { root.toggled(Command.md5-column); }
-            }
-            MenuItem {
-                title: @tr("SHA-256 column");
-                shortcut: root.menu-keys.sha256-column;
-                checkable: true;
-                checked <=> root.show-sha256;
-                activated => { root.toggled(Command.sha256-column); }
-            }
-            MenuItem {
-                title: @tr("CRC-32 column");
-                shortcut: root.menu-keys.crc32-column;
-                checkable: true;
-                checked <=> root.show-crc32;
-                activated => { root.toggled(Command.crc32-column); }
-            }
-            MenuItem {
-                title: @tr("Same name column");
-                shortcut: root.menu-keys.name-frequency-column;
-                checkable: true;
-                checked <=> root.show-name-freq;
-                activated => { root.toggled(Command.name-frequency-column); }
-            }
-            MenuItem {
-                title: @tr("Same extension column");
-                shortcut: root.menu-keys.extension-frequency-column;
-                checkable: true;
-                checked <=> root.show-ext-freq;
-                activated => { root.toggled(Command.extension-frequency-column); }
-            }
-            MenuItem {
-                title: @tr("Same size column");
-                shortcut: root.menu-keys.size-frequency-column;
-                checkable: true;
-                checked <=> root.show-size-freq;
-                activated => { root.toggled(Command.size-frequency-column); }
+            // The optional columns, in a submenu so that the View menu
+            // fits a laptop screen (popups cannot scroll).
+            Menu {
+                title: @tr("Columns");
+                MenuItem {
+                    title: @tr("Type column");
+                    shortcut: root.menu-keys.type-column;
+                    checkable: true;
+                    checked <=> root.show-type;
+                    activated => { root.toggled(Command.type-column); }
+                }
+                MenuItem {
+                    title: @tr("Extension column");
+                    shortcut: root.menu-keys.extension-column;
+                    checkable: true;
+                    checked <=> root.show-ext;
+                    activated => { root.toggled(Command.extension-column); }
+                }
+                MenuItem {
+                    title: @tr("Created column");
+                    shortcut: root.menu-keys.created-column;
+                    checkable: true;
+                    checked <=> root.show-created;
+                    activated => { root.toggled(Command.created-column); }
+                }
+                MenuItem {
+                    title: @tr("Accessed column");
+                    shortcut: root.menu-keys.accessed-column;
+                    checkable: true;
+                    checked <=> root.show-accessed;
+                    activated => { root.toggled(Command.accessed-column); }
+                }
+                MenuItem {
+                    title: @tr("Attributes column");
+                    shortcut: root.menu-keys.attributes-column;
+                    checkable: true;
+                    checked <=> root.show-attrs;
+                    activated => { root.toggled(Command.attributes-column); }
+                }
+                MenuItem {
+                    title: @tr("MD5 column");
+                    shortcut: root.menu-keys.md5-column;
+                    checkable: true;
+                    checked <=> root.show-md5;
+                    activated => { root.toggled(Command.md5-column); }
+                }
+                MenuItem {
+                    title: @tr("SHA-256 column");
+                    shortcut: root.menu-keys.sha256-column;
+                    checkable: true;
+                    checked <=> root.show-sha256;
+                    activated => { root.toggled(Command.sha256-column); }
+                }
+                MenuItem {
+                    title: @tr("CRC-32 column");
+                    shortcut: root.menu-keys.crc32-column;
+                    checkable: true;
+                    checked <=> root.show-crc32;
+                    activated => { root.toggled(Command.crc32-column); }
+                }
+                MenuItem {
+                    title: @tr("Same name column");
+                    shortcut: root.menu-keys.name-frequency-column;
+                    checkable: true;
+                    checked <=> root.show-name-freq;
+                    activated => { root.toggled(Command.name-frequency-column); }
+                }
+                MenuItem {
+                    title: @tr("Same extension column");
+                    shortcut: root.menu-keys.extension-frequency-column;
+                    checkable: true;
+                    checked <=> root.show-ext-freq;
+                    activated => { root.toggled(Command.extension-frequency-column); }
+                }
+                MenuItem {
+                    title: @tr("Same size column");
+                    shortcut: root.menu-keys.size-frequency-column;
+                    checkable: true;
+                    checked <=> root.show-size-freq;
+                    activated => { root.toggled(Command.size-frequency-column); }
+                }
             }
             MenuItem {
                 title: @tr("Size all columns to fit");
