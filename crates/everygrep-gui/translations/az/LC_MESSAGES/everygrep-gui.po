@@ -3394,3 +3394,6 @@ msgstr "Qovluq artıq əlçatan deyil."
 
 msgid "Folder actions"
 msgstr "Qovluq əmrləri"
+
+msgid "Close folders panel"
+msgstr "Qovluq panelini bağla"

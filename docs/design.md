@@ -143,7 +143,9 @@ screen; when a change conflicts with them, the rules win or are changed first.
   an explicit, boundary-safe location query. The context menu opens the folder
   or searches it in another tab/window. Locate selected result reveals its folder.
   Visibility and the dragged width are saved. Expansion, selection, keyboard cursor and scroll position belong to
-  each tab. View commands can be assigned keys in keyboard settings.
+  each tab. View commands can be assigned keys in keyboard settings. The header
+  close button, Esc in the tree and View → Close folders panel hide the sidebar
+  and return focus to results (or the search field when empty).
 - **Preview pane,** planned on the right and hidden by default.
 
 ## Visual system

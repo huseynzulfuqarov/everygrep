@@ -10,6 +10,7 @@ export component FoldersPanel inherits Rectangle {
     in-out property <length> scroll-y <=> tree-list.content-y;
     callback action(int, int);
     callback recursive-changed();
+    callback close();
     callback key(KeyEvent) -> bool;
     public function focus-tree() { keys.focus(); }
     changed current => {
@@ -26,6 +27,7 @@ export component FoldersPanel inherits Rectangle {
         key-pressed(e) => {
             if (root.key(e)) { return accept; }
             if (e.modifiers.control || e.modifiers.alt || e.modifiers.meta) { return reject; }
+            if (e.text == Key.Escape) { root.close(); return accept; }
             if (root.entries.length == 0) { return reject; }
             if (e.text == Key.DownArrow) { root.current = min(root.entries.length - 1, root.current + 1); return accept; }
             if (e.text == Key.UpArrow) { root.current = max(0, root.current - 1); return accept; }
@@ -42,7 +44,15 @@ export component FoldersPanel inherits Rectangle {
         }
         VerticalLayout {
             spacing: Theme.s1;
-            Text { text: @tr("Folders"); color: Theme.text; font-weight: 600; height: Theme.header-height; }
+            HorizontalLayout {
+                height: Theme.header-height;
+                Text { text: @tr("Folders"); color: Theme.text; font-weight: 600; vertical-alignment: center; }
+                Button {
+                    width: 28px; text: "×";
+                    accessible-label: @tr("Close folders panel");
+                    clicked => { root.close(); }
+                }
+            }
             actions := ContextMenuArea {
                 Menu {
                     MenuItem { title: @tr("Expand all"); activated => { root.action(-1, 2); } }

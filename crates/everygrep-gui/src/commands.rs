@@ -981,6 +981,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::CloseFoldersPanel,
+        id: "view.close-folders-panel",
+        category: Category::View,
+        label: || tr("Close folders panel"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::Refresh,
         id: "view.refresh",
         category: Category::View,
@@ -1603,6 +1610,7 @@ impl Keymap {
             reset_columns => ResetColumns,
             folders_panel => FoldersPanel,
             focus_folders => FocusFolders,
+            close_folders_panel => CloseFoldersPanel,
             refresh => Refresh,
             match_case => MatchCase,
             whole_words => WholeWords,

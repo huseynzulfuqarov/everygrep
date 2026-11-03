@@ -1748,6 +1748,7 @@ export component AppWindow inherits Window {
         if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
             return false;
         }
+        if (c == Command.close-folders-panel) { return root.folders-visible; }
         if (c == Command.undo-file || c == Command.redo-file || c == Command.file-undo-history) { return root.file-undo-enabled; }
         if (root.needs-online(c)) {
             return root.current >= 0 && !root.current-offline
@@ -1979,6 +1980,10 @@ export component AppWindow inherits Window {
             root.copy-troubleshooting-info();
         } else if (c == Command.about) {
             root.about-open = true;
+        } else if (c == Command.close-folders-panel) {
+            root.folders-visible = false;
+            root.folders-changed();
+            if (root.results.length > 0) { root.focus-list(); } else { root.focus-search(); }
         } else if (c == Command.folders-panel) {
             root.folders-visible = !root.folders-visible;
             root.folders-changed();
@@ -2338,6 +2343,7 @@ export component AppWindow inherits Window {
                     recursive <=> root.folders-recursive;
                     action(row, kind) => { root.folder-action(row, kind); }
                     recursive-changed => { root.folders-changed(); }
+                    close => { root.run(Command.close-folders-panel); }
                     key(event) => { return root.dispatch(0, event); }
                 }
                 if root.folders-visible: Rectangle {
@@ -3577,6 +3583,11 @@ export component AppWindow inherits Window {
                 title: @tr("Focus folders"); shortcut: root.menu-keys.focus-folders;
                 enabled: root.can-run(Command.focus-folders);
                 activated => { root.run(Command.focus-folders); }
+            }
+            MenuItem {
+                title: @tr("Close folders panel"); shortcut: root.menu-keys.close-folders-panel;
+                enabled: root.can-run(Command.close-folders-panel);
+                activated => { root.run(Command.close-folders-panel); }
             }
             MenuItem {
                 title: @tr("Refresh");
