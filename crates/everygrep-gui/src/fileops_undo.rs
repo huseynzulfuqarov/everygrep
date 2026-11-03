@@ -694,7 +694,8 @@ fn paste_using(
             entries.clear();
             out.history_omitted = true;
         }
-        if entries.is_empty() && !out.records.is_empty() {
+        if entries.is_empty() && out.changed {
+            out.history_omitted = true;
             // Nothing of a paste that changed the disk is recorded.
             out.history_cleared = journal.forget(c);
         } else if let Some(Err(dropped)) = journal.push_group(entries, c) {
@@ -1108,6 +1109,62 @@ mod tests {
         assert_eq!(fs::read(&b).unwrap(), b"unrelated");
         assert_eq!(fs::read(&c).unwrap(), b"original");
     }
+    #[test]
+
+    fn failed_publication_clears_earlier_undo_after_trashing_a_target() {
+        let _test = TEST_JOURNAL.lock().unwrap();
+        let before = config();
+        let c = Config {
+            enabled: true,
+            limit: 100,
+            epoch: before.epoch.wrapping_add(1),
+        };
+        *CONFIG.lock().unwrap() = c;
+        let t = Temp::new();
+        let src = t.0.join("source");
+        let dst = t.0.join("dest");
+        fs::create_dir(&dst).unwrap();
+        let prior = t.0.join("prior");
+        fs::write(&prior, "prior").unwrap();
+        {
+            let mut j = JOURNAL.lock().unwrap();
+            j.sync(c);
+            j.push_group(
+                vec![entry(Kind::Rename, t.0.join("earlier"), prior, None)],
+                c,
+            )
+            .unwrap()
+            .unwrap();
+        }
+        fs::write(&src, "source data").unwrap();
+        fs::write(dst.join("source"), "old target").unwrap();
+        let out = paste_using(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dst,
+            &Progress::new(),
+            Some(Box::new(|q, _| {
+                if q.error.is_some() {
+                    transfer::Decision::Skip
+                } else {
+                    transfer::Decision::Overwrite
+                }
+            })),
+            transfer::Replacement::with_trash(|target| {
+                let bin = target.parent().unwrap().parent().unwrap().join("trashed");
+                transfer::rename_strict(target, &bin)?;
+                fs::write(target, "new occupant")
+            }),
+        );
+        assert!(out.changed && out.history_cleared && out.history_omitted);
+        assert!(JOURNAL.lock().unwrap().entries.is_empty());
+        assert_eq!(fs::read(src).unwrap(), b"source data");
+        assert_eq!(fs::read(dst.join("source")).unwrap(), b"new occupant");
+        assert_eq!(fs::read(t.0.join("trashed")).unwrap(), b"old target");
+        *CONFIG.lock().unwrap() = before;
+        JOURNAL.lock().unwrap().sync(before);
+    }
+
     #[test]
     fn same_paste_overwrite_cannot_make_undo_move_the_overwriting_file() {
         let _test = TEST_JOURNAL.lock().unwrap();

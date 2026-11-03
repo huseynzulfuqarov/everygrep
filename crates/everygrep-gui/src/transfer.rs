@@ -64,6 +64,15 @@ pub struct Replacement {
     available: fn(&Path) -> bool,
     trash: fn(&Path) -> io::Result<()>,
 }
+#[cfg(test)]
+impl Replacement {
+    pub fn with_trash(trash: fn(&Path) -> io::Result<()>) -> Self {
+        Self {
+            available: |_| true,
+            trash,
+        }
+    }
+}
 impl Default for Replacement {
     fn default() -> Self {
         Self {
@@ -154,6 +163,8 @@ impl fmt::Display for Failure {
 #[derive(Debug, Default)]
 pub struct Outcome {
     pub records: Vec<Record>,
+    /// Visible paths or metadata changed, including failed publication.
+    pub changed: bool,
     pub history_omitted: bool,
     /// Older undo steps were removed because this paste was not recorded.
     pub history_cleared: bool,
@@ -320,6 +331,13 @@ pub fn paste_observed_using(
             }
         }
     }
+    out.changed = run.changed
+        || run.replacements > 0
+        || !out.records.is_empty()
+        || out
+            .failed
+            .iter()
+            .any(|(_, failure)| matches!(failure, Failure::PartLeft { .. }));
     out.replaced = run.replacements;
     out.skipped_special = run.special;
     out
@@ -328,6 +346,7 @@ pub fn paste_observed_using(
 /// What one paste keeps from item to item.
 #[derive(Default)]
 struct Run {
+    changed: bool,
     /// Special files left out so far.
     special: u64,
     resolver: Option<Resolver>,
@@ -462,7 +481,13 @@ fn paste_attempt(
         return Err(io::Error::other(tr("The item changed since the recorded operation.")).into());
     }
     if op == Operation::Cut && run.replace.is_some() {
+        if fs::metadata(dest)?.dev() == meta.dev()
+            && let Some(pasted) = move_replace(src, &meta, dest, progress, run)?
+        {
+            return Ok(pasted);
+        }
         let (target, copied) = copy_in(src, &meta, dest, name, progress, true, run)?;
+        run.changed = true;
         return Ok(match remove_copied(&copied) {
             None => Pasted::New(target),
             Some(e) => Pasted::Failed(Failure::NotRemoved(e)),
@@ -475,6 +500,108 @@ fn paste_attempt(
         }
         Operation::Cut => move_in(src, &meta, dest, name, progress, run),
     }
+}
+
+/// Stage the original inode on the destination filesystem before trashing
+/// the checked target. No copy is needed; inode identity and permissions survive.
+/// `None` when the rename crosses mounts of the same filesystem (EXDEV):
+/// nothing was changed and the caller copies instead.
+fn move_replace(
+    src: &Path,
+    meta: &Metadata,
+    dest: &Path,
+    progress: &Progress,
+    run: &mut Run,
+) -> Result<Option<Pasted>, Stop> {
+    let expected = run.replace.take().expect("replacement target");
+    let source = Copied::new(src, meta);
+    let unchanged_target = || -> io::Result<()> {
+        let now = fs::symlink_metadata(&expected.path)?;
+        if !now.is_file() || !expected.unchanged(&now) {
+            return Err(io::Error::other(tr(
+                "The destination changed while copying. Retry to review it.",
+            )));
+        }
+        Ok(())
+    };
+    unchanged_target()?;
+    if !source.unchanged(&fs::symlink_metadata(src)?) {
+        return Err(io::Error::other(tr("The copy source changed while copying.")).into());
+    }
+    let staged = match stage_for_replace(src, dest) {
+        Ok(staged) => staged,
+        Err(e) if e.raw_os_error() == Some(EXDEV) => {
+            run.replace = Some(expected);
+            return Ok(None);
+        }
+        Err(e) => return Err(e.into()),
+    };
+    run.changed = true;
+    let publish = (|| -> Result<(), Stop> {
+        let now = fs::symlink_metadata(&staged)?;
+        if now.dev() != meta.dev()
+            || now.ino() != meta.ino()
+            || now.len() != meta.len()
+            || now.mode() != meta.mode()
+            || (now.mtime(), now.mtime_nsec()) != (meta.mtime(), meta.mtime_nsec())
+        {
+            return Err(io::Error::other(tr("The copy source changed while copying.")).into());
+        }
+        if progress.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        unchanged_target()?;
+        (run.replacement.trash)(&expected.path)?;
+        run.replacements += 1;
+        run.replaced = true;
+        rename_strict(&staged, &expected.path).map_err(|e| io::Error::other(fill(tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e])))?;
+        Ok(())
+    })();
+    match publish {
+        Ok(()) => Ok(Some(Pasted::New(expected.path))),
+        Err(error) => {
+            if let Err(restore) = rename_strict(&staged, src) {
+                return Err(io::Error::other(fill(
+                    tr("Could not restore the source; it remains at {0}: {1}"),
+                    &[&staged.display(), &restore],
+                ))
+                .into());
+            }
+            Err(error)
+        }
+    }
+}
+
+/// `rename` error for another mount, even of the same filesystem.
+const EXDEV: i32 = 18;
+
+#[cfg(test)]
+thread_local! {
+    static FORCE_EXDEV: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn stage_for_replace(src: &Path, folder: &Path) -> io::Result<PathBuf> {
+    #[cfg(test)]
+    if FORCE_EXDEV.with(std::cell::Cell::get) {
+        return Err(io::Error::from_raw_os_error(EXDEV));
+    }
+    stage_rename(src, folder)
+}
+
+/// Renames `src` to a free hidden name in `folder`. The staged entry is the
+/// user's original, so its name does not look like a disposable part file.
+pub(crate) fn stage_rename(src: &Path, folder: &Path) -> io::Result<PathBuf> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    for _ in 0..TEMP_TRIES {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let temp = folder.join(format!(".everygrep-moving-{}-{n}", std::process::id()));
+        match rename_strict(src, &temp) {
+            Ok(()) => return Ok(temp),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::ErrorKind::AlreadyExists.into())
 }
 
 /// Moves `src` into `dest` by renaming, or by copying and then removing
@@ -498,6 +625,7 @@ fn move_in(
         }
     }
     let (target, copied) = copy_in(src, meta, dest, name, progress, true, run)?;
+    run.changed = true;
     match remove_copied(&copied) {
         None => Ok(Pasted::New(target)),
         Some(e) => Ok(Pasted::Failed(Failure::NotRemoved(e))),
@@ -1253,6 +1381,109 @@ mod tests {
             assert!(out.done.is_empty());
         }
         assert_eq!(fs::read(src.join("file")).unwrap(), b"safe");
+    }
+
+    #[test]
+
+    fn failed_replacement_keeps_a_new_source_entry_and_names_the_staged_original() {
+        let t = TempDir::new("move-replace-rollback");
+        let source = t.0.join("source");
+        let dest = t.0.join("dest");
+        fs::create_dir(&dest).unwrap();
+        fs::write(&source, "original").unwrap();
+        fs::write(dest.join("source"), "old target").unwrap();
+        let replacement = Replacement {
+            available: |_| true,
+            trash: |target| {
+                fs::write(
+                    target.parent().unwrap().parent().unwrap().join("source"),
+                    "new occupant",
+                )?;
+                Err(io::Error::other("injected trash failure"))
+            },
+        };
+        let out = paste_observed_using(
+            Operation::Cut,
+            std::slice::from_ref(&source),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|q, _| {
+                if q.error.is_some() {
+                    Decision::Skip
+                } else {
+                    Decision::Overwrite
+                }
+            })),
+            replacement,
+            |_| {},
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"new occupant");
+        assert_eq!(fs::read(dest.join("source")).unwrap(), b"old target");
+        assert_eq!(out.failed.len(), 1);
+        let staged = fs::read_dir(&dest)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.file_name().unwrap() != "source")
+            .unwrap();
+        assert_eq!(fs::read(&staged).unwrap(), b"original");
+        assert!(format!("{:?}", out.failed).contains(&staged.display().to_string()));
+    }
+
+    #[test]
+    fn cut_replace_across_mounts_of_one_filesystem_falls_back_to_copying() {
+        let t = TempDir::new("move-replace-exdev");
+        let src = t.0.join("source");
+        let dest = t.0.join("dest");
+        fs::create_dir(&dest).unwrap();
+        fs::write(&src, "new").unwrap();
+        fs::write(dest.join("source"), "old").unwrap();
+        let inode = fs::metadata(&src).unwrap().ino();
+        FORCE_EXDEV.with(|f| f.set(true));
+        let out = paste_observed_using(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|_, _| Decision::Overwrite)),
+            test_replacement(),
+            |_| {},
+        );
+        FORCE_EXDEV.with(|f| f.set(false));
+        assert_eq!(out.done, [dest.join("source")]);
+        assert!(out.failed.is_empty());
+        assert_eq!(out.replaced, 1);
+        assert!(!src.exists());
+        assert_eq!(fs::read(dest.join("source")).unwrap(), b"new");
+        assert_ne!(fs::metadata(dest.join("source")).unwrap().ino(), inode);
+        let trashed: Vec<_> = fs::read_dir(t.0.join("test-trash")).unwrap().collect();
+        assert_eq!(trashed.len(), 1);
+    }
+
+    #[test]
+    fn same_filesystem_cut_replace_preserves_the_inode_and_hard_links() {
+        let t = TempDir::new("move-replace-inode");
+        let src = t.0.join("source");
+        let dest = t.0.join("dest");
+        fs::create_dir(&dest).unwrap();
+        fs::write(&src, "new").unwrap();
+        fs::hard_link(&src, t.0.join("link")).unwrap();
+        fs::write(dest.join("source"), "old").unwrap();
+        let inode = fs::metadata(&src).unwrap().ino();
+        let out = paste_observed_using(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|_, _| Decision::Overwrite)),
+            test_replacement(),
+            |_| {},
+        );
+        assert_eq!(out.done, [dest.join("source")]);
+        assert!(!src.exists());
+        assert_eq!(fs::metadata(dest.join("source")).unwrap().ino(), inode);
+        assert_eq!(fs::metadata(t.0.join("link")).unwrap().ino(), inode);
+        fs::write(dest.join("source"), "updated").unwrap();
+        assert_eq!(fs::read(t.0.join("link")).unwrap(), b"updated");
     }
 
     #[test]

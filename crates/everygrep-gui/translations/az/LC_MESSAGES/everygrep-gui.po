@@ -3970,3 +3970,6 @@ msgstr "Saxlanmış axtarışlar idxal edildi. Bu arada ayarlar dəyişdi; onlar
 
 msgid "Cannot save saved searches: {}"
 msgstr "Saxlanmış axtarışlar yazıla bilmir: {}"
+
+msgid "Could not restore the source; it remains at {0}: {1}"
+msgstr "Mənbə bərpa edilə bilmədi; {0} yolunda qalır: {1}"

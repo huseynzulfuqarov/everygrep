@@ -695,9 +695,13 @@ channel with cancellation checks every 100 ms. Only the worker waits. The UI
 answers through a modal, and disconnect or cancel stops the paste. The resolver
 is optional. The window asks by default; turning the setting off selects a
 free numbered name. Overwrites
-copy to a private temporary name and recheck destination device, inode, size,
-mtime and ctime before moving the old file to the desktop trash and publishing
-with a strict non-replacing rename. Trash capability is queried on the worker;
+recheck destination device, inode, size, mtime and ctime before moving the old
+file to the desktop trash and publishing with a strict non-replacing rename.
+Same-filesystem Cut stages the original inode under a private name; Copy and
+cross-filesystem Cut prepare a complete temporary copy. Failed publication
+restores the staged source without replacing an occupied path; a failed restore
+reports the preserved staging path. Visible changes without an undo record
+invalidate older history even when publication failed. Trash capability is queried on the worker;
 without it Overwrite is disabled. A trash failure preserves the destination.
 Questions show both sizes and modification times; results count replacements.
 

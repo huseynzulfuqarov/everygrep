@@ -3970,3 +3970,6 @@ msgstr "Kayıtlı aramalar içe aktarıldı. Bu sırada ayarlar değişti; deği
 
 msgid "Cannot save saved searches: {}"
 msgstr "Kayıtlı aramalar kaydedilemiyor: {}"
+
+msgid "Could not restore the source; it remains at {0}: {1}"
+msgstr "Kaynak geri yüklenemedi; {0} konumunda kaldı: {1}"

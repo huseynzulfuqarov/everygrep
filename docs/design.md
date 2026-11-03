@@ -547,5 +547,6 @@ a status message.
 Paste conflicts and file undo are enabled by default and can be disabled on
 the Window settings page. The modal offers
 skip, skip all (this paste), keep both and cancel; errors offer retry. Only a
-regular file can replace another regular file, using a complete temporary copy
-and atomic rename after rechecking the destination. Folders are never merged.
+regular file can replace another regular file after rechecking the destination.
+Cut on the same filesystem stages and renames the original inode; other cases
+use a complete temporary copy. Publication uses a non-replacing rename. Folders are never merged.
