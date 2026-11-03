@@ -3490,3 +3490,15 @@ msgstr "Texniki təfərrüatlar"
 
 msgid "Confirm export filename"
 msgstr "İxrac faylının adını təsdiqlə"
+
+msgid "Close tabs"
+msgstr "Tabları bağla"
+
+msgid "Tab options"
+msgstr "Tab seçimləri"
+
+msgid "More filters…"
+msgstr "Digər filtrlər…"
+
+msgid "More bookmarks…"
+msgstr "Digər əlfəcinlər…"

@@ -13,7 +13,7 @@ use crate::commands::{self, Chord};
 use crate::engine::Engine;
 use crate::i18n::{fill, tr};
 use crate::saved_searches::{self, Bookmark, Library, NamedFilter, Target};
-use crate::{AppWindow, MenuChoice, SavedWindow, labels, settings};
+use crate::{AppWindow, MenuEntry, SavedWindow, labels, settings};
 
 struct State {
     main: slint::Weak<AppWindow>,
@@ -285,24 +285,36 @@ pub fn fill_filters(w: &AppWindow) {
                 })
                 .collect::<Vec<_>>(),
         )));
+        let current = usize::try_from(w.get_filter_index()).ok();
+        let shown = crate::menus::window(entries.len(), current, crate::menus::SAVED);
+        w.set_more_filters(shown.len() < entries.len());
         w.set_filter_items(ModelRc::new(VecModel::from(
-            entries
-                .iter()
-                .enumerate()
-                .map(|(i, f)| MenuChoice {
-                    title: if i == l.filters.len() {
-                        fill(tr("{} (snapshot)"), &[&f.title()]).into()
-                    } else {
-                        item_label(&f.title(), l.shortcut(Target::Filter(f.id))).into()
-                    },
-                    checked: i as i32 == w.get_filter_index(),
+            shown
+                .map(|i| {
+                    let f = entries[i];
+                    MenuEntry {
+                        title: if i == l.filters.len() {
+                            fill(tr("{} (snapshot)"), &[&f.title()]).into()
+                        } else {
+                            item_label(&f.title(), l.shortcut(Target::Filter(f.id))).into()
+                        },
+                        checked: Some(i) == current,
+                        index: i as i32,
+                    }
                 })
                 .collect::<Vec<_>>(),
         )));
-        w.set_bookmark_names(ModelRc::new(VecModel::from(
-            l.bookmarks
+        let shown = crate::menus::window(l.bookmarks.len(), None, crate::menus::SAVED);
+        w.set_more_bookmarks(shown.len() < l.bookmarks.len());
+        w.set_bookmark_items(ModelRc::new(VecModel::from(
+            l.bookmarks[shown.clone()]
                 .iter()
-                .map(|b| item_label(&b.name, l.shortcut(Target::Bookmark(b.id))).into())
+                .zip(shown)
+                .map(|(b, i)| MenuEntry {
+                    title: item_label(&b.name, l.shortcut(Target::Bookmark(b.id))).into(),
+                    checked: false,
+                    index: i as i32,
+                })
                 .collect::<Vec<_>>(),
         )));
     });

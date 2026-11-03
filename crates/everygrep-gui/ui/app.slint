@@ -67,6 +67,15 @@ export struct MenuChoice {
     checked: bool,
 }
 
+// One entry of a list shown in a menu (an open tab, a bookmark, a filter):
+// `index` is its place in the whole list, since a long list shows only part
+// of it (see menus.rs).
+export struct MenuEntry {
+    title: string,
+    checked: bool,
+    index: int,
+}
+
 // A column of the View → Sort by menu, with its check mark; disabled while
 // the column is hidden.
 struct SortChoice {
@@ -1065,6 +1074,8 @@ export component AppWindow inherits Window {
     callback quit();
     // Another window over the same index.
     in property <[TabEntry]> tabs;
+    // The open tabs listed in the Tabs menu (part of them when there are many).
+    in property <[MenuEntry]> tab-items;
     in property <int> active-tab;
     in property <[string]> closed-tab-names;
     callback tab-command(Command);
@@ -1111,7 +1122,10 @@ export component AppWindow inherits Window {
     // change.
     in-out property <bool> show-menu-bar: true;
     in-out property <bool> status-details: true;
-    in property <[MenuChoice]> filter-items;
+    // Search → Filter and the Bookmarks menu: part of a long list, and
+    // whether some entries are left out (then "More…" opens the organizer).
+    in property <[MenuEntry]> filter-items;
+    in property <bool> more-filters;
     in property <[MenuChoice]> theme-items;
     in property <[MenuChoice]> density-items;
     in property <[MenuChoice]> folder-size-items;
@@ -1741,7 +1755,8 @@ export component AppWindow inherits Window {
     callback restore-filters();
     callback add-bookmark();
     callback organize-bookmarks();
-    in property <[string]> bookmark-names;
+    in property <[MenuEntry]> bookmark-items;
+    in property <bool> more-bookmarks;
     callback open-bookmark(int);
     callback saved-key(string, bool, bool, bool, bool) -> bool;
     callback advanced-search();
@@ -3997,15 +4012,17 @@ export component AppWindow inherits Window {
                 MenuItem { title: @tr("Save as filter…"); shortcut: root.menu-keys.add-filter; activated => { root.run(Command.add-filter); } }
                 MenuItem { title: @tr("Manage filters…"); shortcut: root.menu-keys.organize-filters; activated => { root.run(Command.organize-filters); } }
                 MenuItem { title: @tr("Restore default filters"); shortcut: root.menu-keys.restore-filters; activated => { root.run(Command.restore-filters); } }
-                for item[i] in root.filter-items: MenuItem {
+                MenuSeparator { }
+                for item in root.filter-items: MenuItem {
                     title: item.title;
                     checkable: true;
                     checked: item.checked;
                     activated => {
-                        root.filter-index = i;
+                        root.filter-index = item.index;
                         root.options-edited();
                     }
                 }
+                if root.more-filters: MenuItem { title: @tr("More filters…"); activated => { root.run(Command.organize-filters); } }
             }
             MenuItem {
                 title: @tr("Previous filter");
@@ -4050,10 +4067,12 @@ export component AppWindow inherits Window {
             title: @tr("Bookmarks");
             MenuItem { title: @tr("Save bookmark…"); shortcut: root.menu-keys.add-bookmark; activated => { root.run(Command.add-bookmark); } }
             MenuItem { title: @tr("Manage bookmarks…"); shortcut: root.menu-keys.organize-bookmarks; activated => { root.run(Command.organize-bookmarks); } }
-            for name[i] in root.bookmark-names: MenuItem {
-                title: name;
-                activated => { root.open-bookmark(i); }
+            if root.bookmark-items.length > 0: MenuSeparator { }
+            for item in root.bookmark-items: MenuItem {
+                title: item.title;
+                activated => { root.open-bookmark(item.index); }
             }
+            if root.more-bookmarks: MenuItem { title: @tr("More bookmarks…"); activated => { root.run(Command.organize-bookmarks); } }
         }
         Menu {
             title: @tr("History");
@@ -4082,26 +4101,32 @@ export component AppWindow inherits Window {
         }
         Menu { title: @tr("Tabs");
             MenuItem { title: @tr("New tab"); shortcut: root.menu-keys.new-tab; enabled: root.can-run(Command.new-tab); activated => { root.run(Command.new-tab); } }
-            MenuItem { title: @tr("Close tab"); shortcut: root.menu-keys.close-tab; enabled: root.can-run(Command.close-tab); activated => { root.run(Command.close-tab); } }
             MenuItem { title: @tr("Duplicate tab"); shortcut: root.menu-keys.duplicate-tab; enabled: root.can-run(Command.duplicate-tab); activated => { root.run(Command.duplicate-tab); } }
-            MenuItem { title: @tr("Next tab"); shortcut: root.menu-keys.next-tab; enabled: root.can-run(Command.next-tab); activated => { root.run(Command.next-tab); } }
-            MenuItem { title: @tr("Previous tab"); shortcut: root.menu-keys.previous-tab; enabled: root.can-run(Command.previous-tab); activated => { root.run(Command.previous-tab); } }
-            MenuItem { title: @tr("List all tabs"); shortcut: root.menu-keys.list-tabs; enabled: root.can-run(Command.list-tabs); activated => { root.run(Command.list-tabs); } }
-            MenuItem { title: @tr("Close multiple tabs"); shortcut: root.menu-keys.close-multiple-tabs; enabled: root.can-run(Command.close-multiple-tabs); activated => { root.run(Command.close-multiple-tabs); } }
-            MenuItem { title: @tr("Close tabs to the left"); shortcut: root.menu-keys.close-left-tabs; enabled: root.can-run(Command.close-left-tabs); activated => { root.run(Command.close-left-tabs); } }
-            MenuItem { title: @tr("Close tabs to the right"); shortcut: root.menu-keys.close-right-tabs; enabled: root.can-run(Command.close-right-tabs); activated => { root.run(Command.close-right-tabs); } }
-            MenuItem { title: @tr("Close other tabs"); shortcut: root.menu-keys.close-other-tabs; enabled: root.can-run(Command.close-other-tabs); activated => { root.run(Command.close-other-tabs); } }
+            MenuItem { title: @tr("Close tab"); shortcut: root.menu-keys.close-tab; enabled: root.can-run(Command.close-tab); activated => { root.run(Command.close-tab); } }
+            // Grouped so that the menu stays short (see menus.rs).
+            Menu { title: @tr("Close tabs");
+                MenuItem { title: @tr("Close multiple tabs"); shortcut: root.menu-keys.close-multiple-tabs; enabled: root.can-run(Command.close-multiple-tabs); activated => { root.run(Command.close-multiple-tabs); } }
+                MenuItem { title: @tr("Close tabs to the left"); shortcut: root.menu-keys.close-left-tabs; enabled: root.can-run(Command.close-left-tabs); activated => { root.run(Command.close-left-tabs); } }
+                MenuItem { title: @tr("Close tabs to the right"); shortcut: root.menu-keys.close-right-tabs; enabled: root.can-run(Command.close-right-tabs); activated => { root.run(Command.close-right-tabs); } }
+                MenuItem { title: @tr("Close other tabs"); shortcut: root.menu-keys.close-other-tabs; enabled: root.can-run(Command.close-other-tabs); activated => { root.run(Command.close-other-tabs); } }
+            }
             MenuItem { title: @tr("Reopen closed tab"); shortcut: root.menu-keys.reopen-tab; enabled: root.can-run(Command.reopen-tab); activated => { root.run(Command.reopen-tab); } }
-            MenuItem { title: @tr("Reopen all closed tabs"); shortcut: root.menu-keys.reopen-all-tabs; enabled: root.can-run(Command.reopen-all-tabs); activated => { root.run(Command.reopen-all-tabs); } }
             Menu { title: @tr("Recently closed tabs");
+                MenuItem { title: @tr("Reopen all closed tabs"); shortcut: root.menu-keys.reopen-all-tabs; enabled: root.can-run(Command.reopen-all-tabs); activated => { root.run(Command.reopen-all-tabs); } }
+                if root.closed-tab-names.length > 0: MenuSeparator { }
                 for title[i] in root.closed-tab-names: MenuItem { title: title; activated => { root.closed-tab-selected(i); } }
             }
+            MenuItem { title: @tr("Next tab"); shortcut: root.menu-keys.next-tab; enabled: root.can-run(Command.next-tab); activated => { root.run(Command.next-tab); } }
+            MenuItem { title: @tr("Previous tab"); shortcut: root.menu-keys.previous-tab; enabled: root.can-run(Command.previous-tab); activated => { root.run(Command.previous-tab); } }
             MenuSeparator { }
-            for tab[i] in root.tabs: MenuItem { title: tab.title; checkable: true; checked: tab.checked; activated => { root.tab-selected(i); } }
+            for tab in root.tab-items: MenuItem { title: tab.title; checkable: true; checked: tab.checked; activated => { root.tab-selected(tab.index); } }
+            MenuItem { title: @tr("List all tabs"); shortcut: root.menu-keys.list-tabs; enabled: root.can-run(Command.list-tabs); activated => { root.run(Command.list-tabs); } }
             MenuSeparator { }
-            MenuItem { title: @tr("Open searches in tabs instead of new windows"); checkable: true; checked <=> root.open-searches-in-tabs; activated => { root.tab-preference-changed(0, self.checked); } }
-            MenuItem { title: @tr("Switch to new tabs immediately"); checkable: true; checked <=> root.switch-to-new-tab; activated => { root.tab-preference-changed(1, self.checked); } }
-            MenuItem { title: @tr("Restore the last window's tabs at startup"); checkable: true; checked <=> root.restore-session; activated => { root.tab-preference-changed(2, self.checked); } }
+            Menu { title: @tr("Tab options");
+                MenuItem { title: @tr("Open searches in tabs instead of new windows"); checkable: true; checked <=> root.open-searches-in-tabs; activated => { root.tab-preference-changed(0, self.checked); } }
+                MenuItem { title: @tr("Switch to new tabs immediately"); checkable: true; checked <=> root.switch-to-new-tab; activated => { root.tab-preference-changed(1, self.checked); } }
+                MenuItem { title: @tr("Restore the last window's tabs at startup"); checkable: true; checked <=> root.restore-session; activated => { root.tab-preference-changed(2, self.checked); } }
+            }
         }
         Menu {
             title: @tr("Index");

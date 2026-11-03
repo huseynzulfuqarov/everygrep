@@ -7,7 +7,7 @@ use crate::results::ResultsModel;
 use crate::session::{self, Ask, Saver, Session};
 use crate::settings::Columns;
 use crate::tabs::{SearchState, Tab, Tabs, tab_options};
-use crate::{AppWindow, Command, TabEntry, TabsWindow};
+use crate::{AppWindow, Command, MenuEntry, TabEntry, TabsWindow};
 use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -531,6 +531,18 @@ impl State {
                 checked: i == tabs.active,
             })
             .collect();
+        let shown = crate::menus::window(rows.len(), Some(tabs.active), crate::menus::TABS);
+        w.set_tab_items(ModelRc::new(VecModel::from(
+            rows[shown.clone()]
+                .iter()
+                .zip(shown)
+                .map(|(t, i)| MenuEntry {
+                    title: t.title.clone(),
+                    checked: t.checked,
+                    index: i as i32,
+                })
+                .collect::<Vec<_>>(),
+        )));
         w.set_tabs(ModelRc::new(VecModel::from(rows)));
         w.set_active_tab(tabs.active as i32);
         w.set_closed_tab_names(ModelRc::new(VecModel::from(

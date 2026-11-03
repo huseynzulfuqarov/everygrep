@@ -32,6 +32,7 @@ mod instance;
 mod jump;
 mod labels;
 mod look;
+mod menus;
 mod open;
 mod portal;
 mod prefs;

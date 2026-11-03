@@ -57,7 +57,13 @@ screen; when a change conflicts with them, the rules win or are changed first.
   columns are a submenu of View, and the result list's context menu keeps
   open, cut, copy, paste, copy full path, rename, trash and delete at its top
   level with the search and copy variants in Search and Copy name or path
-  submenus. Its item shortcuts are matched before
+  submenus. Lists inside menus are cut short (`menus.rs`): the Tabs menu shows
+  at most 8 open tabs around the active one, followed by List all tabs, with
+  the bulk close commands in Close tabs, Reopen all closed tabs in Recently
+  closed tabs and the three tab options in Tab options; the Bookmarks menu
+  shows the first 10 bookmarks and Search → Filter 10 filters around the
+  chosen one, each followed by More bookmarks… or More filters… (the
+  organizer) when some are left out. Its item shortcuts are matched before
   the focused widget sees the key. So a menu item shows a key only when it
   is a global key that edits no text and that the search field or the list
   does not bind otherwise (`Ctrl+N`, `Ctrl+W`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`,
