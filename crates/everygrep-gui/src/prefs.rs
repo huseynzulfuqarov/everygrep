@@ -175,6 +175,12 @@ impl IndexSetup {
     }
 }
 
+/// Whether Scan now and Rebuild index now are offered in `state`: not while
+/// the folders are being read, which a click would only start again.
+fn can_scan_now(state: IndexState) -> bool {
+    state != IndexState::Scanning
+}
+
 /// Keeps the settings list tidy without resolving paths on the UI thread.
 fn listed_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut sorted = roots.to_vec();
@@ -1654,6 +1660,7 @@ impl Prefs {
         });
         let (state, indexed) = self.state.get();
         w.set_index_status(labels::index_status(state, indexed).into());
+        w.set_can_scan_now(can_scan_now(state));
 
         let s = self.settings.borrow();
         w.set_drives_enabled(self.engine.drives_enabled());
@@ -3294,6 +3301,20 @@ mod tests {
         ));
         wait_saved(&writer);
         assert_eq!(setup.roots, [other]);
+    }
+
+    #[test]
+    fn scan_buttons_are_off_only_while_the_folders_are_read() {
+        assert!(!can_scan_now(IndexState::Scanning));
+        for state in [
+            IndexState::Loading,
+            IndexState::CatchingUp,
+            IndexState::Watching,
+            IndexState::Static,
+            IndexState::Unwatched,
+        ] {
+            assert!(can_scan_now(state), "{state:?}");
+        }
     }
 
     #[test]

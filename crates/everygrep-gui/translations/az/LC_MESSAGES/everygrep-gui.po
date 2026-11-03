@@ -3516,3 +3516,6 @@ msgstr "{} (alt qovluqlarsız)"
 
 msgid "Remove the folder from the search"
 msgstr "Qovluğu axtarışdan çıxar"
+
+msgid "Scan now"
+msgstr "İndi skan et"

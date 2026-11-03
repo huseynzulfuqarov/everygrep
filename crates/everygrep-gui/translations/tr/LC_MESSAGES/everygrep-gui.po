@@ -3516,3 +3516,6 @@ msgstr "{} (alt klasörler hariç)"
 
 msgid "Remove the folder from the search"
 msgstr "Klasörü aramadan çıkar"
+
+msgid "Scan now"
+msgstr "Şimdi tara"

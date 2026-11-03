@@ -280,7 +280,8 @@ File → Close window (`Ctrl+W`, as the close button: hide or quit as set),
 the appearance choices (optional columns, sort by a column and direction,
 folder size, density, theme, selection details, the menu bar itself), the
 matching modes with their `Alt` keys, the filters and the search history.
-Index → Rebuild index now scans the folders to index again from scratch;
+Index → Rebuild index now scans the folders to index again from scratch.
+Settings → Indexing has Scan now beside the rescan schedule for the same action.
 Index → Pause index updates stops applying file changes (it is the "Watch for
 changes" setting, the other way round) until it is turned off again, which
 catches up with what changed meanwhile.

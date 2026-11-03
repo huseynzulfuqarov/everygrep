@@ -111,6 +111,8 @@ export component SettingsWindow inherits Window {
     // Shown when the folders came from the command line.
     in property <string> index-note;
     in property <string> index-status;
+    // Off while every folder is read: a click would only start it again.
+    in property <bool> can-scan-now: true;
     callback add-roots();
     callback remove-root(int);
     callback add-excludes();
@@ -441,6 +443,15 @@ export component SettingsWindow inherits Window {
                                         color: Theme.text;
                                         vertical-alignment: center;
                                     }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Button {
+                                        text: @tr("Scan now");
+                                        enabled: root.can-scan-now;
+                                        clicked => { root.rebuild(); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: Theme.s3;
                                     ComboBox {
                                         width: 200px;
                                         accessible-label: @tr("Rescan the folders");
@@ -610,6 +621,7 @@ export component SettingsWindow inherits Window {
                                 spacing: Theme.s3;
                                 Button {
                                     text: @tr("Rebuild index now");
+                                    enabled: root.can-scan-now;
                                     clicked => { root.rebuild(); }
                                 }
                                 Note {
