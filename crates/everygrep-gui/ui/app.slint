@@ -1210,6 +1210,8 @@ export component AppWindow inherits Window {
     in property <bool> fileops-rename-open;
     in property <bool> fileops-rename-busy;
     in property <bool> file-undo-enabled;
+    in property <bool> file-can-undo;
+    in property <bool> file-can-redo;
     callback file-undo(bool);
     callback file-undo-history();
     in property <string> fileops-rename-location;
@@ -1755,7 +1757,9 @@ export component AppWindow inherits Window {
             return false;
         }
         if (c == Command.close-folders-panel) { return root.folders-visible; }
-        if (c == Command.undo-file || c == Command.redo-file || c == Command.file-undo-history) { return root.file-undo-enabled; }
+        if (c == Command.undo-file) { return root.file-undo-enabled && root.file-can-undo; }
+        if (c == Command.redo-file) { return root.file-undo-enabled && root.file-can-redo; }
+        if (c == Command.file-undo-history) { return root.file-undo-enabled; }
         if (root.needs-online(c)) {
             return root.current >= 0 && !root.current-offline
                 && (c != Command.rename || root.rename-row < 0);

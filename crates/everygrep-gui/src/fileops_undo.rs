@@ -160,7 +160,28 @@ pub fn configure(s: &Settings) {
 fn config() -> Config {
     *CONFIG.lock().expect("configuration")
 }
+/// A non-blocking snapshot for menu actions; workers may hold the journal
+/// while reading trees or waiting for a transfer decision.
+pub fn availability() -> (bool, bool) {
+    let Ok(_files) = FILES.try_lock() else {
+        return (false, false);
+    };
+    let Ok(mut journal) = JOURNAL.try_lock() else {
+        return (false, false);
+    };
+    let config = config();
+    journal.sync(config);
+    journal.availability(config.enabled)
+}
+
 impl Journal {
+    fn availability(&self, enabled: bool) -> (bool, bool) {
+        (
+            enabled && self.cursor > 0,
+            enabled && self.cursor < self.entries.len(),
+        )
+    }
+
     fn sync(&mut self, c: Config) {
         if !c.enabled || c.epoch != self.epoch {
             self.entries.clear();
@@ -706,6 +727,20 @@ mod tests {
     }
     fn no_trash(_: &Path) -> Result<(), String> {
         panic!("unexpected trash");
+    }
+
+    #[test]
+    fn actions_follow_history_position_and_enable_setting() {
+        let t = Temp::new();
+        let from = t.0.join("from");
+        let to = t.0.join("to");
+        fs::write(&to, "data").unwrap();
+        let mut j = journal(vec![entry(Kind::Rename, from, to, None)]);
+        assert_eq!(Journal::default().availability(true), (false, false));
+        assert_eq!(j.availability(true), (true, false));
+        j.cursor = 0;
+        assert_eq!(j.availability(true), (false, true));
+        assert_eq!(j.availability(false), (false, false));
     }
 
     #[test]

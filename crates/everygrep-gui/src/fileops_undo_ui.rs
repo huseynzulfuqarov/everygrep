@@ -10,10 +10,25 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+thread_local! { static ACTION_TIMER: slint::Timer = slint::Timer::default(); }
 thread_local! { static WINDOW: RefCell<Option<FileUndoWindow>> = const { RefCell::new(None) }; }
 static BUSY: AtomicBool = AtomicBool::new(false);
 
 pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
+    ACTION_TIMER.with(|timer| {
+        let weak = w.as_weak();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(100),
+            move || {
+                if let Some(w) = weak.upgrade() {
+                    let (undo, redo) = fileops_undo::availability();
+                    w.set_file_can_undo(undo);
+                    w.set_file_can_redo(redo);
+                }
+            },
+        );
+    });
     w.on_file_undo({
         let (weak, engine) = (w.as_weak(), engine.clone());
         move |redo| {
