@@ -495,6 +495,9 @@ pub struct Engine {
     /// the index thread when first needed.
     schedule: Mutex<Schedule>,
     last_full_scan: AtomicI64,
+    /// Latest scheduled attempt or rescan cancellation; cancellation
+    /// defers the next automatic scan by a full interval.
+    last_scheduled_scan: AtomicI64,
     /// Whether the folders were scanned from scratch since the start.
     scanned_this_session: AtomicBool,
     schedule_checked: AtomicI64,
@@ -637,6 +640,7 @@ impl Engine {
             frequency_columns: AtomicBool::new(false),
             schedule: Mutex::new(Schedule::Never),
             last_full_scan: AtomicI64::new(unix_now()),
+            last_scheduled_scan: AtomicI64::new(0),
             scanned_this_session: AtomicBool::new(false),
             schedule_checked: AtomicI64::new(unix_now()),
             zone: std::sync::OnceLock::new(),
@@ -885,7 +889,10 @@ impl Engine {
     /// schedule says one is due. Checked once a second at most, by the
     /// index thread while it watches.
     fn check_schedule(&self) {
-        let now = unix_now();
+        self.check_schedule_at(unix_now());
+    }
+
+    fn check_schedule_at(&self, now: i64) {
         let checked = self.schedule_checked.load(Ordering::SeqCst);
         if now == checked {
             return;
@@ -898,9 +905,13 @@ impl Engine {
         let zone = self
             .zone
             .get_or_init(everygrep_core::localtime::Zone::local);
-        let last = self.last_full_scan.load(Ordering::SeqCst);
+        let last = self
+            .last_full_scan
+            .load(Ordering::SeqCst)
+            .max(self.last_scheduled_scan.load(Ordering::SeqCst));
         if schedule.due(last, checked, now, zone) {
             let _roots = self.roots.lock().expect("lock");
+            self.last_scheduled_scan.store(now, Ordering::SeqCst);
             self.reindexed.fetch_add(1, Ordering::SeqCst);
             self.rescan.store(true, Ordering::SeqCst);
         }
@@ -1700,6 +1711,7 @@ impl Engine {
                             *roots = indexed;
                             *self.options.lock().expect("lock") = options;
                             drop(roots);
+                            self.last_scheduled_scan.store(unix_now(), Ordering::SeqCst);
                             (self.hooks.on_stopped)(Stopped::Rescan);
                         }
                     }
@@ -2041,6 +2053,8 @@ impl Engine {
         let mut store = NodeStore::new();
         if scan_with_progress(&mut store, &roots, &options, task.progress()).is_err() {
             drop(task);
+            // Defer before catch-up: its schedule checks must not undo a cancel.
+            self.last_scheduled_scan.store(unix_now(), Ordering::SeqCst);
             // The previous index stays and is caught up instead, which
             // finds added and removed entries.
             self.report(IndexState::CatchingUp);
@@ -3175,6 +3189,59 @@ mod tests {
         probe.engine.shutdown();
         let saved = persist::load(&index_file).unwrap();
         assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&plain)));
+    }
+
+    #[test]
+    fn a_cancelled_hourly_rescan_waits_until_the_next_interval() {
+        let dir = Scratch::new("schedule-cancel");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "one").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.names("one.txt"), ["one.txt"]);
+        let engine = &probe.engine;
+        let now = unix_now();
+        let completed = now - 2 * 3600;
+        engine.last_full_scan.store(completed, Ordering::SeqCst);
+        engine.schedule_checked.store(now - 1, Ordering::SeqCst);
+        engine.set_schedule(Schedule::EveryHours(1));
+        let before = engine.reindexed.load(Ordering::SeqCst);
+        let (release, blocked) = mpsc::channel();
+        *probe.hold.lock().unwrap() = Some(blocked);
+        engine.check_schedule_at(now);
+        probe.held.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Simulate an attempt that lasted longer than its hourly interval.
+        engine
+            .last_scheduled_scan
+            .store(now - 2 * 3600, Ordering::SeqCst);
+        engine.tasks.cancel_rescan();
+        release.send(()).unwrap();
+        assert_eq!(probe.wait_stopped(), Stopped::Rescan);
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(engine.last_full_scan.load(Ordering::SeqCst), completed);
+        assert_eq!(engine.reindexed.load(Ordering::SeqCst), before + 1);
+        let cancelled = engine.last_scheduled_scan.load(Ordering::SeqCst);
+        assert!(
+            cancelled >= now,
+            "cancellation did not defer an overdue attempt"
+        );
+        engine.check_schedule_at(cancelled + 1);
+        assert_eq!(
+            engine.reindexed.load(Ordering::SeqCst),
+            before + 1,
+            "cancel immediately scheduled another attempt"
+        );
+        engine.check_schedule_at(cancelled + 3599);
+        assert_eq!(engine.reindexed.load(Ordering::SeqCst), before + 1);
+        engine.check_schedule_at(cancelled + 3600);
+        assert_eq!(
+            engine.reindexed.load(Ordering::SeqCst),
+            before + 2,
+            "the next interval never became due"
+        );
+        engine.set_schedule(Schedule::Never);
+        engine.shutdown();
     }
 
     #[test]

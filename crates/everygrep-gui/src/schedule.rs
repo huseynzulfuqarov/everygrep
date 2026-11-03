@@ -16,8 +16,8 @@ pub enum Schedule {
     /// Only when asked for (Rebuild index now) or needed (lost events).
     #[default]
     Never,
-    /// This many hours (1 to [`MAX_HOURS`]) after the last full scan, or
-    /// after the program started when it has not scanned since.
+    /// This many hours (1 to [`MAX_HOURS`]) after the last full scan or
+    /// scheduled attempt or cancellation, or program start before any of them.
     EveryHours(u32),
     /// Every day when the local clock passes this minute of the day
     /// (0 to 1439). A time passed while the computer slept or the program
@@ -39,8 +39,8 @@ impl Schedule {
         }
     }
 
-    /// Whether a rescan is due at `now`, when the last full scan (or the
-    /// start) was at `last_scan` and the schedule was last looked at
+    /// Whether a rescan is due at `now`, when the last full scan, scheduled
+    /// attempt/cancellation (or start) was at `last_scan`; last checked at
     /// `checked`; all in seconds since 1970.
     pub fn due(self, last_scan: i64, checked: i64, now: i64, zone: &Zone) -> bool {
         match self {
