@@ -3612,9 +3612,12 @@ export component AppWindow inherits Window {
         Menu {
             title: @tr("View");
             MenuItem {
+                // Checked while the panel is shown; activating flips the flag.
                 title: @tr("Folders panel"); shortcut: root.menu-keys.folders-panel;
                 enabled: root.can-run(Command.folders-panel);
-                activated => { root.run(Command.folders-panel); }
+                checkable: true;
+                checked <=> root.folders-visible;
+                activated => { root.folders-changed(); }
             }
             MenuItem {
                 title: @tr("Focus folders"); shortcut: root.menu-keys.focus-folders;
