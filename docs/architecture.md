@@ -78,7 +78,11 @@ names that collate equal by raw name and parent id; `sort.rs` first puts each
 run of such names in folder path order, then raw name order (one look at each
 neighbour finds the runs, and only their folders get a path key), so that
 order means something to the reader. Folder paths compare component by
-component in the same natural order (`dir2` before `dir10`). Creation time, access time and attributes are
+component in the same natural order (`dir2` before `dir10`). A secondary and a
+tertiary key (the Advanced sort dialog) run as further stable passes, the
+last key first; name and folder passes then use the position in the name
+order as the name, and keys after name or folder are dropped because those
+already order every entry apart. A header click sorts by one column again. Creation time, access time and attributes are
 not kept in the index; `details.rs` reads them with `lstat` (`statx` with the
 birth time) for the rows on screen, on a thread of the window's own
 (`DetailReader`: the rows are shown at once and updated when the values
@@ -143,7 +147,7 @@ Access times are never cached: reading a file changes them, and inotify's
 `IN_ACCESS` is not watched. Entries on an offline drive are never read or
 served, and entries that cannot be read are not kept, because a permission
 change of a folder above makes them readable without an event of their own.
-Values are kept for the current sort key only, and for at most twice as
+Values are kept for the keys of the current sort only, and for at most twice as
 many nodes as the last result (then only those of the listed nodes stay);
 a creation time takes about 29 to 57 bytes, an attribute 10 to 21.
 

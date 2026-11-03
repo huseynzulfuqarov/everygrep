@@ -866,6 +866,7 @@ impl State {
         crate::apply_detail_columns(&w);
         w.set_sort_column(b.sort_column);
         w.set_sort_descending(b.descending);
+        crate::sort_dialog::clear_then(&w);
         w.invoke_sort_changed(b.sort_column, b.descending);
         crate::typing::with(|t| t.searched());
         crate::search_now(&w, &self.engine);

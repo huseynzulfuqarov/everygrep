@@ -47,6 +47,7 @@ mod search_history;
 mod selection;
 mod session;
 mod settings;
+mod sort_dialog;
 mod stalled;
 mod tabs;
 mod tabs_ui;
@@ -552,10 +553,22 @@ fn main() -> Result<(), slint::PlatformError> {
             let _ = slint::quit_event_loop();
         }
     });
+    window.on_advanced_sort_opening({
+        let weak = weak.clone();
+        move || {
+            if let Some(w) = weak.upgrade() {
+                sort_dialog::opening(&w);
+            }
+        }
+    });
     window.on_sort_changed({
-        let (engine, model) = (engine.clone(), model.clone());
+        let (engine, model, weak) = (engine.clone(), model.clone(), weak.clone());
         move |column, descending| {
-            engine.set_sort(sort_for_column(column, descending, model.folder_size()));
+            let folders = model.folder_size();
+            engine.set_sort(match weak.upgrade() {
+                Some(w) => sort_dialog::window_sort(&w, folders),
+                None => sort_for_column(column, descending, folders),
+            });
             tabs_ui::submitted_sort(column, descending);
         }
     });
@@ -2152,6 +2165,7 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         key,
         descending,
         folders,
+        then: [None; 2],
     }
 }
 
@@ -2185,11 +2199,7 @@ fn column_of(key: SortKey) -> i32 {
 /// with the new result.
 fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
     with_model(w, |m| m.set_folder_size(folders));
-    engine.set_sort(sort_for_column(
-        w.get_sort_column(),
-        w.get_sort_descending(),
-        folders,
-    ));
+    engine.set_sort(sort_dialog::window_sort(w, folders));
 }
 
 /// The matching modes and filter set in the window.

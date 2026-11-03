@@ -3711,3 +3711,15 @@ msgstr "Xassələr"
 msgid "Clear property cache"
 msgstr "Xassə keşini təmizlə"
 
+msgid "Advanced sort"
+msgstr "Ətraflı sıralama"
+
+msgid "Advanced sort…"
+msgstr "Ətraflı sıralama…"
+
+msgid "Then by"
+msgstr "Sonra"
+
+msgid "Entries equal by one column are ordered by the next. A click on a column header sorts by that column alone."
+msgstr "Bir sütuna görə bərabər olan sətirlər növbəti sütuna görə sıralanır. Sütun başlığına klik yalnız həmin sütuna görə sıralayır."
+

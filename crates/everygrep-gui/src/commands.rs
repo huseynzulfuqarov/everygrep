@@ -953,6 +953,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::AdvancedSort,
+        id: "view.advanced-sort",
+        category: Category::View,
+        label: || tr("Advanced sort"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::RestoreRemovedColumn,
         id: "view.restore-removed-column",
         category: Category::View,
@@ -1606,6 +1613,7 @@ impl Keymap {
             fit_columns => FitColumns,
             fit_columns_to_window => FitColumnsToWindow,
             organize_columns => OrganizeColumns,
+            advanced_sort => AdvancedSort,
             restore_removed_column => RestoreRemovedColumn,
             reset_columns => ResetColumns,
             folders_panel => FoldersPanel,

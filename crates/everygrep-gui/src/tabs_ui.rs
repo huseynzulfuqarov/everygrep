@@ -614,6 +614,7 @@ impl State {
         }
         w.set_sort_column(search.sort_column);
         w.set_sort_descending(search.descending);
+        crate::sort_dialog::clear_then(w);
         install_columns(w, &search.columns);
         let counted = self.model.frequency_columns().any();
         crate::apply_detail_columns(w);

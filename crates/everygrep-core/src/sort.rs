@@ -1,4 +1,5 @@
-//! Sorting search results by a column.
+//! Sorting search results by a column, and optionally by a secondary and a
+//! tertiary one (see [`Sort::then`]).
 //!
 //! [`search`](crate::search::search) returns ids in name order. [`sort`] reorders
 //! such a list by another key. Each key is computed once per node, then the keys
@@ -118,6 +119,32 @@ pub struct Sort {
     pub descending: bool,
     /// What a folder's size is for [`SortKey::Size`].
     pub folders: FolderSize,
+    /// Secondary and tertiary keys with their directions: entries equal by
+    /// [`key`](Self::key) are ordered by the first, those still equal by the
+    /// second, and the rest as without them.
+    pub then: [Option<(SortKey, bool)>; 2],
+}
+
+impl Sort {
+    /// The keys that decide the order, primary first, each with its
+    /// direction. Keys after one that orders every entry apart (name or
+    /// folder, which include the name), and repeated keys, change nothing
+    /// and are left out.
+    pub fn keys(&self) -> Vec<(SortKey, bool)> {
+        let mut keys: Vec<(SortKey, bool)> = Vec::with_capacity(3);
+        for (key, descending) in
+            std::iter::once((self.key, self.descending)).chain(self.then.iter().flatten().copied())
+        {
+            if keys.iter().any(|(k, _)| *k == key) {
+                continue;
+            }
+            keys.push((key, descending));
+            if matches!(key, SortKey::Name | SortKey::Path) {
+                break;
+            }
+        }
+        keys
+    }
 }
 
 impl Sort {
@@ -125,10 +152,13 @@ impl Sort {
     /// The caller reads them with [`DetailCache::set_media`] before it
     /// takes the index lock for the sort.
     pub fn media_properties(&self) -> Vec<crate::property::Property> {
-        match self.key {
-            SortKey::Property(p) if p.is_media() => vec![p],
-            _ => Vec::new(),
-        }
+        self.keys()
+            .into_iter()
+            .filter_map(|(key, _)| match key {
+                SortKey::Property(p) if p.is_media() => Some(p),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -178,8 +208,8 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
 ///
 /// # Size
 ///
-/// It keeps values for one sort key, the one of the last sort, and drops
-/// all when the key changes. After a sort, it holds at most twice as many
+/// It keeps values for the keys of the last sort, and drops those of a key
+/// the next sort does not use. After a sort, it holds at most twice as many
 /// values as that sort had results: when it holds more, only the values of
 /// the listed nodes are kept. Entries that could not be read are not kept,
 /// nor those on drives that are not connected. A creation time takes 24
@@ -334,8 +364,21 @@ fn sort_maybe_cached(
     sort: Sort,
     threads: usize,
     progress: &Progress,
-    cache: Option<&mut DetailCache>,
+    mut cache: Option<&mut DetailCache>,
 ) -> Result<(), Cancelled> {
+    let keys = sort.keys();
+    // Values are kept for the current keys only.
+    if let Some(c) = cache.as_deref_mut() {
+        if !keys.iter().any(|(k, _)| *k == SortKey::Created) {
+            c.created = IdMap::default();
+        }
+        if !keys.iter().any(|(k, _)| *k == SortKey::Attributes) {
+            c.attributes = IdMap::default();
+        }
+    }
+    if keys.len() > 1 {
+        return sort_by_several(index, ids, sort, &keys, threads, progress, cache);
+    }
     progress.set_total(Some(2 * ids.len() as u64));
     let store = index.store();
     // Path sorts by folder first, and names within one folder are unique, so
@@ -360,6 +403,65 @@ fn sort_maybe_cached(
     sorted
 }
 
+/// Sorts by several keys: one stable pass per key, the last key first, so
+/// each pass keeps the order of the passes before it among its ties. The
+/// passes by name and folder use the position in the name order as the name,
+/// since the ids are no longer in that order then. Its total is twice the
+/// number of ids per key. A cancelled sort leaves `ids` as they were.
+fn sort_by_several(
+    index: &Index,
+    ids: &mut [NodeId],
+    sort: Sort,
+    keys: &[(SortKey, bool)],
+    threads: usize,
+    progress: &Progress,
+    mut cache: Option<&mut DetailCache>,
+) -> Result<(), Cancelled> {
+    progress.set_total(Some(2 * keys.len() as u64 * ids.len() as u64));
+    let before = ids.to_vec();
+    let sorted = (|| {
+        let store = index.store();
+        order_equal_names(store, ids, threads, progress)?;
+        let mut name_ranks = vec![0u32; store.len()];
+        for (rank, &id) in (0..).zip(ids.iter()) {
+            name_ranks[id.index()] = rank;
+        }
+        for &(key, descending) in keys.iter().rev() {
+            match key {
+                SortKey::Name => {
+                    let k = keys_of(ids, progress, |_, id| name_ranks[id.index()])?;
+                    sort_directed(ids, threads, descending, k, progress)?;
+                }
+                SortKey::Path => {
+                    let ranks = folder_ranks(store, ids);
+                    progress.check()?;
+                    let k = keys_of(ids, progress, |_, id| {
+                        (
+                            store.parent(id).map_or(0, |p| ranks[p.index()]),
+                            name_ranks[id.index()],
+                        )
+                    })?;
+                    sort_directed(ids, threads, descending, k, progress)?;
+                }
+                _ => {
+                    let pass = Sort {
+                        key,
+                        descending,
+                        folders: sort.folders,
+                        then: [None; 2],
+                    };
+                    sort_ordered(index, ids, pass, threads, progress, cache.as_deref_mut())?;
+                }
+            }
+        }
+        Ok(())
+    })();
+    if sorted.is_err() {
+        ids.copy_from_slice(&before);
+    }
+    sorted
+}
+
 /// [`sort_with_progress`] on ids in name order whose equal names are already
 /// in folder order.
 fn sort_ordered(
@@ -368,17 +470,8 @@ fn sort_ordered(
     sort: Sort,
     threads: usize,
     progress: &Progress,
-    mut cache: Option<&mut DetailCache>,
+    cache: Option<&mut DetailCache>,
 ) -> Result<(), Cancelled> {
-    // Values are kept for the current key only.
-    if let Some(c) = cache.as_deref_mut() {
-        if sort.key != SortKey::Created {
-            c.created = IdMap::default();
-        }
-        if sort.key != SortKey::Attributes {
-            c.attributes = IdMap::default();
-        }
-    }
     let n = ids.len() as u64;
     let store = index.store();
     let desc = sort.descending;
@@ -966,6 +1059,7 @@ mod tests {
                 key,
                 descending,
                 folders: FolderSize::None,
+                then: [None; 2],
             },
             threads,
         );
@@ -986,6 +1080,142 @@ mod tests {
             descending,
             "{key:?} descending"
         );
+    }
+
+    fn sorted_by(index: &Index, sort: Sort) -> Vec<String> {
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let mut ids = search(index, &all, 1);
+        super::sort(index, &mut ids, sort, 2);
+        ids.iter()
+            .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+            .collect()
+    }
+
+    fn by(key: SortKey, descending: bool, then: [Option<(SortKey, bool)>; 2]) -> Sort {
+        Sort {
+            key,
+            descending,
+            folders: FolderSize::None,
+            then,
+        }
+    }
+
+    #[test]
+    fn secondary_and_tertiary_keys_order_the_ties() {
+        let index = tree();
+        assert_eq!(
+            sorted_by(
+                &index,
+                by(SortKey::Size, false, [Some((SortKey::Name, true)), None])
+            ),
+            [
+                "b",
+                "a-c",
+                "A",
+                "/r",
+                "Beta.Pdf",
+                "alpha.pdf",
+                ".bashrc",
+                "mid.txt",
+                "zeta.TXT"
+            ]
+        );
+        assert_eq!(
+            sorted_by(
+                &index,
+                by(
+                    SortKey::Size,
+                    true,
+                    [
+                        Some((SortKey::Modified, false)),
+                        Some((SortKey::Name, false))
+                    ]
+                )
+            ),
+            [
+                "zeta.TXT",
+                "mid.txt",
+                ".bashrc",
+                "alpha.pdf",
+                "Beta.Pdf",
+                "b",
+                "A",
+                "a-c",
+                "/r"
+            ]
+        );
+        assert_eq!(
+            sorted_by(
+                &index,
+                by(
+                    SortKey::Extension,
+                    false,
+                    [Some((SortKey::Path, true)), None]
+                )
+            ),
+            [
+                ".bashrc",
+                "b",
+                "a-c",
+                "A",
+                "/r",
+                "alpha.pdf",
+                "Beta.Pdf",
+                "zeta.TXT",
+                "mid.txt"
+            ]
+        );
+    }
+
+    #[test]
+    fn media_properties_of_every_key_are_read_beforehand() {
+        use crate::property::Property;
+        let s = by(
+            SortKey::Size,
+            false,
+            [
+                Some((SortKey::Property(Property::Width), true)),
+                Some((SortKey::Property(Property::Owner), false)),
+            ],
+        );
+        assert_eq!(s.media_properties(), [Property::Width]);
+        let s = by(
+            SortKey::Name,
+            false,
+            [Some((SortKey::Property(Property::Width), true)), None],
+        );
+        assert!(s.media_properties().is_empty());
+    }
+
+    #[test]
+    fn keys_after_a_total_order_or_repeated_are_left_out() {
+        let s = by(
+            SortKey::Size,
+            false,
+            [Some((SortKey::Size, true)), Some((SortKey::Name, true))],
+        );
+        assert_eq!(s.keys(), [(SortKey::Size, false), (SortKey::Name, true)]);
+        let s = by(SortKey::Path, true, [Some((SortKey::Size, false)), None]);
+        assert_eq!(s.keys(), [(SortKey::Path, true)]);
+        // A primary key alone sorts as before.
+        let index = tree();
+        assert_eq!(
+            sorted_by(&index, by(SortKey::Size, false, [None; 2])),
+            sorted(&index, SortKey::Size, false, 1)
+        );
+    }
+
+    #[test]
+    fn a_cancelled_sort_by_several_keys_keeps_the_order() {
+        let index = tree();
+        let all = Query::parse("", QueryOptions::default()).unwrap();
+        let mut ids = search(&index, &all, 1);
+        let before = ids.clone();
+        let progress = Progress::new();
+        progress.cancel();
+        let s = by(SortKey::Size, true, [Some((SortKey::Name, true)), None]);
+        assert!(sort_with_progress(&index, &mut ids, s, 1, &progress).is_err());
+        assert_eq!(ids, before);
     }
 
     #[test]
@@ -1014,6 +1244,7 @@ mod tests {
             key,
             descending,
             folders: FolderSize::None,
+            then: [None; 2],
         };
         sort(index, &mut ids, s, 1);
         ids.iter()
@@ -1082,6 +1313,7 @@ mod tests {
             key,
             descending,
             folders: FolderSize::None,
+            then: [None; 2],
         };
         sort(index, &mut ids, s, 1);
         ids.iter()
@@ -1217,6 +1449,7 @@ mod tests {
             key: SortKey::Size,
             descending,
             folders,
+            then: [None; 2],
         };
         sort(index, &mut ids, s, 1);
         ids.iter()
@@ -1659,6 +1892,7 @@ mod tests {
                         key,
                         descending: false,
                         folders,
+                        then: [None; 2],
                     };
                     sort(&index, &mut v, s, t);
                     eprintln!(

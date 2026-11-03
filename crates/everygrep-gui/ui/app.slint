@@ -1416,6 +1416,8 @@ component InfoDialog inherits Rectangle {
     in property <string> title;
     in property <length> card-width: 420px;
     callback close();
+    // Return: runs before close(), for a dialog with a default button.
+    callback accepted();
 
     background: #00000060;
     TouchArea {
@@ -1424,6 +1426,9 @@ component InfoDialog inherits Rectangle {
     FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
+            if (event.text == Key.Return) {
+                root.accepted();
+            }
             if (event.text == Key.Escape || event.text == Key.Return) {
                 root.close();
             }
@@ -1551,6 +1556,22 @@ export component AppWindow inherits Window {
     // frequency) and direction.
     in-out property <int> sort-column: 0;
     in-out property <bool> sort-descending: false;
+    // Secondary and tertiary sort columns (-1: none) and directions, set by
+    // the Advanced sort dialog. Sorting by another column alone clears them.
+    in-out property <int> sort-then1-column: -1;
+    in-out property <bool> sort-then1-descending: false;
+    in-out property <int> sort-then2-column: -1;
+    in-out property <bool> sort-then2-descending: false;
+    // Advanced sort: the dialog is open; the shown sortable columns it
+    // offers (titles and columns, filled when it opens) and its choices
+    // (indexes into them; the secondary and tertiary lists start with None).
+    in-out property <bool> advanced-sort-open;
+    in property <[string]> advanced-sort-names;
+    in property <[string]> advanced-sort-then-names;
+    in property <[int]> advanced-sort-columns;
+    in-out property <[int]> advanced-sort-chosen: [0, 0, 0];
+    in-out property <[bool]> advanced-sort-descending: [false, false, false];
+    callback advanced-sort-opening();
 
     // Matching modes and the filter; options-changed() runs the query again.
     in-out property <bool> match-case <=> search.match-case;
@@ -2841,10 +2862,19 @@ export component AppWindow inherits Window {
             root.last-removed-column = -1;
         }
         if (!shown && root.sort-column == column) {
+            root.clear-then-sort();
             root.sort-column = 0;
             root.sort-descending = false;
             root.results-replaced();
             root.sort-changed(0, false);
+        } else if (!shown && (root.sort-then1-column == column || root.sort-then2-column == column)) {
+            if (root.sort-then1-column == column) {
+                root.sort-then1-column = root.sort-then2-column;
+                root.sort-then1-descending = root.sort-then2-descending;
+            }
+            root.sort-then2-column = -1;
+            root.results-replaced();
+            root.sort-changed(root.sort-column, root.sort-descending);
         }
     }
 
@@ -3361,6 +3391,9 @@ export component AppWindow inherits Window {
         } else if (c == Command.organize-columns) {
             root.organize-filter = "";
             root.organize-open = true;
+        } else if (c == Command.advanced-sort) {
+            root.advanced-sort-opening();
+            root.advanced-sort-open = true;
         } else if (c == Command.reset-columns) {
             root.reset-columns();
         } else if (c == Command.restore-removed-column) {
@@ -3410,7 +3443,7 @@ export component AppWindow inherits Window {
 
     // View → Sort by: the columns, the shown optional ones enabled, and the
     // two directions. A new list on every change gives fresh check marks.
-    property <[SortChoice]> sort-items: [
+    out property <[SortChoice]> sort-items: [
         { title: @tr("Name"), column: 0, checked: root.sort-column == 0, enabled: true },
         { title: @tr("Folder"), column: 1, checked: root.sort-column == 1, enabled: true },
         { title: @tr("Size"), column: 2, checked: root.sort-column == 2, enabled: true },
@@ -3466,8 +3499,31 @@ export component AppWindow inherits Window {
         { title: @tr("Descending"), checked: root.sort-descending },
     ];
 
+    // Drops the secondary and tertiary sort columns.
+    function clear-then-sort() {
+        root.sort-then1-column = -1;
+        root.sort-then2-column = -1;
+    }
+
+    // Sorts by the choices of the Advanced sort dialog.
+    function apply-advanced-sort() {
+        root.sort-column = root.advanced-sort-columns[root.advanced-sort-chosen[0]];
+        root.sort-descending = root.advanced-sort-descending[0];
+        root.sort-then1-column = root.advanced-sort-chosen[1] == 0 ? -1 : root.advanced-sort-columns[root.advanced-sort-chosen[1] - 1];
+        root.sort-then1-descending = root.advanced-sort-descending[1];
+        root.sort-then2-column = root.advanced-sort-chosen[2] == 0 ? -1 : root.advanced-sort-columns[root.advanced-sort-chosen[2] - 1];
+        root.sort-then2-descending = root.advanced-sort-descending[2];
+        root.current = root.results.length > 0 ? 0 : -1;
+        list.content-y = 0;
+        root.results-replaced();
+        root.sort-changed(root.sort-column, root.sort-descending);
+    }
+
     // Sorts by a column in a direction.
     function sort-to(column: int, descending: bool) {
+        if (column != root.sort-column) {
+            root.clear-then-sort();
+        }
         root.sort-column = column;
         root.sort-descending = descending;
         root.results-replaced();
@@ -3585,6 +3641,7 @@ export component AppWindow inherits Window {
         if (root.sort-column == column) {
             root.sort-descending = !root.sort-descending;
         } else {
+            root.clear-then-sort();
             root.sort-column = column;
             root.sort-descending = root.first-descending(column);
         }
@@ -3881,6 +3938,10 @@ export component AppWindow inherits Window {
                                     MenuItem {
                                         title: @tr("Organize columns…");
                                         activated => { root.run(Command.organize-columns); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Advanced sort…");
+                                        activated => { root.run(Command.advanced-sort); }
                                     }
                                     MenuItem {
                                         title: @tr("Restore removed column");
@@ -5388,6 +5449,61 @@ export component AppWindow inherits Window {
             }
         }
     }
+    if root.advanced-sort-open: InfoDialog {
+        title: @tr("Advanced sort");
+        card-width: 420px;
+        accepted => { root.apply-advanced-sort(); }
+        close => {
+            root.advanced-sort-open = false;
+            search.focus-and-select();
+        }
+        for level in 3: HorizontalLayout {
+            spacing: Theme.s2;
+            Text {
+                text: level == 0 ? @tr("Sort by") : @tr("Then by");
+                color: Theme.text;
+                vertical-alignment: center;
+                min-width: 72px;
+            }
+            ComboBox {
+                horizontal-stretch: 1;
+                model: level == 0 ? root.advanced-sort-names : root.advanced-sort-then-names;
+                current-index: root.advanced-sort-chosen[level];
+                selected => { root.advanced-sort-chosen[level] = self.current-index; }
+            }
+            ComboBox {
+                model: [@tr("Ascending"), @tr("Descending")];
+                enabled: level == 0 || root.advanced-sort-chosen[level] > 0;
+                current-index: root.advanced-sort-descending[level] ? 1 : 0;
+                selected => { root.advanced-sort-descending[level] = self.current-index == 1; }
+            }
+        }
+        Text {
+            text: @tr("Entries equal by one column are ordered by the next. A click on a column header sorts by that column alone.");
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            spacing: Theme.s2;
+            alignment: end;
+            Button {
+                text: @tr("OK");
+                primary: true;
+                clicked => {
+                    root.advanced-sort-open = false;
+                    root.apply-advanced-sort();
+                    search.focus-and-select();
+                }
+            }
+            Button {
+                text: @tr("Cancel");
+                clicked => {
+                    root.advanced-sort-open = false;
+                    search.focus-and-select();
+                }
+            }
+        }
+    }
     if root.about-open: InfoDialog {
         title: @tr("About EveryGrep");
         close => {
@@ -5728,6 +5844,13 @@ export component AppWindow inherits Window {
                     checked: item.checked;
                     enabled: !root.export-open && !root.confirm-open && !root.fileops-conflict-open;
                     activated => { root.sort-to(root.sort-column, i == 1); }
+                }
+                MenuSeparator { }
+                MenuItem {
+                    title: @tr("Advanced sort…");
+                    shortcut: root.menu-keys.advanced-sort;
+                    enabled: root.can-run(Command.advanced-sort);
+                    activated => { root.run(Command.advanced-sort); }
                 }
             }
             Menu {

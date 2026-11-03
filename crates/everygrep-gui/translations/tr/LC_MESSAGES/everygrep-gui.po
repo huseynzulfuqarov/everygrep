@@ -3711,3 +3711,15 @@ msgstr "Özellikler"
 msgid "Clear property cache"
 msgstr "Özellik önbelleğini temizle"
 
+msgid "Advanced sort"
+msgstr "Gelişmiş sıralama"
+
+msgid "Advanced sort…"
+msgstr "Gelişmiş sıralama…"
+
+msgid "Then by"
+msgstr "Sonra"
+
+msgid "Entries equal by one column are ordered by the next. A click on a column header sorts by that column alone."
+msgstr "Bir sütuna göre eşit olan girdiler sonraki sütuna göre sıralanır. Sütun başlığına tıklamak yalnızca o sütuna göre sıralar."
+
