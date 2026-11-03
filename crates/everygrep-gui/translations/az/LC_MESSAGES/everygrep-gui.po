@@ -1481,7 +1481,7 @@ msgstr "Sistemə girəndə açılmanı dəyişmək olmadı: {}"
 
 #: src/labels.rs
 msgid "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want."
-msgstr "GNOME-da: Ayarlar → Klaviatura → Qısayollara bax və dəyiş → Xüsusi qısayollar bölməsini açın, + düyməsini basın, ad (məsələn, EveryGrep) və aşağıdakı əmrlərdən birini yazın, sonra istədiyiniz düymələri basın (məsələn, Super+F). İstədiyiniz hər əmr üçün bir qısayol əlavə edin."
+msgstr "GNOME-da: Ayarlar (Settings) → Klaviatura → Qısayollara bax və dəyiş (View and Customize Shortcuts) → Xüsusi qısayollar (Custom Shortcuts) bölməsini açın, + düyməsini basın, ad (məsələn, EveryGrep) və aşağıdakı əmrlərdən birini yazın, sonra istədiyiniz düymələri basın (məsələn, Super+F). İstədiyiniz hər əmr üçün bir qısayol əlavə edin."
 
 #: src/labels.rs
 msgid "Show the window"

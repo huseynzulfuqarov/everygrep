@@ -1481,7 +1481,7 @@ msgstr "Oturum açılışında başlatma ayarı değiştirilemedi: {}"
 
 #: src/labels.rs
 msgid "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want."
-msgstr "GNOME'da: Ayarlar → Klavye → Kısayolları Görüntüle ve Özelleştir → Özel Kısayollar'ı açın, + düğmesine basın, bir ad (örneğin EveryGrep) ve aşağıdaki komutlardan birini girin, ardından istediğiniz tuşlara basın (örneğin Super+F). İstediğiniz her komut için bir kısayol ekleyin."
+msgstr "GNOME'da: Ayarlar → Klavye → Kısayolları Gör ve Özelleştir → Özel Kısayollar'ı açın, + düğmesine basın, bir ad (örneğin EveryGrep) ve aşağıdaki komutlardan birini girin, ardından istediğiniz tuşlara basın (örneğin Super+F). İstediğiniz her komut için bir kısayol ekleyin."
 
 #: src/labels.rs
 msgid "Show the window"
