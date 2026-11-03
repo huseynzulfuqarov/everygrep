@@ -3931,3 +3931,15 @@ msgstr "Tabları bərpa etmək üçün axtarış tarixçəsi diskdə saxlanmalı
 
 msgid "Enable"
 msgstr "Aç"
+
+msgid "Find Bookmark…"
+msgstr "Bookmark tap…"
+
+msgid "Copy Search"
+msgstr "Axtarışı kopyala"
+
+msgid "The folder name is not valid UTF-8."
+msgstr "Qovluq adı düzgün UTF-8 deyil."
+
+msgid "Choose…"
+msgstr "Seç…"

@@ -3101,6 +3101,7 @@ export component AppWindow inherits Window {
     callback restore-filters();
     callback add-bookmark();
     callback organize-bookmarks();
+    callback find-bookmark();
     in property <[MenuEntry]> bookmark-items;
     in property <bool> more-bookmarks;
     callback open-bookmark(int);
@@ -3430,6 +3431,8 @@ export component AppWindow inherits Window {
             root.restore-filters();
         } else if (c == Command.add-bookmark) { root.add-bookmark();
         } else if (c == Command.organize-bookmarks) { root.organize-bookmarks();
+        } else if (c == Command.find-bookmark) { root.find-bookmark();
+        } else if (c == Command.copy-search) { root.copy-text(root.query);
         } else if (c == Command.advanced-search) { root.advanced-search();
         } else if (c == Command.settings) {
             root.open-settings();
@@ -6196,6 +6199,8 @@ export component AppWindow inherits Window {
             title: @tr("Bookmarks");
             MenuItem { title: @tr("Save bookmark…"); shortcut: root.menu-keys.add-bookmark; activated => { root.run(Command.add-bookmark); } }
             MenuItem { title: @tr("Manage bookmarks…"); shortcut: root.menu-keys.organize-bookmarks; activated => { root.run(Command.organize-bookmarks); } }
+            MenuItem { title: @tr("Find Bookmark…"); shortcut: root.menu-keys.find-bookmark; activated => { root.run(Command.find-bookmark); } }
+            MenuItem { title: @tr("Copy Search"); shortcut: root.menu-keys.copy-search; activated => { root.run(Command.copy-search); } }
             if root.bookmark-items.length > 0: MenuSeparator { }
             for item in root.bookmark-items: MenuItem {
                 title: item.title;

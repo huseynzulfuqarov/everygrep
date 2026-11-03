@@ -50,6 +50,34 @@ impl State {
                 }
             };
             w.on_use_query(|| with(State::apply));
+            w.on_choose_folder({
+                let weak = w.as_weak();
+                move || {
+                    let Some(w) = weak.upgrade() else { return };
+                    if w.get_choosing() {
+                        return;
+                    }
+                    w.set_choosing(true);
+                    let weak = w.as_weak();
+                    std::thread::spawn(move || {
+                        let result = crate::portal::choose_folder(
+                            crate::i18n::tr("Located in"),
+                            crate::labels::choose_accept(),
+                        );
+                        let _ = weak.upgrade_in_event_loop(move |w| {
+                            w.set_choosing(false);
+                            match chosen_location(result) {
+                                Ok(Some(path)) => {
+                                    w.set_location(path.into());
+                                    w.set_notice("".into());
+                                }
+                                Ok(None) => {}
+                                Err(e) => w.set_notice(e.into()),
+                            }
+                        });
+                    });
+                }
+            });
             w.on_close_window({
                 let weak = w.as_weak();
                 move || {
@@ -180,5 +208,34 @@ mod tests {
             .and_then(|v| v.parse::<u32>().ok())
             .unwrap();
         assert!(height <= 700, "{height}");
+    }
+}
+
+fn chosen_location(
+    result: Result<Option<std::path::PathBuf>, String>,
+) -> Result<Option<String>, String> {
+    result.and_then(|path| {
+        path.map(|path| {
+            path.into_os_string()
+                .into_string()
+                .map_err(|_| crate::i18n::tr("The folder name is not valid UTF-8.").to_owned())
+        })
+        .transpose()
+    })
+}
+
+#[cfg(test)]
+mod chooser_tests {
+    #[test]
+    fn choosing_preserves_literal_paths_and_cancellation_does_not_edit() {
+        use super::chosen_location;
+        assert_eq!(chosen_location(Ok(None)), Ok(None));
+        assert_eq!(
+            chosen_location(Ok(Some("/tmp/a * \"q".into()))),
+            Ok(Some("/tmp/a * \"q".into()))
+        );
+        assert!(chosen_location(Err("failed".into())).is_err());
+        use std::os::unix::ffi::OsStringExt;
+        assert!(chosen_location(Ok(Some(std::ffi::OsString::from_vec(vec![255]).into()))).is_err());
     }
 }

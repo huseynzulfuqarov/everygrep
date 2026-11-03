@@ -96,6 +96,14 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
     w.on_organize_bookmarks(|| {
         with(|s| s.open(true));
     });
+    w.on_find_bookmark(|| {
+        with(|s| {
+            s.open(true);
+            if let Some(w) = s.window.borrow().as_ref() {
+                w.invoke_focus_find();
+            }
+        });
+    });
     w.on_open_bookmark(|i| {
         with(|s| {
             let entry = usize::try_from(i)
@@ -479,6 +487,26 @@ impl State {
                     });
                 });
             });
+            w.on_find_changed(|| {
+                with(|s| {
+                    if let Some(w) = s.window.borrow().as_ref() {
+                        w.set_current(-1);
+                    }
+                    s.fill();
+                });
+            });
+            w.on_copy_search(|| {
+                with(|s| {
+                    if let Some(id) = s.current_id() {
+                        let library = s.library.borrow();
+                        if let Some(b) = library.bookmarks.iter().find(|b| b.id == id)
+                            && let Some(main) = s.main.upgrade()
+                        {
+                            main.invoke_copy_text(b.search.as_str().into());
+                        }
+                    }
+                });
+            });
             w.on_open_entry(|| {
                 with(|s| {
                     if let Some(id) = s.current_id() {
@@ -565,9 +593,11 @@ impl State {
             )));
 
             let l = self.library.borrow();
+            let visible = self.ids();
             let values: Vec<_> = if self.bookmarks.get() {
                 l.bookmarks
                     .iter()
+                    .filter(|b| visible.contains(&b.id))
                     .map(|b| (b.manager_title(), b.search.clone()))
                     .collect()
             } else {
@@ -626,7 +656,17 @@ impl State {
     fn ids(&self) -> Vec<u64> {
         let l = self.library.borrow();
         if self.bookmarks.get() {
-            l.bookmarks.iter().map(|b| b.id).collect()
+            let needle = self
+                .window
+                .borrow()
+                .as_ref()
+                .map(|w| w.get_find_text().to_string())
+                .unwrap_or_default();
+            l.bookmarks
+                .iter()
+                .filter(|b| bookmark_matches(&b.name, &b.search, &needle))
+                .map(|b| b.id)
+                .collect()
         } else {
             l.filters.iter().map(|f| f.id).collect()
         }
@@ -1012,5 +1052,27 @@ mod tab_tests {
                 .filter,
             Filter::Audio
         );
+    }
+}
+
+fn bookmark_matches(name: &str, search: &str, needle: &str) -> bool {
+    let fold = |text: &str| {
+        everygrep_core::fold::strip_diacritics(&everygrep_core::fold::fold(text.as_bytes()))
+    };
+    let needle = fold(needle.trim());
+    needle.is_empty()
+        || [name, search]
+            .iter()
+            .any(|s| fold(s).windows(needle.len()).any(|w| w == needle))
+}
+
+#[cfg(test)]
+mod find_tests {
+    #[test]
+    fn bookmarks_match_name_and_search_without_case_or_diacritics() {
+        assert!(super::bookmark_matches("Şəkillər", "ext:png", "SEKILLER"));
+        assert!(super::bookmark_matches("Photos", "ext:png", "PNG"));
+        assert!(super::bookmark_matches("Photos", "ext:png", ""));
+        assert!(!super::bookmark_matches("Photos", "ext:png", "pdf"));
     }
 }

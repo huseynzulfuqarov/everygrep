@@ -51,6 +51,8 @@ export component AdvancedWindow inherits Window {
     in property <[string]> filter-names;
     in-out property <int> filter-index;
     in property <string> notice;
+    callback choose-folder();
+    in property <bool> choosing;
     callback use-query();
     callback close-window();
 
@@ -129,7 +131,10 @@ export component AdvancedWindow inherits Window {
                 spacing: Theme.gap;
                 Row {
                     Text { text: @tr("Located in"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
-                    LineEdit { accessible-label: @tr("Located in"); text <=> root.location; accepted => { root.use-query(); } }
+                    HorizontalLayout {
+                        LineEdit { accessible-label: @tr("Located in"); text <=> root.location; accepted => { root.use-query(); } }
+                        Button { text: @tr("Choose…"); enabled: !root.choosing; clicked => { root.choose-folder(); } }
+                    }
                 }
                 Row {
                     Text { text: ""; width: root.label-width; }

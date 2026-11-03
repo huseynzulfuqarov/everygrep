@@ -3931,3 +3931,15 @@ msgstr "Sekmeleri geri yüklemek için arama geçmişi diskte saklanmalıdır. G
 
 msgid "Enable"
 msgstr "Etkinleştir"
+
+msgid "Find Bookmark…"
+msgstr "Yer imi bul…"
+
+msgid "Copy Search"
+msgstr "Aramayı kopyala"
+
+msgid "The folder name is not valid UTF-8."
+msgstr "Klasör adı geçerli UTF-8 değil."
+
+msgid "Choose…"
+msgstr "Seç…"

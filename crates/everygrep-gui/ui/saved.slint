@@ -11,6 +11,10 @@ export component SavedWindow inherits Window {
     in-out property <int> sort-column;
     in-out property <bool> descending;
     callback open-entry();
+    callback copy-search();
+    in-out property <string> find-text;
+    callback find-changed();
+    public function focus-find() { finder.focus(); }
     icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
     preferred-width: 800px;
     preferred-height: 700px;
@@ -86,6 +90,14 @@ export component SavedWindow inherits Window {
         VerticalLayout {
             padding: Theme.margin;
             spacing: Theme.s2;
+            finder := LineEdit {
+                visible: root.bookmarks;
+                height: root.bookmarks ? self.preferred-height : 0px;
+                accessible-label: @tr("Find Bookmark…");
+                placeholder-text: @tr("Find Bookmark…");
+                text <=> root.find-text;
+                edited => { root.find-changed(); }
+            }
             table := StandardTableView {
                 accessible-label: root.bookmarks ? @tr("Bookmarks") : @tr("Filters");
                 enabled: !root.confirming && !root.deleting && !root.resetting;
@@ -96,6 +108,7 @@ export component SavedWindow inherits Window {
             HorizontalLayout {
                 spacing: Theme.s2;
                 Button { enabled: !root.busy; text: @tr("New"); clicked => { root.begin-edit(true); } }
+                if root.bookmarks: Button { text: @tr("Copy Search"); enabled: !root.busy && root.current >= 0; clicked => { root.copy-search(); } }
                 Button { text: @tr("Edit"); enabled: !root.busy && root.current >= 0; clicked => { root.begin-edit(false); } }
                 Button { text: @tr("Delete"); enabled: !root.busy && root.current >= 0; clicked => { root.request-remove(); } }
                 Button { text: @tr("Move up"); enabled: !root.busy && root.current > 0; clicked => { root.move-entry(-1); } }
