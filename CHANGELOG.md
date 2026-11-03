@@ -307,6 +307,8 @@ First version, 0.1.0, not released yet.
   afterwards, reading only the files that changed.
 - Advanced Search has a Duplicates section: what to list and what the
   copies share, written as one duplicate term.
+- A right-click on the empty area below the results opens a menu: select
+  all, invert selection, export, refresh and the column commands.
 - While searching as you type, searches that read files (`content:`,
   duplicates by contents) wait for Enter, so typing does not read the disk
   at every key; Settings → Search → File contents turns this off.

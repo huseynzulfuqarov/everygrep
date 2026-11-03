@@ -4958,6 +4958,53 @@ export component AppWindow inherits Window {
                                 }
                             }
 
+                        // The menu of the empty area below the rows.
+                        blank-menu := ContextMenuArea {
+                            enabled: false;
+                            Menu {
+                                MenuItem {
+                                    title: @tr("Select all");
+                                    enabled: root.can-run(Command.select-all);
+                                    activated => { root.run(Command.select-all); }
+                                }
+                                MenuItem {
+                                    title: @tr("Invert selection");
+                                    enabled: root.can-run(Command.invert-selection);
+                                    activated => { root.run(Command.invert-selection); }
+                                }
+                                MenuSeparator { }
+                                MenuItem {
+                                    title: @tr("Export results…");
+                                    enabled: root.can-run(Command.export-results);
+                                    activated => { root.run(Command.export-results); }
+                                }
+                                MenuItem {
+                                    title: @tr("Refresh");
+                                    activated => { root.run(Command.refresh); }
+                                }
+                                MenuSeparator { }
+                                MenuItem {
+                                    title: @tr("Organize columns…");
+                                    activated => { root.run(Command.organize-columns); }
+                                }
+                                MenuItem {
+                                    title: @tr("Fit columns to window");
+                                    activated => { root.run(Command.fit-columns-to-window); }
+                                }
+                            }
+                        }
+                        // Behind the list: it gets the right-clicks no row
+                        // takes, those on the empty area below the rows.
+                        TouchArea {
+                            pointer-event(event) => {
+                                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                                    root.jump-reset();
+                                    keys.focus();
+                                    blank-menu.show({ x: self.mouse-x, y: self.mouse-y });
+                                }
+                            }
+                        }
+
                         list := ListView {
                             // Wider than the window when the columns do not fit.
                             content-width: root.table-width;

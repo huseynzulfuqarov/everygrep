@@ -2443,6 +2443,32 @@ fn is_loading_message(text: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// A right-click on the empty area below the rows opens its own menu:
+    /// the area is behind the list, which lets right-clicks no row takes
+    /// through (a flickable only handles the left button).
+    #[test]
+    fn the_empty_area_below_the_rows_has_a_menu() {
+        let ui = include_str!("../ui/app.slint");
+        let menu = ui.find("blank-menu := ContextMenuArea").expect("menu");
+        let list = ui.find("list := ListView").expect("list");
+        let area = &ui[menu..list];
+        assert!(area.contains("event.button == PointerEventButton.right"));
+        assert!(area.contains("blank-menu.show("));
+        for command in [
+            "select-all",
+            "invert-selection",
+            "export-results",
+            "refresh",
+            "organize-columns",
+            "fit-columns-to-window",
+        ] {
+            assert!(
+                area.contains(&format!("root.run(Command.{command})")),
+                "{command}"
+            );
+        }
+    }
+
     /// Left and Right in the result list scroll it sideways, within the
     /// room the table has, and Ctrl goes to the edge.
     #[test]

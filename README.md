@@ -133,7 +133,10 @@ match suffix, ignore punctuation and ignore whitespace, and Find duplicates
 query (or takes it out again); the modes that are on
 show in the status line. Results come in natural name order: numbers by value
 (`file2` before `file10`), case and diacritics ignored (`Çay` next to `cay`),
-`ə` after `e`, hyphens and apostrophes skipped. Right-click the
+`ə` after `e`, hyphens and apostrophes skipped. A right-click on the empty
+area below the rows opens a menu with Select all, Invert selection, Export
+results, Refresh, Organize columns and Fit columns to window.
+Right-click the
 column headers to show the Type, Extension, Created, Accessed and Attributes
 columns, and MD5, SHA-256 and CRC-32: hashes of the files on screen,
 computed on a thread of their own (the smallest files first, each read once
