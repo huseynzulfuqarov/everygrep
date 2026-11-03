@@ -297,6 +297,9 @@ pub fn group(index: &Index, ids: &[NodeId], spec: &DupeSpec) -> Grouped {
         .iter()
         .copied()
         .filter(|&id| !(files_only && store.is_dir(id)))
+        // An offline mount path may now belong to unrelated live files.
+        // Index-only properties remain available without reading those paths.
+        .filter(|&id| !contents || !index.is_offline(id))
         .collect();
     // Positions keep the order of the results within a group.
     let mut order: Vec<u32> = (0..kept.len() as u32).collect();
@@ -740,6 +743,26 @@ mod tests {
         let mut v: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8 ^ seed).collect();
         v[50_000] = middle;
         v
+    }
+
+    #[test]
+    fn content_duplicates_exclude_offline_paths_but_index_properties_remain_available() {
+        let mut tree = Tree::new("offline", &[("a", b"same"), ("b", b"same")]);
+        let root = tree.index.roots()[0];
+        tree.index.set_offline(root, true);
+        for text in ["duplicates:", "extra-copies:", "distinct:", "unique:"] {
+            assert!(tree.paths(text).is_empty(), "{text} read an offline path");
+            let query = Query::parse(text, QueryOptions::default()).unwrap();
+            let grouped = group(
+                &tree.index,
+                &tree.index.order().iter().collect::<Vec<_>>(),
+                query.dupes().unwrap(),
+            );
+            assert!(grouped.candidates.is_empty());
+        }
+        assert_eq!(tree.paths("duplicates:size"), ["a", "b"]);
+        tree.index.set_offline(root, false);
+        assert_eq!(tree.paths("duplicates:"), ["a", "b"]);
     }
 
     #[test]
