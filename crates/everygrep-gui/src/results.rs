@@ -19,7 +19,7 @@ use everygrep_core::sort::{FolderSize, Sort};
 use everygrep_core::store::NodeId;
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
-use crate::engine::{Engine, IndexState, SearchResult};
+use crate::engine::{Engine, IndexState, SearchResult, SettledSearch};
 use crate::filetype::{self, KindIcon};
 use crate::format;
 use crate::hash_columns::{HashBatch, HashColumns, HashReader, HashRequest};
@@ -30,6 +30,8 @@ use everygrep_core::hashcache::Cached;
 
 /// Rows of the result table, backed by a list of node ids.
 pub struct ResultsModel {
+    settled: RefCell<Option<SettledSearch>>,
+    generation: Cell<u64>,
     engine: Arc<Engine>,
     ids: RefCell<Arc<Vec<NodeId>>>,
     /// Engine epoch of `ids`; when the engine moves on, the ids are stale.
@@ -162,6 +164,8 @@ fn read_details(path: &Path, name: &[u8]) -> Details {
 /// Frozen rows and selection for a background tab. Node ids are shared, not copied.
 #[derive(Clone)]
 pub struct ResultSnapshot {
+    generation: u64,
+    pub settled: Option<SettledSearch>,
     ids: Arc<Vec<NodeId>>,
     epoch: u64,
     query: String,
@@ -219,6 +223,8 @@ const MAX_SUMMED: usize = 100_000;
 impl ResultsModel {
     pub fn new(engine: Arc<Engine>) -> Self {
         Self {
+            settled: RefCell::new(None),
+            generation: Cell::new(0),
             engine,
             ids: RefCell::new(Arc::new(Vec::new())),
             epoch: Cell::new(u64::MAX),
@@ -251,6 +257,8 @@ impl ResultsModel {
 
     pub fn freeze(&self) -> ResultSnapshot {
         ResultSnapshot {
+            settled: self.settled.borrow().clone(),
+            generation: self.generation.get(),
             ids: self.ids.borrow().clone(),
             epoch: self.epoch.get(),
             query: self.query.borrow().clone(),
@@ -263,6 +271,8 @@ impl ResultsModel {
     /// Never show ids from before an index rebuild; the activation search follows.
     pub fn restore(&self, snapshot: Option<&ResultSnapshot>) {
         let snapshot = snapshot.filter(|s| s.epoch == self.engine.epoch());
+        *self.settled.borrow_mut() = snapshot.and_then(|s| s.settled.clone());
+        self.generation.set(snapshot.map_or(0, |s| s.generation));
         *self.ids.borrow_mut() = snapshot.map(|s| s.ids.clone()).unwrap_or_default();
         self.epoch.set(snapshot.map_or(u64::MAX, |s| s.epoch));
         *self.query.borrow_mut() = snapshot.map(|s| s.query.clone()).unwrap_or_default();
@@ -299,6 +309,8 @@ impl ResultsModel {
     /// selected items it lists when clearing is off. Returns the first
     /// selected row when a selection was kept for a new query.
     pub fn set_result(&self, result: &SearchResult) -> Option<usize> {
+        *self.settled.borrow_mut() = result.settled.clone();
+        self.generation.set(result.generation);
         let mut carried = false;
         *self.terms.borrow_mut() = Arc::clone(&result.terms);
         self.now_ns.set(now_ns());

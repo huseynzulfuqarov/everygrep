@@ -394,13 +394,14 @@ impl State {
         let active = tabs.active;
         let tab = &mut tabs.open[active];
         tab.search = read(w);
-        tab.result = Some(self.model.freeze());
+        let result = self.model.freeze();
+        tab.settled = result.settled.clone();
+        tab.result = Some(result);
         tab.history = self.prefs.history.borrow().clone();
         tab.current = w.get_current();
         tab.scroll_y = w.get_results_scroll_y();
         tab.scroll_x = w.get_results_scroll_x();
         tab.stopped = self.engine.stopped_search();
-        tab.settled = self.engine.settled_search();
         tab.pending = w.get_search_pending();
         tab.submitted = Some(self.last_submitted.borrow().clone());
     }

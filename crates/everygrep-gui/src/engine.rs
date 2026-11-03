@@ -67,6 +67,8 @@ pub enum IndexState {
 
 /// The finished result of one search.
 pub struct SearchResult {
+    /// Completion of these rows, captured before delivery to the window.
+    pub settled: Option<SettledSearch>,
     pub ids: Arc<Vec<NodeId>>,
     /// Text terms of the query, for highlighting matches in names.
     pub terms: Arc<Vec<HighlightTerm>>,
@@ -461,7 +463,7 @@ pub struct Engine {
     /// to it.
     applied: Mutex<QueryState>,
     /// The request whose complete results were shown last, and the index
-    /// version they were found in (see [`Engine::settled_search`]).
+    /// version they were found in (see [`SearchResult::settled`]).
     answered: Mutex<(u64, Option<u64>)>,
     /// Creation times or attributes read by the last sort, used by the next
     /// one while file changes are applied (see [`DetailCache`]). Only the
@@ -534,7 +536,7 @@ struct QueryState {
 }
 
 /// A request whose complete results were shown, with the index version and
-/// id epoch they were found in (see [`Engine::settled_search`]). A tab keeps
+/// id epoch they were found in (see [`SearchResult::settled`]). A tab keeps
 /// it to show its results again without searching while nothing changed.
 #[derive(Clone, PartialEq)]
 pub struct SettledSearch {
@@ -984,6 +986,7 @@ impl Engine {
 
     /// The request asked last, when its complete results are shown and no
     /// newer request, file reading or stop came after them.
+    #[cfg(test)]
     pub fn settled_search(&self) -> Option<SettledSearch> {
         let q = self.query.lock().expect("lock");
         let content = self.content_state.lock().expect("lock");
@@ -1192,6 +1195,11 @@ impl Engine {
                                 *self.applied.lock().expect("lock") = state.clone();
                                 *self.answered.lock().expect("lock") = (generation, Some(searched));
                                 (self.hooks.on_results)(SearchResult {
+                                    settled: Some(SettledSearch {
+                                        state: state.clone(),
+                                        version: searched,
+                                        epoch,
+                                    }),
                                     ids: Arc::new(ids),
                                     terms,
                                     took: started.elapsed(),
@@ -1262,6 +1270,11 @@ impl Engine {
                 *self.applied.lock().expect("lock") = state.clone();
                 *self.answered.lock().expect("lock") = (generation, version);
                 (self.hooks.on_results)(SearchResult {
+                    settled: version.map(|version| SettledSearch {
+                        state: state.clone(),
+                        version,
+                        epoch,
+                    }),
                     ids: Arc::new(ids),
                     terms: Arc::new(terms),
                     took: started.elapsed(),
@@ -1466,6 +1479,7 @@ impl Engine {
         drop(index);
         *self.applied.lock().expect("lock") = state.clone();
         (self.hooks.on_results)(SearchResult {
+            settled: None,
             ids: Arc::new(ids),
             terms: Arc::clone(terms),
             took: started.elapsed(),
@@ -3979,6 +3993,7 @@ mod tests {
         let len = e.index.read().unwrap().len() as u32;
         let model = crate::results::ResultsModel::new(Arc::clone(e));
         model.set_result(&SearchResult {
+            settled: None,
             ids: Arc::new(vec![NodeId(len + 100)]),
             terms: Arc::new(Vec::new()),
             took: Duration::ZERO,
@@ -4112,6 +4127,7 @@ mod tests {
         let mut snapshots = Vec::new();
         for i in 0..30 {
             model.set_result(&SearchResult {
+                settled: None,
                 ids: ids.clone(),
                 terms: Arc::default(),
                 took: Duration::ZERO,
@@ -4371,6 +4387,47 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("at most 6 content terms"), "{error}");
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn frozen_rows_keep_the_completion_of_the_result_accepted_by_the_window() {
+        let dir = Scratch::new("settled-delivery");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "a").unwrap();
+        fs::write(root.join("b.txt"), "b").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let engine = &probe.engine;
+        let model = crate::results::ResultsModel::new(Arc::clone(engine));
+        let options = QueryOptions::default();
+        let a = engine.set_query("a.txt", options);
+        loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(5)).unwrap();
+            if r.generation == a {
+                model.set_result(&r);
+                break;
+            }
+        }
+        let b = engine.set_query("b.txt", options);
+        loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(5)).unwrap();
+            if r.generation == b {
+                break;
+            }
+        }
+        // B completed on the worker, but its UI callback has not replaced A.
+        let frozen = model.freeze();
+        let settled = frozen.settled.expect("A was complete");
+        assert_eq!(settled.state.text, "a.txt");
+        assert!(
+            engine
+                .show_settled(&settled, "b.txt", options, None, engine.asked_sort())
+                .is_none()
+        );
+        model.restore(Some(&model.freeze()));
+        assert_eq!(model.freeze().settled.unwrap().state.text, "a.txt");
+        engine.shutdown();
     }
 
     #[test]
