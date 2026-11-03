@@ -3091,7 +3091,7 @@ export component AppWindow inherits Window {
                         color: Theme.text;
                         vertical-alignment: center;
                     }
-                    if root.can-cancel: VerticalLayout {
+                    if root.can-cancel && !root.fileops-conflict-open: VerticalLayout {
                         alignment: center;
                         StatusButton {
                             text: @tr("Cancel");

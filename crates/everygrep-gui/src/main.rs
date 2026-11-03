@@ -1478,6 +1478,7 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 info(&w, tr("Another paste is still running.").into());
                 return;
             }
+            info(&w, String::new());
             let (engine, weak) = (engine.clone(), weak.clone());
             files_to_paste(&w, move |w, found| {
                 let Some((op, sources)) = found else {
