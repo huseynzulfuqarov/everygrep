@@ -2324,8 +2324,8 @@ msgid "Apply changes made to the settings file outside this window"
 msgstr "Ayarlar dosyasında bu pencerenin dışında yapılan değişiklikleri uygula"
 
 #: ui/settings.slint
-msgid "The file is looked at every 2 seconds; a change by another program or another EveryGrep window is applied at once, as an import would be. Off: such changes apply at the next start, and a change made here keeps them in the file."
-msgstr "Dosyaya her 2 saniyede bir bakılır; başka bir programın ya da başka bir EveryGrep penceresinin yaptığı değişiklik, içe aktarma gibi, hemen uygulanır. Kapalıyken bu tür değişiklikler sonraki açılışta uygulanır ve burada yapılan bir değişiklik onları dosyada korur."
+msgid "The file is looked at every 2 seconds. When another program or another EveryGrep window changes it, EveryGrep asks whether to apply the change, or applies it at once, as an import would, when asking is off. Off: such changes apply at the next start, and a change made here keeps them in the file."
+msgstr "Dosyaya 2 saniyede bir bakılır. Başka bir program veya başka bir EveryGrep penceresi onu değiştirdiğinde EveryGrep değişikliğin uygulanıp uygulanmayacağını sorar; sormak kapalıysa değişikliği, içe aktarmadaki gibi, hemen uygular. Kapalı: bu tür değişiklikler bir sonraki açılışta uygulanır ve burada yapılan bir değişiklik onları dosyada korur."
 
 #: src/labels.rs
 msgid "The settings file was changed outside this window; its settings now apply."
@@ -3973,3 +3973,15 @@ msgstr "Kayıtlı aramalar kaydedilemiyor: {}"
 
 msgid "Could not restore the source; it remains at {0}: {1}"
 msgstr "Kaynak geri yüklenemedi; {0} konumunda kaldı: {1}"
+
+#: ui/settings.slint
+msgid "Ask before applying them"
+msgstr "Uygulamadan önce sor"
+
+#: src/labels.rs
+msgid "The settings file was changed outside this window"
+msgstr "Ayarlar dosyası bu pencerenin dışında değiştirildi"
+
+#: src/labels.rs
+msgid "Apply the settings it holds now? Cancel: this window keeps its settings until the next start, and you are asked again only when the file changes again."
+msgstr "İçindeki ayarlar şimdi uygulansın mı? İptal: bu pencere bir sonraki açılışa kadar kendi ayarlarını korur ve dosya yeniden değişene kadar bir daha sorulmaz."

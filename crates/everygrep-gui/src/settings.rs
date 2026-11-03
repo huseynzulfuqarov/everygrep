@@ -342,6 +342,8 @@ pub struct Settings {
     /// Whether changes made to the settings file by another program (or
     /// another window) are applied while the window runs.
     pub reload_changed: bool,
+    /// Whether such a change is applied only after the user agrees.
+    pub ask_reload: bool,
     /// Recording can be disabled without discarding existing entries.
     pub history_enabled: bool,
     /// Retention in days; 0 means forever.
@@ -454,6 +456,7 @@ impl Default for Settings {
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             reload_changed: true,
+            ask_reload: true,
             history_enabled: true,
             history_days: 90,
             history_entries: crate::search_history::MAX_ENTRIES,
@@ -736,6 +739,7 @@ impl Settings {
                 .is_some(),
             "history-on-disk" => put_flag(&mut self.history_on_disk),
             "reload-changed-settings" => put_flag(&mut self.reload_changed),
+            "ask-before-reloading-settings" => put_flag(&mut self.ask_reload),
             "history-enabled" => put_flag(&mut self.history_enabled),
             "always-search-suggestions" => put_flag(&mut self.always_suggestions),
             "history-sort" => Order::ALL
@@ -1122,6 +1126,19 @@ impl Settings {
         self.write(false)
     }
 
+    /// The lines of the full settings text (every setting, see
+    /// [`write`](Self::write)) found in only one of `self` and `other`:
+    /// what applying one over the other changes.
+    pub fn differing_lines(&self, other: &Settings) -> std::collections::BTreeSet<String> {
+        let mine = self.write(true);
+        let theirs = other.write(true);
+        let mine: std::collections::BTreeSet<&str> = mine.lines().collect();
+        let theirs: std::collections::BTreeSet<&str> = theirs.lines().collect();
+        mine.symmetric_difference(&theirs)
+            .map(|l| (*l).to_owned())
+            .collect()
+    }
+
     /// The text of a settings file; with `all` every setting is written,
     /// those at their default too (an unset width or folder as an empty
     /// value), for the raw settings table.
@@ -1358,6 +1375,12 @@ impl Settings {
             "reload-changed-settings",
             self.reload_changed,
             d.reload_changed,
+        );
+        flag(
+            &mut out,
+            "ask-before-reloading-settings",
+            self.ask_reload,
+            d.ask_reload,
         );
         self.fileops.write(&mut out, all);
         self.content.write(&mut out, all);
@@ -1839,7 +1862,43 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
     let mut s = Settings::load(path)?;
     change(&mut s);
     s.save(path)?;
+    let text = s.to_text();
+    // Without the mark another window asks about this save as if it came
+    // from outside; the settings themselves are saved already.
+    let _ = write_atomic(&own_mark(path), text_hash(text.as_bytes()).as_bytes());
     Ok(s)
+}
+
+/// `<name>.own` next to the settings file: a hash of the text an EveryGrep
+/// window saved there last. Another window or instance that finds the file
+/// still matching it applies the change without asking; an edit made
+/// outside EveryGrep no longer matches.
+fn own_mark(path: &Path) -> std::path::PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".own");
+    path.with_file_name(name)
+}
+
+/// FNV-1a, 64 bits: the same in every build, unlike the std hasher.
+fn text_hash(bytes: &[u8]) -> String {
+    let hash = bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}\n")
+}
+
+/// Reads the settings file like [`Settings::load`], under its lock, and
+/// tells whether an EveryGrep window or instance wrote this version (see
+/// [`update`]).
+pub fn load_marked(path: &Path) -> io::Result<(Settings, bool)> {
+    let _lock = lock(path)?;
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Settings::default(), false)),
+        Err(e) => return Err(e),
+    };
+    let own = fs::read(own_mark(path)).is_ok_and(|mark| mark == text_hash(&bytes).as_bytes());
+    Ok((Settings::parse(&String::from_utf8_lossy(&bytes)), own))
 }
 
 /// Saves files on a thread of its own, one after the other in the order
@@ -2537,6 +2596,7 @@ pub(crate) mod tests {
             history_size: 0,
             history_on_disk: true,
             reload_changed: false,
+            ask_reload: false,
             on_close: OnClose::Hide,
             folder_size: FolderSize::Items,
             remember_columns: false,
@@ -2661,6 +2721,44 @@ pub(crate) mod tests {
         assert!(s.always_suggestions);
         assert!(s.history_enabled);
         assert_eq!(s.history_days, 90);
+    }
+
+    #[test]
+    fn saves_by_everygrep_are_told_from_edits_made_outside() {
+        let dir = std::env::temp_dir().join(format!("everygrep-own-mark-{}", std::process::id()));
+        let path = dir.join("settings");
+        let _ = fs::remove_dir_all(&dir);
+        assert!(!load_marked(&path).unwrap().1, "no file, nothing written");
+        update(&path, |s| s.history_size = 7).unwrap();
+        let (read, own) = load_marked(&path).unwrap();
+        assert!(own, "another window's save");
+        assert_eq!(read.history_size, 7);
+        let text = fs::read_to_string(&path).unwrap();
+        write_atomic(&path, format!("{text}history-days = 3\n").as_bytes()).unwrap();
+        let (read, own) = load_marked(&path).unwrap();
+        assert!(!own, "an edit made outside");
+        assert_eq!(read.history_days, 3);
+        update(&path, |s| s.history_size = 8).unwrap();
+        assert!(load_marked(&path).unwrap().1, "saved again by EveryGrep");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn outside_changes_are_asked_about_by_default_and_differ_by_line() {
+        let d = Settings::default();
+        assert!(d.reload_changed && d.ask_reload, "ask before applying");
+        let off = Settings::parse("ask-before-reloading-settings = false\n");
+        assert!(off.problems.is_empty() && !off.ask_reload);
+        assert!(
+            off.to_text()
+                .contains("ask-before-reloading-settings = false\n")
+        );
+        assert!(d.differing_lines(&d).is_empty());
+        let other = Settings::parse("history-size = 7\n");
+        let lines = d.differing_lines(&other);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines.iter().any(|l| l == "history-size = 7"), "{lines:?}");
+        assert_eq!(lines, other.differing_lines(&d));
     }
 
     #[test]
@@ -3043,13 +3141,14 @@ shortcut = edit.cut list F9
         assert_eq!(s.options.filter, Filter::Video);
         assert_eq!(Settings::load(&path).unwrap(), s);
         assert!(fs::read_to_string(&path).unwrap().contains("future = 1"));
-        // No temporary file is left behind; the lock file stays.
+        // No temporary file is left behind; the lock file and the mark of
+        // the last save by EveryGrep stay.
         let mut names: Vec<_> = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
         names.sort();
-        assert_eq!(names, ["settings", "settings.lock"]);
+        assert_eq!(names, ["settings", "settings.lock", "settings.own"]);
     }
 
     #[test]

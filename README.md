@@ -291,8 +291,8 @@ changes" setting, the other way round) until it is turned off again, which
 catches up with what changed meanwhile.
 Tools → Settings… and Tools → Customize shortcuts… open the settings; Tools →
 Open the settings file opens the file itself in the desktop's application
-for it (a text editor), and what is saved there applies at once while
-"Apply changes made to the settings file outside this window" is on. Help →
+for it (a text editor), and what is saved there applies, after a question
+(saves of other EveryGrep windows apply without one), while "Apply changes made to the settings file outside this window" is on. Help →
 Search syntax (`F1`), Regular expressions and Command line options open the
 help window, a short reference with examples on three pages; Help →
 Keyboard shortcuts lists every key; Help → Copy troubleshooting information
@@ -471,6 +471,7 @@ the program behaves as before, except that folders show their total size.
 | Advanced | the settings file: "Export settings…" writes it where you choose; "Import settings…" replaces every setting with those of a chosen file (after a question; a file that sets nothing known is refused); "Reset all settings…" puts every setting back to its default (after a question); folders, rules and file details are taken only by the window over the default index, and changing them indexes again; column widths of an import apply at the next start | — |
 | | all settings: a table of every key with its value and default ("Search settings…", "Only changed settings"); choose a row to edit its value in the file's form, toggle a `true`/`false`, reset it or copy its line; a change applies and is saved at once, and under "Only changed settings" a setting changed back to its default stays listed (and chosen) until the filter changes; list keys (`root`, `exclude`, `ignore-drive`, `shortcut`) are shown but changed on their pages | — |
 | | apply changes made to the settings file outside this window (looked at every 2 seconds, after the window's own saves; applied as an import, with a note in the status line) | on |
+| | ask before applying them: a dialog asks first; Cancel keeps the window's settings, and the same change is not asked about again; saves made by another EveryGrep window apply without a question | on |
 
 On the Keyboard page, "Show commands containing:" filters the commands by
 name, menu or key (case and diacritics ignored). Choose a command to see its
@@ -617,6 +618,7 @@ and `content-pdf` set how files are read for `content:`; `content-on-enter`
 `hash-cache-max-mb` the size of the hash cache.
 `index-folder` holds the folder of the index file, `reload-changed-settings`
 (`false`) ignores changes made to the file outside the window until the next start,
+`ask-before-reloading-settings` (`false`) applies them without a question,
 `watch-changes` turns watching off (`false`), `index-file-details` (`false`)
 indexes names only, `rescan` (`never`, `hours`, `daily`) with `rescan-hours`
 and `rescan-time` (`HH:MM`) scans the folders again by themselves,

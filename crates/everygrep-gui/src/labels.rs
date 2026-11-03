@@ -712,6 +712,20 @@ pub fn settings_imported(file: &std::path::Path, bad: usize) -> String {
 }
 
 /// In the status line after the settings file changed outside the window.
+pub fn settings_changed_outside() -> &'static str {
+    tr("The settings file was changed outside this window")
+}
+
+pub fn settings_changed_outside_ask() -> &'static str {
+    tr(
+        "Apply the settings it holds now? Cancel: this window keeps its settings until the next start, and you are asked again only when the file changes again.",
+    )
+}
+
+pub fn settings_reload_action() -> &'static str {
+    tr("Apply")
+}
+
 pub fn settings_reloaded(bad: usize) -> String {
     let done = tr("The settings file was changed outside this window; its settings now apply.");
     if bad == 0 {

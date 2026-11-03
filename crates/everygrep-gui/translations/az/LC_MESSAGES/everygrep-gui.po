@@ -2324,8 +2324,8 @@ msgid "Apply changes made to the settings file outside this window"
 msgstr "Ayarlar faylında bu pəncərədən kənarda edilən dəyişiklikləri tətbiq et"
 
 #: ui/settings.slint
-msgid "The file is looked at every 2 seconds; a change by another program or another EveryGrep window is applied at once, as an import would be. Off: such changes apply at the next start, and a change made here keeps them in the file."
-msgstr "Fayla hər 2 saniyədən bir baxılır; başqa proqramın və ya başqa EveryGrep pəncərəsinin etdiyi dəyişiklik, idxal kimi, dərhal tətbiq olunur. Söndürüləndə belə dəyişikliklər növbəti açılışda tətbiq olunur, burada edilən dəyişiklik isə onları faylda saxlayır."
+msgid "The file is looked at every 2 seconds. When another program or another EveryGrep window changes it, EveryGrep asks whether to apply the change, or applies it at once, as an import would, when asking is off. Off: such changes apply at the next start, and a change made here keeps them in the file."
+msgstr "Fayla hər 2 saniyədən bir baxılır. Başqa proqram və ya başqa EveryGrep pəncərəsi onu dəyişəndə EveryGrep dəyişikliyin tətbiq olunmasını soruşur, soruşmaq söndürülübsə onu, idxal kimi, dərhal tətbiq edir. Söndürüləndə belə dəyişikliklər növbəti açılışda tətbiq olunur, burada edilən dəyişiklik isə onları faylda saxlayır."
 
 #: src/labels.rs
 msgid "The settings file was changed outside this window; its settings now apply."
@@ -3973,3 +3973,15 @@ msgstr "Saxlanmış axtarışlar yazıla bilmir: {}"
 
 msgid "Could not restore the source; it remains at {0}: {1}"
 msgstr "Mənbə bərpa edilə bilmədi; {0} yolunda qalır: {1}"
+
+#: ui/settings.slint
+msgid "Ask before applying them"
+msgstr "Tətbiq etməzdən əvvəl soruş"
+
+#: src/labels.rs
+msgid "The settings file was changed outside this window"
+msgstr "Ayarlar faylı bu pəncərədən kənarda dəyişdirilib"
+
+#: src/labels.rs
+msgid "Apply the settings it holds now? Cancel: this window keeps its settings until the next start, and you are asked again only when the file changes again."
+msgstr "İndi ondakı ayarlar tətbiq olunsun? İmtina: bu pəncərə növbəti açılışa qədər öz ayarlarını saxlayır və fayl yenidən dəyişənə qədər bir daha soruşulmur."

@@ -231,6 +231,12 @@ pub struct Prefs {
     /// listed under "Only changed settings" (see [`raw_rows_for`]).
     raw_kept: RefCell<Vec<String>>,
     seen: Arc<std::sync::Mutex<Option<settings::Stamp>>>,
+    /// The main window asks whether to apply a settings file changed
+    /// outside; the user agreed, so the next read is applied; the lines
+    /// of the last outside change turned down, not asked about again.
+    reload_asked: Cell<bool>,
+    reload_approved: Cell<bool>,
+    reload_declined: RefCell<std::collections::BTreeSet<String>>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
     choosing: Cell<bool>,
@@ -290,6 +296,23 @@ struct KeyDialog {
 
 thread_local! {
     static PREFS: RefCell<Option<Rc<Prefs>>> = RefCell::default();
+}
+
+/// Whether an outside change of the settings, the `lines` that differ,
+/// is asked about: not when the user turned down these same differences
+/// (a later save in this window keeps them in the file).
+/// Whether a settings file changed since it was read is asked about before
+/// it applies: only with "Ask first" on, for an edit made outside EveryGrep
+/// (`own` false) that the user has not agreed to already.
+fn asks_first(ask_reload: bool, own: bool, approved: bool) -> bool {
+    ask_reload && !own && !approved
+}
+
+fn ask_about(
+    lines: &std::collections::BTreeSet<String>,
+    declined: &std::collections::BTreeSet<String>,
+) -> bool {
+    !lines.is_empty() && !lines.is_subset(declined)
 }
 
 /// Runs `f` with the program's settings, once they are set up.
@@ -368,6 +391,9 @@ impl Prefs {
             raw_lang: Cell::new(None),
             raw_kept: RefCell::default(),
             seen: Arc::default(),
+            reload_asked: Cell::new(false),
+            reload_approved: Cell::new(false),
+            reload_declined: RefCell::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
             engine,
@@ -424,6 +450,7 @@ impl Prefs {
             return;
         };
         let seen = Arc::clone(&self.seen);
+        let approved = self.reload_approved.get();
         self.writer.read_at_revision(
             move || {
                 let now = settings::stamp(&path);
@@ -433,12 +460,21 @@ impl Prefs {
                 }
                 *seen = now;
                 drop(seen);
-                Settings::load(&path).ok()
+                settings::load_marked(&path).ok()
             },
             move |read, at| {
-                let Some(read) = read else { return };
+                let Some(read) = read else {
+                    if approved {
+                        // Nothing readable to apply; the next change asks.
+                        let _ = slint::invoke_from_event_loop(|| {
+                            with(|p| p.reload_approved.set(false));
+                        });
+                    }
+                    return;
+                };
+                let (read, own) = read;
                 let _ = slint::invoke_from_event_loop(move || {
-                    with(|p| p.changed_outside(read, at));
+                    with(|p| p.changed_outside(read, own, at));
                 });
             },
         );
@@ -446,22 +482,63 @@ impl Prefs {
 
     /// The settings file as read by [`look_for_outside_changes`]: when it
     /// differs from the running settings, and the window saved nothing
-    /// since it was read, it is applied (not saved again).
+    /// since it was read, it is applied (not saved again). With "Ask
+    /// first" on, the main window asks before; a change turned down is
+    /// not asked about again, until the file changes in another way.
+    /// `own`: another EveryGrep window or instance saved this version; it
+    /// applies without a question, like the history it shares.
     ///
     /// [`look_for_outside_changes`]: Self::look_for_outside_changes
-    fn changed_outside(&self, read: Settings, asked: u64) {
+    fn changed_outside(&self, read: Settings, own: bool, asked: u64) {
         if self.writer.asked() != asked || !self.settings.borrow().reload_changed {
             // Saves came meanwhile; the next look reads the file again.
             *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
             return;
         }
         if read.to_text() == self.settings.borrow().to_text() {
+            self.reload_approved.set(false);
             return;
         }
+        let approved = self.reload_approved.replace(false);
+        if asks_first(self.settings.borrow().ask_reload, own, approved) {
+            if self.reload_asked.get() {
+                // Asked already; agreeing reads the file again.
+                return;
+            }
+            let lines = read.differing_lines(&self.settings.borrow());
+            if !ask_about(&lines, &self.reload_declined.borrow()) {
+                return;
+            }
+            let Some(m) = self.main.upgrade() else { return };
+            if m.get_confirm_open() {
+                // Another question is open: ask at a later look.
+                *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                return;
+            }
+            *self.reload_declined.borrow_mut() = lines;
+            self.reload_asked.set(true);
+            crate::ask_reload_settings(&m);
+            return;
+        }
+        self.reload_declined.borrow_mut().clear();
         let bad = read.problems.len();
         self.replace_all(read, false);
         if let Some(m) = self.main.upgrade() {
             crate::info(&m, labels::settings_reloaded(bad));
+        }
+    }
+
+    /// The answer to the main window's question about a settings file
+    /// changed outside: yes reads it again and applies it, no keeps the
+    /// running settings. Nothing happens when nothing was asked.
+    pub fn reload_answered(&self, yes: bool) {
+        if !self.reload_asked.replace(false) {
+            return;
+        }
+        if yes {
+            self.reload_approved.set(true);
+            *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            self.look_for_outside_changes();
         }
     }
 
@@ -2262,6 +2339,7 @@ impl Prefs {
         w.set_pending_action(action.into());
         w.set_settings_note(self.settings_note.borrow().as_str().into());
         w.set_reload_changed(self.settings.borrow().reload_changed);
+        w.set_ask_reload(self.settings.borrow().ask_reload);
         self.fill_raw(w);
         w.set_error(self.error.borrow().as_str().into());
     }
@@ -2863,6 +2941,13 @@ impl Prefs {
                 p.change(move |s| s.reload_changed = on);
                 // Looked at afresh when turned on again.
                 *p.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                p.refresh();
+            }
+        }));
+        w.on_ask_reload_toggled(on(|p| {
+            let on = p.window.borrow().as_ref().map(|w| w.get_ask_reload());
+            if let Some(on) = on {
+                p.change(move |s| s.ask_reload = on);
                 p.refresh();
             }
         }));
@@ -3660,6 +3745,37 @@ mod tests {
         assert!(writer.wait_done(std::time::Duration::from_secs(5)));
     }
     use crate::settings::tests::Scratch;
+
+    #[test]
+    fn saves_of_other_everygrep_windows_apply_without_a_question() {
+        assert!(asks_first(true, false, false), "an edit made outside");
+        assert!(!asks_first(true, true, false), "another window saved it");
+        assert!(!asks_first(true, false, true), "the user agreed already");
+        assert!(!asks_first(false, false, false), "Ask first is off");
+    }
+
+    #[test]
+    fn a_turned_down_outside_change_is_not_asked_about_again() {
+        let mine = Settings::default();
+        let outside = Settings::parse("history-size = 7\n");
+        let lines = outside.differing_lines(&mine);
+        let none = std::collections::BTreeSet::new();
+        assert!(
+            ask_about(&lines, &none),
+            "a new outside change is asked about"
+        );
+        assert!(!ask_about(&none, &none), "nothing differs, nothing to ask");
+        // Turned down; a later save here writes over the file but keeps the
+        // outside line, so the same difference comes back.
+        assert!(!ask_about(&lines, &lines));
+        // A save here of the same setting makes the difference smaller.
+        let mut smaller = lines.clone();
+        smaller.pop_first();
+        assert!(!ask_about(&smaller, &lines));
+        // Another outside change is asked about again.
+        let more = Settings::parse("history-size = 7\nhistory-days = 3\n").differing_lines(&mine);
+        assert!(ask_about(&more, &lines));
+    }
 
     #[test]
     fn a_setting_reset_in_only_changed_stays_in_its_place() {

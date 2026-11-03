@@ -328,6 +328,8 @@ export component SettingsWindow inherits Window {
     in property <string> settings-note;
     in-out property <bool> reload-changed;
     callback reload-changed-toggled();
+    in-out property <bool> ask-reload;
+    callback ask-reload-toggled();
     // The raw settings table: its filter, "only changed", the rows shown
     // (key, value, default), the chosen row and its value being edited,
     // what can be done with it, and why the last edit was refused.
@@ -1432,7 +1434,13 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.reload-changed;
                                 toggled => { root.reload-changed-toggled(); }
                             }
-                            Note { text: @tr("The file is looked at every 2 seconds; a change by another program or another EveryGrep window is applied at once, as an import would be. Off: such changes apply at the next start, and a change made here keeps them in the file."); }
+                            CheckBox {
+                                text: @tr("Ask before applying them");
+                                enabled: root.reload-changed;
+                                checked <=> root.ask-reload;
+                                toggled => { root.ask-reload-toggled(); }
+                            }
+                            Note { text: @tr("The file is looked at every 2 seconds. When another program or another EveryGrep window changes it, EveryGrep asks whether to apply the change, or applies it at once, as an import would, when asking is off. Off: such changes apply at the next start, and a change made here keeps them in the file."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("All settings"); }
                             HorizontalLayout {

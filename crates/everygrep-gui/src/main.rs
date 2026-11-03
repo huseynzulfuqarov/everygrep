@@ -1373,7 +1373,8 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                         run_delete(&w, paths);
                     }
                 }
-                None => {}
+                // The settings file question (see `ask_reload_settings`).
+                None => prefs::with(|p| p.reload_answered(true)),
             }
             w.invoke_focus_list();
         }
@@ -1381,7 +1382,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_confirm_cancelled({
         let weak = weak.clone();
         move || {
-            pending.borrow_mut().take();
+            if pending.borrow_mut().take().is_none() {
+                prefs::with(|p| p.reload_answered(false));
+            }
             if let Some(w) = weak.upgrade() {
                 w.set_confirm_open(false);
                 w.invoke_focus_list();
@@ -1789,8 +1792,9 @@ fn connect_jump(window: &AppWindow, model: &Rc<ResultsModel>) {
 }
 
 /// Tools → Open the settings file, in the desktop's application for it.
-/// Changes saved there apply at once when "Apply changes made to the
-/// settings file outside this window" is on (the default). Looking at the
+/// Changes saved there apply when "Apply changes made to the settings file
+/// outside this window" is on (the default), after a question unless "Ask
+/// first" is off. Looking at the
 /// file can wait on a slow or hung file system, so it runs on a helper
 /// thread; the window only gets the status line.
 fn connect_settings_file(window: &AppWindow) {
@@ -1919,6 +1923,18 @@ fn stop_renaming(w: &AppWindow, model: &ResultsModel) {
     model.set_renaming(None);
     w.set_rename_row(-1);
     w.invoke_focus_list();
+}
+
+/// Asks whether to apply the settings file changed outside this window;
+/// the answer goes to [`prefs::Prefs::reload_answered`]. No file action
+/// is pending meanwhile: the dialog is modal.
+fn ask_reload_settings(w: &AppWindow) {
+    ask(
+        w,
+        labels::settings_changed_outside().to_owned(),
+        labels::settings_changed_outside_ask(),
+        labels::settings_reload_action(),
+    );
 }
 
 /// Moves items to the trash on a helper thread and reports the outcome.

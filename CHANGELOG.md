@@ -531,8 +531,10 @@ First version, 0.1.0, not released yet.
 - Settings changed outside the window (by hand, by another program or by
   another window) are applied while it runs: the saving thread looks at the
   file every 2 seconds after the window's own saves, and a new version that
-  differs is applied like an import. A switch on the Advanced page turns it
-  off.
+  differs is applied like an import, after a question (Apply or Cancel;
+  a change turned down is not asked about again until the file changes in
+  another way). Switches on the Advanced page turn the question or the
+  whole check off.
 - All settings table on the Advanced page: every key with its value and
   default, a filter, "only changed", and editing, toggling, resetting or
   copying one value, applied and saved at once.
