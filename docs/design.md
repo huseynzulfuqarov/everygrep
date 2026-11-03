@@ -281,6 +281,9 @@ import/export through the desktop portal. Delete all asks for confirmation.
 Export includes the whole history. Import validates the whole CSV first and
 merges each exact search with the greater count and later date; repeat imports
 do not inflate counts. Dates in CSV are UTC, independent of the UI language.
+Reopening this window, the bookmark and filter organizer or the file undo
+history while it is open brings it to the front (shown again as a new
+surface, as Advanced Search is).
 
 ### One window
 

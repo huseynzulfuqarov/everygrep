@@ -217,6 +217,10 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
             crate::prefs::with(|p| w.invoke_set_color_scheme(p.color_scheme()));
             refresh(w);
             w.set_busy(BUSY.load(Ordering::SeqCst));
+            // An open window may be behind the main window; showing it again
+            // gives a new surface, which GNOME brings to the front (see `raise`
+            // in main.rs).
+            let _ = w.hide();
             let _ = w.show();
         }
     });

@@ -658,6 +658,10 @@ impl Prefs {
         let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
         if let Some(w) = self.history_window.borrow().as_ref() {
             w.invoke_set_color_scheme(scheme as i32);
+            // An open window may be behind the main window; showing it again
+            // gives a new surface, which GNOME brings to the front (see `raise`
+            // in main.rs).
+            let _ = w.hide();
             let _ = w.show();
         }
     }

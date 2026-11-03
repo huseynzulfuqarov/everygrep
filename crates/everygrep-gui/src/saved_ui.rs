@@ -533,6 +533,10 @@ impl State {
         self.fill();
         crate::prefs::with(|p| apply_scheme(p.color_scheme()));
         if let Some(w) = self.window.borrow().as_ref() {
+            // An open window may be behind the main window; showing it again
+            // gives a new surface, which GNOME brings to the front (see `raise`
+            // in main.rs).
+            let _ = w.hide();
             let _ = w.show();
         }
     }
