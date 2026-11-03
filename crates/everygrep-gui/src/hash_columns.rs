@@ -169,15 +169,16 @@ fn hashes_of(store: &HashStore, r: &HashRequest, progress: &Progress) -> Option<
         Ok(read) => read,
         Err(HashError::Cancelled | HashError::NotAFile | HashError::Unreadable) => return None,
     };
+    let known = known.unwrap_or_default();
     let hashes = Cached {
-        md5: read.md5,
-        sha256: read.sha256,
-        crc32: read.crc32,
-        ..Cached::default()
+        md5: read.md5.or(known.md5),
+        sha256: read.sha256.or(known.sha256),
+        crc32: read.crc32.or(known.crc32),
+        ..known
     };
     let mut cache = store.cache().lock().expect("hash cache");
     cache.put(key, &hashes);
-    cache.get(&key)
+    Some(hashes)
 }
 
 #[cfg(test)]
@@ -209,6 +210,36 @@ pub(crate) mod tests {
             size,
             columns,
         }
+    }
+
+    #[test]
+    fn hash_columns_return_computed_values_when_the_cache_is_disabled() {
+        let dir = std::env::temp_dir().join(format!(
+            "everygrep-hashcols-disabled-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("abc");
+        std::fs::write(&path, b"abc").unwrap();
+        let store = HashStore::new(None, 0);
+        let columns = HashColumns {
+            md5: true,
+            sha256: true,
+            crc32: true,
+        };
+        let found = hashes_of(&store, &request(0, 0, path, 3, columns), &Progress::new())
+            .expect("computed values");
+        assert_eq!(
+            hash::hex(&found.md5.unwrap()),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
+        assert_eq!(
+            hash::hex(&found.sha256.unwrap()),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(found.crc32, Some(0x3524_41C2));
+        assert!(store.cache().lock().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
