@@ -13,6 +13,8 @@ export component TabStrip inherits Rectangle {
     height: 34px;
     background: Theme.surface-alt;
     HorizontalLayout {
+        padding-left: Theme.margin;
+        padding-right: Theme.margin;
         spacing: Theme.s1;
         strip := Flickable {
             content-width: max(self.width, root.tabs.length * 180px);

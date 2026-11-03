@@ -170,6 +170,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 | Token | Value |
 |---|---|
 | Spacing scale | 4, 8, 12, 16, 24 px |
+| Margins | One set for every window (`Theme.margin`, `dialog-padding`, `gap`): 16 px outer margin of a window, so nothing touches its edge (the tab strip, search bar, folder panel, result list and status line of the main window too); 24 px inside dialog cards and settings pages; 8 px between a label and its field and between the controls of a row. The menu bar is drawn by the toolkit and keeps its own inset |
 | Corner radius | 6 px for fields and buttons, 8 px for popups, 0 for table rows |
 | Font | System UI font. Body 13 px, header 12 px semibold, status 12 px |
 | Numbers | Tabular figures. Sizes are right-aligned |

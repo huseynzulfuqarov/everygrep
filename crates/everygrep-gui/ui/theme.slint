@@ -41,6 +41,13 @@ export global Theme {
     out property <length> s3: 12px;
     out property <length> s4: 16px;
     out property <length> s5: 24px;
+    // Layout, used by every window instead of its own numbers: the outer
+    // margin of a window (nothing touches the window edge), the padding
+    // inside a dialog card or a settings page, and the gap between a label
+    // and its field and between the controls of a row.
+    out property <length> margin: s4;
+    out property <length> dialog-padding: s5;
+    out property <length> gap: s2;
 
     // Density: compact packs the list, its header, the top bar and the
     // status line tighter (rows 22 px instead of 28 px).

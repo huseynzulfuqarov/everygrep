@@ -2391,8 +2391,8 @@ export component AppWindow inherits Window {
                 height: Theme.top-bar-height;
                 background: Theme.surface;
                 HorizontalLayout {
-                    padding-left: Theme.s3;
-                    padding-right: Theme.s3;
+                    padding-left: Theme.margin;
+                    padding-right: Theme.margin;
                     padding-top: (Theme.top-bar-height - Theme.field-height) / 2;
                     padding-bottom: (Theme.top-bar-height - Theme.field-height) / 2;
                     spacing: Theme.s2;
@@ -2545,6 +2545,10 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     min-width: 0px;
+                    // Kept off the window edges; the folder panel's grip
+                    // already separates it on the left.
+                    padding-left: root.folders-visible ? 0px : Theme.margin;
+                    padding-right: Theme.margin;
                     // Column headers (positioned directly, so they never feed back into
                     // the window's layout). Right-click shows or hides optional columns.
                     Rectangle {
@@ -3201,8 +3205,8 @@ export component AppWindow inherits Window {
                 height: Theme.status-height;
                 background: Theme.surface-alt;
                 HorizontalLayout {
-                    padding-left: Theme.s3;
-                    padding-right: Theme.s3;
+                    padding-left: Theme.margin;
+                    padding-right: Theme.margin;
                     spacing: Theme.s4;
                     Text {
                         text: root.status-count;
