@@ -3343,3 +3343,24 @@ msgstr "Dəstəklənən mətn kodlaşdırmasını seçin."
 #: src/advanced_query.rs
 msgid "File contents are searched line by line; remove the line break."
 msgstr "Fayl məzmunu sətir-sətir axtarılır; sətir keçidini silin."
+
+#: src/commands.rs
+msgid "Organize columns"
+msgstr "Sütunları nizamla"
+
+msgid "Organize columns…"
+msgstr "Sütunları nizamla…"
+
+#: src/commands.rs
+msgid "Restore removed column"
+msgstr "Gizlədilən sütunu qaytar"
+
+#: src/commands.rs
+msgid "Reset columns"
+msgstr "Sütunları sıfırla"
+
+msgid "Search columns"
+msgstr "Sütun axtar"
+
+msgid "Name, Folder, Size and Modified are always shown."
+msgstr "Ad, Qovluq, Ölçü və Dəyişmə tarixi həmişə göstərilir."

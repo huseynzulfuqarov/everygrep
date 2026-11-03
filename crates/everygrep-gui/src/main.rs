@@ -524,6 +524,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     window.on_drag_columns(columns::drag_in_window);
+    window.on_filter_columns(columns::filter_choices);
     window.on_fit_texts({
         let model = model.clone();
         move |column, first, count| {

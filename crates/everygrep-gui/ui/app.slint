@@ -1,4 +1,4 @@
-import { AboutSlint, Button, ComboBox, ListView, Palette } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette } from "std-widgets.slint";
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
 import { Theme } from "theme.slint";
@@ -68,6 +68,15 @@ export struct MenuChoice {
 // A column of the View → Sort by menu, with its check mark; disabled while
 // the column is hidden.
 struct SortChoice {
+    title: string,
+    column: int,
+    checked: bool,
+    enabled: bool,
+}
+
+// A column of Organize columns, with its check mark; the columns that are
+// always shown cannot be unchecked.
+export struct ColumnChoice {
     title: string,
     column: int,
     checked: bool,
@@ -1589,12 +1598,99 @@ export component AppWindow inherits Window {
     // After an optional column (4 to 14, see sort-column) was shown or hidden:
     // hiding the sorted column sorts by name again.
     function column-shown(column: int, shown: bool) {
+        if (!shown) {
+            root.last-removed-column = column;
+        } else if (root.last-removed-column == column) {
+            root.last-removed-column = -1;
+        }
         if (!shown && root.sort-column == column) {
             root.sort-column = 0;
             root.sort-descending = false;
             root.results-replaced();
             root.sort-changed(0, false);
         }
+    }
+
+    // The optional column last hidden (4 to 14), -1 for none: Restore
+    // removed column shows it again.
+    in-out property <int> last-removed-column: -1;
+    // Organize columns: the dialog is open, and what is typed into its
+    // column search.
+    in-out property <bool> organize-open;
+    in-out property <string> organize-filter;
+    // The columns of Organize columns that match the column search (see
+    // src/columns.rs).
+    pure callback filter-columns([ColumnChoice], string) -> [ColumnChoice];
+    // Every column for Organize columns, in the order of the list.
+    property <[ColumnChoice]> column-choices: [
+        { title: @tr("Name"), column: 0, checked: true, enabled: false },
+        { title: @tr("Folder"), column: 1, checked: true, enabled: false },
+        { title: @tr("Size"), column: 2, checked: true, enabled: false },
+        { title: @tr("Modified"), column: 3, checked: true, enabled: false },
+        { title: @tr("Type"), column: 4, checked: root.show-type, enabled: true },
+        { title: @tr("Extension"), column: 5, checked: root.show-ext, enabled: true },
+        { title: @tr("Created"), column: 6, checked: root.show-created, enabled: true },
+        { title: @tr("Accessed"), column: 7, checked: root.show-accessed, enabled: true },
+        { title: @tr("Attributes"), column: 8, checked: root.show-attrs, enabled: true },
+        { title: @tr("MD5"), column: 9, checked: root.show-md5, enabled: true },
+        { title: @tr("SHA-256"), column: 10, checked: root.show-sha256, enabled: true },
+        { title: @tr("CRC-32"), column: 11, checked: root.show-crc32, enabled: true },
+        { title: @tr("Same name"), column: 12, checked: root.show-name-freq, enabled: true },
+        { title: @tr("Same extension"), column: 13, checked: root.show-ext-freq, enabled: true },
+        { title: @tr("Same size"), column: 14, checked: root.show-size-freq, enabled: true },
+    ];
+
+    // Shows or hides optional column c (4 to 14).
+    function set-column-shown(c: int, on: bool) {
+        if (c == 4) { root.show-type = on; }
+        else if (c == 5) { root.show-ext = on; }
+        else if (c == 6) { root.show-created = on; }
+        else if (c == 7) { root.show-accessed = on; }
+        else if (c == 8) { root.show-attrs = on; }
+        else if (c == 9) { root.show-md5 = on; }
+        else if (c == 10) { root.show-sha256 = on; }
+        else if (c == 11) { root.show-crc32 = on; }
+        else if (c == 12) { root.show-name-freq = on; }
+        else if (c == 13) { root.show-ext-freq = on; }
+        else if (c == 14) { root.show-size-freq = on; }
+        else { return; }
+        root.column-shown(c, on);
+    }
+
+    // Back to the columns of a first start: only Name, Folder, Size and
+    // Modified, at their default widths, Name at its share of the window.
+    function reset-columns() {
+        if (root.sort-column > 3) {
+            root.column-shown(root.sort-column, false);
+        }
+        root.show-type = false;
+        root.show-ext = false;
+        root.show-created = false;
+        root.show-accessed = false;
+        root.show-attrs = false;
+        root.show-md5 = false;
+        root.show-sha256 = false;
+        root.show-crc32 = false;
+        root.show-name-freq = false;
+        root.show-ext-freq = false;
+        root.show-size-freq = false;
+        root.size-want = 96px;
+        root.date-want = 120px;
+        root.type-want = 130px;
+        root.ext-want = 80px;
+        root.created-want = 120px;
+        root.accessed-want = 120px;
+        root.size-freq-want = 110px;
+        root.ext-freq-want = 110px;
+        root.name-freq-want = 110px;
+        root.crc32-want = 90px;
+        root.sha256-want = 300px;
+        root.md5-want = 270px;
+        root.attr-want = 64px;
+        root.folder-want = 0px;
+        root.name-set = false;
+        root.name-want = (root.width - root.size-want - root.date-want) * 0.48;
+        root.last-removed-column = -1;
     }
 
     // Back to the top of a new result list.
@@ -1656,6 +1752,9 @@ export component AppWindow inherits Window {
         }
         if (c == Command.export-results || c == Command.select-all || c == Command.invert-selection) {
             return root.results.length > 0;
+        }
+        if (c == Command.restore-removed-column) {
+            return root.last-removed-column >= 4;
         }
         return c != Command.none;
     }
@@ -1871,6 +1970,13 @@ export component AppWindow inherits Window {
             root.about-open = true;
         } else if (c == Command.refresh) {
             root.refresh();
+        } else if (c == Command.organize-columns) {
+            root.organize-filter = "";
+            root.organize-open = true;
+        } else if (c == Command.reset-columns) {
+            root.reset-columns();
+        } else if (c == Command.restore-removed-column) {
+            root.set-column-shown(root.last-removed-column, true);
         } else if (c == Command.fit-columns) {
             root.fit-all-columns();
         } else if (c == Command.fit-columns-to-window) {
@@ -2295,6 +2401,20 @@ export component AppWindow inherits Window {
                             MenuItem {
                                 title: @tr("Fit columns to window");
                                 activated => { root.run(Command.fit-columns-to-window); }
+                            }
+                            MenuSeparator { }
+                            MenuItem {
+                                title: @tr("Organize columns…");
+                                activated => { root.run(Command.organize-columns); }
+                            }
+                            MenuItem {
+                                title: @tr("Restore removed column");
+                                enabled: root.can-run(Command.restore-removed-column);
+                                activated => { root.run(Command.restore-removed-column); }
+                            }
+                            MenuItem {
+                                title: @tr("Reset columns");
+                                activated => { root.run(Command.reset-columns); }
                             }
                         }
                         HeaderCell {
@@ -3173,6 +3293,45 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.organize-open: InfoDialog {
+        title: @tr("Organize columns");
+        card-width: 360px;
+        close => {
+            root.organize-open = false;
+            search.focus-and-select();
+        }
+        LineEdit {
+            placeholder-text: @tr("Search columns");
+            text <=> root.organize-filter;
+        }
+        Text {
+            text: @tr("Name, Folder, Size and Modified are always shown.");
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+        VerticalLayout {
+            spacing: Theme.s1;
+            for item in root.filter-columns(root.column-choices, root.organize-filter): CheckBox {
+                text: item.title;
+                checked: item.checked;
+                enabled: item.enabled;
+                toggled => { root.set-column-shown(item.column, self.checked); }
+            }
+        }
+        HorizontalLayout {
+            spacing: Theme.s2;
+            alignment: start;
+            Button {
+                text: @tr("Restore removed column");
+                enabled: root.can-run(Command.restore-removed-column);
+                clicked => { root.run(Command.restore-removed-column); }
+            }
+            Button {
+                text: @tr("Reset columns");
+                clicked => { root.run(Command.reset-columns); }
+            }
+        }
+    }
     if root.about-open: InfoDialog {
         title: @tr("About EveryGrep");
         close => {
@@ -3454,6 +3613,24 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.fit-columns-to-window;
                 enabled: root.can-run(Command.fit-columns-to-window);
                 activated => { root.run(Command.fit-columns-to-window); }
+            }
+            MenuItem {
+                title: @tr("Organize columns…");
+                shortcut: root.menu-keys.organize-columns;
+                enabled: root.can-run(Command.organize-columns);
+                activated => { root.run(Command.organize-columns); }
+            }
+            MenuItem {
+                title: @tr("Restore removed column");
+                shortcut: root.menu-keys.restore-removed-column;
+                enabled: root.can-run(Command.restore-removed-column);
+                activated => { root.run(Command.restore-removed-column); }
+            }
+            MenuItem {
+                title: @tr("Reset columns");
+                shortcut: root.menu-keys.reset-columns;
+                enabled: root.can-run(Command.reset-columns);
+                activated => { root.run(Command.reset-columns); }
             }
             MenuSeparator { }
             Menu {

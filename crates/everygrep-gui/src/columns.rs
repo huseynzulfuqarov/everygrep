@@ -146,9 +146,54 @@ pub fn drag_in_window(
     }
 }
 
+/// Folded for the column search: lower case, without diacritics.
+fn folded(text: &str) -> Vec<u8> {
+    everygrep_core::fold::strip_diacritics(&everygrep_core::fold::fold(text.as_bytes()))
+}
+
+/// Whether a column titled `title` matches what was typed into the column
+/// search of Organize columns: every word typed is part of the title,
+/// ignoring case and diacritics. Nothing typed matches every column.
+pub fn title_matches(title: &str, typed: &str) -> bool {
+    let title = folded(title);
+    typed.split_whitespace().all(|word| {
+        let word = folded(word);
+        title.windows(word.len()).any(|w| w == word.as_slice())
+    })
+}
+
+/// The columns of Organize columns that match the column search.
+pub fn filter_choices(
+    items: slint::ModelRc<crate::ColumnChoice>,
+    typed: slint::SharedString,
+) -> slint::ModelRc<crate::ColumnChoice> {
+    use slint::Model;
+    let shown: Vec<_> = items
+        .iter()
+        .filter(|c| title_matches(&c.title, &typed))
+        .collect();
+    slint::ModelRc::new(slint::VecModel::from(shown))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_column_search_matches_parts_of_titles() {
+        assert!(title_matches("Same extension", ""));
+        assert!(title_matches("Same extension", "  "));
+        assert!(title_matches("Same extension", "same"));
+        assert!(title_matches("Same extension", "EXT"));
+        assert!(title_matches("Same extension", "same ext"));
+        assert!(!title_matches("Same extension", "size"));
+        assert!(!title_matches("Same extension", "ext size"));
+        // Case and diacritics are ignored, both ways.
+        assert!(title_matches("Yaradılma tarixi", "TARİXİ"));
+        assert!(title_matches("Uzantı sıklığı", "siklig"));
+        assert!(title_matches("Size", "SİZE"));
+        assert!(title_matches("SHA-256", "sha-2"));
+    }
 
     /// `first` and zeros for the columns after them.
     fn pad(first: &[f32]) -> [f32; COLUMNS] {
