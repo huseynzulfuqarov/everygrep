@@ -3307,3 +3307,39 @@ msgstr[1] "Taşınıyor: geri alma için {} öğe denetlendi"
 
 msgid "Source path"
 msgstr "Kaynak yolu"
+
+#: ui/advanced.slint
+msgid "Word or phrase in the file"
+msgstr "Dosyanın içindeki sözcük veya ifade"
+
+#: ui/advanced.slint
+msgid "Text encoding"
+msgstr "Metin kodlaması"
+
+#: ui/advanced.slint
+msgid "Code page from Settings"
+msgstr "Ayarlardaki kod sayfası"
+
+#: ui/advanced.slint
+msgid "Match case in file contents"
+msgstr "Dosya içeriklerinde büyük/küçük harfe duyarlı"
+
+#: ui/advanced.slint
+msgid "Whole words in file contents"
+msgstr "Dosya içeriklerinde tam sözcük"
+
+#: ui/advanced.slint
+msgid "Regular expression in file contents"
+msgstr "Dosya içeriklerinde düzenli ifade"
+
+#: ui/advanced.slint
+msgid "File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. Text is matched line by line; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."
+msgstr "Dosya içerikleri dizinde tutulmaz: diğer alanların bıraktığı her dosya diskten okunur; daha az dosya okumak için bir klasör, tür veya ad ekleyin. Metin satır satır karşılaştırılır; Otomatik, UTF-8'i, bayt sırası işaretli (BOM) UTF-16'yı ve diğer dosyaları Ayarlardaki kod sayfasında okur."
+
+#: src/advanced_query.rs
+msgid "Choose a supported text encoding."
+msgstr "Desteklenen bir metin kodlaması seçin."
+
+#: src/advanced_query.rs
+msgid "File contents are searched line by line; remove the line break."
+msgstr "Dosya içerikleri satır satır aranır; satır sonu karakterini silin."

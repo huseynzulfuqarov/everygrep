@@ -32,6 +32,12 @@ export component AdvancedWindow inherits Window {
     in-out property <bool> match-case;
     in-out property <bool> whole-words;
     in-out property <bool> diacritics;
+    in-out property <string> content-text;
+    in-out property <bool> content-case;
+    in-out property <bool> content-whole-words;
+    in-out property <bool> content-regex;
+    // 0 automatic, 1 the code page of Settings, 2 UTF-8, 3 UTF-16 LE, 4 UTF-16 BE.
+    in-out property <int> content-encoding;
     in property <[string]> filter-names;
     in-out property <int> filter-index;
     in property <string> notice;
@@ -77,6 +83,24 @@ export component AdvancedWindow inherits Window {
                 CheckBox { text: @tr("Whole words"); checked <=> root.whole-words; }
                 CheckBox { text: @tr("Match diacritics"); checked <=> root.diacritics; }
             }
+            Text { text: @tr("File contents"); color: Theme.text; font-weight: 600; }
+            GridLayout {
+                spacing: Theme.s2;
+                Row {
+                    Text { text: @tr("Word or phrase in the file"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Word or phrase in the file"); text <=> root.content-text; }
+                }
+                Row {
+                    Text { text: @tr("Text encoding"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox { accessible-label: @tr("Text encoding"); model: [@tr("Automatic"), @tr("Code page from Settings"), "UTF-8", "UTF-16 LE", "UTF-16 BE"]; current-index <=> root.content-encoding; }
+                }
+            }
+            HorizontalLayout {
+                CheckBox { text: @tr("Match case"); accessible-label: @tr("Match case in file contents"); checked <=> root.content-case; }
+                CheckBox { text: @tr("Whole words"); accessible-label: @tr("Whole words in file contents"); checked <=> root.content-whole-words; }
+                CheckBox { text: @tr("Regular expression"); accessible-label: @tr("Regular expression in file contents"); checked <=> root.content-regex; }
+            }
+            Text { text: @tr("File contents are not in the index: each file the other fields leave is read from disk, so add a folder, type or name to read fewer files. Text is matched line by line; Automatic reads UTF-8, UTF-16 with a byte order mark, and other files in the code page from Settings."); color: Theme.text-muted; wrap: word-wrap; }
             GridLayout {
                 spacing: Theme.s2;
                 Row {

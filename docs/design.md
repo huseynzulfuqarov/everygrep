@@ -464,6 +464,9 @@ size/date ranges build the query. Dates are local YYYY-MM-DD. Empty bounds are
 unrestricted; invalid or reversed ranges leave the main field unchanged.
 Use query replaces the field, applies the form's matching modes and follows
 Search as you type. The form never tries to reverse-parse an existing query.
+A File contents section (word or phrase, its own match case / whole words /
+regular expression, text encoding) adds one `content:` term; a note says file
+contents are read from disk, so narrowing fields make it faster.
 
 ### Search tabs and session
 

@@ -898,8 +898,15 @@ It offers a location with optional subfolders, the current filter, files or
 folders, extensions, size and modified/created/accessed date ranges. Sizes use
 bytes or binary KiB/MiB/GiB; dates are local `YYYY-MM-DD` and both ends are
 inclusive. Empty ends impose no limit. Use query replaces the field and follows
-Search as you type; with that setting off, press Enter to run it. Content and
-unsupported metadata conditions are omitted.
+Search as you type; with that setting off, press Enter to run it. Unsupported
+metadata conditions are omitted.
+
+Its File contents section adds one `content:` term: a word or phrase found on
+one line of the file, with its own Match case, Whole words and Regular
+expression switches (the ones above apply to names), and the text encoding:
+Automatic (`content:`), the code page from Settings (`content-codepage:`), UTF-8
+(`content-utf8:`), UTF-16 LE (`content-utf16le:`) or UTF-16 BE (`content-utf16be:`).
+The text is quoted, so operators and modifiers in it are text to find.
 
 Advanced Search rejects extension lists combined with Folders or Files without
 an extension. Its form and the saved-item editor scroll in short work areas.

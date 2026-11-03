@@ -541,7 +541,16 @@ Size units become exact byte comparisons with checked arithmetic; dates validate
 calendar days before emitting inclusive dm/dc/da comparisons. A full engine
 parse validates the output before changing the field. Filter choices are held
 by value, so a concurrent organizer edit cannot make an index select another
-filter. No form data is persisted and no content query is generated.
+filter. No form data is persisted.
+
+The File contents fields add one `content:` term at the end, always with
+explicit `case:`/`nocase:`, `wholeword:`/`nowholeword:` and `regex:`/`noregex:` modifiers so the
+window's name options do not apply to it, and the encoding function chosen
+(`content`, `content-codepage`, `content-utf8`, `content-utf16le`, `content-utf16be`). The
+text is quoted; a literal text with a quote or control character becomes an
+escaped regex, and in a user regex a quote or control character (escaped or
+not) becomes its `\x{..}` form. A line break is refused (contents are matched
+per line). One term keeps five slots free for a filter's content terms.
 
 ### Search tabs (`tabs.rs`, `tabs_ui.rs`, `ui/tabs.slint`)
 

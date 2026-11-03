@@ -41,6 +41,10 @@ First version, 0.1.0, not released yet.
 
 - Advanced Search builds safe queries for words, paths, kinds, extensions and
   inclusive size/date ranges, with validation before replacing the search field.
+- Advanced Search has a File contents section: a word or phrase to find inside
+  the files, its own match case, whole words and regular expression switches,
+  and the text encoding (automatic, the Settings code page, UTF-8, UTF-16 LE or
+  BE). It adds one quoted `content:` term to the query.
 
 - Optional per-filter and per-bookmark shortcuts reject conflicts with saved
   items and command keys; keyboard settings checks saved keys too.

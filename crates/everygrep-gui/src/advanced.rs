@@ -113,6 +113,11 @@ impl State {
                     w.get_accessed_to().to_string(),
                 ),
             ],
+            content: w.get_content_text().to_string(),
+            content_case: w.get_content_case(),
+            content_whole_words: w.get_content_whole_words(),
+            content_regex: w.get_content_regex(),
+            content_encoding: w.get_content_encoding(),
         };
         let options = QueryOptions {
             case_sensitive: w.get_match_case(),
