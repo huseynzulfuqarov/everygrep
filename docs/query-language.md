@@ -417,6 +417,10 @@ order shown, and its members follow in that order.
   | `distinct:` | one of each: the first of each group and every result without a duplicate |
   | `unique:` | only the results without a duplicate |
 
+  In the window, with Settings → Appearance → alternate row color on,
+  every second group of a `duplicates:` or `extra-copies:` list is shaded
+  (instead of every second row), so the groups stand apart.
+
   `duplicates:` and `extra-copies:` are short names of `duplicates:` and
   `extra-copies:`.
 - Like `limit:`, the term applies to the whole query wherever it is written,

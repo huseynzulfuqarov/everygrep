@@ -67,11 +67,19 @@ pub enum IndexState {
     Unwatched,
 }
 
+/// What a content or duplicate search found: the sorted results, their
+/// duplicate group numbers, the epoch of their ids and the version of the
+/// index they were found in.
+type Found = (Vec<NodeId>, Vec<u32>, u64, u64);
+
 /// The finished result of one search.
 pub struct SearchResult {
     /// Completion of these rows, captured before delivery to the window.
     pub settled: Option<SettledSearch>,
     pub ids: Arc<Vec<NodeId>>,
+    /// For a duplicate search listing whole groups, the number of the group
+    /// of each row (see [`dupe::Dupes::group_numbers`]); empty otherwise.
+    pub groups: Arc<Vec<u32>>,
     /// Text terms of the query, for highlighting matches in names.
     pub terms: Arc<Vec<HighlightTerm>>,
     pub took: Duration,
@@ -1378,7 +1386,7 @@ impl Engine {
                     let terms = Arc::new(std::mem::take(&mut terms));
                     let found = self.search_contents(generation, &state, &query, started, &terms);
                     match found {
-                        Ok(Some((ids, at, searched))) => {
+                        Ok(Some((ids, groups, at, searched))) => {
                             epoch = at;
                             let mut q = self.content_state.lock().expect("lock");
                             q.stopped = false;
@@ -1393,6 +1401,7 @@ impl Engine {
                                         epoch,
                                     }),
                                     ids: Arc::new(ids),
+                                    groups: Arc::new(groups),
                                     terms,
                                     took: started.elapsed(),
                                     error: None,
@@ -1488,6 +1497,7 @@ impl Engine {
                         epoch,
                     }),
                     ids: Arc::new(ids),
+                    groups: Arc::default(),
                     terms: Arc::new(terms),
                     took: started.elapsed(),
                     error,
@@ -1501,7 +1511,8 @@ impl Engine {
 
     /// Runs a query with `content:` terms: the index part under a read lock,
     /// then the files without it, showing the matches so far now and then.
-    /// Returns the sorted results, the epoch of their ids and the version of
+    /// Returns the sorted results, their duplicate group numbers (see
+    /// [`SearchResult::groups`]), the epoch of their ids and the version of
     /// the index they were found in, `None` when
     /// quitting began, or why it stopped: [`Stopped::ContentSearch`] when
     /// the user cancelled it after matches were shown, [`Stopped::Search`]
@@ -1514,7 +1525,7 @@ impl Engine {
         query: &Query,
         started: Instant,
         terms: &Arc<Vec<HighlightTerm>>,
-    ) -> Result<Option<(Vec<NodeId>, u64, u64)>, Stopped> {
+    ) -> Result<Option<Found>, Stopped> {
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let task = self.tasks.begin(TaskKind::Searching, true);
         if !self.is_current(generation) {
@@ -1634,7 +1645,8 @@ impl Engine {
             }
             query.apply_limit(&mut ids);
         }
-        Ok(Some((ids, epoch, version)))
+        let groups = dupes.map_or_else(Vec::new, |d| d.group_numbers(&ids));
+        Ok(Some((ids, groups, epoch, version)))
     }
 
     /// The index again after files were read without it: `None` when
@@ -1711,6 +1723,7 @@ impl Engine {
         (self.hooks.on_results)(SearchResult {
             settled: None,
             ids: Arc::new(ids),
+            groups: Arc::default(),
             terms: Arc::clone(terms),
             took: started.elapsed(),
             error: None,
@@ -3609,6 +3622,11 @@ mod tests {
 
         /// The names of the results of `query` in their order.
         fn listed(&self, query: &str) -> Vec<String> {
+            self.listed_in_groups(query).0
+        }
+
+        /// The names listed and their duplicate group numbers.
+        fn listed_in_groups(&self, query: &str) -> (Vec<String>, Vec<u32>) {
             while self.results.try_recv().is_ok() {}
             self.engine.set_query(query, QueryOptions::default());
             loop {
@@ -3620,11 +3638,12 @@ mod tests {
                     continue;
                 }
                 let index = self.engine.index.read().unwrap();
-                return r
+                let names = r
                     .ids
                     .iter()
                     .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
                     .collect();
+                return (names, r.groups.to_vec());
             }
         }
     }
@@ -5165,6 +5184,7 @@ mod tests {
         model.set_result(&SearchResult {
             settled: None,
             ids: Arc::new(vec![NodeId(len + 100)]),
+            groups: Arc::default(),
             terms: Arc::new(Vec::new()),
             took: Duration::ZERO,
             error: None,
@@ -5299,6 +5319,7 @@ mod tests {
             model.set_result(&SearchResult {
                 settled: None,
                 ids: ids.clone(),
+                groups: Arc::default(),
                 terms: Arc::default(),
                 took: Duration::ZERO,
                 error: None,
@@ -5837,6 +5858,11 @@ mod tests {
             ["big1", "big2", "a.txt", "b.txt"]
         );
         assert_eq!(probe.listed("extra-copies:"), ["big2", "b.txt"]);
+        // Whole groups carry their numbers in the order shown, so the
+        // window can shade them in turn.
+        assert_eq!(probe.listed_in_groups("duplicates:").1, [1, 1, 2, 2]);
+        assert!(probe.listed_in_groups("distinct:").1.is_empty());
+        assert!(probe.listed_in_groups("a.txt").1.is_empty());
         assert_eq!(probe.listed("unique: file:"), ["c.txt"]);
         // Without contents nothing is read.
         assert_eq!(

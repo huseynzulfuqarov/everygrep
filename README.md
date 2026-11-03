@@ -445,7 +445,7 @@ the program behaves as before, except that folders show their total size.
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
-| | alternate row color: every second row slightly darker (lighter in the dark theme) | on |
+| | alternate row color: every second row slightly darker (lighter in the dark theme); in a `duplicates:` or `extra-copies:` list every second group of copies instead | on |
 | | size format: automatic, bytes, KB, MB or GB | automatic |
 | | size units: 1 KB = 1024 bytes, 1 KiB = 1024 bytes, or 1 KB = 1000 bytes | 1 KB = 1024 bytes |
 | | details of the selected items in the status line | on |

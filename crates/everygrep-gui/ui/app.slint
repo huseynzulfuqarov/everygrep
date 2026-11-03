@@ -59,6 +59,9 @@ export struct ResultRow {
     selected: bool,
     // On a drive that is not connected: drawn dimmed, actions refused.
     offline: bool,
+    // The number of its group of duplicates, from 1; 0 when the list is not
+    // in groups.
+    group: int,
 }
 
 // One choice of a group in a menu (theme, density, filter, ...), with its
@@ -4948,7 +4951,9 @@ export component AppWindow inherits Window {
                                 width: root.table-width;
                                 data: row;
                                 current: i == root.current && keys.has-focus;
-                                alternate: root.alternate-rows && Math.mod(i, 2) == 1;
+                                // Groups of duplicates are shaded in turn
+                                // instead of single rows.
+                                alternate: root.alternate-rows && (row.group > 0 ? Math.mod(row.group, 2) == 0 : Math.mod(i, 2) == 1);
                                 name-width: root.name-width;
                                 folder-width: root.folder-width;
                                 size-width: root.size-width;

@@ -267,7 +267,8 @@ First version, 0.1.0, not released yet.
   `unique:` the results without a duplicate. Groups stay together in the
   order shown.  Empty files are left out unless
   Settings → Search → Duplicates counts them; the same page can have files
-  with equal hashes compared byte by byte as well.
+  with equal hashes compared byte by byte as well. With alternate row
+  colors on, the window shades every second group of copies.
 
 ### Command line
 

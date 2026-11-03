@@ -216,6 +216,27 @@ impl Dupes {
         self.groups
     }
 
+    /// For each entry of `shown` (what [`arrange`](Self::arrange) gave,
+    /// perhaps shortened): the number of its group, counted from 1 in the
+    /// order the groups are shown, so a list can tell the groups apart.
+    /// Empty for [`DupeMode::Distinct`] and [`DupeMode::Unique`], which list
+    /// one entry of a group at most.
+    pub fn group_numbers(&self, shown: &[NodeId]) -> Vec<u32> {
+        if matches!(self.mode, DupeMode::Distinct | DupeMode::Unique) {
+            return Vec::new();
+        }
+        let mut number: HashMap<u32, u32> = HashMap::new();
+        shown
+            .iter()
+            .map(|id| {
+                self.group_of.get(id).map_or(0, |&g| {
+                    let next = number.len() as u32 + 1;
+                    *number.entry(g).or_insert(next)
+                })
+            })
+            .collect()
+    }
+
     /// The entries the mode may list, in the order of the results given
     /// (name order for a search), to be sorted and then given to
     /// [`arrange`](Self::arrange).
@@ -1109,14 +1130,20 @@ mod tests {
         // Another order: 5 first brings its group, in that order.
         let sorted = [5, 4, 3, 2, 1].map(NodeId);
         assert_eq!(dupes.arrange(&sorted), [5, 3, 2, 4, 1].map(NodeId));
+        assert_eq!(
+            dupes.group_numbers(&dupes.arrange(&sorted)),
+            [1, 1, 1, 2, 2]
+        );
         dupes.mode = DupeMode::Extra;
         assert_eq!(dupes.arrange(&sorted), [3, 2, 1].map(NodeId));
+        assert_eq!(dupes.group_numbers(&[3, 2, 1].map(NodeId)), [1, 1, 2]);
         dupes.mode = DupeMode::Distinct;
         assert_eq!(dupes.to_sort(), ids);
         assert_eq!(
             dupes.arrange(&[0, 5, 4, 3, 2, 1].map(NodeId)),
             [0, 5, 4].map(NodeId)
         );
+        assert!(dupes.group_numbers(&[0, 5, 4].map(NodeId)).is_empty());
         dupes.mode = DupeMode::Unique;
         assert_eq!(dupes.to_sort(), [NodeId(0)]);
         assert_eq!(dupes.arrange(&[NodeId(0)]), [NodeId(0)]);
