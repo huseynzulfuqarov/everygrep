@@ -1514,19 +1514,22 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
         let (engine, weak) = (engine.clone(), weak.clone());
         let title = tr("Export results");
         let accept = tr("Export");
-        let csv = tr("CSV: name, folder, size, modified");
-        let text = tr("Text: full paths");
+        // In the order of `export::Format::ALL`.
+        let names = [
+            tr("CSV: name, folder, size, modified"),
+            tr("TSV: name, folder, size, modified"),
+            tr("Text: full paths"),
+            tr("M3U8 playlist: full paths"),
+            tr("JSON: name, folder, size, modified"),
+            tr("HTML table: name, folder, size, modified"),
+        ];
         std::thread::spawn(move || {
-            let filters = [
-                portal::SaveFilter {
-                    name: csv,
-                    pattern: "*.csv",
-                },
-                portal::SaveFilter {
-                    name: text,
-                    pattern: "*.txt",
-                },
-            ];
+            let patterns = export::Format::ALL.map(|f| format!("*.{}", f.extension()));
+            let filters: Vec<portal::SaveFilter> = names
+                .iter()
+                .zip(&patterns)
+                .map(|(name, pattern)| portal::SaveFilter { name, pattern })
+                .collect();
             let chosen = portal::save_file(title, accept, "everygrep-results.csv", &filters);
             let outcome = match chosen {
                 Ok(Some((path, filter))) => {

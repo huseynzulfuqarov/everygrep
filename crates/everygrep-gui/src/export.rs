@@ -1,6 +1,6 @@
 //! Exporting the result list to a file.
 //!
-//! Two formats:
+//! The formats:
 //!
 //! - **CSV** (RFC 4180, UTF-8, `\r\n` line ends): a header line
 //!   `Name,Folder,Size,Modified,Offline`, then one line per result: the name,
@@ -9,12 +9,25 @@
 //!   `YYYY-MM-DD HH:MM:SS` (empty when unknown) and `yes` for an entry of a
 //!   drive that is not connected. Fields with a comma, a quote or a line
 //!   break are quoted, quotes doubled.
+//! - **TSV** (UTF-8, `\n` line ends): the same columns separated by tabs. A
+//!   backslash, line feed, carriage return or tab in a field is written as
+//!   `\\`, `\n`, `\r` or `\t`, so every result is one line.
 //! - **Text**: one full path per line (`\n`); an entry of a drive that is not
-//!   connected is followed by a tab and `(offline)`. A backslash, line feed,
-//!   carriage return or tab in a path is written as `\\`, `\n`, `\r` or
-//!   `\t`.
+//!   connected is followed by a tab and `(offline)`. Paths are escaped as in
+//!   TSV.
+//! - **M3U8** (an extended playlist in UTF-8): `#EXTM3U`, then one full path
+//!   per line. A path that is not UTF-8 is written as a `file://` URI with
+//!   every byte other than an ASCII letter, digit, `-._~` and `/` as `%XX`
+//!   (RFC 8089), so the entry still names that very file. A playlist line
+//!   cannot hold a line break, so a path with one is left out.
+//! - **JSON**: an array with one object per result, `{"name", "folder",
+//!   "size", "modified", "offline"}`; `modified` is the local time as above,
+//!   or `null` when unknown.
+//! - **HTML**: a page with a table of the CSV columns, for reading in a web
+//!   browser or pasting into a spreadsheet.
 //!
-//! Bytes of names that are not UTF-8 become U+FFFD. The file is written to a
+//! In the other formats, bytes of names that are not UTF-8 become U+FFFD.
+//! The file is written to a
 //! temporary file in the same folder, synced and renamed over the target, so
 //! the target holds either its old contents or the whole export.
 
@@ -28,22 +41,38 @@ use everygrep_core::localtime::Zone;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
     Csv,
+    Tsv,
     Text,
+    M3u8,
+    Json,
+    Html,
 }
 
 impl Format {
-    pub const ALL: [Format; 2] = [Format::Csv, Format::Text];
+    /// Every format, in the order of the save dialog's file types.
+    pub const ALL: [Format; 6] = [
+        Format::Csv,
+        Format::Tsv,
+        Format::Text,
+        Format::M3u8,
+        Format::Json,
+        Format::Html,
+    ];
 
     /// The extension a file of this format gets, without the dot.
     pub fn extension(self) -> &'static str {
         match self {
             Format::Csv => "csv",
+            Format::Tsv => "tsv",
             Format::Text => "txt",
+            Format::M3u8 => "m3u8",
+            Format::Json => "json",
+            Format::Html => "html",
         }
     }
 
-    /// The format a file name asks for by its extension (`.csv`, `.txt`,
-    /// any case).
+    /// The format a file name asks for by its extension (`.csv`, `.tsv`,
+    /// `.txt`, `.m3u8`, `.json`, `.html`, any case).
     pub fn of_path(path: &Path) -> Option<Format> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
         Format::ALL.into_iter().find(|f| f.extension() == ext)
@@ -93,7 +122,8 @@ pub struct Writer {
 
 impl Writer {
     /// Starts an export to `target`: creates the temporary file next to it
-    /// and writes the CSV header.
+    /// and writes the start of the format (a header line, the playlist tag,
+    /// the opening of the array or the page).
     pub fn create(target: &Path, format: Format, zone: Zone) -> io::Result<Self> {
         let (file, tmp) = crate::settings::create_temp(target)?;
         let mut w = Self {
@@ -104,51 +134,109 @@ impl Writer {
             zone,
             rows: 0,
         };
-        if format == Format::Csv {
-            if let Err(e) = w.out.write_all(b"Name,Folder,Size,Modified,Offline\r\n") {
-                w.abandon();
-                return Err(e);
-            }
+        let head: &[u8] = match format {
+            Format::Csv => b"Name,Folder,Size,Modified,Offline\r\n",
+            Format::Tsv => b"Name\tFolder\tSize\tModified\tOffline\n",
+            Format::Text => b"",
+            Format::M3u8 => b"#EXTM3U\n",
+            Format::Json => b"[",
+            Format::Html => HTML_HEAD.as_bytes(),
+        };
+        if let Err(e) = w.out.write_all(head) {
+            w.abandon();
+            return Err(e);
         }
         Ok(w)
     }
 
     /// Appends one result.
     pub fn row(&mut self, row: &Row) -> io::Result<()> {
-        self.rows += 1;
         let out = &mut self.out;
+        let name = String::from_utf8_lossy(row.name);
+        let folder = String::from_utf8_lossy(row.folder);
         match self.format {
+            Format::Tsv => {
+                writeln!(
+                    out,
+                    "{}\t{}\t{}\t{}\t{}",
+                    text_line(&name),
+                    text_line(&folder),
+                    row.size,
+                    local_time(row.mtime_ns, &self.zone),
+                    if row.offline { "yes" } else { "" }
+                )?;
+            }
+            Format::M3u8 => {
+                let path = full_path_bytes(row);
+                if path.contains(&b'\n') || path.contains(&b'\r') {
+                    return Ok(());
+                }
+                match std::str::from_utf8(&path) {
+                    Ok(path) => writeln!(out, "{path}")?,
+                    Err(_) => writeln!(out, "{}", file_uri(&path))?,
+                }
+            }
+            Format::Json => {
+                out.write_all(if self.rows == 0 { b"\n" } else { b",\n" })?;
+                out.write_all(b"{\"name\":")?;
+                json_string(out, &name)?;
+                out.write_all(b",\"folder\":")?;
+                json_string(out, &folder)?;
+                write!(out, ",\"size\":{},\"modified\":", row.size)?;
+                match row.mtime_ns {
+                    0 => out.write_all(b"null")?,
+                    t => write!(out, "\"{}\"", local_time(t, &self.zone))?,
+                }
+                write!(out, ",\"offline\":{}}}", row.offline)?;
+            }
+            Format::Html => {
+                out.write_all(b"<tr><td>")?;
+                html_text(out, &name)?;
+                out.write_all(b"</td><td>")?;
+                html_text(out, &folder)?;
+                writeln!(
+                    out,
+                    "</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                    row.size,
+                    local_time(row.mtime_ns, &self.zone),
+                    if row.offline { "yes" } else { "" }
+                )?;
+            }
             Format::Csv => {
-                csv_field(out, &String::from_utf8_lossy(row.name))?;
+                csv_field(out, &name)?;
                 out.write_all(b",")?;
-                csv_field(out, &String::from_utf8_lossy(row.folder))?;
+                csv_field(out, &folder)?;
                 write!(
                     out,
                     ",{},{},{}\r\n",
                     row.size,
                     local_time(row.mtime_ns, &self.zone),
                     if row.offline { "yes" } else { "" }
-                )
+                )?;
             }
             Format::Text => {
-                let mut path = row.folder.to_vec();
-                if !path.is_empty() && !path.ends_with(b"/") {
-                    path.push(b'/');
-                }
-                path.extend_from_slice(row.name);
-                out.write_all(text_line(&String::from_utf8_lossy(&path)).as_bytes())?;
+                out.write_all(text_line(&full_path(row)).as_bytes())?;
                 if row.offline {
                     out.write_all(b"\t(offline)")?;
                 }
-                out.write_all(b"\n")
+                out.write_all(b"\n")?;
             }
         }
+        self.rows += 1;
+        Ok(())
     }
 
     /// Writes the rest, syncs and puts the file in place. Returns the number
     /// of rows.
     pub fn finish(mut self) -> io::Result<usize> {
+        let tail: &[u8] = match self.format {
+            Format::Json if self.rows > 0 => b"\n]\n",
+            Format::Json => b"]\n",
+            Format::Html => HTML_TAIL.as_bytes(),
+            _ => b"",
+        };
         let result = (|| {
+            self.out.write_all(tail)?;
             self.out.flush()?;
             self.out.get_ref().sync_all()?;
             fs::rename(&self.tmp, &self.target)
@@ -166,6 +254,84 @@ impl Writer {
     pub fn abandon(&mut self) {
         let _ = fs::remove_file(&self.tmp);
     }
+}
+
+/// The start of an HTML export, up to the first row.
+const HTML_HEAD: &str = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n\
+<title>EveryGrep results</title>\n<style>\n\
+body { font-family: sans-serif; margin: 1em; }\n\
+table { border-collapse: collapse; }\n\
+th, td { border: 1px solid #ccc; padding: 2px 8px; text-align: left; }\n\
+td:nth-child(3) { text-align: right; }\n\
+</style>\n</head>\n<body>\n<table>\n\
+<thead><tr><th>Name</th><th>Folder</th><th>Size</th><th>Modified</th><th>Offline</th></tr></thead>\n\
+<tbody>\n";
+
+/// The end of an HTML export.
+const HTML_TAIL: &str = "</tbody>\n</table>\n</body>\n</html>\n";
+
+/// The full path of a row, `/` between its folder and its name.
+fn full_path(row: &Row) -> String {
+    String::from_utf8_lossy(&full_path_bytes(row)).into_owned()
+}
+
+/// [`full_path`] as the bytes of the file system.
+fn full_path_bytes(row: &Row) -> Vec<u8> {
+    let mut path = row.folder.to_vec();
+    if !path.is_empty() && !path.ends_with(b"/") {
+        path.push(b'/');
+    }
+    path.extend_from_slice(row.name);
+    path
+}
+
+/// A `file://` URI of an absolute `path`: its bytes as they are, except
+/// that every byte other than an ASCII letter, digit, `-._~` and `/` is
+/// written as `%XX`.
+fn file_uri(path: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut uri = String::from("file://");
+    for &b in path {
+        if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
+            uri.push(char::from(b));
+        } else {
+            let _ = write!(uri, "%{b:02X}");
+        }
+    }
+    uri
+}
+
+/// A JSON string: quoted, with `"`, `\` and control characters escaped.
+fn json_string(out: &mut impl Write, text: &str) -> io::Result<()> {
+    out.write_all(b"\"")?;
+    for c in text.chars() {
+        match c {
+            '"' => out.write_all(b"\\\"")?,
+            '\\' => out.write_all(b"\\\\")?,
+            '\n' => out.write_all(b"\\n")?,
+            '\r' => out.write_all(b"\\r")?,
+            '\t' => out.write_all(b"\\t")?,
+            c if (c as u32) < 0x20 => write!(out, "\\u{:04x}", c as u32)?,
+            c => write!(out, "{c}")?,
+        }
+    }
+    out.write_all(b"\"")
+}
+
+/// Text in an HTML element: `&`, `<`, `>` and `"` as entities.
+fn html_text(out: &mut impl Write, text: &str) -> io::Result<()> {
+    let mut rest = text;
+    while let Some(i) = rest.find(['&', '<', '>', '"']) {
+        out.write_all(&rest.as_bytes()[..i])?;
+        out.write_all(match rest.as_bytes()[i] {
+            b'&' => b"&amp;",
+            b'<' => b"&lt;",
+            b'>' => b"&gt;",
+            _ => b"&quot;",
+        })?;
+        rest = &rest[i + 1..];
+    }
+    out.write_all(rest.as_bytes())
 }
 
 /// A path for the text format: `\`, line feed, carriage return and tab
@@ -294,6 +460,114 @@ mod tests {
         assert_eq!(left.len(), 2);
     }
 
+    /// The file that `format` makes of [`rows`].
+    fn export(format: Format, rows: &[Row]) -> String {
+        let dir = Scratch::new("export-format");
+        let path = dir.0.join(format!("out.{}", format.extension()));
+        let mut w = Writer::create(&path, format, utc()).unwrap();
+        for r in rows {
+            w.row(r).unwrap();
+        }
+        w.finish().unwrap();
+        fs::read_to_string(&path).unwrap()
+    }
+
+    #[test]
+    fn tsv_export_escapes_tabs_and_line_breaks() {
+        assert_eq!(
+            export(Format::Tsv, &rows()),
+            "Name\tFolder\tSize\tModified\tOffline\n\
+             report, final.pdf\t/home/u/Docs\t3145728\t2025-10-25 22:34:27\t\n\
+             say \"hi\"\\n.txt\t/run/media/u/USB\t0\t\tyes\n\
+             bad\u{fffd}byte\t/\t7\t1970-01-01 00:00:00\t\n"
+        );
+        let tab = Row {
+            name: b"a\tb\\c",
+            folder: b"/x\ty",
+            size: 1,
+            mtime_ns: 0,
+            offline: false,
+        };
+        assert_eq!(
+            export(Format::Tsv, &[tab]).lines().nth(1).unwrap(),
+            "a\\tb\\\\c\t/x\\ty\t1\t\t"
+        );
+    }
+
+    #[test]
+    fn playlist_export_leaves_out_paths_with_line_breaks() {
+        let dir = Scratch::new("export-m3u8");
+        let path = dir.0.join("out.m3u8");
+        let mut w = Writer::create(&path, Format::M3u8, utc()).unwrap();
+        for r in rows() {
+            w.row(&r).unwrap();
+        }
+        // The name with a line break is not counted.
+        assert_eq!(w.finish().unwrap(), 2);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "#EXTM3U\n/home/u/Docs/report, final.pdf\nfile:///bad%FFbyte\n"
+        );
+        // A path that is not UTF-8 is written as a file URI of its own
+        // bytes, so the entry still names that file.
+        let odd = Row {
+            name: b"song\xff #1%.mp3",
+            folder: b"/m\xe9/a b",
+            size: 1,
+            mtime_ns: 0,
+            offline: false,
+        };
+        assert_eq!(
+            export(Format::M3u8, &[odd]),
+            "#EXTM3U\nfile:///m%E9/a%20b/song%FF%20%231%25.mp3\n"
+        );
+    }
+
+    #[test]
+    fn json_export_is_an_array_of_objects() {
+        assert_eq!(
+            export(Format::Json, &rows()),
+            "[\n\
+             {\"name\":\"report, final.pdf\",\"folder\":\"/home/u/Docs\",\"size\":3145728,\
+             \"modified\":\"2025-10-25 22:34:27\",\"offline\":false},\n\
+             {\"name\":\"say \\\"hi\\\"\\n.txt\",\"folder\":\"/run/media/u/USB\",\"size\":0,\
+             \"modified\":null,\"offline\":true},\n\
+             {\"name\":\"bad\u{fffd}byte\",\"folder\":\"/\",\"size\":7,\
+             \"modified\":\"1970-01-01 00:00:00\",\"offline\":false}\n]\n"
+        );
+        assert_eq!(export(Format::Json, &[]), "[]\n");
+        let control = Row {
+            name: b"a\x01\\b\t",
+            folder: b"/",
+            size: 0,
+            mtime_ns: 0,
+            offline: false,
+        };
+        assert!(
+            export(Format::Json, &[control]).contains(r#""name":"a\u0001\\b\t""#),
+            "control characters and backslashes are escaped"
+        );
+    }
+
+    #[test]
+    fn html_export_escapes_markup() {
+        let row = Row {
+            name: b"<b>&\"x\".txt",
+            folder: b"/home/u",
+            size: 5,
+            mtime_ns: 0,
+            offline: true,
+        };
+        let page = export(Format::Html, &[row]);
+        assert!(page.starts_with("<!DOCTYPE html>\n"));
+        assert!(page.ends_with("</html>\n"));
+        assert!(page.contains(
+            "<tr><td>&lt;b&gt;&amp;&quot;x&quot;.txt</td><td>/home/u</td>\
+             <td>5</td><td></td><td>yes</td></tr>\n"
+        ));
+        assert!(!page.contains("<b>"));
+    }
+
     #[test]
     fn a_failed_export_leaves_the_old_file() {
         let dir = Scratch::new("export-keep");
@@ -338,6 +612,15 @@ mod tests {
             (p("a.txt"), Format::Text)
         );
         assert_eq!(target(p("a.list"), None), (p("a.list.csv"), Format::Csv));
+        assert_eq!(target(p("a.M3U8"), None), (p("a.M3U8"), Format::M3u8));
+        assert_eq!(
+            target(p("a"), Some(Format::Html)),
+            (p("a.html"), Format::Html)
+        );
+        for format in Format::ALL {
+            let name = format!("x.{}", format.extension());
+            assert_eq!(Format::of_path(Path::new(&name)), Some(format));
+        }
         // An existing file with the extension is not replaced unasked.
         fs::write(p("b.csv"), "x").unwrap();
         assert_eq!(target(p("b"), None), (p("b"), Format::Csv));

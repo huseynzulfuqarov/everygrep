@@ -334,7 +334,7 @@ tokens in `theme.slint`; `look.rs` resolves the theme setting, and
 `portal.rs` reads the desktop's light or dark preference
 (`org.freedesktop.portal.Settings`) and opens the folder chooser and the
 save dialog of the export (`org.freedesktop.portal.FileChooser`, `OpenFile`
-and `SaveFile`). `export.rs` writes the CSV or text export on a helper
+and `SaveFile`). `export.rs` writes the export (CSV, TSV, text, M3U8, JSON, HTML) on a helper
 thread, reading the index in chunks of 20 000 results under short read
 locks; if the ids change meaning meanwhile (a compaction), it stops and
 asks to export again.

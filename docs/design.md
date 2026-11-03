@@ -222,7 +222,7 @@ words.
 | Previous / next filter | `Alt+↑` / `Alt+↓` | filter selector, Search menu |
 | Show or hide the Type and Extension columns | — | header context menu, View menu |
 | New window over the same index | `Ctrl+N` | File menu |
-| Export the results (CSV or text) | `Ctrl+S` | File menu |
+| Export the results (CSV, TSV, text, M3U8, JSON or HTML) | `Ctrl+S` | File menu |
 | Refresh: run the search again and read the details of the shown rows afresh | `F5` | View menu |
 
 Actions apply to the selected rows when the row they start from is selected,

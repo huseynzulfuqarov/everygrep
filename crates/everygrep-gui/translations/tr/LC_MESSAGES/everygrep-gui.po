@@ -974,6 +974,22 @@ msgid "Text: full paths"
 msgstr "Metin: tam yollar"
 
 #: src/main.rs
+msgid "TSV: name, folder, size, modified"
+msgstr "TSV: ad, klasör, boyut, değiştirme tarihi"
+
+#: src/main.rs
+msgid "M3U8 playlist: full paths"
+msgstr "M3U8 çalma listesi: tam yollar"
+
+#: src/main.rs
+msgid "JSON: name, folder, size, modified"
+msgstr "JSON: ad, klasör, boyut, değiştirme tarihi"
+
+#: src/main.rs
+msgid "HTML table: name, folder, size, modified"
+msgstr "HTML tablosu: ad, klasör, boyut, değiştirme tarihi"
+
+#: src/main.rs
 msgid "There are no results to export."
 msgstr "Dışa aktarılacak sonuç yok."
 

@@ -185,7 +185,7 @@ executable file.
 | `Alt+B`, `Alt+E` | match prefix, match suffix |
 | `Alt+U`, `Alt+S` | ignore punctuation, ignore whitespace |
 | `Alt+↑` / `Alt+↓` | previous / next filter |
-| `Ctrl+S` | export the results to a CSV or text file |
+| `Ctrl+S` | export the results to a CSV, TSV, text, M3U8, JSON or HTML file |
 | `F5` | refresh: run the search again and read the Created, Accessed and Attributes values afresh |
 | `Ctrl+N` | new window over the same index (also with the menu bar hidden) |
 | `Ctrl+W` | close the window, as its close button does |
@@ -225,7 +225,12 @@ CSV file type) gives a CSV file with the columns `Name`, `Folder`, `Size`
 time, `YYYY-MM-DD HH:MM:SS`) and `Offline` (`yes` for an entry of a drive
 that is not connected); `.txt` gives one full path per line, where an
 offline entry is followed by a tab and `(offline)`, and a backslash, line
-break or tab in a path is written as `\\`, `\n`, `\r` or `\t`. The file is written to
+break or tab in a path is written as `\\`, `\n`, `\r` or `\t`. `.tsv` gives
+the CSV columns separated by tabs, with the same escapes in the name and the
+folder; `.m3u8` a UTF-8 playlist (`#EXTM3U`, then one full path per line; a
+path with a line break is left out); `.json` an array of objects with
+`name`, `folder`, `size`, `modified` (`null` when unknown) and `offline`;
+`.html` a web page with a table of the CSV columns. The file is written to
 a temporary file and renamed into place.
 
 The menu bar (File, Edit, View, Search, Index, Tools, Help) holds the same actions,
