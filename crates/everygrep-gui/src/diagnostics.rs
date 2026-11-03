@@ -222,9 +222,36 @@ pub fn report(f: &Facts) -> String {
     out
 }
 
+/// Tools → Open the settings file: the file to open, or why there is
+/// none (`None` for no settings folder at all).
+pub fn settings_file(path: Option<std::path::PathBuf>) -> Result<std::path::PathBuf, &'static str> {
+    match path {
+        Some(p) if p.is_file() => Ok(p),
+        Some(_) => Err(crate::i18n::tr(
+            "There is no settings file yet: every setting has its default value.",
+        )),
+        None => Err(crate::i18n::tr(
+            "Cannot find the settings folder: neither XDG_CONFIG_HOME nor HOME is set.",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::tests::Scratch;
+
+    #[test]
+    fn only_an_existing_settings_file_is_opened() {
+        let dir = Scratch::new("settings-file");
+        let file = dir.0.join("settings");
+        assert!(settings_file(Some(file.clone())).is_err());
+        assert!(settings_file(None).is_err());
+        std::fs::write(&file, "language = en\n").unwrap();
+        assert_eq!(settings_file(Some(file.clone())), Ok(file));
+        // A folder in its place is not a settings file.
+        assert!(settings_file(Some(dir.0.clone())).is_err());
+    }
 
     #[test]
     fn the_system_name_comes_from_os_release() {

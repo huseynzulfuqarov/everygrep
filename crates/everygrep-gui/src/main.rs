@@ -595,6 +595,7 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_clipboard(&window, &model, &engine);
     connect_export(&window, &model, &engine);
     connect_troubleshooting(&window, &engine);
+    connect_settings_file(&window);
     ON_PRESENT.with(|p| {
         *p.borrow_mut() = Some(Box::new({
             let (weak, engine, pause, prefs) = (weak.clone(), engine.clone(), pause, prefs.clone());
@@ -1594,6 +1595,28 @@ fn connect_troubleshooting(window: &AppWindow, engine: &Arc<Engine>) {
                 w.invoke_copy_text(text.into());
                 info(&w, tr("Troubleshooting information copied.").into());
             });
+        });
+    });
+}
+
+/// Tools → Open the settings file, in the desktop's application for it.
+/// Changes saved there apply at once when "Apply changes made to the
+/// settings file outside this window" is on (the default). Looking at the
+/// file can wait on a slow or hung file system, so it runs on a helper
+/// thread; the window only gets the status line.
+fn connect_settings_file(window: &AppWindow) {
+    let weak = window.as_weak();
+    window.on_open_settings_file(move || {
+        let weak = weak.clone();
+        std::thread::spawn(move || {
+            let note = match diagnostics::settings_file(settings::path()) {
+                Ok(path) => {
+                    open::open(&path);
+                    tr("Opening the settings file…")
+                }
+                Err(why) => why,
+            };
+            let _ = weak.upgrade_in_event_loop(move |w| info(&w, note.into()));
         });
     });
 }

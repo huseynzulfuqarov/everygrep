@@ -243,7 +243,10 @@ Index → Rebuild index now scans the folders to index again from scratch;
 Index → Pause index updates stops applying file changes (it is the "Watch for
 changes" setting, the other way round) until it is turned off again, which
 catches up with what changed meanwhile.
-Tools → Settings… and Tools → Customize shortcuts… open the settings. Help →
+Tools → Settings… and Tools → Customize shortcuts… open the settings; Tools →
+Open the settings file opens the file itself in the desktop's application
+for it (a text editor), and what is saved there applies at once while
+"Apply changes made to the settings file outside this window" is on. Help →
 Search syntax (`F1`), Regular expressions and Command line options open the
 help window, a short reference with examples on three pages; Help →
 Keyboard shortcuts lists every key; Help → Copy troubleshooting information

@@ -1101,6 +1101,8 @@ export component AppWindow inherits Window {
     in-out property <int> help-page;
     // Copies a report about the program and the system (no paths).
     callback copy-troubleshooting-info();
+    // Opens the settings file in the desktop's application for it.
+    callback open-settings-file();
 
     callback query-edited(string);
     callback generated-query-edited(string);
@@ -1817,6 +1819,8 @@ export component AppWindow inherits Window {
         } else if (c == Command.command-line-help) {
             root.help-page = 2;
             root.help-open = true;
+        } else if (c == Command.open-settings-file) {
+            root.open-settings-file();
         } else if (c == Command.copy-troubleshooting-info) {
             root.copy-troubleshooting-info();
         } else if (c == Command.about) {
@@ -3641,6 +3645,12 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.keyboard-settings;
                 enabled: root.can-run(Command.keyboard-settings);
                 activated => { root.run(Command.keyboard-settings); }
+            }
+            MenuItem {
+                title: @tr("Open the settings file");
+                shortcut: root.menu-keys.open-settings-file;
+                enabled: root.can-run(Command.open-settings-file);
+                activated => { root.run(Command.open-settings-file); }
             }
         }
         Menu {

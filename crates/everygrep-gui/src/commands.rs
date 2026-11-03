@@ -1128,6 +1128,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::OpenSettingsFile,
+        id: "tools.open-settings-file",
+        category: Category::Tools,
+        label: || tr("Open the settings file"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::ShortcutsHelp,
         id: "help.shortcuts",
         category: Category::Help,
@@ -1526,6 +1533,7 @@ impl Keymap {
             advanced_search => AdvancedSearch,
             settings => Settings,
             keyboard_settings => KeyboardSettings,
+            open_settings_file => OpenSettingsFile,
             shortcuts_help => ShortcutsHelp,
             search_syntax_help => SearchSyntaxHelp,
             regex_help => RegexHelp,

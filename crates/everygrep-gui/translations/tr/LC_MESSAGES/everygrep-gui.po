@@ -3185,3 +3185,15 @@ msgstr "Sorun giderme bilgilerini kopyala"
 
 msgid "Troubleshooting information copied."
 msgstr "Sorun giderme bilgileri kopyalandı."
+
+msgid "Open the settings file"
+msgstr "Ayarlar dosyasını aç"
+
+msgid "There is no settings file yet: every setting has its default value."
+msgstr "Henüz ayarlar dosyası yok: her ayar varsayılan değerinde."
+
+msgid "Cannot find the settings folder: neither XDG_CONFIG_HOME nor HOME is set."
+msgstr "Ayarlar klasörü bulunamıyor: ne XDG_CONFIG_HOME ne de HOME tanımlı."
+
+msgid "Opening the settings file…"
+msgstr "Ayarlar dosyası açılıyor…"
