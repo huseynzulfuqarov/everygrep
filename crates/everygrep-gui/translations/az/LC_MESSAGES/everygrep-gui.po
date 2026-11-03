@@ -3487,3 +3487,6 @@ msgstr "Yanlış müntəzəm ifadə."
 
 msgid "Technical details"
 msgstr "Texniki təfərrüatlar"
+
+msgid "Confirm export filename"
+msgstr "İxrac faylının adını təsdiqlə"

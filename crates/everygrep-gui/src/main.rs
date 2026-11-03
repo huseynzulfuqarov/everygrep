@@ -53,7 +53,7 @@ mod x11clip;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -1607,28 +1607,70 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
             tr("JSON: name, folder, size, modified"),
             tr("HTML table: name, folder, size, modified"),
         ];
+        let mut preferred = export::Format::Csv;
+        prefs::with(|p| preferred = p.export_format());
         std::thread::spawn(move || {
-            let patterns = export::Format::ALL.map(|f| format!("*.{}", f.extension()));
-            let filters: Vec<portal::SaveFilter> = names
-                .iter()
-                .zip(&patterns)
-                .map(|(name, pattern)| portal::SaveFilter { name, pattern })
-                .collect();
-            let check = only_label.as_deref().map(|label| portal::SaveCheck {
-                label,
-                ticked: false,
-            });
-            let chosen = portal::save_file_with_check(
-                title,
-                accept,
-                "everygrep-results.csv",
-                &filters,
-                check,
-            );
+            let mut suggested =
+                PathBuf::from(format!("everygrep-results.{}", preferred.extension()));
+            let mut folder = None;
+            let mut only = false;
+            let chosen = loop {
+                let mut formats = export::Format::ALL;
+                let first = formats.iter().position(|f| *f == preferred).unwrap_or(0);
+                formats.rotate_left(first);
+                let patterns = formats.map(|f| format!("*.{}", f.extension()));
+                let filters: Vec<portal::SaveFilter> = formats
+                    .iter()
+                    .zip(&patterns)
+                    .map(|(f, pattern)| portal::SaveFilter {
+                        name: names[export::Format::ALL.iter().position(|a| a == f).unwrap()],
+                        pattern,
+                    })
+                    .collect();
+                let check = only_label.as_deref().map(|label| portal::SaveCheck {
+                    label,
+                    ticked: only,
+                });
+                let current_name = suggested.file_name().unwrap().to_string_lossy();
+                let result = portal::save_file_with_check_in_folder(
+                    if folder.is_some() {
+                        tr("Confirm export filename")
+                    } else {
+                        title
+                    },
+                    accept,
+                    &current_name,
+                    &filters,
+                    check,
+                    folder.as_deref(),
+                );
+                match result {
+                    Ok(Some((path, filter, selected))) => {
+                        let format = filter
+                            .and_then(|i| formats.get(i).copied())
+                            .or_else(|| export::Format::of_path(&path))
+                            .unwrap_or(preferred);
+                        preferred = format;
+                        only = selected;
+                        let _ = weak.upgrade_in_event_loop(move |_| {
+                            prefs::with(|p| p.set_export_format(format))
+                        });
+                        let (target, format) = export::target(path.clone(), Some(format));
+                        if target != path {
+                            // The portal has no filter-change events. Confirm the
+                            // corrected name before any write to a different path.
+                            folder = target.parent().map(Path::to_owned);
+                            suggested = target;
+                            continue;
+                        }
+                        break Ok(Some((path, format, selected)));
+                    }
+                    Ok(None) => break Ok(None),
+                    Err(e) => break Err(e),
+                }
+            };
             let outcome = match chosen {
-                Ok(Some((path, filter, only_selected))) => {
-                    let format = filter.and_then(|i| export::Format::ALL.get(i).copied());
-                    let (target, format) = export::target(path, format);
+                Ok(Some((target, format, only_selected))) => {
                     let ids = if only_selected {
                         Arc::new(selected)
                     } else {

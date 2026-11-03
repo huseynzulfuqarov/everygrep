@@ -2980,6 +2980,15 @@ impl Prefs {
         self.settings.borrow().copy_full_path_quotes
     }
 
+    /// The last selected result-export file type.
+    pub fn export_format(&self) -> crate::export::Format {
+        self.settings.borrow().export_format
+    }
+
+    pub fn set_export_format(&self, format: crate::export::Format) {
+        self.change(move |s| s.export_format = format);
+    }
+
     /// Whether typing in the result list jumps to a name.
     pub fn type_to_jump(&self) -> bool {
         self.settings.borrow().type_to_jump

@@ -3487,3 +3487,6 @@ msgstr "Geçersiz düzenli ifade."
 
 msgid "Technical details"
 msgstr "Teknik ayrıntılar"
+
+msgid "Confirm export filename"
+msgstr "Dışa aktarma dosya adını onayla"

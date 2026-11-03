@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use zbus::blocking::{Connection, Proxy};
@@ -194,6 +194,19 @@ pub fn save_file_with_check(
     filters: &[SaveFilter],
     check: Option<SaveCheck>,
 ) -> Result<Option<(PathBuf, Option<usize>, bool)>, String> {
+    save_file_with_check_in_folder(title, accept, current_name, filters, check, None)
+}
+
+/// Save again with a corrected filename in the same folder, so a changed
+/// extension never bypasses the desktop's overwrite confirmation.
+pub fn save_file_with_check_in_folder(
+    title: &str,
+    accept: &str,
+    current_name: &str,
+    filters: &[SaveFilter],
+    check: Option<SaveCheck>,
+    folder: Option<&Path>,
+) -> Result<Option<(PathBuf, Option<usize>, bool)>, String> {
     // a(sa(us)): name, then (0 = glob pattern, pattern).
     let list: Vec<(&str, Vec<(u32, &str)>)> = filters
         .iter()
@@ -205,6 +218,11 @@ pub fn save_file_with_check(
         ("current_name", Value::from(current_name)),
         ("filters", Value::from(list.clone())),
     ];
+    if let Some(folder) = folder {
+        let mut bytes = folder.as_os_str().as_bytes().to_vec();
+        bytes.push(0);
+        options.push(("current_folder", Value::from(bytes)));
+    }
     if let Some(first) = list.first() {
         options.push(("current_filter", Value::from(first.clone())));
     }

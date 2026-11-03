@@ -79,24 +79,24 @@ impl Format {
     }
 }
 
-/// The file to write and its format: the extension of the chosen name
-/// decides; a name without a known extension gets the one of the chosen
-/// file type (`chosen`, CSV when unknown), unless a file of that name exists
-/// already (the save dialog only asked about the name as typed).
-pub fn target(path: PathBuf, chosen: Option<Format>) -> (PathBuf, Format) {
-    if let Some(format) = Format::of_path(&path) {
+/// The chosen type controls a known extension; an unknown extension is
+/// part of the stem. A changed path must be confirmed by the save dialog
+/// before writing, including its ordinary overwrite confirmation.
+pub fn target(mut path: PathBuf, chosen: Option<Format>) -> (PathBuf, Format) {
+    let named = Format::of_path(&path);
+    let format = chosen.or(named).unwrap_or(Format::Csv);
+    if named == Some(format) {
         return (path, format);
     }
-    let format = chosen.unwrap_or(Format::Csv);
-    let mut with_ext = path.clone().into_os_string();
-    with_ext.push(".");
-    with_ext.push(format.extension());
-    let with_ext = PathBuf::from(with_ext);
-    if fs::symlink_metadata(&with_ext).is_ok() {
-        (path, format)
+    if named.is_some() {
+        path.set_extension(format.extension());
     } else {
-        (with_ext, format)
+        let mut name = path.into_os_string();
+        name.push(".");
+        name.push(format.extension());
+        path = name.into();
     }
+    (path, format)
 }
 
 /// One result line.
@@ -599,12 +599,12 @@ mod tests {
     }
 
     #[test]
-    fn the_name_decides_the_format() {
+    fn the_chosen_type_swaps_known_extensions() {
         let dir = Scratch::new("export-name");
         let p = |n: &str| dir.0.join(n);
         assert_eq!(
             target(p("a.CSV"), Some(Format::Text)),
-            (p("a.CSV"), Format::Csv)
+            (p("a.txt"), Format::Text)
         );
         assert_eq!(target(p("a.txt"), None), (p("a.txt"), Format::Text));
         assert_eq!(
@@ -621,8 +621,18 @@ mod tests {
             let name = format!("x.{}", format.extension());
             assert_eq!(Format::of_path(Path::new(&name)), Some(format));
         }
-        // An existing file with the extension is not replaced unasked.
-        fs::write(p("b.csv"), "x").unwrap();
-        assert_eq!(target(p("b"), None), (p("b"), Format::Csv));
+        // This helper only proposes a name; the caller confirms it before writing.
+        fs::write(p("b.csv"), "keep").unwrap();
+        assert_eq!(target(p("b"), None), (p("b.csv"), Format::Csv));
+        assert_eq!(fs::read(p("b.csv")).unwrap(), b"keep");
+        for from in Format::ALL {
+            for to in Format::ALL {
+                let name = p(&format!("şəkil.{}", from.extension()));
+                assert_eq!(
+                    target(name, Some(to)),
+                    (p(&format!("şəkil.{}", to.extension())), to)
+                );
+            }
+        }
     }
 }

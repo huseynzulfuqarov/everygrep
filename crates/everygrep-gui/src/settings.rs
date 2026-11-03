@@ -297,6 +297,8 @@ pub struct Settings {
     /// Whether typing in the result list moves to a name that starts with
     /// the typed text (see `jump.rs`).
     pub type_to_jump: bool,
+    /// Last selected result-export file type.
+    pub export_format: crate::export::Format,
     /// Opening more items than this at once asks first; 0 never asks.
     pub open_confirm_over: usize,
     /// Whether showing the window (at a later launch, or with its shortcut)
@@ -379,6 +381,7 @@ impl Default for Settings {
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
             type_to_jump: true,
+            export_format: crate::export::Format::Csv,
             open_confirm_over: DEFAULT_OPEN_CONFIRM,
             focus_on_show: true,
             dates_newest_first: false,
@@ -659,6 +662,11 @@ impl Settings {
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
             "type-to-jump" => put_flag(&mut self.type_to_jump),
+            "export-format" => crate::export::Format::ALL
+                .into_iter()
+                .find(|f| f.extension() == value)
+                .map(|f| self.export_format = f)
+                .is_some(),
             "confirm-open-over" => value
                 .parse::<usize>()
                 .ok()
@@ -1026,6 +1034,9 @@ impl Settings {
             d.copy_full_path_quotes,
         );
         flag(&mut out, "type-to-jump", self.type_to_jump, d.type_to_jump);
+        if all || self.export_format != d.export_format {
+            line(&mut out, "export-format", self.export_format.extension());
+        }
         if all || self.open_confirm_over != d.open_confirm_over {
             line(
                 &mut out,
@@ -1287,6 +1298,7 @@ impl Settings {
                 self.path_click_opens_folder = d.path_click_opens_folder;
                 self.copy_full_path_quotes = d.copy_full_path_quotes;
                 self.type_to_jump = d.type_to_jump;
+                self.export_format = d.export_format;
                 self.open_confirm_over = d.open_confirm_over;
                 self.focus_on_show = d.focus_on_show;
                 self.dates_newest_first = d.dates_newest_first;
@@ -1526,6 +1538,7 @@ fn is_known(key: &str) -> bool {
         "A-1",
         "auto",
         "jedec",
+        "csv",
         "show",
         "symlink",
         "number",
@@ -1736,6 +1749,20 @@ pub(crate) mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn export_format_round_trips_and_rejects_unknown_types() {
+        for format in crate::export::Format::ALL {
+            let settings = Settings {
+                export_format: format,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&settings.to_text()), settings);
+        }
+        let invalid = Settings::parse("export-format = unknown\n");
+        assert_eq!(invalid.export_format, crate::export::Format::Csv);
+        assert!(!invalid.problems.is_empty());
     }
 
     #[test]
