@@ -466,13 +466,15 @@ export component SettingsWindow inherits Window {
                                     }
                                     Rectangle { horizontal-stretch: 1; }
                                 }
-                                Note { text: @tr("A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."); }
+                                // Right below the field it is about, not after the
+                                // long note, where it could end at the page's edge.
                                 if root.rescan-error != "": Text {
                                     text: root.rescan-error;
                                     color: Theme.danger;
                                     font-size: Theme.small;
                                     wrap: word-wrap;
                                 }
+                                Note { text: @tr("A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan or the start of EveryGrep; a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."); }
                             }
                             CheckBox {
                                 text: @tr("Use the exclude list");
@@ -1357,6 +1359,9 @@ export component SettingsWindow inherits Window {
                         }
                     }
                 }
+                // A line keeps the page apart from the buttons below it, so
+                // text cut off at the page's edge never looks covered by them.
+                if root.page != 4: Rectangle { height: 1px; background: Theme.line; }
                 // The value of the chosen setting and its buttons stay in
                 // view below the page, which is taller than the window.
                 if root.page == 5: VerticalLayout {
