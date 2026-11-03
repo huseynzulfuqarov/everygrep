@@ -18,6 +18,7 @@ mod filetype;
 mod format;
 mod hash_columns;
 mod hashes;
+mod help;
 mod history;
 mod history_csv;
 mod i18n;
@@ -672,6 +673,7 @@ pub fn apply_keys(w: &AppWindow) {
         let items = [
             Command::Settings,
             Command::KeyboardSettings,
+            Command::SearchSyntaxHelp,
             Command::ShortcutsHelp,
             Command::About,
             Command::MenuBar,
@@ -698,6 +700,23 @@ fn set_shortcuts(w: &AppWindow) {
     w.set_shortcuts(ModelRc::new(VecModel::from(shortcuts)));
 }
 
+/// The pages of the help window, in the current language.
+fn set_help(w: &AppWindow) {
+    let model = |rows: Vec<help::Row>| {
+        let rows: Vec<HelpRow> = rows
+            .into_iter()
+            .map(|r| HelpRow {
+                example: r.example.into(),
+                meaning: r.meaning.into(),
+            })
+            .collect();
+        ModelRc::new(VecModel::from(rows))
+    };
+    w.set_help_syntax(model(help::syntax()));
+    w.set_help_regex(model(help::regex()));
+    w.set_help_command_line(model(help::command_line()));
+}
+
 /// Sets the texts made in Rust again, after the language changed. The
 /// `.slint` texts follow by themselves; a note in the status line is
 /// dropped rather than left in the old language.
@@ -705,6 +724,7 @@ pub fn relabel(w: &AppWindow) {
     tabs_ui::refresh();
     set_filter_names(w);
     apply_keys(w);
+    set_help(w);
     show_badges(w);
     with_model(w, |m| m.relabel());
     w.set_notice("".into());
@@ -715,6 +735,7 @@ pub fn relabel(w: &AppWindow) {
 fn connect_menus(w: &AppWindow) {
     w.set_version(everygrep_core::VERSION.into());
     apply_keys(w);
+    set_help(w);
     w.on_resolve_key(|scope, text, ctrl, alt, shift, meta| {
         let chord = commands::Chord::from_event(&text, ctrl, alt, shift, meta);
         match (commands::Scope::from_index(scope), chord) {

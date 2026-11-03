@@ -327,8 +327,8 @@ msgid "One selected item shows its size, modification time and full path; severa
 msgstr "Bir seçilmiş element ölçüsünü, dəyişmə vaxtını və tam yolunu göstərir; bir neçəsi isə sayını və aralarındakı faylların ümumi ölçüsünü."
 
 #: ui/settings.slint
-msgid "Without it, the ⋯ button next to the filter holds Settings, Keyboard shortcuts, About and Quit."
-msgstr "Menyu zolağı olmayanda Ayarlar, Klaviatura qısayolları, Haqqında və Çıx filtrin yanındakı ⋯ düyməsindədir."
+msgid "Without it, the ⋯ button next to the filter holds Settings, Search syntax, Keyboard shortcuts, About and Quit."
+msgstr "Menyu zolağı olmayanda Ayarlar, Axtarış sintaksisi, Klaviatura qısayolları, Haqqında və Çıx filtrin yanındakı ⋯ düyməsindədir."
 
 #: ui/settings.slint
 msgid "Closing the window"
@@ -2930,3 +2930,252 @@ msgstr "Tabların saxlanması üçün axtarış tarixçəsinin qeydi və diskdə
 
 msgid "To reset saved tabs, turn session restore off and on."
 msgstr "Saxlanmış tabları sıfırlamaq üçün sessiyanın bərpasını söndürüb yenidən yandırın."
+
+msgid "Search syntax"
+msgstr "Axtarış sintaksisi"
+
+msgid "Regular expressions"
+msgstr "Requlyar ifadələr"
+
+msgid "Command line options"
+msgstr "Komanda sətri seçimləri"
+
+msgid "Words and operators"
+msgstr "Sözlər və operatorlar"
+
+msgid "Both words: a space means AND"
+msgstr "Hər iki söz: boşluq VƏ deməkdir"
+
+msgid "Either word: | means OR"
+msgstr "Sözlərdən biri: | VƏ YA deməkdir"
+
+msgid "Names without the word: ! means NOT"
+msgstr "Bu söz olmayan adlar: ! DEYİL deməkdir"
+
+msgid "Groups with < and >"
+msgstr "< və > ilə qruplar"
+
+msgid "Quotes make spaces and operators plain text"
+msgstr "Dırnaq içində boşluq və operatorlar adi mətndir"
+
+msgid "Wildcards"
+msgstr "Şablon simvolları"
+
+msgid "* is any run of characters; the pattern must match the whole name"
+msgstr "* istənilən sayda simvoldur; şablon bütün ada uyğun gəlməlidir"
+
+msgid "? is exactly one character"
+msgstr "? tam bir simvoldur"
+
+msgid "In a path * stays inside one folder, ** crosses folders"
+msgstr "Yolda * bir qovluğun içində qalır, ** qovluqları keçir"
+
+msgid "Modifiers, written before a word"
+msgstr "Modifikatorlar, sözdən əvvəl yazılır"
+
+msgid "Whole words only"
+msgstr "Yalnız tam sözlər"
+
+msgid "Match the full path (a word with / does this too)"
+msgstr "Tam yola uyğunlaşdır (/ olan söz də bunu edir)"
+
+msgid "The name starts with the word"
+msgstr "Ad bu sözlə başlayır"
+
+msgid "The name ends with the word"
+msgstr "Ad bu sözlə bitir"
+
+msgid "The whole name is the word"
+msgstr "Bütün ad bu sözdür"
+
+msgid "Accents count: cafe no longer finds café"
+msgstr "Diakritik işarələr nəzərə alınır: cafe artıq café-ni tapmır"
+
+msgid "Ignore punctuation: also finds foo_bar and foobar"
+msgstr "Durğu işarələrinə məhəl qoyma: foo_bar və foobar da tapılır"
+
+msgid "Ignore spaces: also finds my file"
+msgstr "Boşluqlara məhəl qoyma: my file da tapılır"
+
+msgid "A regular expression, see the next page"
+msgstr "Requlyar ifadə, növbəti səhifəyə baxın"
+
+msgid "Kinds, sizes and dates"
+msgstr "Növlər, ölçülər və tarixlər"
+
+msgid "Files only"
+msgstr "Yalnız fayllar"
+
+msgid "Folders only"
+msgstr "Yalnız qovluqlar"
+
+msgid "Files with one of these extensions"
+msgstr "Bu genişlənmələrdən biri olan fayllar"
+
+msgid "A kind: audio:, archive:, code:, document:, executable:, image:, video:"
+msgstr "Növ: audio:, archive:, code:, document:, executable:, image:, video:"
+
+msgid "Larger than 10 MB; also <, <=, >="
+msgstr "10 MB-dan böyük; həmçinin <, <=, >="
+
+msgid "A size between two values"
+msgstr "İki dəyər arasında ölçü"
+
+msgid "Size words: empty, tiny, small, medium, large, huge, gigantic"
+msgstr "Ölçü sözləri: empty, tiny, small, medium, large, huge, gigantic"
+
+msgid "Modified today; also yesterday, thisweek, lastmonth, 2026-10"
+msgstr "Bu gün dəyişdirilib; həmçinin yesterday, thisweek, lastmonth, 2026-10"
+
+msgid "Modified in the last 7 days"
+msgstr "Son 7 gündə dəyişdirilib"
+
+msgid "Created this year (read from disk while searching)"
+msgstr "Bu il yaradılıb (axtarış zamanı diskdən oxunur)"
+
+msgid "Not opened for 30 days (read from disk while searching)"
+msgstr "30 gündür açılmayıb (axtarış zamanı diskdən oxunur)"
+
+msgid "Contents and results"
+msgstr "Məzmun və nəticələr"
+
+msgid "Files whose contents hold the text (read from disk; add other words to keep it fast)"
+msgstr "Məzmununda bu mətn olan fayllar (diskdən oxunur; sürətli olsun deyə başqa sözlər də əlavə edin)"
+
+msgid "Files whose contents another result has too"
+msgstr "Məzmunu başqa bir nəticədə də olan fayllar"
+
+msgid "Only the first 10 results in the shown order"
+msgstr "Göstərilən sırada yalnız ilk 10 nəticə"
+
+msgid "Where expressions are used"
+msgstr "İfadələr harada işlədilir"
+
+msgid "One word of the query is an expression, up to the next space"
+msgstr "Sorğunun bir sözü ifadədir, növbəti boşluğa qədər"
+
+msgid "Regex mode: the whole search text is one expression"
+msgstr "Requlyar ifadə rejimi: bütün axtarış mətni bir ifadədir"
+
+msgid "Characters"
+msgstr "Simvollar"
+
+msgid "Any one character"
+msgstr "İstənilən bir simvol"
+
+msgid "One of the listed characters"
+msgstr "Sadalanan simvollardan biri"
+
+msgid "Any character but the listed ones"
+msgstr "Sadalananlardan başqa istənilən simvol"
+
+msgid "A character in the range"
+msgstr "Aralıqdakı bir simvol"
+
+msgid "A digit"
+msgstr "Rəqəm"
+
+msgid "A letter, digit or underscore"
+msgstr "Hərf, rəqəm və ya alt xətt"
+
+msgid "A space or another whitespace character"
+msgstr "Boşluq və ya başqa boşluq simvolu"
+
+msgid "A dot itself: a backslash makes a special character plain"
+msgstr "Nöqtənin özü: tərs xətt xüsusi simvolu adi simvol edir"
+
+msgid "Repeats"
+msgstr "Təkrarlar"
+
+msgid "Zero or more times"
+msgstr "Sıfır və ya daha çox dəfə"
+
+msgid "One or more times"
+msgstr "Bir və ya daha çox dəfə"
+
+msgid "Zero or one time"
+msgstr "Sıfır və ya bir dəfə"
+
+msgid "Two to four times"
+msgstr "İkidən dördə qədər dəfə"
+
+msgid "Positions and groups"
+msgstr "Mövqelər və qruplar"
+
+msgid "At the start of the name"
+msgstr "Adın əvvəlində"
+
+msgid "At the end of the name"
+msgstr "Adın sonunda"
+
+msgid "A whole word"
+msgstr "Tam söz"
+
+msgid "Either alternative, grouped with ( and )"
+msgstr "( və ) ilə qruplaşdırılmış variantlardan biri"
+
+msgid "Match case inside the expression"
+msgstr "İfadənin içində hərf registrini nəzərə al"
+
+msgid "Notes"
+msgstr "Qeydlər"
+
+msgid "Accents are not ignored: this does not find Şəkil"
+msgstr "Diakritik işarələr nəzərə alınır: bu, Şəkil-i tapmır"
+
+msgid "Quote an expression that has spaces"
+msgstr "Boşluğu olan ifadəni dırnağa alın"
+
+msgid "everygrep-gui [options] [query words…]"
+msgstr "everygrep-gui [seçimlər] [axtarış sözləri…]"
+
+msgid "A folder to index; repeat it for more"
+msgstr "İndekslənəcək qovluq; daha çoxu üçün təkrarlayın"
+
+msgid "Where the index is kept"
+msgstr "İndeksin saxlandığı yer"
+
+msgid "Start with a filter: all, audio, archive, code, document, executable, folder, image, video"
+msgstr "Filtrlə başla: all, audio, archive, code, document, executable, folder, image, video"
+
+msgid "Match whole words only"
+msgstr "Yalnız tam sözlərə uyğunlaşdır"
+
+msgid "Match the full path instead of the name"
+msgstr "Ad əvəzinə tam yola uyğunlaşdır"
+
+msgid "Words must match at the start of the name"
+msgstr "Sözlər adın əvvəlinə uyğun gəlməlidir"
+
+msgid "Words must match at the end of the name"
+msgstr "Sözlər adın sonuna uyğun gəlməlidir"
+
+msgid "The whole query is one regular expression"
+msgstr "Bütün sorğu bir requlyar ifadədir"
+
+msgid "Show columns: type, extension, created, accessed, attributes"
+msgstr "Sütunları göstər: type, extension, created, accessed, attributes"
+
+msgid "Open another window even when one is open"
+msgstr "Biri açıq olsa da başqa pəncərə aç"
+
+msgid "Show the window, or close it when it is in front"
+msgstr "Pəncərəni göstər, öndədirsə bağla"
+
+msgid "Open another window over the same index"
+msgstr "Eyni indeks üzərində başqa pəncərə aç"
+
+msgid "Start without a window when closing only hides it"
+msgstr "Bağlamaq yalnız gizlədirsə, pəncərəsiz başla"
+
+msgid "Open Settings too, at a page: indexing, search, appearance, window, keyboard, advanced"
+msgstr "Ayarları da aç, bu səhifədə: indexing, search, appearance, window, keyboard, advanced"
+
+msgid "Print the options and quit"
+msgstr "Seçimləri göstər və çıx"
+
+msgid "Print the version and quit"
+msgstr "Versiyanı göstər və çıx"
+
+msgid "Every argument after it is a query word"
+msgstr "Ondan sonrakı hər arqument axtarış sözüdür"

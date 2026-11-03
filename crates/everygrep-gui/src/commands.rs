@@ -1135,6 +1135,27 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::SearchSyntaxHelp,
+        id: "help.search-syntax",
+        category: Category::Help,
+        label: || tr("Search syntax"),
+        defaults: &[(Global, "F1")],
+    },
+    Spec {
+        cmd: Command::RegexHelp,
+        id: "help.regex",
+        category: Category::Help,
+        label: || tr("Regular expressions"),
+        defaults: &[],
+    },
+    Spec {
+        cmd: Command::CommandLineHelp,
+        id: "help.command-line",
+        category: Category::Help,
+        label: || tr("Command line options"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::About,
         id: "help.about",
         category: Category::Help,
@@ -1499,6 +1520,9 @@ impl Keymap {
             settings => Settings,
             keyboard_settings => KeyboardSettings,
             shortcuts_help => ShortcutsHelp,
+            search_syntax_help => SearchSyntaxHelp,
+            regex_help => RegexHelp,
+            command_line_help => CommandLineHelp,
             about => About,
         )
     }

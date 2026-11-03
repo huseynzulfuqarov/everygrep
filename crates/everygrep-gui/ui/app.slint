@@ -103,6 +103,13 @@ export struct ShortcutRow {
     action: string,
 }
 
+// One line of a help page: what is typed and what it does; a heading has
+// no example.
+export struct HelpRow {
+    example: string,
+    meaning: string,
+}
+
 // File-type icons, in the order of FileKind. They carry their own colours and
 // must not be colorized.
 global Icons {
@@ -806,6 +813,33 @@ component Row inherits Rectangle {
 
 // A dialog above the window: a dimmed backdrop, a card with a title, the
 // content and a Close button. Esc, Enter and a click outside close it.
+// A page tab of the help window: a label that is highlighted while its
+// page is shown.
+component HelpTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+
+    height: label.preferred-height + 2 * Theme.s2;
+    width: label.preferred-width + 2 * Theme.s3;
+    border-radius: 4px;
+    background: root.selected ? Theme.selection : touch.has-hover ? Theme.hover : transparent;
+    accessible-role: tab;
+    accessible-label: root.text;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.clicked(); }
+    label := Text {
+        text: root.text;
+        color: root.selected ? Theme.selection-text : Theme.text;
+        font-weight: root.selected ? 600 : 400;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 component InfoDialog inherits Rectangle {
     in property <string> title;
     in property <length> card-width: 420px;
@@ -1058,6 +1092,13 @@ export component AppWindow inherits Window {
     in property <string> version;
     in-out property <bool> shortcuts-open;
     in-out property <bool> about-open;
+    // The help window (F1): 0 search syntax, 1 regular expressions,
+    // 2 command line options.
+    in property <[HelpRow]> help-syntax;
+    in property <[HelpRow]> help-regex;
+    in property <[HelpRow]> help-command-line;
+    in-out property <bool> help-open;
+    in-out property <int> help-page;
 
     callback query-edited(string);
     callback generated-query-edited(string);
@@ -1765,6 +1806,15 @@ export component AppWindow inherits Window {
             root.open-keyboard-settings();
         } else if (c == Command.shortcuts-help) {
             root.shortcuts-open = true;
+        } else if (c == Command.search-syntax-help) {
+            root.help-page = 0;
+            root.help-open = true;
+        } else if (c == Command.regex-help) {
+            root.help-page = 1;
+            root.help-open = true;
+        } else if (c == Command.command-line-help) {
+            root.help-page = 2;
+            root.help-open = true;
         } else if (c == Command.about) {
             root.about-open = true;
         } else if (c == Command.refresh) {
@@ -2043,6 +2093,10 @@ export component AppWindow inherits Window {
                                 activated => { root.run(Command.keyboard-settings); }
                             }
                             MenuSeparator { }
+                            MenuItem {
+                                title: @tr("Search syntax");
+                                activated => { root.run(Command.search-syntax-help); }
+                            }
                             MenuItem {
                                 title: @tr("Keyboard shortcuts");
                                 activated => { root.run(Command.shortcuts-help); }
@@ -2954,6 +3008,64 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.help-open: InfoDialog {
+        title: @tr("Help");
+        card-width: 680px;
+        close => {
+            root.help-open = false;
+            search.focus-and-select();
+        }
+        // Page tabs. They take no keyboard focus, so Esc keeps closing the
+        // window after a click.
+        HorizontalLayout {
+            spacing: Theme.s2;
+            alignment: start;
+            HelpTab {
+                text: @tr("Search syntax");
+                selected: root.help-page == 0;
+                clicked => { root.help-page = 0; }
+            }
+            HelpTab {
+                text: @tr("Regular expressions");
+                selected: root.help-page == 1;
+                clicked => { root.help-page = 1; }
+            }
+            HelpTab {
+                text: @tr("Command line options");
+                selected: root.help-page == 2;
+                clicked => { root.help-page = 2; }
+            }
+        }
+        ListView {
+            property <[HelpRow]> rows: root.help-page == 0 ? root.help-syntax
+                : root.help-page == 1 ? root.help-regex : root.help-command-line;
+            // Grows with the rows up to what the window leaves.
+            preferred-height: self.rows.length * 26px;
+            min-height: 160px;
+            for row in self.rows: HorizontalLayout {
+                spacing: Theme.s3;
+                padding-top: row.example == "" ? Theme.s3 : 2px;
+                padding-bottom: 2px;
+                if row.example != "": Text {
+                    width: 230px;
+                    text: row.example;
+                    font-family: "monospace";
+                    color: Theme.text;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Text {
+                    text: row.meaning;
+                    color: row.example == "" ? Theme.text : Theme.text-muted;
+                    font-weight: row.example == "" ? 600 : 400;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
     if root.about-open: InfoDialog {
         title: @tr("About EveryGrep");
         close => {
@@ -3529,6 +3641,25 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: @tr("Help");
+            MenuItem {
+                title: @tr("Search syntax");
+                shortcut: root.menu-keys.search-syntax-help;
+                enabled: root.can-run(Command.search-syntax-help);
+                activated => { root.run(Command.search-syntax-help); }
+            }
+            MenuItem {
+                title: @tr("Regular expressions");
+                shortcut: root.menu-keys.regex-help;
+                enabled: root.can-run(Command.regex-help);
+                activated => { root.run(Command.regex-help); }
+            }
+            MenuItem {
+                title: @tr("Command line options");
+                shortcut: root.menu-keys.command-line-help;
+                enabled: root.can-run(Command.command-line-help);
+                activated => { root.run(Command.command-line-help); }
+            }
+            MenuSeparator { }
             MenuItem {
                 title: @tr("Keyboard shortcuts");
                 shortcut: root.menu-keys.shortcuts-help;

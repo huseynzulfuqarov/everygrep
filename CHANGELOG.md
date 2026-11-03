@@ -297,6 +297,8 @@ First version, 0.1.0, not released yet.
 - Settings and the search history are saved on a thread of their own, in
   the order they changed, instead of on the window's thread; quitting waits
   a few seconds at most for the last saves.
+- Help window (`F1`, Help → Search syntax, Regular expressions, Command
+  line options): a short reference with examples, translated.
 - Edit → Invert selection (`Ctrl+I`), which costs the same for any number
   of results.
 - File → Export results… (`Ctrl+S`): the results as CSV (name, folder,

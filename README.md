@@ -190,6 +190,7 @@ executable file.
 | `Ctrl+N` | new window over the same index (also with the menu bar hidden) |
 | `Ctrl+W` | close the window, as its close button does |
 | `Ctrl+,` | settings |
+| `F1` | help: search syntax, regular expressions, command line options |
 | `Ctrl+Q` | quit (also when closing only hides the window) |
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
@@ -243,11 +244,13 @@ Index → Pause index updates stops applying file changes (it is the "Watch for
 changes" setting, the other way round) until it is turned off again, which
 catches up with what changed meanwhile.
 Tools → Settings… and Tools → Customize shortcuts… open the settings. Help →
+Search syntax (`F1`), Regular expressions and Command line options open the
+help window, a short reference with examples on three pages; Help →
 Keyboard shortcuts lists every key; Help → About shows the version and the
 license. The Edit actions show no key in the menu, because menu keys would
 take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
 the table above. With the menu bar hidden, the `⋯` button next to the filter
-selector holds settings, keyboard shortcuts, about and quit.
+selector holds settings, search syntax, keyboard shortcuts, about and quit.
 
 The status line shows badges for active matching modes and hidden-file filters.
 Settings → Search → Show active matching modes in the status line turns them
