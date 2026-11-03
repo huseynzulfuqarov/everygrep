@@ -2250,8 +2250,10 @@ const CONTENT_MODIFIERS: &[&str] = &[
     "content-codepage",
 ];
 
-/// `duplicates:name;size` and its relatives (`head`): the properties to compare,
-/// separated by `;` or `,`; none compares the contents.
+/// `duplicates:name;size` and its relatives (`head`; `duplicates:` and
+/// `extra-copies:` are older names of `duplicates:` and `extra-copies:`): the
+/// properties to compare, separated by `;` or `,`; none compares the
+/// contents.
 fn parse_dupe(head: &str, value: &str, case: bool) -> Result<DupeSpec, ParseError> {
     let mode = match head {
         "extra-copies" => DupeMode::Extra,

@@ -105,7 +105,7 @@ and saves the index; later starts load it and catch up in a moment.
 | `modified:lastweek`, `modified:thismonth`, `modified:tomorrow` | calendar weeks (from Monday), months, years |
 | `created:today`, `accessed:>30d` | created / accessed (read from disk while searching) |
 | `content:invoice`, `content:<total "due date">`, `regex:content:^From:` | files whose contents hold the text (read from disk while searching) |
-| `duplicates:`, `duplicates:name`, `duplicates:name;size`, `extra-copies:`, `distinct:`, `unique:` | duplicates among the results: same contents by default (read from disk), or same name, size, … |
+| `duplicates:`, `duplicates:name`, `duplicates:name;size`, `extra-copies:`, `distinct:`, `unique:` | duplicates among the results: same contents by default (read from disk), or same name, size, …; `extra-copies:` all but the first of each group, `distinct:` one of each, `unique:` only files without a copy (`duplicates:` and `extra-copies:` are short names) |
 
 The full syntax, with every modifier and edge case, is in
 [docs/query-language.md](docs/query-language.md).

@@ -255,12 +255,15 @@ First version, 0.1.0, not released yet.
   `content-utf8:`, `content-utf16le:`, `content-utf16be:` and `content-codepage:` read
   in one encoding. Diacritics are matched as written in contents.
 
-- `duplicates:` lists files with the same contents (size first, then a hash of
-  the first and last 16 KiB, then of the whole file; hard links count as one
-  file), `duplicates:name`, `duplicates:stem`, `duplicates:ext`, `duplicates:size`, `duplicates:modified`
-  and combinations (`duplicates:name;size`) compare those; `extra-copies:` lists
-  the extra copies, `distinct:` one of each, `unique:` the results without
-  a duplicate. Groups stay together in the order shown.
+- `duplicates:` lists files with the same contents (size first, then a
+  hash of the first and last 16 KiB, then of the whole file; hard links
+  count as one file), `duplicates:name`, `duplicates:stem`,
+  `duplicates:ext`, `duplicates:size`, `duplicates:modified` and
+  combinations (`duplicates:name;size`) compare those; `extra-copies:`
+  lists every copy but the first of each group, `distinct:` one of each,
+  `unique:` the results without a duplicate. Groups stay together in the
+  order shown. 
+  `duplicates:` and `extra-copies:`.
 
 ### Command line
 
@@ -299,7 +302,8 @@ First version, 0.1.0, not released yet.
   ("Comparing files: 42%", cancellable; a cancel keeps the previous
   results), with the hashes kept in `hashes.bin` next to the index so a
   second search reads only changed files. Search → Find duplicates puts
-  `duplicates:`, `duplicates:name` or `duplicates:size` in the query or takes it out.
+  `duplicates:`, `duplicates:name` or `duplicates:size` in the query or
+  takes it out.
 - MD5, SHA-256 and CRC-32 columns (View menu, header menu): hashes of the
   files on screen, read on a helper thread, smallest files first, kept in
   the hash cache; a new result list gives up the file being read.

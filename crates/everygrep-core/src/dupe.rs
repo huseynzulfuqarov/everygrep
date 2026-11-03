@@ -1,5 +1,5 @@
-//! Finding duplicates among the results of a query (`duplicates:` and its
-//! relatives, see [`DupeSpec`]).
+//! Finding duplicates among the results of a query (`duplicates:`,
+//! `extra-copies:`, `distinct:` and `unique:`, see [`DupeMode`]).
 //!
 //! Results are grouped by the values of one or more properties: files and
 //! folders that agree on all of them form a group. Grouping sorts the
@@ -837,6 +837,11 @@ mod tests {
         );
         assert_eq!(replace_term("pdf duplicates:size  ", None), "pdf  ");
         assert_eq!(replace_term("duplicates:", None), "");
+        // Terms under their older names are replaced too.
+        assert_eq!(
+            set("duplicates:name x EXTRA-COPIES:", "duplicates:"),
+            "x duplicates:"
+        );
     }
 
     #[test]
@@ -866,6 +871,10 @@ mod tests {
             err("duplicates:name;size;ext;stem;modified;content;name;x")
                 .contains("unknown property")
         );
+        // The older names still work.
+        assert_eq!(spec("duplicates:name"), spec("duplicates:name"));
+        assert_eq!(spec("extra-copies:").mode, DupeMode::Extra);
+        assert!(err("duplicates: duplicates:").contains("only one of"));
         // Without a duplicate term there is none.
         assert!(
             Query::parse("dupes", QueryOptions::default())

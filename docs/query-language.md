@@ -371,8 +371,8 @@ a content term alone reads every file of the index.
 
 ## Duplicates
 
-`duplicates:` lists the files whose contents another result has too: copies of the
-same file. The results are compared among themselves, so combine it with
+`duplicates:` lists the files whose contents another result has too: copies
+of the same file. The results are compared among themselves, so combine it with
 other terms to say where to look (`duplicates: ~/Pictures ext:jpg;png`). Each
 group of equal files stays together, at the place of its first member in the
 order shown, and its members follow in that order.
@@ -387,17 +387,25 @@ order shown, and its members follow in that order.
   are left out. Hard links are one file: of several paths to the same file
   only the first is listed, and it is not its own duplicate.
 - Other properties are named after the colon, separated by `;` or `,`:
-  `duplicates:name` (the same name in different folders), `duplicates:stem` (the name
-  without its extension), `duplicates:ext`, `duplicates:size`, `duplicates:modified` (`dm`)
-  and `duplicates:content` (the default). With several, all must be equal:
-  `duplicates:name;size`. Only `content` reads files. Size, extension and contents
-  apply to files only; for the others, files and folders form groups of
+  `duplicates:name` (the same name in different folders), `duplicates:stem`
+  (the name without its extension), `duplicates:ext`, `duplicates:size`,
+  `duplicates:modified` (`dm`) and `duplicates:content` (the default). With
+  several, all must be equal: `duplicates:name;size`. Only `content` reads
+  files. Size, extension and contents apply to files only; for the others, files and folders form groups of
   their own. Names, stems and extensions ignore case unless `case:` is set
   (`case:duplicates:name`) or Match case is on.
-- What is listed: `duplicates:` every member of every group; `extra-copies:` every
-  member but the first (the extra copies, as sorted); `distinct:` one of each
-  (the first of each group and every result without a duplicate);
-  `unique:` only the results without a duplicate.
+- What is listed depends on the word, like `DISTINCT` in SQL and the
+  `uniq` tool:
+
+  | Word | Lists |
+  |---|---|
+  | `duplicates:` | every member of every group: all copies |
+  | `extra-copies:` | every member but the first of each group (as sorted): the copies you could remove and still keep one of each |
+  | `distinct:` | one of each: the first of each group and every result without a duplicate |
+  | `unique:` | only the results without a duplicate |
+
+  `duplicates:` and `extra-copies:` are short names of `duplicates:` and
+  `extra-copies:`.
 - Like `limit:`, the term applies to the whole query wherever it is written,
   and `limit:` applies after it. A query can have one.
 
