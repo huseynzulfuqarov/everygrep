@@ -54,7 +54,7 @@ mod x11clip;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -1581,137 +1581,111 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
     });
 }
 
-/// File → Export results: asks where to save through the desktop's file
-/// chooser, then writes the shown results on a helper thread.
+/// File → Export results: choose format and scope, then a portal destination.
 fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
-    // One export at a time.
     static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     use std::sync::atomic::Ordering::SeqCst;
-    let (weak, model, engine) = (window.as_weak(), model.clone(), engine.clone());
-    window.on_export_results(move || {
-        let Some(w) = weak.upgrade() else { return };
-        let (ids, epoch) = model.snapshot();
-        // With part of the list selected, the dialog offers to export only
-        // that part (not ticked at the start: the whole list, as without a
-        // selection).
-        let selected = model.selected_ids();
-        let only_label = (!selected.is_empty() && selected.len() < ids.len()).then(|| {
-            fill(
-                trn(
-                    "Export only the selected result",
-                    "Export only the {} selected results",
-                    selected.len(),
-                ),
-                &[&format::count(selected.len())],
-            )
-        });
-        if ids.is_empty() {
-            info(&w, tr("There are no results to export.").into());
-            return;
-        }
-        if BUSY.swap(true, SeqCst) {
-            return;
-        }
-        let (engine, weak) = (engine.clone(), weak.clone());
-        let title = tr("Export results");
-        let accept = tr("Export");
-        // In the order of `export::Format::ALL`.
-        let names = [
-            tr("CSV: name, folder, size, modified"),
-            tr("TSV: name, folder, size, modified"),
-            tr("Text: full paths"),
-            tr("M3U8 playlist: full paths"),
-            tr("JSON: name, folder, size, modified"),
-            tr("HTML table: name, folder, size, modified"),
-        ];
-        let mut preferred = export::Format::Csv;
-        prefs::with(|p| preferred = p.export_format());
-        std::thread::spawn(move || {
-            let mut suggested =
-                PathBuf::from(format!("everygrep-results.{}", preferred.extension()));
-            let mut folder = None;
-            let mut only = false;
-            let chosen = loop {
-                let mut formats = export::Format::ALL;
-                let first = formats.iter().position(|f| *f == preferred).unwrap_or(0);
-                formats.rotate_left(first);
-                let patterns = formats.map(|f| format!("*.{}", f.extension()));
-                let filters: Vec<portal::SaveFilter> = formats
-                    .iter()
-                    .zip(&patterns)
-                    .map(|(f, pattern)| portal::SaveFilter {
-                        name: names[export::Format::ALL.iter().position(|a| a == f).unwrap()],
-                        pattern,
-                    })
-                    .collect();
-                let check = only_label.as_deref().map(|label| portal::SaveCheck {
-                    label,
-                    ticked: only,
-                });
-                let current_name = suggested.file_name().unwrap().to_string_lossy();
-                let result = portal::save_file_with_check_in_folder(
-                    if folder.is_some() {
-                        tr("Confirm export filename")
-                    } else {
-                        title
-                    },
-                    accept,
-                    &current_name,
-                    &filters,
-                    check,
-                    folder.as_deref(),
-                );
-                match result {
-                    Ok(Some((path, filter, selected))) => {
-                        let format = filter
-                            .and_then(|i| formats.get(i).copied())
-                            .or_else(|| export::Format::of_path(&path))
-                            .unwrap_or(preferred);
-                        preferred = format;
-                        only = selected;
-                        let _ = weak.upgrade_in_event_loop(move |_| {
-                            prefs::with(|p| p.set_export_format(format))
-                        });
-                        let (target, format) = export::target(path.clone(), Some(format));
-                        if target != path {
-                            // The portal has no filter-change events. Confirm the
-                            // corrected name before any write to a different path.
-                            folder = target.parent().map(Path::to_owned);
-                            suggested = target;
-                            continue;
-                        }
-                        break Ok(Some((path, format, selected)));
-                    }
-                    Ok(None) => break Ok(None),
-                    Err(e) => break Err(e),
-                }
-            };
-            let outcome = match chosen {
-                Ok(Some((target, format, only_selected))) => {
-                    let ids = if only_selected {
-                        Arc::new(selected)
-                    } else {
-                        ids
-                    };
-                    exporting_note(&weak, ids.len());
-                    Some(write_export(&engine, &ids, epoch, &target, format).map(|n| (n, target)))
-                }
-                Ok(None) => None,
-                Err(e) => Some(Err(fill(tr("Cannot open the save dialog: {}"), &[&e]))),
-            };
-            BUSY.store(false, SeqCst);
-            let _ = weak.upgrade_in_event_loop(move |w| match outcome {
-                Some(Ok((n, target))) => info(
-                    &w,
-                    fill(
-                        trn("Exported {} result to {}.", "Exported {} results to {}.", n),
-                        &[&format::count(n), &target.display()],
+    let pending = Rc::new(RefCell::new(None));
+    window.on_export_results({
+        let (weak, model, pending) = (window.as_weak(), model.clone(), pending.clone());
+        move || {
+            let Some(w) = weak.upgrade() else { return };
+            let (ids, epoch) = model.snapshot();
+            if ids.is_empty() {
+                info(&w, tr("There are no results to export.").into());
+                return;
+            }
+            if BUSY.swap(true, SeqCst) {
+                return;
+            }
+            let selection = export::Selection::new(ids, model.selected_ids());
+            let count = selection.selected_count();
+            w.set_export_selection_label(
+                fill(
+                    trn(
+                        "Only the {} selected result",
+                        "Only the {} selected results",
+                        count,
                     ),
-                ),
-                Some(Err(e)) => error(&w, e),
-                None => {}
+                    &[&format::count(count)],
+                )
+                .into(),
+            );
+            w.set_export_has_selection(count > 0);
+            w.set_export_only_selected(selection.only_selected);
+            prefs::with(|p| {
+                w.set_export_format(
+                    export::Format::ALL
+                        .iter()
+                        .position(|f| *f == p.export_format())
+                        .unwrap_or(0) as i32,
+                )
             });
-        });
+            *pending.borrow_mut() = Some((selection, epoch));
+            w.set_export_open(true);
+        }
+    });
+    window.on_export_choice({
+        let (weak, engine) = (window.as_weak(), engine.clone());
+        move |accepted| {
+            let Some(w) = weak.upgrade() else { return };
+            w.set_export_open(false);
+            w.invoke_focus_list();
+            let Some((mut selection, epoch)) = pending.borrow_mut().take() else {
+                return;
+            };
+            if !accepted {
+                BUSY.store(false, SeqCst);
+                return;
+            }
+            let chosen = export::Format::ALL
+                .get(w.get_export_format() as usize)
+                .copied()
+                .unwrap_or(export::Format::Csv);
+            selection.only_selected =
+                w.get_export_only_selected() && selection.selected_count() > 0;
+            let ids = selection.rows();
+            let (engine, weak) = (engine.clone(), weak.clone());
+            std::thread::spawn(move || {
+                let name = format!("everygrep-results.{}", chosen.extension());
+                let pattern = format!("*.{}", chosen.extension());
+                let outcome = match portal::save_file(
+                    tr("Export results"),
+                    tr("Export"),
+                    &name,
+                    &[portal::SaveFilter {
+                        name: chosen.extension(),
+                        pattern: &pattern,
+                    }],
+                ) {
+                    Ok(Some((target, _))) => {
+                        let format = export::saved_format(&target, chosen);
+                        exporting_note(&weak, ids.len());
+                        Some(
+                            write_export(&engine, &ids, epoch, &target, format)
+                                .map(|n| (n, target, format)),
+                        )
+                    }
+                    Ok(None) => None,
+                    Err(e) => Some(Err(fill(tr("Cannot open the save dialog: {}"), &[&e]))),
+                };
+                BUSY.store(false, SeqCst);
+                let _ = weak.upgrade_in_event_loop(move |w| match outcome {
+                    Some(Ok((n, target, format))) => {
+                        prefs::with(|p| p.set_export_format(format));
+                        info(
+                            &w,
+                            fill(
+                                trn("Exported {} result to {}.", "Exported {} results to {}.", n),
+                                &[&format::count(n), &target.display()],
+                            ),
+                        );
+                    }
+                    Some(Err(e)) => error(&w, e),
+                    None => {}
+                });
+            });
+        }
     });
 }
 

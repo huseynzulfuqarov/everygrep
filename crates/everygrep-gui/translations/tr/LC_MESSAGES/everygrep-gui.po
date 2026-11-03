@@ -3113,10 +3113,6 @@ msgstr "Ayarlar klasörü bulunamıyor: ne XDG_CONFIG_HOME ne de HOME tanımlı.
 msgid "Opening the settings file…"
 msgstr "Ayarlar dosyası açılıyor…"
 
-msgid "Export only the selected result"
-msgid_plural "Export only the {} selected results"
-msgstr[0] "Yalnızca seçili sonucu dışa aktar"
-msgstr[1] "Yalnızca seçili {} sonucu dışa aktar"
 
 msgid "Typing in the result list"
 msgstr "Sonuç listesinde yazma"
@@ -3494,8 +3490,6 @@ msgstr "Geçersiz düzenli ifade."
 msgid "Technical details"
 msgstr "Teknik ayrıntılar"
 
-msgid "Confirm export filename"
-msgstr "Dışa aktarma dosya adını onayla"
 
 msgid "Close tabs"
 msgstr "Sekmeleri kapat"
@@ -3549,3 +3543,17 @@ msgstr "Yineleme sayısının başlangıcı bitişinden büyük."
 
 msgid "Source path: {0}\nDestination: {1}"
 msgstr "Kaynak yolu: {0}\nHedef: {1}"
+
+msgid "Only the {} selected result"
+msgid_plural "Only the {} selected results"
+msgstr[0] "Yalnızca seçilen {} sonuç"
+msgstr[1] "Yalnızca seçilen {} sonuç"
+
+msgid "Export format"
+msgstr "Dışa aktarma biçimi"
+
+msgid "Unchecked exports all results."
+msgstr "İşaretlenmezse tüm sonuçlar dışa aktarılır."
+
+msgid "Continue…"
+msgstr "Devam…"

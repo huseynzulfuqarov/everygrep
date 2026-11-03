@@ -1,0 +1,53 @@
+import { Button, CheckBox, ComboBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component ExportOptions inherits Rectangle {
+    in-out property <int> format-index;
+    in-out property <bool> only-selected;
+    in property <bool> has-selection;
+    in property <string> selection-label;
+    callback done(bool);
+    background: #00000060;
+    TouchArea { }
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.done(false); return accept; }
+            if (event.text == Key.Return) { root.done(true); return accept; }
+            reject
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: max(0px, (parent.height - self.height) / 2);
+            width: min(480px, parent.width - 2 * Theme.s5);
+            height: layout.preferred-height;
+            background: Theme.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.line;
+            layout := VerticalLayout {
+                padding: Theme.s5;
+                spacing: Theme.s3;
+                Text { text: @tr("Export results"); color: Theme.text; font-size: Theme.body + 2px; font-weight: 600; }
+                Text { text: @tr("Export format"); color: Theme.text; }
+                ComboBox {
+                    accessible-label: @tr("Export format");
+                    model: [@tr("CSV: name, folder, size, modified"), @tr("TSV: name, folder, size, modified"), @tr("Text: full paths"), @tr("M3U8 playlist: full paths"), @tr("JSON: name, folder, size, modified"), @tr("HTML table: name, folder, size, modified")];
+                    current-index <=> root.format-index;
+                    init => { self.focus(); }
+                }
+                CheckBox {
+                    text: root.selection-label;
+                    checked <=> root.only-selected;
+                    enabled: root.has-selection;
+                }
+                Text { text: @tr("Unchecked exports all results."); color: Theme.text-muted; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: Theme.s2;
+                    Button { text: @tr("Cancel"); clicked => { root.done(false); } }
+                    Button { text: @tr("Continue…"); primary: true; clicked => { root.done(true); } }
+                }
+            }
+        }
+    }
+}

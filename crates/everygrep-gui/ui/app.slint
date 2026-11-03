@@ -5,6 +5,7 @@ import { FoldersPanel, FolderEntry } from "folders.slint";
 export { FolderEntry } from "folders.slint";
 import { Theme } from "theme.slint";
 import { FileopsConflict } from "fileops-conflict.slint";
+import { ExportOptions } from "export.slint";
 import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
@@ -1359,6 +1360,13 @@ export component AppWindow inherits Window {
     callback fileops-rename-submit();
     callback fileops-rename-cancel();
 
+    in-out property <bool> export-open;
+    in-out property <int> export-format;
+    in-out property <bool> export-only-selected;
+    in property <bool> export-has-selection;
+    in property <string> export-selection-label;
+    callback export-choice(bool);
+
     // Confirmation dialog.
     in property <bool> confirm-open;
     in property <string> confirm-title;
@@ -1886,7 +1894,7 @@ export component AppWindow inherits Window {
 
     // Whether a command can run now; menu items are enabled by it.
     function can-run(c: Command) -> bool {
-        if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
+        if (root.export-open || root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
             return false;
         }
         if (c == Command.close-folders-panel) { return root.folders-visible; }
@@ -2252,10 +2260,10 @@ export component AppWindow inherits Window {
             root.value-available = root.fileops-prepare-value(root.current, 0);
         }
         if (c == Command.none) {
-            if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) { return false; }
+            if (root.export-open || root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) { return false; }
             return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
         }
-        if (root.can-run(c) || (!root.confirm-open && !root.fileops-rename-open && !root.fileops-conflict-open && ((root.current >= 0 && root.needs-online(c)) || c == Command.undo-file || c == Command.redo-file))) {
+        if (root.can-run(c) || (!root.export-open && !root.confirm-open && !root.fileops-rename-open && !root.fileops-conflict-open && ((root.current >= 0 && root.needs-online(c)) || c == Command.undo-file || c == Command.redo-file))) {
             root.run(c);
         }
         true
@@ -3255,7 +3263,7 @@ export component AppWindow inherits Window {
                         color: Theme.text;
                         vertical-alignment: center;
                     }
-                    if root.can-cancel && !root.fileops-conflict-open: VerticalLayout {
+                    if root.can-cancel && !root.fileops-conflict-open && !root.export-open: VerticalLayout {
                         alignment: center;
                         StatusButton {
                             text: @tr("Cancel");
@@ -3445,6 +3453,14 @@ export component AppWindow inherits Window {
 
     // Confirmation dialog, above all other content. The backdrop takes all
     // clicks so the window behind cannot be used meanwhile.
+    if root.export-open: ExportOptions {
+        format-index <=> root.export-format;
+        only-selected <=> root.export-only-selected;
+        has-selection: root.export-has-selection;
+        selection-label: root.export-selection-label;
+        done(accepted) => { root.export-choice(accepted); }
+    }
+
     if root.confirm-open: Rectangle {
         background: #00000060;
         TouchArea { }
@@ -3995,7 +4011,7 @@ export component AppWindow inherits Window {
                     title: item.title;
                     checkable: true;
                     checked: item.checked;
-                    enabled: item.enabled && !root.confirm-open && !root.fileops-conflict-open;
+                    enabled: item.enabled && !root.export-open && !root.confirm-open && !root.fileops-conflict-open;
                     activated => { root.sort-to(item.column, root.sort-descending); }
                 }
                 MenuSeparator { }
@@ -4003,7 +4019,7 @@ export component AppWindow inherits Window {
                     title: item.title;
                     checkable: true;
                     checked: item.checked;
-                    enabled: !root.confirm-open && !root.fileops-conflict-open;
+                    enabled: !root.export-open && !root.confirm-open && !root.fileops-conflict-open;
                     activated => { root.sort-to(root.sort-column, i == 1); }
                 }
             }

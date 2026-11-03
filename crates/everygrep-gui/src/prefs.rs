@@ -3042,7 +3042,7 @@ impl Prefs {
         self.settings.borrow().copy_full_path_quotes
     }
 
-    /// The last selected result-export file type.
+    /// The last successful result-export file type.
     pub fn export_format(&self) -> crate::export::Format {
         self.settings.borrow().export_format
     }

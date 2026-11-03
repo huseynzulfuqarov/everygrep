@@ -3113,10 +3113,6 @@ msgstr "Ayarlar qovluğu tapılmır: nə XDG_CONFIG_HOME, nə də HOME təyin ed
 msgid "Opening the settings file…"
 msgstr "Ayarlar faylı açılır…"
 
-msgid "Export only the selected result"
-msgid_plural "Export only the {} selected results"
-msgstr[0] "Yalnız seçilmiş nəticəni ixrac et"
-msgstr[1] "Yalnız seçilmiş {} nəticəni ixrac et"
 
 msgid "Typing in the result list"
 msgstr "Nəticə siyahısında yazmaq"
@@ -3494,8 +3490,6 @@ msgstr "Yanlış müntəzəm ifadə."
 msgid "Technical details"
 msgstr "Texniki təfərrüatlar"
 
-msgid "Confirm export filename"
-msgstr "İxrac faylının adını təsdiqlə"
 
 msgid "Close tabs"
 msgstr "Tabları bağla"
@@ -3549,3 +3543,17 @@ msgstr "Təkrarlanma sayının başlanğıcı sonundan böyükdür."
 
 msgid "Source path: {0}\nDestination: {1}"
 msgstr "Mənbə yolu: {0}\nTəyinat: {1}"
+
+msgid "Only the {} selected result"
+msgid_plural "Only the {} selected results"
+msgstr[0] "Yalnız seçilmiş {} nəticə"
+msgstr[1] "Yalnız seçilmiş {} nəticə"
+
+msgid "Export format"
+msgstr "İxrac formatı"
+
+msgid "Unchecked exports all results."
+msgstr "İşarələnməyəndə bütün nəticələr ixrac olunur."
+
+msgid "Continue…"
+msgstr "Davam et…"

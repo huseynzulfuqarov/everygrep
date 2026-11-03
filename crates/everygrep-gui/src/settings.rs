@@ -297,7 +297,7 @@ pub struct Settings {
     /// Whether typing in the result list moves to a name that starts with
     /// the typed text (see `jump.rs`).
     pub type_to_jump: bool,
-    /// Last selected result-export file type.
+    /// Last successful result-export file type.
     pub export_format: crate::export::Format,
     /// Opening more items than this at once asks first; 0 never asks.
     pub open_confirm_over: usize,

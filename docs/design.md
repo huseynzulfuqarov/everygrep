@@ -253,6 +253,14 @@ words.
 | Help: search syntax, regular expressions, command line options | `F1` | Help menu |
 | Refresh: run the search again and read the details of the shown rows afresh | `F5` | View menu |
 
+Export first opens a small format and scope dialog (CSV, TSV, Text, M3U8,
+JSON, HTML, in that order). “Only the N selected results” always starts
+unchecked and shows the frozen selection count, including one or all rows.
+Continue opens the desktop save dialog with the chosen extension already in
+the filename. A typed known extension chooses that format; the accepted path
+is used exactly. There is no later confirmation dialog. The last successful
+export format is remembered; cancellation and failed writes do not change it.
+
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per
 line on the clipboard; the quoted copies put each path in double quotes (in

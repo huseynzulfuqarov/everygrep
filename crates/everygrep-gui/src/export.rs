@@ -49,7 +49,7 @@ pub enum Format {
 }
 
 impl Format {
-    /// Every format, in the order of the save dialog's file types.
+    /// Every format, in the order of the export options.
     pub const ALL: [Format; 6] = [
         Format::Csv,
         Format::Tsv,
@@ -79,24 +79,36 @@ impl Format {
     }
 }
 
-/// The chosen type controls a known extension; an unknown extension is
-/// part of the stem. A changed path must be confirmed by the save dialog
-/// before writing, including its ordinary overwrite confirmation.
-pub fn target(mut path: PathBuf, chosen: Option<Format>) -> (PathBuf, Format) {
-    let named = Format::of_path(&path);
-    let format = chosen.or(named).unwrap_or(Format::Csv);
-    if named == Some(format) {
-        return (path, format);
+/// A typed known extension chooses the format. Always write to the exact
+/// path accepted by the portal, whose overwrite prompt covers that path.
+pub fn saved_format(path: &Path, chosen: Format) -> Format {
+    Format::of_path(path).unwrap_or(chosen)
+}
+
+/// The frozen result scope shown in the export options.
+pub struct Selection<T> {
+    all: std::sync::Arc<Vec<T>>,
+    selected: Vec<T>,
+    pub only_selected: bool,
+}
+impl<T> Selection<T> {
+    pub fn new(all: std::sync::Arc<Vec<T>>, selected: Vec<T>) -> Self {
+        Self {
+            all,
+            selected,
+            only_selected: false,
+        }
     }
-    if named.is_some() {
-        path.set_extension(format.extension());
-    } else {
-        let mut name = path.into_os_string();
-        name.push(".");
-        name.push(format.extension());
-        path = name.into();
+    pub fn selected_count(&self) -> usize {
+        self.selected.len()
     }
-    (path, format)
+    pub fn rows(self) -> std::sync::Arc<Vec<T>> {
+        if self.only_selected {
+            std::sync::Arc::new(self.selected)
+        } else {
+            self.all
+        }
+    }
 }
 
 /// One result line.
@@ -599,40 +611,29 @@ mod tests {
     }
 
     #[test]
-    fn the_chosen_type_swaps_known_extensions() {
-        let dir = Scratch::new("export-name");
-        let p = |n: &str| dir.0.join(n);
-        assert_eq!(
-            target(p("a.CSV"), Some(Format::Text)),
-            (p("a.txt"), Format::Text)
-        );
-        assert_eq!(target(p("a.txt"), None), (p("a.txt"), Format::Text));
-        assert_eq!(
-            target(p("a"), Some(Format::Text)),
-            (p("a.txt"), Format::Text)
-        );
-        assert_eq!(target(p("a.list"), None), (p("a.list.csv"), Format::Csv));
-        assert_eq!(target(p("a.M3U8"), None), (p("a.M3U8"), Format::M3u8));
-        assert_eq!(
-            target(p("a"), Some(Format::Html)),
-            (p("a.html"), Format::Html)
-        );
-        for format in Format::ALL {
-            let name = format!("x.{}", format.extension());
-            assert_eq!(Format::of_path(Path::new(&name)), Some(format));
-        }
-        // This helper only proposes a name; the caller confirms it before writing.
-        fs::write(p("b.csv"), "keep").unwrap();
-        assert_eq!(target(p("b"), None), (p("b.csv"), Format::Csv));
-        assert_eq!(fs::read(p("b.csv")).unwrap(), b"keep");
-        for from in Format::ALL {
-            for to in Format::ALL {
-                let name = p(&format!("şəkil.{}", from.extension()));
-                assert_eq!(
-                    target(name, Some(to)),
-                    (p(&format!("şəkil.{}", to.extension())), to)
-                );
+    fn typed_extensions_win_without_changing_the_accepted_path() {
+        for chosen in Format::ALL {
+            for named in Format::ALL {
+                let path = PathBuf::from(format!("şəkil.{}", named.extension().to_uppercase()));
+                assert_eq!(saved_format(&path, chosen), named);
             }
+            for name in ["results", "results.list"] {
+                assert_eq!(saved_format(Path::new(name), chosen), chosen);
+            }
+        }
+    }
+
+    #[test]
+    fn export_selection_is_never_automatically_enabled_and_counts_actual_rows() {
+        let all = std::sync::Arc::new(vec![4, 7, 9]);
+        for selected in [vec![], vec![7], vec![4, 9], vec![4, 7, 9]] {
+            let selection = Selection::new(all.clone(), selected.clone());
+            assert_eq!(selection.selected_count(), selected.len());
+            assert!(!selection.only_selected);
+            assert_eq!(*selection.rows(), *all);
+            let mut selection = Selection::new(all.clone(), selected.clone());
+            selection.only_selected = true;
+            assert_eq!(*selection.rows(), selected);
         }
     }
 }
