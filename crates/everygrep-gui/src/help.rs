@@ -219,6 +219,10 @@ pub fn command_line() -> Vec<Row> {
                 "Open Settings too, at a page: indexing, search, appearance, window, keyboard, advanced",
             ),
         ),
+        row(
+            "--debug-log",
+            tr("Also write the debug log to ~/.cache/everygrep/debug.log"),
+        ),
         row("-h, --help", tr("Print the options and quit")),
         row("-V, --version", tr("Print the version and quit")),
         row("--", tr("Every argument after it is a query word")),

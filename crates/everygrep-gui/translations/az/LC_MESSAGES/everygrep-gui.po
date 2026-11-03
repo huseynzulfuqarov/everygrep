@@ -3989,3 +3989,34 @@ msgstr "İndi ondakı ayarlar tətbiq olunsun? İmtina: bu pəncərə növbəti 
 #: ui/folders.slint
 msgid "Grey out folders without results"
 msgstr "Nəticəsi olmayan qovluqları boz göstər"
+
+
+msgid "Debug log"
+msgstr "Qeyd jurnalı (debug)"
+
+msgid "Save…"
+msgstr "Saxla…"
+
+msgid "Copied."
+msgstr "Kopyalandı."
+
+msgid "Saved to {}."
+msgstr "{} faylına saxlanıldı."
+
+msgid "Cannot save: {}"
+msgstr "Saxlamaq olmur: {}"
+
+msgid "Save the debug log"
+msgstr "Qeyd jurnalını saxla"
+
+msgid "Log files"
+msgstr "Jurnal faylları"
+
+msgid "The last {} lines are kept in memory and also written to {}."
+msgstr "Son {} sətir yaddaşda saxlanılır və {} faylına da yazılır."
+
+msgid "The last {} lines are kept in memory only. Start EveryGrep with --debug-log to write them to a file as well."
+msgstr "Son {} sətir yalnız yaddaşda saxlanılır. Onları fayla da yazmaq üçün EveryGrep-i --debug-log ilə açın."
+
+msgid "Also write the debug log to ~/.cache/everygrep/debug.log"
+msgstr "Qeyd jurnalını ~/.cache/everygrep/debug.log faylına da yaz"

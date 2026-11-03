@@ -566,7 +566,7 @@ impl State {
                 &[&session_detail(self.saver.path(), &e)],
             );
             if self.session_error.borrow().as_ref() != Some(&message) {
-                eprintln!("everygrep-gui: cannot save tabs: {e}");
+                crate::debug_log::note!("cannot save tabs: {e}");
                 if let Some(w) = self.main.upgrade() {
                     crate::error(&w, message.clone());
                 }

@@ -15,6 +15,7 @@ export { HistoryWindow } from "history.slint";
 export { SavedWindow } from "saved.slint";
 export { AdvancedWindow } from "advanced.slint";
 export { StalledDialog } from "stalled.slint";
+export { DebugLogWindow } from "debuglog.slint";
 
 // A text with up to four highlighted runs: plain and bold pieces in turn,
 // p0 b0 p1 b1 ... p4. Without a highlight all of it is in p0; runs after the
@@ -1744,6 +1745,7 @@ export component AppWindow inherits Window {
     callback jump-reset();
     // Copies a report about the program and the system (no paths).
     callback copy-troubleshooting-info();
+    callback open-debug-log();
     // Opens the settings file in the desktop's application for it.
     callback open-settings-file();
 
@@ -3454,6 +3456,8 @@ export component AppWindow inherits Window {
             root.open-settings-file();
         } else if (c == Command.copy-troubleshooting-info) {
             root.copy-troubleshooting-info();
+        } else if (c == Command.debug-log) {
+            root.open-debug-log();
         } else if (c == Command.about) {
             root.about-open = true;
         } else if (c == Command.close-folders-panel) {
@@ -6327,6 +6331,12 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.copy-troubleshooting-info;
                 enabled: root.can-run(Command.copy-troubleshooting-info);
                 activated => { root.run(Command.copy-troubleshooting-info); }
+            }
+            MenuItem {
+                title: @tr("Debug log");
+                shortcut: root.menu-keys.debug-log;
+                enabled: root.can-run(Command.debug-log);
+                activated => { root.run(Command.debug-log); }
             }
             MenuSeparator { }
             MenuItem {

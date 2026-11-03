@@ -1,0 +1,83 @@
+// Help → Debug log: the last lines of the program's own log, with buttons
+// to copy or save them.
+import { Button, Palette, TextEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component DebugLogWindow inherits Window {
+    title: @tr("Debug log");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 760px;
+    preferred-height: 480px;
+    min-width: 480px;
+    min-height: 300px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+
+    in property <string> log-text;
+    // Where the log is also written, or that it is kept in memory only.
+    in property <string> where;
+    in property <string> notice;
+    callback refresh();
+    callback copy();
+    callback save();
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-window();
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.margin;
+            spacing: Theme.s3;
+            Text {
+                text: root.where;
+                color: Theme.text-muted;
+                font-size: Theme.small;
+                wrap: word-wrap;
+            }
+            TextEdit {
+                vertical-stretch: 1;
+                read-only: true;
+                wrap: no-wrap;
+                text: root.log-text;
+                accessible-label: @tr("Debug log");
+            }
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.notice;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Button {
+                    text: @tr("Refresh");
+                    clicked => { root.refresh(); }
+                }
+                Button {
+                    text: @tr("Copy");
+                    clicked => { root.copy(); }
+                }
+                Button {
+                    text: @tr("Save…");
+                    clicked => { root.save(); }
+                }
+                Button {
+                    text: @tr("Close");
+                    primary: true;
+                    clicked => { root.close-window(); }
+                }
+            }
+        }
+    }
+}

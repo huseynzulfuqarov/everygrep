@@ -118,7 +118,7 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
               [--prefix] [--suffix] [--ignore-punctuation]
               [--ignore-whitespace] [--regex]
               [--columns type,extension,created,accessed,attributes]
-              [--new-instance] [--new-window] [--toggle] [--background]
+              [--new-instance] [--new-window] [--toggle] [--background] [--debug-log]
               [--settings[=indexing|search|appearance|window|keyboard|advanced]] [query words...]
 ```
 
@@ -299,7 +299,11 @@ Search syntax (`F1`), Regular expressions and Command line options open the
 help window, a short reference with examples on three pages; Help →
 Keyboard shortcuts lists every key; Help → Copy troubleshooting information
 puts a short report for a bug report on the clipboard (version, system,
-desktop session, language and the numbers of the index; no paths or names); Help → About shows the version and the
+desktop session, language and the numbers of the index; no paths or names); Help → Debug log
+shows the program's last 1000 notes (what failed and why, with paths; kept in
+memory only) with Copy and Save buttons, and `--debug-log` also appends them
+to `~/.cache/everygrep/debug.log` (mode 0600; a file over 4 MiB is renamed to
+`debug.log.old` at the start); Help → About shows the version and the
 license. The Edit actions show no key in the menu, because menu keys would
 take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
 the table above. With the menu bar hidden, the `⋯` button next to the filter

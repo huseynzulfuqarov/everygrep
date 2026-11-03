@@ -132,7 +132,7 @@ pub fn apply_to_ui() {
         other => other.code(),
     };
     if let Err(e) = slint::select_bundled_translation(code) {
-        eprintln!("everygrep-gui: cannot select the language {code}: {e}");
+        crate::debug_log::note!("cannot select the language {code}: {e}");
     }
 }
 

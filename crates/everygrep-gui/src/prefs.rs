@@ -1096,6 +1096,7 @@ impl Prefs {
         crate::saved_ui::apply_scheme(scheme as i32);
         crate::advanced::apply_scheme(scheme as i32);
         crate::fileops_undo_ui::apply_scheme(scheme as i32);
+        crate::debug_log_ui::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
         }
@@ -2047,7 +2048,7 @@ impl Prefs {
                     self.apply_theme();
                 }
                 Err(e) => {
-                    eprintln!("everygrep-gui: cannot open the settings window: {e}");
+                    crate::debug_log::note!("cannot open the settings window: {e}");
                     return;
                 }
             }

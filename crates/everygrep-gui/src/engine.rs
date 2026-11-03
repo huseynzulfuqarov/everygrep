@@ -1959,6 +1959,10 @@ impl Engine {
                     // A missing file is the first start; anything else is
                     // said, since the index is then built again.
                     if e.kind() != std::io::ErrorKind::NotFound {
+                        crate::debug_log::note!(
+                            "index file {}: {e}; building it again",
+                            path.display()
+                        );
                         (self.hooks.on_notice)(Notice::IndexRebuilt {
                             damaged: e.kind() == std::io::ErrorKind::InvalidData,
                             error: e.to_string(),
@@ -2599,6 +2603,7 @@ impl Engine {
             }
         }
         if !ok {
+            crate::debug_log::note!("the index could not be saved; trying again later");
             self.dirty.store(true, Ordering::SeqCst);
         }
     }
@@ -2776,6 +2781,7 @@ impl Engine {
                 continue;
             }
             changed = true;
+            crate::debug_log::note!("drive {} went away", v.info.uuid);
             self.not_now.lock().expect("lock").remove(&v.info.uuid);
             let v = &mut volumes[i];
             v.online = false;
@@ -2905,6 +2911,11 @@ impl Engine {
                     v.root = Some(drive.mount_point.clone());
                 }
                 index.set_offline(root, false);
+                crate::debug_log::note!(
+                    "drive {} is back at {}",
+                    drive.uuid,
+                    drive.mount_point.display()
+                );
                 v.info.path = drive.mount_point.clone();
                 let _ = v.info.save(env);
                 if let Some(w) = watcher.as_deref_mut() {

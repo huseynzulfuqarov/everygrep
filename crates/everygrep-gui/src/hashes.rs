@@ -54,7 +54,7 @@ impl HashStore {
             if let Some(path) = self.path() {
                 match HashCache::load(&path, max) {
                     Ok(loaded) => *cache = loaded,
-                    Err(e) => eprintln!("hash cache {}: {e}", path.display()),
+                    Err(e) => crate::debug_log::note!("hash cache {}: {e}", path.display()),
                 }
             }
             cache.set_max_bytes(max);

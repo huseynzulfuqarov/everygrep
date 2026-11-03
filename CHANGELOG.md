@@ -344,6 +344,10 @@ First version, 0.1.0, not released yet.
 - Tools → Open the settings file, in the desktop's text editor.
 - Help → Copy troubleshooting information: version, system, desktop session,
   language and index numbers on the clipboard, without paths or names.
+- Help → Debug log: the last 1000 notes of the program, kept in memory, with
+  Copy and Save; `--debug-log` also writes them to
+  `~/.cache/everygrep/debug.log`. Notes that went only to the terminal go
+  there too.
 - Edit → Invert selection (`Ctrl+I`), which costs the same for any number
   of results.
 - File → Export results… (`Ctrl+S`): the results as CSV (name, folder,

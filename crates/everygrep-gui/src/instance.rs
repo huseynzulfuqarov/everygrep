@@ -433,7 +433,7 @@ pub fn start(name: &str, args: &[String], launch: Launch, handler: Handler) -> R
     let connection = match connection {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("everygrep-gui: no session bus, opening a separate window: {e}");
+            crate::debug_log::note!("no session bus, opening a separate window: {e}");
             return Role::Alone;
         }
     };
@@ -492,8 +492,8 @@ fn settle(
                 }
                 Step::Alone => {
                     if let Err(e) = result {
-                        eprintln!(
-                            "everygrep-gui: the open window did not answer, opening another: {e}"
+                        crate::debug_log::note!(
+                            "the open window did not answer, opening another: {e}"
                         );
                     }
                     Role::Alone
@@ -501,7 +501,7 @@ fn settle(
             }
         }
         Err(e) => {
-            eprintln!("everygrep-gui: cannot claim {name}, opening a separate window: {e}");
+            crate::debug_log::note!("cannot claim {name}, opening a separate window: {e}");
             Role::Alone
         }
     }

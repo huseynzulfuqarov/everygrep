@@ -513,6 +513,19 @@ entry, see `autostart.rs`) that finds the name taken exits without calling
 `Present`; owning the name, it skips showing the window when closing only
 hides it.
 
+### Debug log (`debug_log.rs`, `debug_log_ui.rs`)
+
+Notes about failures and events (a settings window or tab file that could
+not be written, a hash cache or index save that failed, the bus name taken,
+a drive that went away or came back) go through `debug_log::note!`: to
+standard error as before, and into a ring of the last 1000 lines with a
+local time of day. Help → Debug log shows the ring in a window of its own
+with Refresh, Copy (the main window's clipboard) and Save (the save dialog,
+written atomically). With `--debug-log` the lines are also appended to
+`debug.log` next to the default index file, opened with mode 0600; a file
+over 4 MiB at the start is renamed to `debug.log.old` first. Without the
+flag nothing is written to disk.
+
 ### Starting on login (`autostart.rs`)
 
 The setting is the file `$XDG_CONFIG_HOME/autostart/az.huseynz.EveryGrep.desktop`

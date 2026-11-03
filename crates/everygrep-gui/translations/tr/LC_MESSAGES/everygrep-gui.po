@@ -3989,3 +3989,34 @@ msgstr "İçindeki ayarlar şimdi uygulansın mı? İptal: bu pencere bir sonrak
 #: ui/folders.slint
 msgid "Grey out folders without results"
 msgstr "Sonuç içermeyen klasörleri gri göster"
+
+
+msgid "Debug log"
+msgstr "Hata ayıklama günlüğü"
+
+msgid "Save…"
+msgstr "Kaydet…"
+
+msgid "Copied."
+msgstr "Kopyalandı."
+
+msgid "Saved to {}."
+msgstr "{} konumuna kaydedildi."
+
+msgid "Cannot save: {}"
+msgstr "Kaydedilemiyor: {}"
+
+msgid "Save the debug log"
+msgstr "Hata ayıklama günlüğünü kaydet"
+
+msgid "Log files"
+msgstr "Günlük dosyaları"
+
+msgid "The last {} lines are kept in memory and also written to {}."
+msgstr "Son {} satır bellekte tutulur ve ayrıca {} dosyasına yazılır."
+
+msgid "The last {} lines are kept in memory only. Start EveryGrep with --debug-log to write them to a file as well."
+msgstr "Son {} satır yalnızca bellekte tutulur. Bir dosyaya da yazmak için EveryGrep'i --debug-log ile başlatın."
+
+msgid "Also write the debug log to ~/.cache/everygrep/debug.log"
+msgstr "Hata ayıklama günlüğünü ~/.cache/everygrep/debug.log dosyasına da yaz"

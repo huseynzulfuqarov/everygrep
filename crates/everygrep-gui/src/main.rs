@@ -8,6 +8,8 @@ mod clipboard;
 mod columns;
 mod commands;
 mod content_settings;
+mod debug_log;
+mod debug_log_ui;
 mod diagnostics;
 mod engine;
 mod export;
@@ -113,6 +115,9 @@ fn main() -> Result<(), slint::PlatformError> {
             std::process::exit(2);
         }
     };
+    if args.debug_log {
+        debug_log::start_file();
+    }
     // Read first: a dialog about a stalled window (below) is shown in the
     // chosen language.
     let (settings_path, settings, settings_error) = prefs::load();
@@ -160,7 +165,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 instance::Role::HandedOver => return Ok(()),
                 instance::Role::Alone => break None,
                 instance::Role::Stalled(s) => {
-                    eprintln!("everygrep-gui: {}", stalled::describe(s.stall));
+                    debug_log::note!("{}", stalled::describe(s.stall));
                     match stalled::resolve(s)? {
                         Some(next) => next,
                         None => return Ok(()),
@@ -656,6 +661,8 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_clipboard(&window, &model, &engine);
     connect_export(&window, &model, &engine);
     connect_troubleshooting(&window, &engine);
+    let main = window.as_weak();
+    window.on_open_debug_log(move || debug_log_ui::open(main.clone()));
     connect_settings_file(&window);
     connect_jump(&window, &model);
     ON_PRESENT.with(|p| {
@@ -2022,6 +2029,8 @@ struct Args {
     new_window: bool,
     /// Open the settings window at this page (see [`prefs::PAGES`]).
     settings_page: Option<usize>,
+    /// Also write the debug log to its file (see [`debug_log`]).
+    debug_log: bool,
 }
 
 const USAGE: &str = "\
@@ -2055,6 +2064,8 @@ options:
                          EveryGrep already runs
   --settings[=<page>]    open the settings window too, at a page: indexing,
                          search, appearance, window, keyboard, advanced
+  --debug-log            also write the debug log (Help > Debug log) to
+                         ~/.cache/everygrep/debug.log
   -h, --help             print this help
   -V, --version          print the version";
 
@@ -2141,6 +2152,7 @@ fn parse_args_with_options(
             "--background" => out.background = true,
             "--toggle" => out.toggle = true,
             "--new-window" => out.new_window = true,
+            "--debug-log" => out.debug_log = true,
             "--settings" => out.settings_page = Some(0),
             _ if a.starts_with("--settings=") => {
                 let name = &a["--settings=".len()..];
@@ -2811,6 +2823,8 @@ mod tests {
     #[test]
     fn background_flag() {
         assert!(args(&["--background"]).background);
+        assert!(args(&["--debug-log"]).debug_log);
+        assert!(!args(&["x"]).debug_log);
         assert!(!args(&["x"]).background);
         assert_eq!(args(&["--", "--background"]).query, "--background");
     }

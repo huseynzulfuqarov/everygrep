@@ -1548,6 +1548,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::DebugLog,
+        id: "help.debug-log",
+        category: Category::Help,
+        label: || tr("Debug log"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::About,
         id: "help.about",
         category: Category::Help,
@@ -1971,6 +1978,7 @@ impl Keymap {
             regex_help => RegexHelp,
             command_line_help => CommandLineHelp,
             copy_troubleshooting_info => CopyTroubleshootingInfo,
+            debug_log => DebugLog,
             about => About,
         )
     }
