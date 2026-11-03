@@ -3519,3 +3519,20 @@ msgstr "Klasörü aramadan çıkar"
 
 msgid "Scan now"
 msgstr "Şimdi tara"
+
+msgid "Partly undid a step."
+msgstr "Adım kısmen geri alındı."
+
+msgid "Partly redid a step."
+msgstr "Adım kısmen yinelendi."
+
+msgid "Undid {} item."
+msgid_plural "Undid {} items."
+msgstr[0] "{} öğe geri alındı."
+msgstr[1] "{} öğe geri alındı."
+
+msgid "Redid {} item."
+msgid_plural "Redid {} items."
+msgstr[0] "{} öğe yinelendi."
+msgstr[1] "{} öğe yinelendi."
+

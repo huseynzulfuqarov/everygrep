@@ -3519,3 +3519,20 @@ msgstr "Qovluğu axtarışdan çıxar"
 
 msgid "Scan now"
 msgstr "İndi skan et"
+
+msgid "Partly undid a step."
+msgstr "Addım qismən geri alındı."
+
+msgid "Partly redid a step."
+msgstr "Addım qismən təkrarlandı."
+
+msgid "Undid {} item."
+msgid_plural "Undid {} items."
+msgstr[0] "{} element geri alındı."
+msgstr[1] "{} element geri alındı."
+
+msgid "Redid {} item."
+msgid_plural "Redid {} items."
+msgstr[0] "{} element təkrarlandı."
+msgstr[1] "{} element təkrarlandı."
+

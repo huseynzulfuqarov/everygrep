@@ -174,6 +174,12 @@ pub fn availability() -> (bool, bool) {
     journal.availability(config.enabled)
 }
 
+#[derive(Default)]
+struct StepOutcome {
+    done: usize,
+    skipped: Vec<String>,
+}
+
 impl Journal {
     fn availability(&self, enabled: bool) -> (bool, bool) {
         (
@@ -258,14 +264,14 @@ impl Journal {
         redo: bool,
         trash: &impl Fn(&Path) -> Result<(), String>,
         progress: &Progress,
-    ) -> Option<Result<(), String>> {
+    ) -> Option<StepOutcome> {
         let index = if redo {
             self.cursor
         } else {
             self.cursor.checked_sub(1)?
         };
         let id = self.entries.get(index)?.id;
-        let mut skipped = Vec::new();
+        let mut outcome = StepOutcome::default();
         loop {
             let index = if redo {
                 Some(self.cursor)
@@ -278,18 +284,15 @@ impl Journal {
             {
                 break;
             }
-            if let Err(why) = self.step_one(redo, trash, progress)? {
-                skipped.push(why);
+            match self.step_one(redo, trash, progress)? {
+                Ok(()) => outcome.done += 1,
+                Err(why) => outcome.skipped.push(why),
             }
             if progress.is_cancelled() {
                 break;
             }
         }
-        Some(if skipped.is_empty() {
-            Ok(())
-        } else {
-            Err(unique_reasons(&skipped))
-        })
+        Some(outcome)
     }
     fn step_one(
         &mut self,
@@ -624,8 +627,7 @@ pub fn run(request: Request, progress: &Progress) -> (String, bool) {
     let c = config();
     let mut j = JOURNAL.lock().expect("journal");
     j.sync(c);
-    let mut done = 0;
-    let mut skipped = Vec::new();
+    let mut outcomes = Vec::new();
     let count = match request {
         Request::Through(id) => j
             .entries
@@ -643,13 +645,12 @@ pub fn run(request: Request, progress: &Progress) -> (String, bool) {
             break;
         }
         match j.step(matches!(request, Request::Redo), &trash, progress) {
-            Some(Ok(())) => done += 1,
-            Some(Err(reason)) => skipped.push(reason),
+            Some(outcome) => outcomes.push(outcome),
             None => break,
         }
     }
-    let text = reverse_summary(matches!(request, Request::Redo), done, &skipped);
-    (text, !skipped.is_empty())
+    let text = reverse_summary(matches!(request, Request::Redo), &outcomes);
+    (text, outcomes.iter().any(|o| !o.skipped.is_empty()))
 }
 
 fn unique_reasons(reasons: &[String]) -> String {
@@ -662,11 +663,13 @@ fn unique_reasons(reasons: &[String]) -> String {
     unique.join("; ")
 }
 
-fn reverse_summary(redo: bool, done: usize, skipped: &[String]) -> String {
-    if done == 0 && skipped.is_empty() {
+fn reverse_summary(redo: bool, outcomes: &[StepOutcome]) -> String {
+    if outcomes.is_empty() {
         return tr("No file operations to undo or redo.").into();
     }
     let mut parts = Vec::new();
+    let done = outcomes.iter().filter(|o| o.skipped.is_empty()).count();
+    let skipped = outcomes.iter().filter(|o| o.done == 0).count();
     if done > 0 {
         let text = if redo {
             trn("Redid {} step.", "Redid {} steps.", done)
@@ -675,12 +678,45 @@ fn reverse_summary(redo: bool, done: usize, skipped: &[String]) -> String {
         };
         parts.push(fill(text, &[&done]));
     }
-    if !skipped.is_empty() {
+    if skipped > 0 {
         parts.push(fill(
-            trn("Skipped {} step.", "Skipped {} steps.", skipped.len()),
-            &[&skipped.len()],
+            trn("Skipped {} step.", "Skipped {} steps.", skipped),
+            &[&skipped],
         ));
-        parts.push(unique_reasons(skipped));
+    }
+    for outcome in outcomes
+        .iter()
+        .filter(|o| o.done > 0 && !o.skipped.is_empty())
+    {
+        parts.push(
+            if redo {
+                tr("Partly redid a step.")
+            } else {
+                tr("Partly undid a step.")
+            }
+            .into(),
+        );
+        let text = if redo {
+            trn("Redid {} item.", "Redid {} items.", outcome.done)
+        } else {
+            trn("Undid {} item.", "Undid {} items.", outcome.done)
+        };
+        parts.push(fill(text, &[&outcome.done]));
+        parts.push(fill(
+            trn(
+                "Skipped {} item.",
+                "Skipped {} items.",
+                outcome.skipped.len(),
+            ),
+            &[&outcome.skipped.len()],
+        ));
+    }
+    let reasons: Vec<_> = outcomes
+        .iter()
+        .flat_map(|o| o.skipped.iter().cloned())
+        .collect();
+    if !reasons.is_empty() {
+        parts.push(unique_reasons(&reasons));
     }
     parts.join(" ")
 }
@@ -752,18 +788,61 @@ mod tests {
 
     #[test]
     fn summaries_distinguish_redo_pluralize_and_only_report_real_skips() {
-        assert_eq!(reverse_summary(false, 1, &[]), "Undid 1 step.");
-        assert_eq!(reverse_summary(false, 2, &[]), "Undid 2 steps.");
-        assert_eq!(reverse_summary(true, 1, &[]), "Redid 1 step.");
-        assert_eq!(reverse_summary(true, 2, &[]), "Redid 2 steps.");
-        let reasons = vec!["Changed externally.".into(); 2];
+        for redo in [false, true] {
+            for n in [1, 2] {
+                let outcomes: Vec<_> = (0..n)
+                    .map(|_| StepOutcome {
+                        done: 1,
+                        skipped: vec![],
+                    })
+                    .collect();
+                let verb = if redo { "Redid" } else { "Undid" };
+                let plural = if n == 1 { "step" } else { "steps" };
+                assert_eq!(
+                    reverse_summary(redo, &outcomes),
+                    format!("{verb} {n} {plural}.")
+                );
+            }
+        }
+        let outcomes: Vec<_> = (0..2)
+            .map(|_| StepOutcome {
+                done: 0,
+                skipped: vec!["Changed externally.".into()],
+            })
+            .collect();
         assert_eq!(
-            reverse_summary(false, 0, &reasons),
+            reverse_summary(false, &outcomes),
             "Skipped 2 steps. Changed externally."
         );
-        assert_eq!(
-            reverse_summary(true, 1, &reasons[..1]),
-            "Redid 1 step. Skipped 1 step. Changed externally."
+    }
+
+    #[test]
+    fn partial_step_reports_successful_and_skipped_items() {
+        let t = Temp::new();
+        let mut entries = Vec::new();
+        for i in 0..3 {
+            let to = t.0.join(format!("copy-{i}"));
+            fs::write(&to, "original").unwrap();
+            entries.push(entry(Kind::Copy, t.0.join(format!("source-{i}")), to, None));
+        }
+        let changed = entries[1].to.clone();
+        let mut j = journal(entries);
+        for e in &mut j.entries {
+            e.id = 1;
+        }
+        fs::write(&changed, "changed contents").unwrap();
+        let trash =
+            |p: &Path| fs::rename(p, p.with_extension("trashed")).map_err(|e| e.to_string());
+        let outcome = j.step(false, &trash, &Progress::new()).unwrap();
+        assert_eq!(outcome.done, 2);
+        assert_eq!(outcome.skipped.len(), 1);
+        assert!(t.0.join("copy-0.trashed").exists());
+        assert!(t.0.join("copy-2.trashed").exists());
+        assert_eq!(fs::read(changed).unwrap(), b"changed contents");
+        let text = reverse_summary(false, &[outcome]);
+        assert!(
+            text.starts_with("Partly undid a step. Undid 2 items. Skipped 1 item."),
+            "{text}"
         );
     }
 
@@ -806,13 +885,13 @@ mod tests {
         let second = entry(Kind::Rename, b.clone(), c.clone(), None);
         let mut j = journal(vec![first, second]);
         let p = Progress::new();
-        assert!(j.step(false, &no_trash, &p).unwrap().is_ok());
-        assert!(j.step(false, &no_trash, &p).unwrap().is_ok());
+        assert!(j.step(false, &no_trash, &p).unwrap().skipped.is_empty());
+        assert!(j.step(false, &no_trash, &p).unwrap().skipped.is_empty());
         assert_eq!(fs::read(&a).unwrap(), b"original");
-        assert!(j.step(true, &no_trash, &p).unwrap().is_ok());
-        assert!(j.step(true, &no_trash, &p).unwrap().is_ok());
+        assert!(j.step(true, &no_trash, &p).unwrap().skipped.is_empty());
+        assert!(j.step(true, &no_trash, &p).unwrap().skipped.is_empty());
         fs::write(&b, "unrelated").unwrap();
-        assert!(j.step(false, &no_trash, &p).unwrap().is_err());
+        assert!(j.step(false, &no_trash, &p).unwrap().done == 0);
         assert_eq!(fs::read(&b).unwrap(), b"unrelated");
         assert_eq!(fs::read(&c).unwrap(), b"original");
     }
@@ -849,7 +928,7 @@ mod tests {
             // X's step is recorded with X's identity; Y's overwrite is not.
             assert_eq!(j.entries.len(), 1);
             assert_eq!(j.entries[0].from, x);
-            assert!(j.step(false, &no_trash, &Progress::new()).unwrap().is_err());
+            assert!(j.step(false, &no_trash, &Progress::new()).unwrap().done == 0);
             j.entries.clear();
             j.cursor = 0;
             drop(j);
@@ -879,7 +958,8 @@ mod tests {
         assert!(
             j.step(false, &no_trash, &Progress::new())
                 .unwrap()
-                .unwrap_err()
+                .skipped
+                .join("; ")
                 .contains("changed")
         );
         assert_eq!(j.cursor, 0);
@@ -889,7 +969,7 @@ mod tests {
         let mut j = journal(vec![e]);
         fs::rename(&b, t.0.join("hold-inode")).unwrap();
         fs::write(&b, "replacement").unwrap();
-        assert!(j.step(false, &no_trash, &Progress::new()).unwrap().is_err());
+        assert!(j.step(false, &no_trash, &Progress::new()).unwrap().done == 0);
         assert_eq!(fs::read(&b).unwrap(), b"replacement");
     }
     #[test]
@@ -958,15 +1038,30 @@ mod tests {
             Some(source),
         )]);
         let trash = |path: &Path| fs::rename(path, &bin).map_err(|e| e.to_string());
-        assert!(j.step(false, &trash, &Progress::new()).unwrap().is_ok());
+        assert!(
+            j.step(false, &trash, &Progress::new())
+                .unwrap()
+                .skipped
+                .is_empty()
+        );
         assert!(!copy.exists());
         assert_eq!(fs::read(&bin).unwrap(), b"keep");
-        assert!(j.step(true, &no_trash, &Progress::new()).unwrap().is_ok());
+        assert!(
+            j.step(true, &no_trash, &Progress::new())
+                .unwrap()
+                .skipped
+                .is_empty()
+        );
         assert_eq!(fs::read(&copy).unwrap(), b"keep");
         fs::remove_file(&bin).unwrap();
-        assert!(j.step(false, &trash, &Progress::new()).unwrap().is_ok());
+        assert!(
+            j.step(false, &trash, &Progress::new())
+                .unwrap()
+                .skipped
+                .is_empty()
+        );
         fs::write(&src, "changed").unwrap();
-        assert!(j.step(true, &no_trash, &Progress::new()).unwrap().is_err());
+        assert!(j.step(true, &no_trash, &Progress::new()).unwrap().done == 0);
         assert!(!copy.exists());
     }
     #[test]
@@ -985,7 +1080,7 @@ mod tests {
         second.id = 2;
         let mut j = journal(vec![first, second]);
         let p = Progress::new();
-        assert!(j.step(false, &no_trash, &p).unwrap().is_ok());
+        assert!(j.step(false, &no_trash, &p).unwrap().skipped.is_empty());
         assert!(
             j.step(
                 false,
@@ -993,10 +1088,11 @@ mod tests {
                 &p
             )
             .unwrap()
-            .is_ok()
+            .skipped
+            .is_empty()
         );
-        assert!(j.step(true, &no_trash, &p).unwrap().is_ok());
-        assert!(j.step(true, &no_trash, &p).unwrap().is_ok());
+        assert!(j.step(true, &no_trash, &p).unwrap().skipped.is_empty());
+        assert!(j.step(true, &no_trash, &p).unwrap().skipped.is_empty());
         assert_eq!(fs::read(renamed).unwrap(), b"keep");
     }
     #[test]
@@ -1054,13 +1150,23 @@ mod tests {
             assert!(j.append_group(entries, c).is_ok());
         }
         assert_eq!(j.entries.chunk_by(|a, b| a.id == b.id).count(), 2);
-        assert!(j.step(false, &no_trash, &Progress::new()).unwrap().is_ok());
+        assert!(
+            j.step(false, &no_trash, &Progress::new())
+                .unwrap()
+                .skipped
+                .is_empty()
+        );
         for (from, to) in &groups[1..] {
             assert!(from.exists());
             assert!(!to.exists());
         }
         assert!(groups[0].1.exists());
-        assert!(j.step(true, &no_trash, &Progress::new()).unwrap().is_ok());
+        assert!(
+            j.step(true, &no_trash, &Progress::new())
+                .unwrap()
+                .skipped
+                .is_empty()
+        );
         for (from, to) in &groups[1..] {
             assert!(!from.exists());
             assert!(to.exists());
@@ -1121,7 +1227,12 @@ mod tests {
             j.append_group(vec![entry(Kind::Rename, a.clone(), b.clone(), None)], c)
                 .is_ok()
         );
-        assert!(j.step(false, &no_trash, &Progress::new()).unwrap().is_ok());
+        assert!(
+            j.step(false, &no_trash, &Progress::new())
+                .unwrap()
+                .skipped
+                .is_empty()
+        );
         assert_eq!(fs::read(&a).unwrap(), b"renamed");
         assert!(!b.exists());
         assert!(t.0.join("big").exists());
