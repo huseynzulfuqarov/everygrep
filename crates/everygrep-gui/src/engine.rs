@@ -4289,8 +4289,8 @@ mod tests {
         );
         assert_eq!(probe.engine.content_cache.lock().unwrap().len(), 3);
         assert_eq!(probe.names("content:needle"), ["a.txt", "c.md"]);
-        // Another order searches again with the cached answers: a file
-        // changed behind the index's back keeps its answer.
+        // Another order searches again: a disk change invalidates its
+        // cached answer even while the index is paused.
         fs::write(root.join("b.txt"), "needle now\n").unwrap();
         while probe.results.try_recv().is_ok() {}
         probe.engine.set_sort(Sort {
@@ -4298,7 +4298,7 @@ mod tests {
             ..Sort::default()
         });
         let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
-        assert_eq!(r.ids.len(), 2);
+        assert_eq!(r.ids.len(), 3);
         // New settings read every file again: c.md is now too large.
         while probe.results.try_recv().is_ok() {}
         probe.engine.set_content_options(ContentOptions {
@@ -4428,6 +4428,40 @@ mod tests {
         model.restore(Some(&model.freeze()));
         assert_eq!(model.freeze().settled.unwrap().state.text, "a.txt");
         engine.shutdown();
+    }
+
+    #[test]
+    fn content_cache_follows_disk_changes_with_paused_or_missing_index_details() {
+        for details in [true, false] {
+            let dir = Scratch::new(if details {
+                "content-paused"
+            } else {
+                "content-no-details"
+            });
+            let root = dir.0.join("files");
+            fs::create_dir_all(&root).unwrap();
+            fs::write(root.join("a.txt"), "needle\n").unwrap();
+            let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+            probe.wait_for(IndexState::Unwatched);
+            if !details {
+                probe.engine.set_file_details(false);
+                probe
+                    .engine
+                    .reindex(std::slice::from_ref(&root), IndexRules::default());
+                probe.wait_for(IndexState::Scanning);
+                probe.wait_for(IndexState::Unwatched);
+            }
+            assert_eq!(probe.names("content:needle"), ["a.txt"]);
+            // Replace it without refreshing the paused index; the path and size stay the same.
+            fs::write(root.join("replacement"), "absent\n").unwrap();
+            fs::rename(root.join("replacement"), root.join("a.txt")).unwrap();
+            assert!(
+                probe.names("content:needle").is_empty(),
+                "details={details}"
+            );
+            assert_eq!(probe.names("content:absent"), ["a.txt"]);
+            probe.engine.shutdown();
+        }
     }
 
     #[test]

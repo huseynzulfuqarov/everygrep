@@ -47,7 +47,7 @@ impl FileKey {
         (self.dev, self.ino)
     }
 
-    fn of(meta: &std::fs::Metadata) -> Self {
+    pub(crate) fn of(meta: &std::fs::Metadata) -> Self {
         Self {
             dev: meta.dev(),
             ino: meta.ino(),

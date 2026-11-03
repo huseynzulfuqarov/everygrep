@@ -302,8 +302,8 @@ pub fn search_file(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pending {
     pub path: Vec<u8>,
-    /// Size and modification time in the index: with the path, they say
-    /// whether a cached answer is still good.
+    /// Indexed size and modification time. Cached answers validate live
+    /// metadata because these may be omitted or out of date.
     pub size: u64,
     pub mtime_ns: i64,
     /// See [`crate::query::Stage::Contents`].
@@ -472,16 +472,28 @@ fn answer(
     cache: Option<&Mutex<ContentCache>>,
     progress: &Progress,
 ) -> Result<bool, Cancelled> {
-    if let Some(found) = cache.and_then(|c| c.lock().expect("content cache").get(term, entry)) {
-        return Ok(found);
-    }
+    progress.check()?;
     let path = Path::new(std::ffi::OsStr::from_bytes(&entry.path));
+    let key = live_key(path);
+    if let (Some(cache), Some(key)) = (cache, key) {
+        let found = cache.lock().expect("content cache").get(term, entry, key);
+        if let Some(found) = found {
+            progress.check()?;
+            return Ok(found);
+        }
+    }
     let outcome = search_file(path, term, options, progress)?;
-    // A file that could not be read may be readable next time.
-    match cache {
-        Some(cache) if outcome != Outcome::Unreadable => {
-            let mut cache = cache.lock().expect("content cache");
-            cache.put(term, entry, outcome.is_match());
+    // Unreadable or changing files must be tried again. Metadata comes
+    // from disk even when details were omitted from the index or watching
+    // is paused; replacement at the same path also invalidates an answer.
+    match (cache, key) {
+        (Some(cache), Some(key))
+            if outcome != Outcome::Unreadable && live_key(path) == Some(key) =>
+        {
+            cache
+                .lock()
+                .expect("content cache")
+                .put(term, entry, key, outcome.is_match());
         }
         _ => {}
     }
@@ -494,7 +506,7 @@ pub const CACHE_ENTRIES: usize = 200_000;
 const CACHE_TERMS: usize = 8;
 
 /// Answers of content terms for files, by the term's key and the file's
-/// path, size and modification time in the index, so a search of the same
+/// path and live file identity, size, modification and change times, so a search of the same
 /// terms again (another order, file changes elsewhere) does not read the
 /// files again. Answers for other [`ContentOptions`] are dropped. The terms
 /// used longest ago are dropped first; when one term has
@@ -506,8 +518,23 @@ pub struct ContentCache {
     terms: VecDeque<(String, Answers)>,
 }
 
-/// Path → (size, modification time, answer).
-type Answers = HashMap<Vec<u8>, (u64, i64, bool)>;
+/// File identity and content metadata, including change time for edits
+/// that preserve the modification time.
+type ContentKey = (crate::hash::FileKey, i64, i64);
+/// Path → (live metadata, answer).
+type Answers = HashMap<Vec<u8>, (ContentKey, bool)>;
+
+fn live_key(path: &Path) -> Option<ContentKey> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    meta.is_file().then(|| {
+        (
+            crate::hash::FileKey::of(&meta),
+            meta.ctime(),
+            meta.ctime_nsec(),
+        )
+    })
+}
 
 impl ContentCache {
     pub fn new() -> Self {
@@ -535,16 +562,12 @@ impl ContentCache {
         }
     }
 
-    fn get(&mut self, term: &ContentTerm, entry: &Pending) -> Option<bool> {
+    fn get(&mut self, term: &ContentTerm, entry: &Pending, key: ContentKey) -> Option<bool> {
         let at = self.terms.iter().position(|(k, _)| k == term.key())?;
-        let found = match self.terms[at].1.get(entry.path.as_slice()) {
-            Some(&(size, mtime_ns, matched))
-                if (size, mtime_ns) == (entry.size, entry.mtime_ns) =>
-            {
-                Some(matched)
-            }
-            _ => None,
-        };
+        let found = self.terms[at]
+            .1
+            .get(entry.path.as_slice())
+            .and_then(|&(saved, matched)| (saved == key).then_some(matched));
         if at + 1 != self.terms.len() {
             let used = self.terms.remove(at)?;
             self.terms.push_back(used);
@@ -552,7 +575,7 @@ impl ContentCache {
         found
     }
 
-    fn put(&mut self, term: &ContentTerm, entry: &Pending, matched: bool) {
+    fn put(&mut self, term: &ContentTerm, entry: &Pending, key: ContentKey, matched: bool) {
         let at = match self.terms.iter().position(|(k, _)| k == term.key()) {
             Some(at) => at,
             None => {
@@ -568,7 +591,7 @@ impl ContentCache {
         if answers.len() >= CACHE_ENTRIES {
             answers.clear();
         }
-        answers.insert(entry.path.clone(), (entry.size, entry.mtime_ns, matched));
+        answers.insert(entry.path.clone(), (key, matched));
     }
 }
 
@@ -1144,10 +1167,9 @@ mod tests {
         let options = ContentOptions::default();
         assert!(run(&entry, &options));
         assert_eq!(cache.lock().unwrap().len(), 1);
-        // The file changed on disk; the index has not seen it yet: the
-        // cached answer stays.
+        // Disk changes invalidate the answer even before the index sees them.
         std::fs::write(&path, b"other\n").unwrap();
-        assert!(run(&entry, &options));
+        assert!(!run(&entry, &options));
         // Once the index has the new time, the file is read again.
         let changed = Pending {
             mtime_ns: 2,
