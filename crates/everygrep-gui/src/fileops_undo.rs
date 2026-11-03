@@ -1,5 +1,5 @@
 //! Session-only, opt-in reversal. Disk work stays on helper threads.
-use crate::i18n::{fill, tr};
+use crate::i18n::{fill, tr, trn};
 use crate::{actions, clipboard::Operation, fileops_settings::Settings, transfer};
 use everygrep_core::progress::Progress;
 use std::fs;
@@ -265,7 +265,6 @@ impl Journal {
             self.cursor.checked_sub(1)?
         };
         let id = self.entries.get(index)?.id;
-        let mut done = 0;
         let mut skipped = Vec::new();
         loop {
             let index = if redo {
@@ -279,9 +278,8 @@ impl Journal {
             {
                 break;
             }
-            match self.step_one(redo, trash, progress)? {
-                Ok(()) => done += 1,
-                Err(why) => skipped.push(why),
+            if let Err(why) = self.step_one(redo, trash, progress)? {
+                skipped.push(why);
             }
             if progress.is_cancelled() {
                 break;
@@ -290,10 +288,7 @@ impl Journal {
         Some(if skipped.is_empty() {
             Ok(())
         } else {
-            Err(fill(
-                tr("Reversed {0} items. Skipped {1}. {2}"),
-                &[&done, &skipped.len(), &skipped.join("; ")],
-            ))
+            Err(unique_reasons(&skipped))
         })
     }
     fn step_one(
@@ -653,15 +648,41 @@ pub fn run(request: Request, progress: &Progress) -> (String, bool) {
             None => break,
         }
     }
-    let text = if done == 0 && skipped.is_empty() {
-        tr("No file operations to undo or redo.").into()
-    } else {
-        fill(
-            tr("Reversed {0} steps. Skipped {1}. {2}"),
-            &[&done, &skipped.len(), &skipped.join("; ")],
-        )
-    };
+    let text = reverse_summary(matches!(request, Request::Redo), done, &skipped);
     (text, !skipped.is_empty())
+}
+
+fn unique_reasons(reasons: &[String]) -> String {
+    let mut unique = Vec::new();
+    for reason in reasons {
+        if !unique.contains(&reason.as_str()) {
+            unique.push(reason.as_str());
+        }
+    }
+    unique.join("; ")
+}
+
+fn reverse_summary(redo: bool, done: usize, skipped: &[String]) -> String {
+    if done == 0 && skipped.is_empty() {
+        return tr("No file operations to undo or redo.").into();
+    }
+    let mut parts = Vec::new();
+    if done > 0 {
+        let text = if redo {
+            trn("Redid {} step.", "Redid {} steps.", done)
+        } else {
+            trn("Undid {} step.", "Undid {} steps.", done)
+        };
+        parts.push(fill(text, &[&done]));
+    }
+    if !skipped.is_empty() {
+        parts.push(fill(
+            trn("Skipped {} step.", "Skipped {} steps.", skipped.len()),
+            &[&skipped.len()],
+        ));
+        parts.push(unique_reasons(skipped));
+    }
+    parts.join(" ")
 }
 
 pub fn csv(rows: &[Row]) -> String {
@@ -727,6 +748,23 @@ mod tests {
     }
     fn no_trash(_: &Path) -> Result<(), String> {
         panic!("unexpected trash");
+    }
+
+    #[test]
+    fn summaries_distinguish_redo_pluralize_and_only_report_real_skips() {
+        assert_eq!(reverse_summary(false, 1, &[]), "Undid 1 step.");
+        assert_eq!(reverse_summary(false, 2, &[]), "Undid 2 steps.");
+        assert_eq!(reverse_summary(true, 1, &[]), "Redid 1 step.");
+        assert_eq!(reverse_summary(true, 2, &[]), "Redid 2 steps.");
+        let reasons = vec!["Changed externally.".into(); 2];
+        assert_eq!(
+            reverse_summary(false, 0, &reasons),
+            "Skipped 2 steps. Changed externally."
+        );
+        assert_eq!(
+            reverse_summary(true, 1, &reasons[..1]),
+            "Redid 1 step. Skipped 1 step. Changed externally."
+        );
     }
 
     #[test]

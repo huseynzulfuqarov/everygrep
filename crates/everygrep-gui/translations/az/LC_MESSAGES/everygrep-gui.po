@@ -3183,8 +3183,6 @@ msgstr "Geri alınıb"
 msgid "No file operations to undo or redo."
 msgstr "Geri alınacaq və ya təkrarlanacaq fayl əməliyyatı yoxdur."
 
-msgid "Reversed {0} steps. Skipped {1}. {2}"
-msgstr "{0} addım geri çevrildi. {1} addım ötürüldü. {2}"
 
 msgid "Cannot export file history: {}"
 msgstr "Fayl tarixçəsini ixrac etmək olmur: {}"
@@ -3281,8 +3279,6 @@ msgid_plural "Sent {} replaced items to the trash."
 msgstr[0] "{} əvəz edilən element zibil qutusuna göndərildi."
 msgstr[1] "{} əvəz edilən element zibil qutusuna göndərildi."
 
-msgid "Reversed {0} items. Skipped {1}. {2}"
-msgstr "{0} element geri alındı. {1} element ötürüldü. {2}"
 
 msgid "{0} ({1} items)"
 msgstr "{0} ({1} element)"
@@ -3410,3 +3406,18 @@ msgstr "Yapışdırma xətası"
 
 msgid "Paste finished; undo history cleared."
 msgstr "Yapışdırma bitdi; geri alma tarixçəsi silindi."
+
+msgid "Undid {} step."
+msgid_plural "Undid {} steps."
+msgstr[0] "{} addım geri alındı."
+msgstr[1] "{} addım geri alındı."
+
+msgid "Redid {} step."
+msgid_plural "Redid {} steps."
+msgstr[0] "{} addım təkrar icra edildi."
+msgstr[1] "{} addım təkrar icra edildi."
+
+msgid "Skipped {} step."
+msgid_plural "Skipped {} steps."
+msgstr[0] "{} addım ötürüldü."
+msgstr[1] "{} addım ötürüldü."

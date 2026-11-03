@@ -476,6 +476,37 @@ mod tests {
         assert_eq!(trn_in(Lang::Az, "x", "xs", 5), "xs");
     }
 
+    #[test]
+    fn undo_and_redo_counts_use_each_catalogs_plural_forms() {
+        for (lang, undo, redo, skip) in [
+            (
+                Lang::Az,
+                "{} addım geri alındı.",
+                "{} addım təkrar icra edildi.",
+                "{} addım ötürüldü.",
+            ),
+            (
+                Lang::Tr,
+                "{} adım geri alındı.",
+                "{} adım yinelendi.",
+                "{} adım atlandı.",
+            ),
+        ] {
+            for n in [0, 1, 2] {
+                assert_eq!(trn_in(lang, "Undid {} step.", "Undid {} steps.", n), undo);
+                assert_eq!(trn_in(lang, "Redid {} step.", "Redid {} steps.", n), redo);
+                assert_eq!(
+                    trn_in(lang, "Skipped {} step.", "Skipped {} steps.", n),
+                    skip
+                );
+            }
+        }
+        assert_eq!(
+            trn_in(Lang::En, "Undid {} step.", "Undid {} steps.", 0),
+            "Undid {} steps."
+        );
+    }
+
     /// A string literal of Rust or Slint starting at `s` (after the opening
     /// quote): its text and the rest after the closing quote.
     fn literal(s: &str) -> (String, &str) {
