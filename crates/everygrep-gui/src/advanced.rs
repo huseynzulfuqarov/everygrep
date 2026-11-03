@@ -153,3 +153,26 @@ impl State {
         let _ = w.hide();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Enter in any text field of the form runs Use query, and the window
+    /// opens low enough for a laptop screen of 810 px with its title bar.
+    #[test]
+    fn form_fits_and_enter_uses_the_query() {
+        let source = include_str!("../ui/advanced.slint");
+        let fields = source.matches("LineEdit {").count();
+        assert!(fields > 10);
+        assert_eq!(
+            source.matches("accepted => { root.use-query(); }").count(),
+            fields
+        );
+        let height = source
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("preferred-height: "))
+            .and_then(|v| v.strip_suffix("px;"))
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap();
+        assert!(height <= 700, "{height}");
+    }
+}

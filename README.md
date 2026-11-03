@@ -897,7 +897,7 @@ all words, an exact phrase, any words and excluded words, in names or paths.
 It offers a location with optional subfolders, the current filter, files or
 folders, extensions, size and modified/created/accessed date ranges. Sizes use
 bytes or binary KiB/MiB/GiB; dates are local `YYYY-MM-DD` and both ends are
-inclusive. Empty ends impose no limit. Use query replaces the field and follows
+inclusive. Empty ends impose no limit. Use query (or Enter in a text field) replaces the field and follows
 Search as you type; with that setting off, press Enter to run it. Unsupported
 metadata conditions are omitted.
 

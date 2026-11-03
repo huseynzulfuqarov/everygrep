@@ -1353,43 +1353,57 @@ export component SettingsWindow inherits Window {
                                 current-row <=> root.raw-current;
                                 current-row-changed(i) => { root.raw-chosen(i); }
                             }
-                            HorizontalLayout {
-                                spacing: Theme.s2;
-                                LineEdit {
-                                    horizontal-stretch: 1;
-                                    accessible-label: @tr("Value of the chosen setting");
-                                    enabled: root.raw-editable;
-                                    text <=> root.raw-value;
-                                    accepted => { root.raw-apply(); }
-                                }
-                                Button {
-                                    text: @tr("Apply");
-                                    enabled: root.raw-editable;
-                                    clicked => { root.raw-apply(); }
-                                }
-                                if root.raw-toggle: Button {
-                                    text: @tr("Toggle");
-                                    clicked => { root.raw-toggle-value(); }
-                                }
-                                Button {
-                                    text: @tr("Reset");
-                                    enabled: root.raw-resettable;
-                                    clicked => { root.raw-reset(); }
-                                }
-                                Button {
-                                    text: @tr("Copy");
-                                    enabled: root.raw-current >= 0;
-                                    clicked => { root.raw-copy(); }
-                                }
-                            }
-                            if root.raw-error != "": Text {
-                                text: root.raw-error;
-                                color: Theme.danger;
-                                font-size: Theme.small;
-                                wrap: word-wrap;
-                            }
                             Note { text: @tr("Every setting as the settings file writes it: true or false, numbers, names, and paths with backslash escapes; an empty value is the default where the default is empty. A change applies at once and is saved, as if it were made on its page. Folders, drives and keys repeat their key once per value and are changed on their pages; lines this version does not know are kept as they are."); }
                         }
+                    }
+                }
+                // The value of the chosen setting and its buttons stay in
+                // view below the page, which is taller than the window.
+                if root.page == 5: VerticalLayout {
+                    padding: Theme.s5;
+                    padding-top: Theme.s2;
+                    spacing: Theme.s2;
+                    Text {
+                        text: root.raw-current >= 0 && root.raw-current < root.raw-rows.length
+                            ? root.raw-rows[root.raw-current][0].text : "";
+                        color: Theme.text;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    HorizontalLayout {
+                        spacing: Theme.s2;
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            accessible-label: @tr("Value of the chosen setting");
+                            enabled: root.raw-editable;
+                            text <=> root.raw-value;
+                            accepted => { root.raw-apply(); }
+                        }
+                        Button {
+                            text: @tr("Apply");
+                            enabled: root.raw-editable;
+                            clicked => { root.raw-apply(); }
+                        }
+                        if root.raw-toggle: Button {
+                            text: @tr("Toggle");
+                            clicked => { root.raw-toggle-value(); }
+                        }
+                        Button {
+                            text: @tr("Reset");
+                            enabled: root.raw-resettable;
+                            clicked => { root.raw-reset(); }
+                        }
+                        Button {
+                            text: @tr("Copy");
+                            enabled: root.raw-current >= 0;
+                            clicked => { root.raw-copy(); }
+                        }
+                    }
+                    if root.raw-error != "": Text {
+                        text: root.raw-error;
+                        color: Theme.danger;
+                        font-size: Theme.small;
+                        wrap: word-wrap;
                     }
                 }
                 if root.page < 4: HorizontalLayout {

@@ -476,8 +476,13 @@ form. Words may use `*` and `?`; the exact phrase is literal. Name/path, locatio
 and subfolder scope, the existing filter choices, type, extension and inclusive
 size/date ranges build the query. Dates are local YYYY-MM-DD. Empty bounds are
 unrestricted; invalid or reversed ranges leave the main field unchanged.
-Use query replaces the field, applies the form's matching modes and follows
-Search as you type. The form never tries to reverse-parse an existing query.
+Use query (or Enter in any text field) replaces the field, applies the form's
+matching modes and follows Search as you type. The form never tries to
+reverse-parse an existing query. The window opens 640 px high so it fits a
+laptop screen; the fields scroll, while the error note, Use query and Cancel
+stay below them in view. Settings → Advanced likewise keeps the chosen
+setting's name, value field and its Apply, Toggle, Reset and Copy buttons
+below the page instead of at the end of it.
 A File contents section (word or phrase, its own match case / whole words /
 regular expression, text encoding) adds one `content:` term; a note says file
 contents are read from disk, so narrowing fields make it faster.

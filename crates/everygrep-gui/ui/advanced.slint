@@ -4,10 +4,12 @@ import { Theme } from "theme.slint";
 export component AdvancedWindow inherits Window {
     title: @tr("Advanced Search");
     icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    // Fits a laptop screen of 810 px with the title bar: the fields scroll,
+    // the buttons below them stay in view.
     preferred-width: 800px;
-    preferred-height: 800px;
+    preferred-height: 640px;
     min-width: 720px;
-    min-height: 480px;
+    min-height: 360px;
     background: Theme.surface;
     default-font-size: Theme.body;
     forward-focus: all;
@@ -53,6 +55,7 @@ export component AdvancedWindow inherits Window {
             if (event.text == Key.Escape) { root.close-window(); return accept; }
             reject
         }
+        VerticalLayout {
         ScrollView {
         VerticalLayout {
             padding: Theme.s4;
@@ -61,19 +64,19 @@ export component AdvancedWindow inherits Window {
                 spacing: Theme.s2;
                 Row {
                     Text { text: @tr("All of these words"); color: Theme.text; vertical-alignment: center; }
-                    all := LineEdit { accessible-label: @tr("All of these words"); text <=> root.all-words; }
+                    all := LineEdit { accessible-label: @tr("All of these words"); text <=> root.all-words; accepted => { root.use-query(); } }
                 }
                 Row {
                     Text { text: @tr("This exact phrase"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("This exact phrase"); text <=> root.phrase; }
+                    LineEdit { accessible-label: @tr("This exact phrase"); text <=> root.phrase; accepted => { root.use-query(); } }
                 }
                 Row {
                     Text { text: @tr("Any of these words"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Any of these words"); text <=> root.any-words; }
+                    LineEdit { accessible-label: @tr("Any of these words"); text <=> root.any-words; accepted => { root.use-query(); } }
                 }
                 Row {
                     Text { text: @tr("None of these words"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("None of these words"); text <=> root.none-words; }
+                    LineEdit { accessible-label: @tr("None of these words"); text <=> root.none-words; accepted => { root.use-query(); } }
                 }
             }
             Text { text: @tr("Separate words with spaces; * and ? are wildcards. The exact phrase is literal."); color: Theme.text-muted; wrap: word-wrap; }
@@ -88,7 +91,7 @@ export component AdvancedWindow inherits Window {
                 spacing: Theme.s2;
                 Row {
                     Text { text: @tr("Word or phrase in the file"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Word or phrase in the file"); text <=> root.content-text; }
+                    LineEdit { accessible-label: @tr("Word or phrase in the file"); text <=> root.content-text; accepted => { root.use-query(); } }
                 }
                 Row {
                     Text { text: @tr("Text encoding"); color: Theme.text; vertical-alignment: center; }
@@ -105,7 +108,7 @@ export component AdvancedWindow inherits Window {
                 spacing: Theme.s2;
                 Row {
                     Text { text: @tr("Located in"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Located in"); text <=> root.location; }
+                    LineEdit { accessible-label: @tr("Located in"); text <=> root.location; accepted => { root.use-query(); } }
                 }
                 Row {
                     Text { text: ""; }
@@ -121,42 +124,59 @@ export component AdvancedWindow inherits Window {
                 }
                 Row {
                     Text { text: @tr("Extensions"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Extensions"); text <=> root.extensions; placeholder-text: @tr("For example pdf;txt"); }
+                    LineEdit { accessible-label: @tr("Extensions"); text <=> root.extensions; accepted => { root.use-query(); } placeholder-text: @tr("For example pdf;txt"); }
                 }
             }
             GridLayout {
                 spacing: Theme.s2;
                 Row {
                     Text { text: @tr("Size from"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Minimum size"); text <=> root.min-size; }
+                    LineEdit { accessible-label: @tr("Minimum size"); text <=> root.min-size; accepted => { root.use-query(); } }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Maximum size"); text <=> root.max-size; }
+                    LineEdit { accessible-label: @tr("Maximum size"); text <=> root.max-size; accepted => { root.use-query(); } }
                     ComboBox { accessible-label: @tr("Size unit"); model: [@tr("bytes"), @tr("KiB"), @tr("MiB"), @tr("GiB")]; current-index <=> root.size-unit; }
                 }
                 Row {
                     Text { text: @tr("Modified from"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Modified from"); text <=> root.modified-from; placeholder-text: @tr("YYYY-MM-DD"); }
+                    LineEdit { accessible-label: @tr("Modified from"); text <=> root.modified-from; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Modified to"); text <=> root.modified-to; placeholder-text: @tr("YYYY-MM-DD"); }
+                    LineEdit { accessible-label: @tr("Modified to"); text <=> root.modified-to; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                 }
                 Row {
                     Text { text: @tr("Created from"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Created from"); text <=> root.created-from; placeholder-text: @tr("YYYY-MM-DD"); }
+                    LineEdit { accessible-label: @tr("Created from"); text <=> root.created-from; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Created to"); text <=> root.created-to; placeholder-text: @tr("YYYY-MM-DD"); }
+                    LineEdit { accessible-label: @tr("Created to"); text <=> root.created-to; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                 }
                 Row {
                     Text { text: @tr("Accessed from"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Accessed from"); text <=> root.accessed-from; placeholder-text: @tr("YYYY-MM-DD"); }
+                    LineEdit { accessible-label: @tr("Accessed from"); text <=> root.accessed-from; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                     Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
-                    LineEdit { accessible-label: @tr("Accessed to"); text <=> root.accessed-to; placeholder-text: @tr("YYYY-MM-DD"); }
+                    LineEdit { accessible-label: @tr("Accessed to"); text <=> root.accessed-to; accepted => { root.use-query(); } placeholder-text: @tr("YYYY-MM-DD"); }
                 }
             }
             Text { text: @tr("Ranges include both ends. Empty ends are unrestricted. Dates use local time."); color: Theme.text-muted; wrap: word-wrap; }
-            if root.notice != "": Text { text: root.notice; color: Theme.danger; wrap: word-wrap; }
-            HorizontalLayout {
-                Rectangle { horizontal-stretch: 1; }
+        }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        HorizontalLayout {
+            padding: Theme.s3;
+            padding-left: Theme.s4;
+            padding-right: Theme.s4;
+            spacing: Theme.s2;
+            Text {
+                text: root.notice;
+                color: Theme.danger;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            VerticalLayout {
+                alignment: center;
                 Button { text: @tr("Use query"); primary: true; clicked => { root.use-query(); } }
+            }
+            VerticalLayout {
+                alignment: center;
                 Button { text: @tr("Cancel"); clicked => { root.close-window(); } }
             }
         }
