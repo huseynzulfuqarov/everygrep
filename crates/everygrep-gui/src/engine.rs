@@ -1335,7 +1335,15 @@ impl Engine {
                     if due && query.dupes().is_none() {
                         last = Some((now, decisions.matched()));
                         shown |= self.show_partial(
-                            generation, state, query, &staged, &decisions, epoch, started, terms,
+                            generation,
+                            state,
+                            query,
+                            &staged,
+                            &decisions,
+                            epoch,
+                            started,
+                            terms,
+                            task.progress(),
                         );
                     }
                 },
@@ -1434,6 +1442,7 @@ impl Engine {
         epoch: u64,
         started: Instant,
         terms: &Arc<Vec<HighlightTerm>>,
+        progress: &Progress,
     ) -> bool {
         let index = self.index.read().expect("index lock");
         if self.epoch() != epoch || !self.is_current(generation) {
@@ -1442,8 +1451,14 @@ impl Engine {
         let mut ids = staged.results(decisions);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         if self
-            .sort(&index, &mut ids, state.sort, threads, &Progress::new())
+            .sort(&index, &mut ids, state.sort, threads, progress)
             .is_err()
+        {
+            return false;
+        }
+        if progress.is_cancelled()
+            || !self.is_current(generation)
+            || self.stop.load(Ordering::SeqCst)
         {
             return false;
         }
@@ -4708,6 +4723,7 @@ mod tests {
             epoch,
             Instant::now(),
             &terms,
+            &Progress::new(),
         );
         assert!(!shown);
         let generation = engine.generation.load(Ordering::SeqCst);
@@ -4720,6 +4736,7 @@ mod tests {
             epoch,
             Instant::now(),
             &terms,
+            &Progress::new(),
         ));
         let r = probe.results.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -4731,6 +4748,20 @@ mod tests {
         assert_eq!(names, [&b"large.txt"[..], b"small.txt"], "largest first");
         drop(index);
         assert_eq!(engine.applied.lock().unwrap().text, "content:needle");
+        // A cancelled partial sort must publish nothing.
+        let task = engine.tasks.begin(TaskKind::SearchingContent, true);
+        task.progress().cancel();
+        assert!(!engine.show_partial(
+            generation,
+            &state,
+            &query,
+            &staged,
+            &decisions,
+            epoch,
+            Instant::now(),
+            &terms,
+            task.progress(),
+        ));
         // Ids of another epoch are never shown.
         assert!(!engine.show_partial(
             generation,
@@ -4741,6 +4772,7 @@ mod tests {
             epoch + 1,
             Instant::now(),
             &terms,
+            &Progress::new(),
         ));
         probe.engine.shutdown();
     }
