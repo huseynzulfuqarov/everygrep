@@ -9,7 +9,7 @@ use crate::i18n::tr;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use everygrep_core::filter::Filter;
 use everygrep_core::query::{HiddenFiles, QueryOptions};
@@ -240,6 +240,9 @@ pub struct Prefs {
     pub searches: RefCell<Searches>,
     pub history_epoch: Cell<u64>,
     history_revision: Cell<u64>,
+    history_generation: Cell<crate::history_sync::Generation>,
+    history_reader: Arc<Mutex<crate::history_sync::Reader>>,
+    history_syncing: Cell<bool>,
     retention: Cell<search_history::Retention>,
     window: RefCell<Option<SettingsWindow>>,
     history_window: RefCell<Option<HistoryWindow>>,
@@ -340,6 +343,9 @@ impl Prefs {
             searches: RefCell::default(),
             history_epoch: Cell::new(0),
             history_revision: Cell::new(0),
+            history_generation: Cell::new(crate::history_sync::Generation::Unknown),
+            history_reader: Arc::default(),
+            history_syncing: Cell::new(false),
             retention: Cell::new(retention),
             settings: RefCell::new(settings),
             index: RefCell::new(index),
@@ -377,6 +383,7 @@ impl Prefs {
             key_dialog: Cell::new(None),
         });
         PREFS.with(|p| *p.borrow_mut() = Some(prefs.clone()));
+        prefs.sync_history();
         if on_disk {
             prefs.change_searches_with(
                 |_| {},
@@ -394,7 +401,10 @@ impl Prefs {
         prefs
             .reload_timer
             .start(slint::TimerMode::Repeated, RELOAD_EVERY, || {
-                with(|p| p.look_for_outside_changes())
+                with(|p| {
+                    p.look_for_outside_changes();
+                    p.sync_history();
+                })
             });
         prefs
     }
@@ -532,19 +542,37 @@ impl Prefs {
         let revision = self.history_revision.get().wrapping_add(1);
         self.history_revision.set(revision);
         self.searches.borrow_mut().apply(days, time, &change);
+        self.searches
+            .borrow_mut()
+            .limit_to(self.settings.borrow().history_entries);
         if on_disk {
             let path = settings::history_path();
             let epoch = self.history_epoch.get();
+            let settings_path = self.path.clone();
+            let reader = self.history_reader.clone();
+            let generation = self.history_generation.get();
             self.writer.run_apart(move || {
                 let result = path
                     .ok_or_else(|| {
                         std::io::Error::other(i18n::tr("The configuration folder is unavailable."))
                     })
-                    .and_then(|path| search_history::update(&path, days, time, change));
+                    .and_then(|path| {
+                        let settings_path = settings_path
+                            .ok_or_else(|| std::io::Error::other("settings path unavailable"))?;
+                        let generation = reader
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .generation_for(epoch, generation);
+                        crate::history_sync::update(&settings_path, &path, generation, time, change)
+                    });
                 let _ = slint::invoke_from_event_loop(move || {
                     with(|p| {
                         if p.history_epoch.get() == epoch {
-                            let ok = p.finish_history(revision, result);
+                            let ok = match result {
+                                Ok(Some(entries)) => p.finish_history(revision, Ok(entries)),
+                                Ok(None) => true,
+                                Err(e) => p.finish_history(revision, Err(e)),
+                            };
                             done(p, ok);
                         }
                     })
@@ -558,6 +586,100 @@ impl Prefs {
     }
 
     pub fn fill_history(&self) {
+        self.sync_history();
+        if self.history_syncing.get() {
+            if let Some(w) = self.main.upgrade() {
+                w.set_history_rows(ModelRc::default());
+            }
+        } else {
+            self.fill_history_cached();
+        }
+    }
+
+    fn sync_history(&self) {
+        if self.read_error.is_some() || self.history_syncing.replace(true) {
+            return;
+        }
+        let (Some(path), Some(settings_path)) = (settings::history_path(), self.path.clone())
+        else {
+            self.history_syncing.set(false);
+            return;
+        };
+        let reader = self.history_reader.clone();
+        let revision = self.history_revision.get();
+        self.writer.read_at_revision(
+            move || {
+                reader
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .read(&settings_path, &path)
+            },
+            move |result, asked| {
+                let _ = slint::invoke_from_event_loop(move || {
+                    with(|p| {
+                        p.history_syncing.set(false);
+                        if p.writer.asked() != asked || p.history_revision.get() != revision {
+                            p.history_reader
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .invalidate();
+                            return;
+                        }
+                        match result {
+                            Ok(read) => {
+                                p.history_reader
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .generation = read.generation;
+                                p.history_generation
+                                    .set(crate::history_sync::Generation::Known(read.generation));
+                                let max = if read.policy.history_enabled {
+                                    read.policy.history_size
+                                } else {
+                                    0
+                                };
+                                {
+                                    let mut s = p.settings.borrow_mut();
+                                    s.history_enabled = read.policy.history_enabled;
+                                    s.history_on_disk = read.policy.history_on_disk;
+                                    s.history_size = read.policy.history_size;
+                                    s.history_days = read.policy.history_days;
+                                    s.history_entries = read.policy.history_entries;
+                                    s.history_sort = read.policy.history_sort;
+                                    s.always_suggestions = read.policy.always_suggestions;
+                                }
+                                if read.cleared {
+                                    p.history_epoch.set(p.history_epoch.get().wrapping_add(1));
+                                    p.searches.borrow_mut().0.clear();
+                                    p.history.borrow_mut().set_max(0);
+                                }
+                                if let Some(entries) = read.entries {
+                                    *p.searches.borrow_mut() = entries;
+                                }
+                                p.history.borrow_mut().set_max(max);
+                                crate::tabs_ui::history_policy(max, read.cleared);
+                                crate::tabs_ui::session_policy();
+                                if p.retention.get().committed != read.policy.history_days {
+                                    p.retention.set(search_history::Retention::new(
+                                        read.policy.history_days,
+                                    ));
+                                }
+                                p.searches
+                                    .borrow_mut()
+                                    .limit_to(read.policy.history_entries);
+                                p.fill_history_cached();
+                                p.fill_history_window();
+                                p.refresh();
+                            }
+                            Err(e) => p.history_failure(&e),
+                        }
+                    })
+                });
+            },
+        );
+    }
+
+    fn fill_history_cached(&self) {
         let Some(w) = self.main.upgrade() else { return };
         let s = self.settings.borrow();
         let mut entries = self.searches.borrow_mut();
@@ -617,14 +739,27 @@ impl Prefs {
         }
     }
 
-    fn clear_saved_history(&self) {
+    fn clear_saved_history(&self, notify: bool) {
         if self.read_error.is_some() {
             return;
         }
         let path = settings::history_path();
         let epoch = self.history_epoch.get();
+        let reader = self.history_reader.clone();
+        let generation = self.history_generation.get();
         self.writer.run_apart(move || {
-            let result = path.map_or(Ok(()), |p| search_history::clear(&p));
+            let result = path.map_or(Ok(()), |p| {
+                if notify {
+                    let after = search_history::clear_generation(&p)?;
+                    reader
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remember_clear(epoch, generation, after);
+                    Ok(())
+                } else {
+                    search_history::clear_data(&p)
+                }
+            });
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
                     if p.history_epoch.get() == epoch {
@@ -638,6 +773,8 @@ impl Prefs {
     }
 
     pub fn clear_history(&self) {
+        self.history_revision
+            .set(self.history_revision.get().wrapping_add(1));
         self.history_epoch
             .set(self.history_epoch.get().wrapping_add(1));
         let s = self.settings.borrow();
@@ -647,7 +784,7 @@ impl Prefs {
         self.history.borrow_mut().set_max(max);
         crate::tabs_ui::history_policy(max, true);
         self.searches.borrow_mut().0.clear();
-        self.clear_saved_history();
+        self.clear_saved_history(true);
         self.fill_history();
         self.fill_history_window();
         self.history_message("", false);
@@ -1914,6 +2051,7 @@ impl Prefs {
         w.set_clear_selection_on_search(s.clear_selection_on_search);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
+        w.set_history_entries(s.history_entries as i32);
         w.set_history_on_disk(s.history_on_disk);
         s.content.fill_window(w);
         s.properties.fill(w);
@@ -2759,6 +2897,7 @@ impl Prefs {
             .unwrap_or(0)
             .min(MAX_HISTORY);
         let was_on_disk = self.settings.borrow().history_on_disk;
+        let entry_limit = w.get_history_entries().clamp(1, 10000) as usize;
         let on_disk = w.get_history_on_disk();
         let enabled = w.get_history_enabled();
         let suggestions = w.get_always_suggestions();
@@ -2768,6 +2907,13 @@ impl Prefs {
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
         let content = crate::content_settings::Settings::from_window(&w);
+        let history_before = self.settings.borrow().clone();
+        let mut history_wanted = history_before.clone();
+        history_wanted.history_size = size;
+        history_wanted.history_entries = entry_limit;
+        history_wanted.history_on_disk = on_disk;
+        history_wanted.history_enabled = enabled;
+        history_wanted.always_suggestions = suggestions;
         self.change_search_settings(move |s| {
             s.content = content.clone();
             s.options = options;
@@ -2776,10 +2922,7 @@ impl Prefs {
             s.filter_wrap = filter_wrap;
             s.select_search_on_click = select_on_click;
             s.clear_selection_on_search = clear_selection;
-            s.history_size = size;
-            s.history_on_disk = on_disk;
-            s.history_enabled = enabled;
-            s.always_suggestions = suggestions;
+            crate::history_sync::apply_choices(s, &history_before, &history_wanted);
         });
         self.history_storage_changed(was_on_disk);
         self.apply_history();
@@ -3037,7 +3180,7 @@ impl Prefs {
             });
         }
         if was_on_disk && !on_disk {
-            self.clear_saved_history();
+            self.clear_saved_history(false);
         }
     }
 

@@ -433,6 +433,17 @@ they never hold back applying a settings file changed outside the window), and t
 last ones are waited for at quit; results return to the event loop with epoch and revision guards. Memory updates
 immediately; stale disk snapshots cannot replace later local changes. No-op
 updates skip writes.
+History policy is read again under the settings lock before every disk delta.
+Suggestion requests and the two-second poll check history changes on the saving
+worker even when general settings reloading is disabled. A separate clear marker
+invalidates queued visits from older windows. Each queued delta retains its
+request-time generation; a later notification cannot authorize that older delta.
+A local clear maps only the requests made after it to its own committed generation.
+This includes windows keeping history
+only in memory. Storage-only changes preserve the in-memory searches. Suggestion
+rows wait for the policy check; revision guards preserve newer local edits.
+Distinct searches have a configurable limit up to 10,000; suggestions default on.
+
 Retention drafts apply only after the explicit Apply action. Every mutation reloads
 the latest file under `search-history.lock`, prunes expired entries and replaces it via
 `settings::create_temp`. The data file is private (0600). An unreadable or

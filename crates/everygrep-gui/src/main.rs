@@ -27,6 +27,7 @@ mod hashes;
 mod help;
 mod history;
 mod history_csv;
+mod history_sync;
 mod i18n;
 mod instance;
 mod jump;

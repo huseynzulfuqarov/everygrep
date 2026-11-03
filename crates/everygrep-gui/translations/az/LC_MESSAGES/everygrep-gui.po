@@ -3943,3 +3943,6 @@ msgstr "Qovluq adı düzgün UTF-8 deyil."
 
 msgid "Choose…"
 msgstr "Seç…"
+
+msgid "Distinct searches to keep"
+msgstr "Saxlanacaq fərqli axtarış sayı"

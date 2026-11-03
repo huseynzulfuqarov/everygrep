@@ -3943,3 +3943,6 @@ msgstr "Klasör adı geçerli UTF-8 değil."
 
 msgid "Choose…"
 msgstr "Seç…"
+
+msgid "Distinct searches to keep"
+msgstr "Saklanacak farklı arama sayısı"

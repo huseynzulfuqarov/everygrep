@@ -346,6 +346,7 @@ pub struct Settings {
     pub history_enabled: bool,
     /// Retention in days; 0 means forever.
     pub history_days: u32,
+    pub history_entries: usize,
     pub history_sort: Order,
     pub always_suggestions: bool,
     pub open_searches_in_tabs: bool,
@@ -453,8 +454,9 @@ impl Default for Settings {
             reload_changed: true,
             history_enabled: true,
             history_days: 90,
+            history_entries: crate::search_history::MAX_ENTRIES,
             history_sort: Order::Date,
-            always_suggestions: false,
+            always_suggestions: true,
             open_searches_in_tabs: true,
             switch_to_new_tab: true,
             restore_session: false,
@@ -721,6 +723,12 @@ impl Settings {
                 .ok()
                 .filter(|n| *n <= MAX_HISTORY)
                 .map(|n| self.history_size = n)
+                .is_some(),
+            "search-history-limit" => value
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (1..=crate::search_history::MAX_ENTRIES).contains(n))
+                .map(|n| self.history_entries = n)
                 .is_some(),
             "history-on-disk" => put_flag(&mut self.history_on_disk),
             "reload-changed-settings" => put_flag(&mut self.reload_changed),
@@ -1311,6 +1319,13 @@ impl Settings {
         if all || self.history_days != d.history_days {
             line(&mut out, "history-days", &self.history_days.to_string());
         }
+        if all || self.history_entries != d.history_entries {
+            line(
+                &mut out,
+                "search-history-limit",
+                &self.history_entries.to_string(),
+            );
+        }
         if all || self.history_size != d.history_size {
             line(&mut out, "history-size", &self.history_size.to_string());
         }
@@ -1737,6 +1752,7 @@ impl Settings {
                 self.history_on_disk = d.history_on_disk;
                 self.history_enabled = d.history_enabled;
                 self.history_days = d.history_days;
+                self.history_entries = d.history_entries;
                 self.history_sort = d.history_sort;
                 self.always_suggestions = d.always_suggestions;
                 self.content = d.content;
@@ -2624,7 +2640,7 @@ pub(crate) mod tests {
         }
         s.reset(Page::Search);
         assert_eq!(s.history_sort, Order::Date);
-        assert!(!s.always_suggestions);
+        assert!(s.always_suggestions);
         assert!(s.history_enabled);
         assert_eq!(s.history_days, 90);
     }

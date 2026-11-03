@@ -103,11 +103,15 @@ impl Searches {
     /// Bound memory and disk even when retention is forever. Keep the newest
     /// searches, with exact text breaking timestamp ties deterministically.
     pub fn limit(&mut self) {
-        if self.0.len() > MAX_ENTRIES {
-            self.0.select_nth_unstable_by(MAX_ENTRIES, |a, b| {
+        self.limit_to(MAX_ENTRIES);
+    }
+    pub fn limit_to(&mut self, limit: usize) {
+        let limit = limit.clamp(1, MAX_ENTRIES);
+        if self.0.len() > limit {
+            self.0.select_nth_unstable_by(limit, |a, b| {
                 b.last.cmp(&a.last).then_with(|| a.search.cmp(&b.search))
             });
-            self.0.truncate(MAX_ENTRIES);
+            self.0.truncate(limit);
         }
     }
 
@@ -285,6 +289,7 @@ fn invalid() -> io::Error {
 /// Apply an operation to the current file, never to a stale window snapshot.
 /// Failed reads leave the file untouched. The lock file stays after clearing,
 /// so another window cannot lock a different inode during a pending write.
+#[cfg(test)]
 pub fn update(
     path: &Path,
     days: u32,
@@ -292,6 +297,15 @@ pub fn update(
     change: impl FnOnce(&mut Searches),
 ) -> io::Result<Searches> {
     let _lock = settings::lock(path)?;
+    update_locked(path, days, time, change)
+}
+
+pub(crate) fn update_locked(
+    path: &Path,
+    days: u32,
+    time: u64,
+    change: impl FnOnce(&mut Searches),
+) -> io::Result<Searches> {
     let mut entries = Searches::load(path)?;
     let before = entries.clone();
     entries.apply(days, time, change);
@@ -304,8 +318,21 @@ pub fn update(
 }
 
 /// An explicit clear can recover a malformed file as well.
+#[cfg(test)]
 pub fn clear(path: &Path) -> io::Result<()> {
+    clear_generation(path).map(|_| ())
+}
+pub fn clear_generation(path: &Path) -> io::Result<Option<settings::Stamp>> {
+    clear_with_marker(path, true)
+}
+pub fn clear_data(path: &Path) -> io::Result<()> {
+    clear_with_marker(path, false).map(|_| ())
+}
+fn clear_with_marker(path: &Path, notify: bool) -> io::Result<Option<settings::Stamp>> {
     let _lock = settings::lock(path)?;
+    if notify {
+        settings::write_atomic(&crate::history_sync::marker(path), b"clear\n")?;
+    }
     write(path, &Searches::default())?;
     if path.file_name().is_some_and(|n| n == "search-history") {
         // Explicit clear/disable also removes the migration source. Normal
@@ -318,7 +345,11 @@ pub fn clear(path: &Path) -> io::Result<()> {
             Err(e) => return Err(e),
         }
     }
-    Ok(())
+    Ok(if notify {
+        settings::stamp(&crate::history_sync::marker(path))
+    } else {
+        None
+    })
 }
 
 fn write(path: &Path, entries: &Searches) -> io::Result<()> {
@@ -486,9 +517,10 @@ mod tests {
         clear(&new_path).unwrap();
         assert!(!path.exists());
         assert!(Searches::load(&new_path).unwrap().0.is_empty());
+        assert!(crate::history_sync::marker(&new_path).is_file());
         assert_eq!(
             std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
-            3
+            4
         );
     }
 
