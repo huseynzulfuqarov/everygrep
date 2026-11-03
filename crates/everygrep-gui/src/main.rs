@@ -37,6 +37,7 @@ mod open;
 mod portal;
 mod prefs;
 mod properties;
+mod property_settings;
 mod results;
 mod saved_searches;
 mod saved_ui;
@@ -255,6 +256,8 @@ fn main() -> Result<(), slint::PlatformError> {
     engine
         .hashes
         .set_max_bytes(settings.content.hash_cache_bytes());
+    engine.set_property_options(settings.properties.clone());
+    properties::start_indexer(engine.clone());
     let model = Rc::new(ResultsModel::new(engine.clone()));
     // Created, Accessed and Attributes are read off the window's thread.
     model.read_details_with(results::DetailReader::start({

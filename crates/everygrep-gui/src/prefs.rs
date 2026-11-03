@@ -5,6 +5,7 @@
 //! only for the window over the default index: a window started with
 //! `--root` or `--index-file` changes its own folders for the session.
 
+use crate::i18n::tr;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -219,6 +220,7 @@ pub struct Prefs {
     /// Looks every [`RELOAD_EVERY`] whether the settings file changed
     /// outside the window; the stamp of the version last seen.
     reload_timer: slint::Timer,
+    property_timer: slint::Timer,
     /// The raw settings table: the rows listed for its filter, in order,
     /// the key of the chosen one, and why the last edit was refused.
     raw_listed: RefCell<Vec<settings::RawRow>>,
@@ -349,6 +351,7 @@ impl Prefs {
             pending: RefCell::default(),
             settings_note: RefCell::default(),
             reload_timer: slint::Timer::default(),
+            property_timer: slint::Timer::default(),
             raw_listed: RefCell::default(),
             raw_chosen: RefCell::default(),
             raw_error: RefCell::default(),
@@ -1913,6 +1916,7 @@ impl Prefs {
         w.set_history_size(s.history_size as i32);
         w.set_history_on_disk(s.history_on_disk);
         s.content.fill_window(w);
+        s.properties.fill(w);
         w.set_hash_cache_used(
             crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
         );
@@ -2379,6 +2383,30 @@ impl Prefs {
     }
 
     fn connect(self: &Rc<Self>, w: &SettingsWindow) {
+        let weak = w.as_weak();
+        let engine = self.engine.clone();
+        self.property_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(250),
+            move || {
+                let Some(w) = weak.upgrade() else {
+                    return;
+                };
+                let text = if engine
+                    .property_running
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    let progress = engine.property_progress.lock().expect("property progress");
+                    crate::i18n::fill(
+                        tr("Property indexing: {}%"),
+                        &[&progress.percent().unwrap_or(0).to_string()],
+                    )
+                } else {
+                    tr("Property indexing idle").to_owned()
+                };
+                w.set_property_progress(text.into());
+            },
+        );
         let me: Weak<Prefs> = Rc::downgrade(self);
         let on = |f: fn(&Rc<Prefs>)| {
             let me = me.clone();
@@ -2451,6 +2479,21 @@ impl Prefs {
         }));
         w.on_search_changed(on(|p| p.search_changed()));
         w.on_clear_hash_cache(on(|p| p.clear_hash_cache()));
+        w.on_property_selection(on(|p| {
+            if let Some(w) = p.window.borrow().as_ref() {
+                p.settings.borrow().properties.fill_rule(w);
+            }
+        }));
+        w.on_properties_changed(on(|p| p.properties_changed()));
+        w.on_scan_properties(on(|p| p.engine.request_property_index()));
+        w.on_cancel_properties(on(|p| p.engine.cancel_property_index()));
+        w.on_clear_properties(on(|p| {
+            p.engine.cancel_property_index();
+            let store = p.engine.properties.clone();
+            std::thread::spawn(move || {
+                let _ = store.clear();
+            });
+        }));
         w.on_edit_history_days(on_index(|p, days| {
             let mut retention = p.retention.get();
             retention.edit(days as i32);
@@ -2729,6 +2772,25 @@ impl Prefs {
         self.apply_content();
     }
 
+    fn properties_changed(&self) {
+        let window = self.window.borrow();
+        let Some(w) = window.as_ref() else {
+            return;
+        };
+        let edited = self.settings.borrow().properties.edited(w);
+        match edited {
+            Ok(next) => {
+                w.set_property_error("".into());
+                let saved = next.clone();
+                self.change(move |s| s.properties = saved.clone());
+                self.engine.set_property_options(next);
+            }
+            Err(e) => w.set_property_error(
+                crate::i18n::fill(tr("Invalid property filters: {}"), &[&e]).into(),
+            ),
+        }
+    }
+
     /// Gives the engine the content search settings; a change searches
     /// again.
     fn apply_content(&self) {
@@ -2738,6 +2800,8 @@ impl Prefs {
         };
         self.engine.set_content_options(options);
         self.engine.hashes.set_max_bytes(hash_bytes);
+        self.engine
+            .set_property_options(self.settings.borrow().properties.clone());
     }
 
     /// Empties the hash cache and removes its file.

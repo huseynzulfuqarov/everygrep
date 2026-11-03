@@ -21,6 +21,7 @@ pub mod persist;
 pub mod progress;
 pub mod property;
 mod property_process;
+pub mod propertycache;
 pub mod query;
 pub mod rules;
 pub mod scan;

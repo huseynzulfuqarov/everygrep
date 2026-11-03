@@ -362,6 +362,7 @@ pub struct Settings {
     pub fileops: crate::fileops_settings::Settings,
     /// How files are read for `content:` terms (Search page).
     pub content: crate::content_settings::Settings,
+    pub properties: crate::property_settings::Settings,
     /// Whether a double-click on the Folder cell of a row opens the
     /// containing folder instead of the item.
     pub path_click_opens_folder: bool,
@@ -454,6 +455,7 @@ impl Default for Settings {
             rename_name_only: true,
             fileops: crate::fileops_settings::Settings::default(),
             content: crate::content_settings::Settings::default(),
+            properties: crate::property_settings::Settings::default(),
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
             type_to_jump: true,
@@ -1073,7 +1075,11 @@ impl Settings {
                 } = Some(w);
                 true
             }
-            _ => self.fileops.set(key, value) || self.content.set(key, value),
+            _ => {
+                self.fileops.set(key, value)
+                    || self.content.set(key, value)
+                    || self.properties.set(key, value)
+            }
         }
     }
 
@@ -1303,6 +1309,7 @@ impl Settings {
         );
         self.fileops.write(&mut out, all);
         self.content.write(&mut out, all);
+        self.properties.write(&mut out, all);
         if all || self.on_close != d.on_close {
             line(&mut out, "on-close", self.on_close.id());
         }
@@ -1701,6 +1708,7 @@ impl Settings {
                 self.history_sort = d.history_sort;
                 self.always_suggestions = d.always_suggestions;
                 self.content = d.content;
+                self.properties = d.properties;
             }
             Page::Appearance => {
                 self.theme = d.theme;

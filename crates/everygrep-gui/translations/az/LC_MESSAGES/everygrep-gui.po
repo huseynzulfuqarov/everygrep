@@ -3672,3 +3672,42 @@ msgstr "GPS enliyi"
 msgid "GPS longitude"
 msgstr "GPS uzunluğu"
 
+msgid "Largest property cache (MB)"
+msgstr "Xassə keşinin maksimum ölçüsü (MB)"
+
+msgid "0 disables the cache. Visible metadata reads use an 8 MB and 250 ms budget per file."
+msgstr "0 keşi bağlayır. Görünən metadata üçün hər fayla 8 MB və 250 ms limit tətbiq olunur."
+
+msgid "Index this property in the background"
+msgstr "Bu xassəni fonda indekslə"
+
+msgid "Largest file to index (MB, 0 = any)"
+msgstr "İndekslənəcək maksimum fayl ölçüsü (MB, 0 = hamısı)"
+
+msgid "Include patterns (empty = all)"
+msgstr "Daxil etmə şablonları (boş = hamısı)"
+
+msgid "Exclude patterns"
+msgstr "İstisna şablonları"
+
+msgid "Index properties now"
+msgstr "Xassələri indi indekslə"
+
+msgid "Rules apply to the selected property. Values read from file contents are kept in the property cache and shared by the columns and sorting."
+msgstr "Qaydalar seçilmiş xassəyə aiddir. Fayl məzmunundan oxunan dəyərlər xassə keşində saxlanır, sütunlar və sıralama onları birgə istifadə edir."
+
+msgid "Invalid property filters: {}"
+msgstr "Yanlış xassə filtrləri: {}"
+
+msgid "Property indexing: {}%"
+msgstr "Xassələrin indekslənməsi: {}%"
+
+msgid "Property indexing idle"
+msgstr "Xassələrin indekslənməsi gözləyir"
+
+msgid "Properties"
+msgstr "Xassələr"
+
+msgid "Clear property cache"
+msgstr "Xassə keşini təmizlə"
+

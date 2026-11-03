@@ -1,0 +1,40 @@
+import { Button, CheckBox, ComboBox, LineEdit, SpinBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+export component PropertySettings inherits VerticalLayout {
+    in property <[string]> names;
+    in-out property <int> selected;
+    in-out property <int> cache-mb;
+    in-out property <bool> indexed;
+    in-out property <int> max-mb;
+    in-out property <string> include;
+    in-out property <string> exclude;
+    in property <string> error;
+    in property <string> progress;
+    callback changed(); callback selected-property(); callback clear(); callback scan(); callback cancel();
+    spacing: Theme.s3;
+    HorizontalLayout {
+        spacing: Theme.s3;
+        Text { text: @tr("Largest property cache (MB)"); color: Theme.text; vertical-alignment: center; }
+        SpinBox { minimum: 0; maximum: 1048576; value <=> root.cache-mb; edited => { root.changed(); } }
+        Button { text: @tr("Clear property cache"); clicked => { root.clear(); } }
+    }
+    Text { text: @tr("0 disables the cache. Visible metadata reads use an 8 MB and 250 ms budget per file."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; }
+    ComboBox { model: root.names; current-index <=> root.selected; selected => { root.selected-property(); } }
+    CheckBox { text: @tr("Index this property in the background"); checked <=> root.indexed; toggled => { root.changed(); } }
+    HorizontalLayout {
+        spacing: Theme.s3;
+        Text { text: @tr("Largest file to index (MB, 0 = any)"); color: Theme.text; vertical-alignment: center; }
+        SpinBox { minimum: 0; maximum: 1048576; value <=> root.max-mb; edited => { root.changed(); } }
+    }
+    Text { text: @tr("Include patterns (empty = all)"); color: Theme.text; }
+    LineEdit { text <=> root.include; edited => { root.changed(); } }
+    Text { text: @tr("Exclude patterns"); color: Theme.text; }
+    LineEdit { text <=> root.exclude; edited => { root.changed(); } }
+    Text { text: root.error; color: Theme.text; wrap: word-wrap; }
+    HorizontalLayout {
+        Button { text: @tr("Index properties now"); clicked => { root.scan(); } }
+        Button { text: @tr("Cancel"); clicked => { root.cancel(); } }
+        Text { text: root.progress; color: Theme.text-muted; vertical-alignment: center; }
+    }
+    Text { text: @tr("Rules apply to the selected property. Values read from file contents are kept in the property cache and shared by the columns and sorting."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; }
+}

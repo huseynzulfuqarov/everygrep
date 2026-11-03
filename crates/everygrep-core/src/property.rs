@@ -89,6 +89,55 @@ impl Property {
         Self::GpsLat,
         Self::GpsLong,
     ];
+    pub fn id(self) -> &'static str {
+        const IDS: [&str; 37] = [
+            "full-path",
+            "parent-path",
+            "stem",
+            "name-length",
+            "path-length",
+            "disk-size",
+            "total-size",
+            "child-count",
+            "child-files",
+            "child-folders",
+            "desc-count",
+            "desc-files",
+            "desc-folders",
+            "folder-depth",
+            "hard-links",
+            "shortcut-target",
+            "owner",
+            "width",
+            "height",
+            "dimensions",
+            "length",
+            "bit-rate",
+            "title",
+            "artist",
+            "album",
+            "year",
+            "track",
+            "genre",
+            "rating",
+            "tags",
+            "page-count",
+            "word-count",
+            "camera-maker",
+            "camera-model",
+            "date-taken",
+            "gps-lat",
+            "gps-long",
+        ];
+        IDS[self as usize]
+    }
+    /// Read from the file system rather than the name index, see [`read_path`].
+    pub fn external(self) -> bool {
+        matches!(
+            self,
+            Self::DiskSize | Self::HardLinks | Self::Owner | Self::ShortcutTarget
+        )
+    }
     pub fn is_media(self) -> bool {
         self as u8 >= Self::Width as u8
     }
@@ -232,24 +281,33 @@ pub fn read(
         DiskSize | HardLinks | ShortcutTarget | Owner => {
             if index.is_offline(id) {
                 Value::Empty
-            } else if let Ok(meta) = std::fs::symlink_metadata(&path) {
-                match property {
-                    DiskSize => number(meta.blocks().saturating_mul(512)),
-                    HardLinks => number(meta.nlink()),
-                    ShortcutTarget if meta.is_symlink() => std::fs::read_link(&path)
-                        .ok()
-                        .as_deref()
-                        .map(text)
-                        .unwrap_or_default(),
-                    Owner => Value::Text(owner(meta.uid())),
-                    _ => Value::Empty,
-                }
             } else {
-                Value::Empty
+                read_path(&path, property, progress)
             }
         }
         _ => Value::Empty,
     })
+}
+
+/// Filesystem-only properties, after the caller released its index lock.
+pub fn read_path(path: &Path, property: Property, progress: &Progress) -> Value {
+    if progress.is_cancelled() {
+        return Value::Empty;
+    }
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return Value::Empty;
+    };
+    match property {
+        Property::DiskSize => Value::Number(meta.blocks().saturating_mul(512)),
+        Property::HardLinks => Value::Number(meta.nlink()),
+        Property::ShortcutTarget if meta.is_symlink() => std::fs::read_link(path)
+            .ok()
+            .as_deref()
+            .map(text)
+            .unwrap_or_default(),
+        Property::Owner => Value::Text(owner(meta.uid())),
+        _ => Value::Empty,
+    }
 }
 
 impl Property {
@@ -267,6 +325,35 @@ impl Property {
             _ => value.to_string(),
         }
     }
+}
+
+/// Media values come from the persistent cache shared by visible rows,
+/// opt-in indexing and sorts; other properties are read directly.
+pub fn read_cached(
+    index: &Index,
+    id: NodeId,
+    property: Property,
+    progress: &Progress,
+    cache: &crate::propertycache::Store,
+) -> Result<Value, Cancelled> {
+    progress.check()?;
+    if index.is_offline(id) || !property.is_media() {
+        return read(index, id, property, progress);
+    }
+    let values = cache.read_with(&index.store().path(id), &[property], progress, |_| {
+        read(index, id, property, progress)
+            .ok()
+            .filter(|v| *v != Value::Empty)
+            .map(|v| (property, v))
+            .into_iter()
+            .collect()
+    });
+    progress.check()?;
+    Ok(values
+        .into_iter()
+        .find(|(p, _)| *p == property)
+        .map(|(_, v)| v)
+        .unwrap_or_default())
 }
 
 /// Resolve through NSS on a worker. A numeric uid remains useful without getent.

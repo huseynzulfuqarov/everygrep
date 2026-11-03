@@ -3672,3 +3672,42 @@ msgstr "GPS enlemi"
 msgid "GPS longitude"
 msgstr "GPS boylamı"
 
+msgid "Largest property cache (MB)"
+msgstr "Özellik önbelleğinin en büyük boyutu (MB)"
+
+msgid "0 disables the cache. Visible metadata reads use an 8 MB and 250 ms budget per file."
+msgstr "0 önbelleği kapatır. Görünen meta veriler dosya başına 8 MB ve 250 ms ile sınırlıdır."
+
+msgid "Index this property in the background"
+msgstr "Bu özelliği arka planda indeksle"
+
+msgid "Largest file to index (MB, 0 = any)"
+msgstr "İndekslenecek en büyük dosya (MB, 0 = tümü)"
+
+msgid "Include patterns (empty = all)"
+msgstr "Dahil etme kalıpları (boş = tümü)"
+
+msgid "Exclude patterns"
+msgstr "Dışlama kalıpları"
+
+msgid "Index properties now"
+msgstr "Özellikleri şimdi indeksle"
+
+msgid "Rules apply to the selected property. Values read from file contents are kept in the property cache and shared by the columns and sorting."
+msgstr "Kurallar seçili özelliğe uygulanır. Dosya içeriğinden okunan değerler özellik önbelleğinde tutulur; sütunlar ve sıralama bunları paylaşır."
+
+msgid "Invalid property filters: {}"
+msgstr "Geçersiz özellik filtreleri: {}"
+
+msgid "Property indexing: {}%"
+msgstr "Özellik indeksleme: {}%"
+
+msgid "Property indexing idle"
+msgstr "Özellik indeksleme bekliyor"
+
+msgid "Properties"
+msgstr "Özellikler"
+
+msgid "Clear property cache"
+msgstr "Özellik önbelleğini temizle"
+

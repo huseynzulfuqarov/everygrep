@@ -738,4 +738,28 @@ packets. PDF page counts run pdfinfo with a deadline and bounded output; a
 missing helper leaves an empty cell. Word counts cover complete UTF-8 text and
 code files within the budget. Rating and tags read common embedded or sidecar
 XMP fields. Unavailable metadata stays empty. Media sorts use the existing
-background progress and cancellation path, without a result-count limit.
+background progress and cancellation path, without a result-count limit. As
+with file contents, a media sort reads the values of its files with the index
+lock released (from and into the property cache), so the watcher and the
+result table never wait for that reading; it then takes the lock again and
+sorts by those values, and searches again when node ids changed meaning.
+A panic of a metadata parser on a malformed file only leaves its values empty.
+
+### Property cache and indexing (`propertycache.rs`, `property_settings.rs`)
+
+A separate, versioned `properties.bin` beside the GUI index keeps typed metadata
+for a second display or sort. The default cap is 256 MiB; zero disables it.
+Identity includes device, inode, size, nanosecond modification/change times and
+an XMP sidecar fingerprint. Values changed during a read are discarded. Loading,
+publication and clearing share one worker-side mutex; a clear revision prevents
+an older in-flight read from repopulating the cache. Writes use the existing
+private atomic publication helper. Unknown or corrupt formats are ignored.
+
+Each media or document property has an independent opt-in rule: a 64 MiB
+default file-size ceiling (zero means any size), include and exclude patterns.
+Rules use the existing wildcard/regex engine. Name, path, count and stat-based
+properties are not cached: they come from the name index or a single `stat`,
+which the cache key would need anyway, and are read after the index lock is
+released. A worker warms enabled properties when requested in Settings, and
+after index changes at most once a minute; progress and cancellation are on the
+Search page. No cache or file I/O is performed by the settings callbacks.

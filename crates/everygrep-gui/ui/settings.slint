@@ -1,6 +1,7 @@
 // The settings window. Changes apply at once; each page has a button that
 // puts its settings back to the defaults.
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView, StandardTableView } from "std-widgets.slint";
+import { PropertySettings } from "property-settings.slint";
 import { Theme } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
 import { ContentSettings, HashCacheSettings } from "content-settings.slint";
@@ -201,6 +202,16 @@ export component SettingsWindow inherits Window {
     in-out property <int> hash-cache-max;
     in property <int> hash-cache-max-max;
     in property <string> hash-cache-used;
+    in property <[string]> property-names;
+    in-out property <int> property-selected;
+    in-out property <int> property-cache-mb;
+    in-out property <bool> property-indexed;
+    in-out property <int> property-max-mb;
+    in-out property <string> property-include;
+    in-out property <string> property-exclude;
+    in property <string> property-error;
+    in property <string> property-progress;
+    callback property-selection(); callback properties-changed(); callback clear-properties(); callback scan-properties(); callback cancel-properties();
     callback clear-hash-cache();
     callback search-changed();
 
@@ -748,6 +759,16 @@ export component SettingsWindow inherits Window {
                                 pdf <=> root.content-pdf;
                                 pdf-note: root.content-pdf-note;
                                 changed => { root.search-changed(); }
+                            }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Properties"); }
+                            PropertySettings {
+                                names: root.property-names; selected <=> root.property-selected;
+                                cache-mb <=> root.property-cache-mb; indexed <=> root.property-indexed;
+                                max-mb <=> root.property-max-mb; include <=> root.property-include; exclude <=> root.property-exclude;
+                                error: root.property-error; progress: root.property-progress;
+                                changed => { root.properties-changed(); } selected-property => { root.property-selection(); }
+                                clear => { root.clear-properties(); } scan => { root.scan-properties(); } cancel => { root.cancel-properties(); }
                             }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Hash cache"); }

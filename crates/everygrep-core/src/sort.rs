@@ -120,6 +120,22 @@ pub struct Sort {
     pub folders: FolderSize,
 }
 
+impl Sort {
+    /// The properties read from file contents that this sort orders by.
+    /// The caller reads them with [`DetailCache::set_media`] before it
+    /// takes the index lock for the sort.
+    pub fn media_properties(&self) -> Vec<crate::property::Property> {
+        match self.key {
+            SortKey::Property(p) if p.is_media() => vec![p],
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// Media values of result ids, read before a sort; see
+/// [`DetailCache::set_media`].
+pub type MediaValues = HashMap<NodeId, Vec<(crate::property::Property, crate::property::Value)>>;
+
 /// Lists shorter than this are sorted on the calling thread.
 const PARALLEL_MIN: usize = 64 * 1024;
 
@@ -171,6 +187,9 @@ pub fn sort(index: &Index, ids: &mut [NodeId], sort: Sort, threads: usize) {
 /// table at most 7/8 full (about 29 to 57 and 10 to 21 bytes per value).
 #[derive(Default)]
 pub struct DetailCache {
+    properties: Option<std::sync::Arc<crate::propertycache::Store>>,
+    /// See [`set_media`](Self::set_media).
+    media: Option<MediaValues>,
     /// [`Index::stamp`] of the index the ids belong to.
     stamp: u64,
     /// [`Index::change_seq`] the cache has followed up to.
@@ -185,6 +204,17 @@ impl DetailCache {
     /// An empty cache.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_properties(&mut self, cache: std::sync::Arc<crate::propertycache::Store>) {
+        self.properties = Some(cache);
+    }
+
+    /// Media values read beforehand, with the index lock released: while
+    /// they are set, a sort by a media property takes its values from them
+    /// (an id without the property sorts as empty) and reads no file.
+    pub fn set_media(&mut self, values: Option<MediaValues>) {
+        self.media = values;
     }
 
     /// Forgets every value when `generation` is not the one given last.
@@ -355,9 +385,23 @@ fn sort_ordered(
     match sort.key {
         SortKey::Property(property) => {
             let mut keys = Vec::with_capacity(ids.len());
+            let media = cache
+                .as_ref()
+                .and_then(|c| c.media.as_ref())
+                .filter(|_| property.is_media());
             for &id in ids.iter() {
                 progress.check()?;
-                keys.push(crate::property::read(index, id, property, progress)?);
+                keys.push(if let Some(media) = media {
+                    media
+                        .get(&id)
+                        .and_then(|values| values.iter().find(|(p, _)| *p == property))
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or_default()
+                } else if let Some(store) = cache.as_ref().and_then(|c| c.properties.as_ref()) {
+                    crate::property::read_cached(index, id, property, progress, store)?
+                } else {
+                    crate::property::read(index, id, property, progress)?
+                });
                 progress.add(1);
             }
             let refs: Vec<_> = keys.iter().collect();

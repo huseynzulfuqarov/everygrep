@@ -46,7 +46,7 @@ use everygrep_core::scan::{
     ScanOptions, Source, normalize_roots, scan_with_progress, update_with_progress,
 };
 use everygrep_core::search::{Staged, search_staged, search_with_progress};
-use everygrep_core::sort::{DetailCache, Sort, sort_cached, sort_with_progress};
+use everygrep_core::sort::{DetailCache, MediaValues, Sort, sort_cached};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::sync::{folders_below, resume_scan};
 use everygrep_core::watch::Watcher;
@@ -505,6 +505,11 @@ pub struct Engine {
     content_state: Mutex<ContentState>,
     /// Hashes of files, for duplicate searches and the hash columns.
     pub hashes: Arc<HashStore>,
+    pub properties: Arc<everygrep_core::propertycache::Store>,
+    pub property_options: Mutex<crate::property_settings::Settings>,
+    pub property_revision: AtomicU64,
+    pub property_progress: Mutex<Arc<Progress>>,
+    pub property_running: AtomicBool,
     /// A frequency column is shown: count after each sort (see
     /// [`Index::frequencies`]).
     frequency_columns: AtomicBool,
@@ -689,7 +694,17 @@ impl Engine {
             content_options: Mutex::new(ContentOptions::default()),
             content_cache: Mutex::new(ContentCache::new()),
             content_state: Mutex::new(ContentState::default()),
+            properties: Arc::new(everygrep_core::propertycache::Store::new(
+                hash_file
+                    .as_ref()
+                    .map(|p| p.with_file_name("properties.bin")),
+                everygrep_core::propertycache::DEFAULT_MAX_BYTES,
+            )),
             hashes: Arc::new(HashStore::new(hash_file, DEFAULT_MAX_BYTES)),
+            property_options: Mutex::new(crate::property_settings::Settings::default()),
+            property_revision: AtomicU64::new(0),
+            property_progress: Mutex::new(Arc::new(Progress::new())),
+            property_running: AtomicBool::new(false),
             frequency_columns: AtomicBool::new(false),
             schedule: Mutex::new(Schedule::Never),
             last_full_scan: AtomicI64::new(unix_now()),
@@ -936,6 +951,9 @@ impl Engine {
         {
             let _ = save_last_full_scan(&to, self.last_full_scan.load(Ordering::SeqCst));
         }
+        let properties = self.properties.clone();
+        let destination = to.with_file_name("properties.bin");
+        std::thread::spawn(move || properties.move_to(destination));
         if let Some(old) = old.filter(|old| old != &to) {
             let _ = std::fs::remove_file(old.with_file_name(LAST_FULL_SCAN_FILE));
             let _ = std::fs::remove_file(old);
@@ -1383,19 +1401,39 @@ impl Engine {
                     if !self.is_current(generation) {
                         task.progress().cancel();
                     }
-                    let found = search_with_progress(&index, &query, threads, task.progress())
-                        .and_then(|mut ids| {
-                            if self.is_current(generation) {
-                                task.set_kind(TaskKind::Sorting);
-                                task.progress().restart(None);
-                                self.sort(&index, &mut ids, state.sort, threads, task.progress())?;
+                    let found = match search_with_progress(&index, &query, threads, task.progress())
+                    {
+                        Ok(mut ids) if self.is_current(generation) => {
+                            task.set_kind(TaskKind::Sorting);
+                            task.progress().restart(None);
+                            self.media_for_sort(
+                                index,
+                                &ids,
+                                state.sort,
+                                epoch,
+                                task.progress(),
+                                true,
+                            )
+                            .and_then(|(index, media)| {
+                                self.sort(
+                                    &index,
+                                    &mut ids,
+                                    state.sort,
+                                    threads,
+                                    task.progress(),
+                                    media,
+                                )?;
                                 // `limit:` keeps the first results in this order.
                                 query.apply_limit(&mut ids);
-                            }
-                            Ok(ids)
-                        });
+                                Ok(ids)
+                            })
+                        }
+                        other => {
+                            drop(index);
+                            other
+                        }
+                    };
                     drop(task);
-                    drop(index);
                     match found {
                         Ok(ids) => (ids, None),
                         Err(progress::Cancelled) => {
@@ -1542,8 +1580,19 @@ impl Engine {
         if self.is_current(generation) {
             task.set_kind(TaskKind::Sorting);
             task.progress().restart(None);
-            self.sort(&index, &mut ids, state.sort, threads, task.progress())
+            let (again, media) = self
+                .media_for_sort(index, &ids, state.sort, epoch, task.progress(), true)
                 .map_err(|_| self.why_stopped(generation, shown))?;
+            index = again;
+            self.sort(
+                &index,
+                &mut ids,
+                state.sort,
+                threads,
+                task.progress(),
+                media,
+            )
+            .map_err(|_| self.why_stopped(generation, shown))?;
             if let Some(dupes) = &dupes {
                 ids = dupes.arrange(&ids);
             }
@@ -1603,8 +1652,13 @@ impl Engine {
         }
         let mut ids = staged.results(decisions);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let Ok((index, media)) =
+            self.media_for_sort(index, &ids, state.sort, epoch, progress, false)
+        else {
+            return false;
+        };
         if self
-            .sort(&index, &mut ids, state.sort, threads, progress)
+            .sort(&index, &mut ids, state.sort, threads, progress, media)
             .is_err()
         {
             return false;
@@ -1667,6 +1721,7 @@ impl Engine {
         sort: Sort,
         threads: usize,
         progress: &Progress,
+        media: Option<MediaValues>,
     ) -> Result<(), progress::Cancelled> {
         if self.frequency_columns.load(Ordering::SeqCst) {
             // The rows read the counts built last; build them while the
@@ -1674,14 +1729,91 @@ impl Engine {
             index.frequencies();
         }
         let mut details = self.details.lock().expect("lock");
+        details.set_properties(self.properties.clone());
         if self.applying_changes.load(Ordering::SeqCst) {
             details.set_generation(self.details_generation.load(Ordering::SeqCst));
-            sort_cached(index, ids, sort, threads, progress, &mut details)
         } else {
             details.clear();
-            drop(details);
-            sort_with_progress(index, ids, sort, threads, progress)
         }
+        details.set_media(media);
+        let sorted = sort_cached(index, ids, sort, threads, progress, &mut details);
+        details.set_media(None);
+        sorted
+    }
+
+    /// For a sort by a media column: reads the values of the files among
+    /// `ids` with `index` released, as file contents are read, so the
+    /// watcher and the result table do not wait for the disk meanwhile;
+    /// then takes the index again. Values come from and go to the property
+    /// cache. When ids changed meaning meanwhile, the search is asked for
+    /// again and this one stops. `counted` shows the reading in `progress`.
+    #[allow(clippy::type_complexity)]
+    fn media_for_sort<'a>(
+        &'a self,
+        index: std::sync::RwLockReadGuard<'a, Index>,
+        ids: &[NodeId],
+        sort: Sort,
+        epoch: u64,
+        progress: &Progress,
+        counted: bool,
+    ) -> Result<(std::sync::RwLockReadGuard<'a, Index>, Option<MediaValues>), progress::Cancelled>
+    {
+        let wanted = sort.media_properties();
+        if wanted.is_empty() {
+            return Ok((index, None));
+        }
+        let store = index.store();
+        let files: Vec<(NodeId, PathBuf)> = ids
+            .iter()
+            .filter(|&&id| !index.is_offline(id) && !store.is_dir(id))
+            .map(|&id| (id, store.path(id)))
+            .collect();
+        drop(index);
+        if counted {
+            progress.restart(Some(files.len() as u64));
+        }
+        let mut values = MediaValues::with_capacity(files.len());
+        for (id, path) in files {
+            progress.check()?;
+            values.insert(id, self.properties.read(&path, &wanted, progress));
+            if counted {
+                progress.add(1);
+            }
+        }
+        progress.check()?;
+        let index = self.index.read().expect("index lock");
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(progress::Cancelled);
+        }
+        if self.epoch() != epoch {
+            drop(index);
+            self.request_search();
+            return Err(progress::Cancelled);
+        }
+        Ok((index, Some(values)))
+    }
+
+    pub fn set_property_options(&self, options: crate::property_settings::Settings) {
+        self.properties
+            .set_max_bytes(options.cache_mb * 1024 * 1024);
+        let mut current = self.property_options.lock().expect("property options");
+        if *current != options {
+            *current = options;
+            self.request_property_index();
+            self.cancel_property_index();
+        }
+    }
+    pub fn request_property_index(&self) {
+        self.property_revision.fetch_add(1, Ordering::SeqCst);
+    }
+    pub fn cancel_property_index(&self) {
+        self.property_progress
+            .lock()
+            .expect("property progress")
+            .cancel();
+    }
+    pub fn property_stopping(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
     }
 
     /// Whether a frequency column is shown, so each search counts the
@@ -2370,6 +2502,7 @@ impl Engine {
         // after the index, so a slow cache write cannot use up the time a
         // quit has for the index.
         let _ = self.hashes.save();
+        let _ = self.properties.save();
     }
 
     /// The index part of [`save_by`](Self::save_by), under its lock.
@@ -2894,6 +3027,7 @@ impl Engine {
     fn shutdown_within(self: &Arc<Self>, wait: Duration) -> bool {
         let deadline = Instant::now() + wait;
         self.stop.store(true, Ordering::SeqCst);
+        self.cancel_property_index();
         let scans = {
             let mut scans = self.drive_scans.lock().expect("lock");
             self.tasks.cancel_drive_scans();
@@ -3499,6 +3633,72 @@ mod tests {
         probe.engine.shutdown();
         let saved = persist::load(&index_file).unwrap();
         assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&plain)));
+    }
+
+    #[test]
+    fn a_media_sort_reads_files_with_the_index_released() {
+        use everygrep_core::property::Property;
+        use everygrep_core::sort::SortKey;
+        let dir = Scratch::new("media-sort");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        for (name, width) in [("a.png", 100u32), ("b.png", 20)] {
+            let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+            png.extend(width.to_be_bytes());
+            png.extend(10u32.to_be_bytes());
+            png.extend([0; 8]);
+            fs::write(root.join(name), png).unwrap();
+        }
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let engine = probe.engine.clone();
+        let sort = Sort {
+            key: SortKey::Property(Property::Width),
+            ..Sort::default()
+        };
+        let progress = Progress::new();
+        let index = engine.index.read().unwrap();
+        let mut ids = vec![
+            find(&index, &root.join("a.png")).unwrap(),
+            find(&index, &root.join("b.png")).unwrap(),
+        ];
+        // Other sorts read nothing beforehand.
+        let (index, none) = engine
+            .media_for_sort(
+                index,
+                &ids,
+                Sort::default(),
+                engine.epoch(),
+                &progress,
+                true,
+            )
+            .unwrap();
+        assert!(none.is_none());
+        // A writer waiting for the index gets it while the files are read.
+        let wrote = Arc::new(AtomicBool::new(false));
+        let writer = std::thread::spawn({
+            let (engine, wrote) = (engine.clone(), wrote.clone());
+            move || {
+                let _index = engine.index.write().unwrap();
+                wrote.store(true, Ordering::SeqCst);
+            }
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        let (index, media) = engine
+            .media_for_sort(index, &ids, sort, engine.epoch(), &progress, true)
+            .unwrap();
+        assert!(wrote.load(Ordering::SeqCst));
+        assert_eq!(progress.total(), Some(2));
+        // The sort takes the values read; it reads no file itself.
+        for name in ["a.png", "b.png"] {
+            fs::remove_file(root.join(name)).unwrap();
+        }
+        engine
+            .sort(&index, &mut ids, sort, 1, &Progress::new(), media)
+            .unwrap();
+        assert_eq!(index.store().name(ids[0]), b"b.png");
+        drop(index);
+        writer.join().unwrap();
     }
 
     #[test]
