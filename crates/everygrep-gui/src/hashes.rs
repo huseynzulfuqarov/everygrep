@@ -12,6 +12,8 @@ use everygrep_core::hashcache::{DEFAULT_MAX_BYTES, HashCache};
 use everygrep_core::persist;
 
 pub struct HashStore {
+    /// Serializes file publication with clears and destination changes.
+    publication: Mutex<()>,
     /// `None`: kept in memory only.
     path: Mutex<Option<PathBuf>>,
     cache: Mutex<HashCache>,
@@ -19,17 +21,26 @@ pub struct HashStore {
     /// Whether the file was read (or there is none).
     ready: AtomicBool,
     max_bytes: AtomicU64,
+    #[cfg(test)]
+    before_publish: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    before_clear: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl HashStore {
     /// A cache kept in the file `path`, at most `max_bytes` large.
     pub fn new(path: Option<PathBuf>, max_bytes: u64) -> Self {
         Self {
+            publication: Mutex::new(()),
             path: Mutex::new(path),
             cache: Mutex::new(HashCache::new(max_bytes)),
             loaded: Once::new(),
             ready: AtomicBool::new(false),
             max_bytes: AtomicU64::new(max_bytes),
+            #[cfg(test)]
+            before_publish: Mutex::new(None),
+            #[cfg(test)]
+            before_clear: Mutex::new(None),
         }
     }
 
@@ -62,9 +73,15 @@ impl HashStore {
 
     /// Forgets every hash and removes the file, without reading it first.
     pub fn clear(&self) -> io::Result<()> {
+        let _publication = self.publication.lock().expect("hash publication");
+        // Keep first-use loading out until the old file is removed too.
         let mut cache = self.cache.lock().expect("hash cache");
         cache.clear();
         cache.set_changed(false);
+        #[cfg(test)]
+        if let Some(hook) = self.before_clear.lock().unwrap().take() {
+            hook();
+        }
         match self.path() {
             Some(path) => match std::fs::remove_file(path) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
@@ -113,6 +130,7 @@ impl HashStore {
     /// one read already is written there at the next save and the old one
     /// removed.
     pub fn move_to(&self, to: PathBuf) {
+        let _publication = self.publication.lock().expect("hash publication");
         // Held, so a first use waits and then reads the new place.
         let mut cache = self.cache.lock().expect("hash cache");
         let Some(old) = self
@@ -139,6 +157,7 @@ impl HashStore {
     /// Writes the file when the cache changed since it was read or saved.
     /// The bytes are taken under the lock and written without it.
     pub fn save(&self) -> io::Result<()> {
+        let _publication = self.publication.lock().expect("hash publication");
         let Some(path) = self.path() else {
             return Ok(());
         };
@@ -158,6 +177,10 @@ impl HashStore {
             cache.set_changed(false);
             (!cache.is_empty()).then(|| cache.to_bytes())
         };
+        #[cfg(test)]
+        if let Some(hook) = self.before_publish.lock().unwrap().take() {
+            hook();
+        }
         let written = match bytes {
             Some(bytes) => persist::write_atomically(path, &bytes),
             None => match std::fs::remove_file(path) {
@@ -183,6 +206,97 @@ mod tests {
     use super::*;
     use everygrep_core::hash::FileKey;
     use everygrep_core::hashcache::Cached;
+
+    #[test]
+    fn first_use_cannot_reload_the_file_while_clear_is_removing_it() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("everygrep-clear-load-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hashes.bin");
+        let seeded = HashStore::new(Some(path.clone()), DEFAULT_MAX_BYTES);
+        seeded.cache().lock().unwrap().put(
+            FileKey::default(),
+            &Cached {
+                crc32: Some(1),
+                ..Cached::default()
+            },
+        );
+        seeded.save().unwrap();
+        let store = Arc::new(HashStore::new(Some(path.clone()), DEFAULT_MAX_BYTES));
+        let (paused_tx, paused) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        *store.before_clear.lock().unwrap() = Some(Box::new(move || {
+            paused_tx.send(()).unwrap();
+            blocked.recv_timeout(Duration::from_secs(5)).unwrap();
+        }));
+        let clearing = Arc::clone(&store);
+        let clear = std::thread::spawn(move || clearing.clear().unwrap());
+        paused.recv_timeout(Duration::from_secs(5)).unwrap();
+        let loading = Arc::clone(&store);
+        let (done_tx, done) = mpsc::channel();
+        let load = std::thread::spawn(move || {
+            let empty = loading.cache().lock().unwrap().is_empty();
+            done_tx.send(empty).unwrap();
+        });
+        let early = done.recv_timeout(Duration::from_millis(200)).ok();
+        release.send(()).unwrap();
+        clear.join().unwrap();
+        load.join().unwrap();
+        let empty = early.unwrap_or_else(|| done.recv_timeout(Duration::from_secs(5)).unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+        assert!(empty, "first use reloaded hashes that clear was removing");
+    }
+
+    #[test]
+    fn clearing_waits_for_an_older_publication_and_does_not_resurrect_it() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+        let dir =
+            std::env::temp_dir().join(format!("everygrep-hash-publication-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hashes.bin");
+        let store = Arc::new(HashStore::new(Some(path.clone()), DEFAULT_MAX_BYTES));
+        store.cache().lock().unwrap().put(
+            FileKey {
+                ino: 1,
+                ..FileKey::default()
+            },
+            &Cached {
+                crc32: Some(7),
+                ..Cached::default()
+            },
+        );
+        let (paused_tx, paused) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        *store.before_publish.lock().unwrap() = Some(Box::new(move || {
+            paused_tx.send(()).unwrap();
+            blocked.recv_timeout(Duration::from_secs(5)).unwrap();
+        }));
+        let saving = Arc::clone(&store);
+        let save = std::thread::spawn(move || saving.save().unwrap());
+        paused.recv_timeout(Duration::from_secs(5)).unwrap();
+        let clearing = Arc::clone(&store);
+        let (cleared_tx, cleared) = mpsc::channel();
+        let clear = std::thread::spawn(move || {
+            clearing.clear().unwrap();
+            cleared_tx.send(()).unwrap();
+        });
+        // The older snapshot is held until clear has had time to run.
+        let early_clear = cleared.recv_timeout(Duration::from_millis(200)).is_ok();
+        release.send(()).unwrap();
+        save.join().unwrap();
+        clear.join().unwrap();
+        let resurrected = path.exists();
+        let empty = store.cache().lock().unwrap().is_empty();
+        let _ = std::fs::remove_dir_all(dir);
+        assert!(!resurrected, "an older save resurrected the cleared cache");
+        assert!(empty);
+        assert!(
+            !early_clear,
+            "clear completed while an older publication could still write"
+        );
+    }
 
     #[test]
     fn a_clear_holds_up_neither_the_caller_nor_later_settings_saves() {
