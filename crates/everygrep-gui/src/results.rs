@@ -1219,6 +1219,32 @@ fn tilde_spans(spans: &[Range<usize>], cut: usize) -> Vec<Range<usize>> {
     )
 }
 
+/// Visible, single-line cell text. Search spans and file operations keep
+/// using the original name; escape each piece only after splitting it.
+fn visible_name(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+    {
+        return text.into();
+    }
+    let mut shown = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\n' | '\u{2028}' | '\u{2029}' => shown.push('⏎'),
+            '\t' => shown.push('⇥'),
+            '\x00'..='\x1f' => shown.push(char::from_u32(0x2400 + c as u32).unwrap()),
+            '\x7f' => shown.push('␡'),
+            c if c.is_control() => {
+                use std::fmt::Write;
+                let _ = write!(shown, "\\u{{{:x}}}", c as u32);
+            }
+            c => shown.push(c),
+        }
+    }
+    shown.into()
+}
+
 /// `text` split into plain and bold pieces around `spans` (sorted, not
 /// overlapping, on character boundaries).
 fn marked(text: &str, spans: &[Range<usize>]) -> Marked {
@@ -1234,15 +1260,15 @@ fn marked(text: &str, spans: &[Range<usize>]) -> Marked {
     }
     plain[used] = &text[at..];
     Marked {
-        p0: plain[0].into(),
-        b0: bold[0].into(),
-        p1: plain[1].into(),
-        b1: bold[1].into(),
-        p2: plain[2].into(),
-        b2: bold[2].into(),
-        p3: plain[3].into(),
-        b3: bold[3].into(),
-        p4: plain[4].into(),
+        p0: visible_name(plain[0]).as_ref().into(),
+        b0: visible_name(bold[0]).as_ref().into(),
+        p1: visible_name(plain[1]).as_ref().into(),
+        b1: visible_name(bold[1]).as_ref().into(),
+        p2: visible_name(plain[2]).as_ref().into(),
+        b2: visible_name(bold[2]).as_ref().into(),
+        p3: visible_name(plain[3]).as_ref().into(),
+        b3: visible_name(bold[3]).as_ref().into(),
+        p4: visible_name(plain[4]).as_ref().into(),
     }
 }
 
@@ -1323,6 +1349,20 @@ pub(crate) mod tests {
     fn name_pieces(name: &str, q: &str) -> Vec<String> {
         let (spans, _) = cell_spans(name, Some(b"/x"), &terms(q));
         pieces(&marked(name, &spans))
+    }
+
+    #[test]
+    fn control_characters_are_visible_without_changing_match_offsets() {
+        assert_eq!(visible_name("yeni\nsətir.txt"), "yeni⏎sətir.txt");
+        assert_eq!(visible_name("a\tb\rc\x1bd\x7f"), "a⇥b␍c␛d␡");
+        assert_eq!(visible_name("x\u{85}\u{2028}\u{2029}"), "x\\u{85}⏎⏎");
+        assert_eq!(visible_name("normal-ş.txt"), "normal-ş.txt");
+        let m = marked("a\nş.txt", std::slice::from_ref(&(2..4)));
+        assert_eq!(m.p0, "a⏎");
+        assert_eq!(m.b0, "ş");
+        assert_eq!(m.p1, ".txt");
+        let controls: String = (0..=0x9f).filter_map(char::from_u32).collect();
+        assert!(!visible_name(&controls).chars().any(char::is_control));
     }
 
     #[test]
