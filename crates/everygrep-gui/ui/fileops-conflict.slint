@@ -27,7 +27,7 @@ export component FileopsConflict inherits Rectangle {
             layout := VerticalLayout {
                 padding: Theme.s5;
                 spacing: Theme.s3;
-                Text { text: @tr("Paste conflict"); color: Theme.text; font-weight: 600; }
+                Text { text: root.is-error ? @tr("Paste error") : @tr("Paste conflict"); color: Theme.text; font-weight: 600; }
                 ScrollView {
                     preferred-height: min(message.preferred-height, 300px);
                     VerticalLayout {

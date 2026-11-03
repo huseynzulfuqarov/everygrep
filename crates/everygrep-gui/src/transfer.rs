@@ -102,7 +102,11 @@ fn details(meta: &Metadata) -> String {
         .saturating_mul(1_000_000_000)
         .saturating_add(meta.mtime_nsec());
     let date = crate::format::timestamp(ns, &everygrep_core::localtime::Zone::local());
-    fill(tr("Size: {0} bytes; modified: {1}"), &[&meta.len(), &date])
+    if meta.is_dir() {
+        fill(tr("Modified: {}"), &[&date])
+    } else {
+        fill(tr("Size: {0} bytes; modified: {1}"), &[&meta.len(), &date])
+    }
 }
 
 /// Why an item was not pasted.
@@ -1018,6 +1022,16 @@ mod tests {
             test_replacement(),
             |_| {},
         )
+    }
+
+    #[test]
+    fn folder_question_details_do_not_claim_a_byte_size() {
+        let dir = TempDir::new("folder-details");
+        let folder = details(&fs::symlink_metadata(&dir.0).unwrap());
+        assert!(!folder.contains("Size:"));
+        let file = dir.path("file");
+        fs::write(&file, b"abc").unwrap();
+        assert!(details(&fs::symlink_metadata(file).unwrap()).contains("3 bytes"));
     }
 
     #[test]

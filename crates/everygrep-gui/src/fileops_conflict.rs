@@ -50,10 +50,12 @@ pub fn resolver(weak: slint::Weak<AppWindow>) -> Resolver {
                         &[&question.source.display(), error],
                     ),
                     None => {
-                        let safety = if question.trash_available {
+                        let safety = if question.can_overwrite {
                             tr("The replaced file will be sent to the trash. If that fails, nothing will be replaced.")
-                        } else {
+                        } else if !question.trash_available {
                             tr("Trash is unavailable on this filesystem. Overwrite is disabled.")
+                        } else {
+                            ""
                         };
                         fill(tr("A name already exists.\nFrom: {0}\n{1}\nTo: {2}\n{3}\n{4}"),
                             &[&question.source.display(), &question.source_details,

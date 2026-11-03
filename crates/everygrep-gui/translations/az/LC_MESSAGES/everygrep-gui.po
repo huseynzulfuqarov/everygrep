@@ -3401,3 +3401,9 @@ msgstr "Qovluq əmrləri"
 
 msgid "Close folders panel"
 msgstr "Qovluq panelini bağla"
+
+msgid "Modified: {}"
+msgstr "Dəyişdirilmə: {}"
+
+msgid "Paste error"
+msgstr "Yapışdırma xətası"

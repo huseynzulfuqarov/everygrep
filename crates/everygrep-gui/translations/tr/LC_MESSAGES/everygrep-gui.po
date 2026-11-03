@@ -3401,3 +3401,9 @@ msgstr "Klasör işlemleri"
 
 msgid "Close folders panel"
 msgstr "Klasör panelini kapat"
+
+msgid "Modified: {}"
+msgstr "Değiştirilme: {}"
+
+msgid "Paste error"
+msgstr "Yapıştırma hatası"
