@@ -2868,11 +2868,15 @@ impl Prefs {
         }
     }
 
-    /// Gives the main window the "search as you type" setting.
+    /// Gives the main window the "search as you type" setting and whether
+    /// searches that read files wait for Enter meanwhile.
     pub fn apply_as_you_type(&self) {
-        let on = self.settings.borrow().as_you_type;
+        let (on, contents_on_enter) = {
+            let s = self.settings.borrow();
+            (s.as_you_type, s.content.on_enter)
+        };
         if let Some(m) = self.main.upgrade() {
-            crate::set_as_you_type(&m, &self.engine, on);
+            crate::set_as_you_type(&m, &self.engine, on, contents_on_enter);
         }
     }
 

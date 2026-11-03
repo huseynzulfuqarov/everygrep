@@ -435,6 +435,7 @@ The behaviour chosen for indexing and searching.
 | Topic | Behaviour |
 |---|---|
 | Search as you type | On by default (today's behaviour). Off, text, mode and filter changes wait; the status line says "Press Enter to search." |
+| File contents while typing | On by default: with Search as you type on, a search that reads files (a `content:` term, also in the chosen filter, or duplicates by contents) waits for Enter and the status line says "Press Enter to search file contents."; other searches still follow every key. Settings → Search → File contents turns it off. A tab whose text waits keeps waiting when shown again. |
 | Enter with as-you-type off | Enter runs a waiting search; with the results already current it opens the current row as before. Back/Forward still search at once. |
 | Rename selection | On by default (today's behaviour): the name before the last dot; folders and dot-files whole. |
 | Monitoring changes | One global switch, on by default (per-folder: no; our folder list has no per-folder options yet). Off drops every inotify watch; on again catches up and watches. A loaded index is not caught up while off. |

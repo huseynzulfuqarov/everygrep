@@ -3843,3 +3843,12 @@ msgstr "Sürücü köklerinde sürücü etiketini göster"
 msgid "The root of an indexed drive is shown as its label followed by the mount point, such as USB DISK (/run/media/…)."
 msgstr "Dizine eklenmiş bir sürücünün kökü, etiketi ve bağlama noktasıyla gösterilir; örneğin USB DISK (/run/media/…)."
 
+msgid "Search file contents only when Enter is pressed"
+msgstr "Dosya içeriğinde aramayı yalnızca Enter'a basıldığında başlat"
+
+msgid "While searching as you type, a search with content: or for duplicates by contents waits for Enter, so typing does not read files at every key."
+msgstr "Yazarken arama açıkken content: içeren ya da içeriğe göre yinelenenleri arayan bir arama Enter'ı bekler; böylece her tuşta dosyalar okunmaz."
+
+msgid "Press Enter to search file contents."
+msgstr "Dosya içeriklerinde aramak için Enter'a basın."
+

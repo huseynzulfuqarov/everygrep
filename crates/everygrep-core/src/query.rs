@@ -475,6 +475,12 @@ impl Query {
         self.dupe.as_ref()
     }
 
+    /// Whether running the query reads files from disk: it has a content
+    /// term or compares the contents of duplicates.
+    pub fn reads_files(&self) -> bool {
+        !self.content.is_empty() || self.dupe.as_ref().is_some_and(DupeSpec::reads_files)
+    }
+
     /// Whether the query accepts every node.
     pub fn matches_all(&self) -> bool {
         matches!(self.root, Node::All)
@@ -3099,6 +3105,18 @@ mod tests {
                 .is_some()
         );
         assert!(parse("duplicates:").and(parse("distinct:")).is_err());
+        // Content terms and duplicates by contents read files.
+        assert!(parse("content:a").reads_files());
+        assert!(
+            parse("ext:txt")
+                .and(parse("content:a"))
+                .unwrap()
+                .reads_files()
+        );
+        assert!(parse("duplicates:").reads_files());
+        assert!(parse("unique:name;content").reads_files());
+        assert!(!parse("duplicates:name;size").reads_files());
+        assert!(!parse("contents report").reads_files());
     }
 
     #[test]

@@ -3843,3 +3843,12 @@ msgstr "Disklərin kök qovluğunda disk etiketini göstər"
 msgid "The root of an indexed drive is shown as its label followed by the mount point, such as USB DISK (/run/media/…)."
 msgstr "İndekslənmiş diskin kök qovluğu etiketi və qoşulma yeri ilə göstərilir, məsələn USB DISK (/run/media/…)."
 
+msgid "Search file contents only when Enter is pressed"
+msgstr "Fayl məzmununda axtarışı yalnız Enter basılanda başlat"
+
+msgid "While searching as you type, a search with content: or for duplicates by contents waits for Enter, so typing does not read files at every key."
+msgstr "Yazdıqca axtarış açıq olanda content: olan və ya məzmuna görə dublikat axtaran sorğu Enter-i gözləyir, beləcə hər düymədə fayllar oxunmur."
+
+msgid "Press Enter to search file contents."
+msgstr "Fayl məzmununda axtarmaq üçün Enter basın."
+

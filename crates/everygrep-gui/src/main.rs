@@ -374,7 +374,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 prefs.restore_parse_options(&w);
             }
             prefs.fill_history();
-            if !typing::with(|t| t.edited()) {
+            let reads = field_reads_files(&w);
+            if !typing::with(|t| t.edited(reads)) {
                 wait_for_enter(&w);
                 return;
             }
@@ -418,7 +419,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let (engine, weak) = (engine.clone(), weak.clone());
         move || {
             if let Some(w) = weak.upgrade() {
-                if typing::with(|t| t.edited()) {
+                let reads = field_reads_files(&w);
+                if typing::with(|t| t.edited(reads)) {
                     run_query(&w, &engine);
                 } else {
                     wait_for_enter(&w);
@@ -2209,7 +2211,19 @@ fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
 fn wait_for_enter(w: &AppWindow) {
     w.set_search_pending(true);
     w.set_notice_error(false);
-    info(w, tr("Press Enter to search.").into());
+    // Searching as you type, only a search that reads files waits.
+    let notice = if typing::with(|t| t.as_you_type()) {
+        tr("Press Enter to search file contents.")
+    } else {
+        tr("Press Enter to search.")
+    };
+    info(w, notice.into());
+}
+
+/// Whether the search in the field, with the chosen filter, reads files.
+fn field_reads_files(w: &AppWindow) -> bool {
+    let filter = saved_ui::selected(w).map(|f| (f.search, f.options));
+    typing::reads_files(&w.get_query(), options(w), filter.as_ref())
 }
 
 /// Runs the search in the field now and keeps it in the history.
@@ -2221,10 +2235,12 @@ pub fn search_now(w: &AppWindow, engine: &Engine) {
     prefs::with(|p| p.record(&query));
 }
 
-/// Changes whether the search follows every change; a search that was
-/// waiting for Enter runs when it does again.
-pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool) {
-    if typing::with(|t| t.set_as_you_type(on)) {
+/// Changes whether the search follows every change, and whether searches
+/// that read files wait for Enter meanwhile; a search that was waiting for
+/// Enter runs when it no longer has to.
+pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool, contents_on_enter: bool) {
+    let reads = field_reads_files(w);
+    if typing::with(|t| t.set_as_you_type(on, contents_on_enter, reads)) {
         search_now(w, engine);
     }
 }

@@ -21,6 +21,9 @@ pub struct Settings {
     pub pdf: bool,
     /// Largest size of the hash cache, in MiB; 0 keeps no hashes.
     pub hash_cache_mb: u64,
+    /// While searching as you type, a search that reads files waits for
+    /// Enter.
+    pub on_enter: bool,
 }
 
 impl Default for Settings {
@@ -30,6 +33,7 @@ impl Default for Settings {
             code_page: CodePage::default(),
             pdf: false,
             hash_cache_mb: hashcache::DEFAULT_MAX_BYTES / (1024 * 1024),
+            on_enter: true,
         }
     }
 }
@@ -65,6 +69,7 @@ impl Settings {
                 .unwrap_or(0) as i32,
         );
         w.set_content_pdf(self.pdf);
+        w.set_content_on_enter(self.on_enter);
         w.set_content_pdf_note(pdf_note(content::pdf_reader_available()).into());
         w.set_hash_cache_max(i32::try_from(self.hash_cache_mb).unwrap_or(i32::MAX));
         w.set_hash_cache_max_max(i32::try_from(MAX_SIZE_MB).unwrap_or(i32::MAX));
@@ -80,6 +85,7 @@ impl Settings {
                 .and_then(|i| CodePage::ALL.get(i).copied())
                 .unwrap_or_default(),
             pdf: w.get_content_pdf(),
+            on_enter: w.get_content_on_enter(),
             hash_cache_mb: u64::try_from(w.get_hash_cache_max())
                 .unwrap_or(0)
                 .min(MAX_SIZE_MB),
@@ -103,17 +109,8 @@ impl Settings {
             "content-code-page" => CodePage::from_id(value)
                 .map(|c| self.code_page = c)
                 .is_some(),
-            "content-pdf" => match value {
-                "true" | "yes" | "on" | "1" => {
-                    self.pdf = true;
-                    true
-                }
-                "false" | "no" | "off" | "0" => {
-                    self.pdf = false;
-                    true
-                }
-                _ => false,
-            },
+            "content-pdf" => flag(value).map(|on| self.pdf = on).is_some(),
+            "content-on-enter" => flag(value).map(|on| self.on_enter = on).is_some(),
             _ => false,
         }
     }
@@ -134,6 +131,18 @@ impl Settings {
         if all || self.hash_cache_mb != d.hash_cache_mb {
             out.push_str(&format!("hash-cache-max-mb = {}\n", self.hash_cache_mb));
         }
+        if all || self.on_enter != d.on_enter {
+            out.push_str(&format!("content-on-enter = {}\n", self.on_enter));
+        }
+    }
+}
+
+/// A switch in the settings file.
+fn flag(value: &str) -> Option<bool> {
+    match value {
+        "true" | "yes" | "on" | "1" => Some(true),
+        "false" | "no" | "off" | "0" => Some(false),
+        _ => None,
     }
 }
 
@@ -176,8 +185,14 @@ mod tests {
     fn content_settings_roundtrip_reset_with_the_search_page_and_reject_bad_values() {
         let d = super::Settings::default();
         assert_eq!(
-            (d.max_size_mb, d.code_page, d.pdf, d.hash_cache_mb),
-            (100, CodePage::Windows1254, false, 512)
+            (
+                d.max_size_mb,
+                d.code_page,
+                d.pdf,
+                d.hash_cache_mb,
+                d.on_enter
+            ),
+            (100, CodePage::Windows1254, false, 512, true)
         );
         assert_eq!(d.hash_cache_bytes(), 512 * 1024 * 1024);
         assert_eq!(
@@ -187,8 +202,9 @@ mod tests {
         assert!(!Settings::default().to_text().contains("content-"));
         assert!(!Settings::default().to_text().contains("hash-cache"));
         let mut s = Settings::parse(
-            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\n",
+            "content-max-size-mb = 0\ncontent-code-page = windows-1251\ncontent-pdf = true\nhash-cache-max-mb = 0\ncontent-on-enter = no\n",
         );
+        assert!(!s.content.on_enter);
         assert_eq!(s.content.hash_cache_bytes(), 0);
         assert_eq!(
             (s.content.max_size_mb, s.content.code_page, s.content.pdf),
@@ -201,9 +217,9 @@ mod tests {
         s.reset(Page::Search);
         assert_eq!(s.content, super::Settings::default());
         let bad = Settings::parse(
-            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\n",
+            "content-max-size-mb = -1\ncontent-max-size-mb = 99999999\ncontent-code-page = utf-8\ncontent-pdf = maybe\nhash-cache-max-mb = lots\ncontent-on-enter = later\n",
         );
-        assert_eq!(bad.problems.len(), 5);
+        assert_eq!(bad.problems.len(), 6);
         assert_eq!(bad.content, super::Settings::default());
     }
 

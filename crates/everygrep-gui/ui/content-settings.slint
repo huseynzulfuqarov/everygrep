@@ -9,8 +9,20 @@ export component ContentSettings inherits VerticalLayout {
     in-out property <int> code-page;
     in-out property <bool> pdf;
     in property <string> pdf-note;
+    in-out property <bool> on-enter;
     callback changed();
     spacing: Theme.s3;
+    CheckBox {
+        text: @tr("Search file contents only when Enter is pressed");
+        checked <=> root.on-enter;
+        toggled => { root.changed(); }
+    }
+    Text {
+        text: @tr("While searching as you type, a search with content: or for duplicates by contents waits for Enter, so typing does not read files at every key.");
+        font-size: Theme.small;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
     HorizontalLayout {
         spacing: Theme.s3;
         Text {

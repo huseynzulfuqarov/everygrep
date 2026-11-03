@@ -633,7 +633,18 @@ impl State {
         let mut history = tab.history.clone();
         history.set_max(self.prefs.history_limit());
         *self.prefs.history.borrow_mut() = history;
-        let pending = tab.pending && !crate::typing::with(|t| t.as_you_type());
+        // What the field shows still waits for Enter when it would wait
+        // now (as a search that reads files does while typing).
+        let pending = tab.pending && {
+            let filter = search
+                .filter
+                .as_ref()
+                .map(|f| crate::saved_ui::filter_for_tab(f, search.filter_snapshot));
+            let options = search.effective_options(policy, filter.as_ref());
+            let filter = filter.map(|f| (f.search, f.options));
+            let reads = crate::typing::reads_files(&search.query, options, filter.as_ref());
+            crate::typing::with(|t| t.waits(reads))
+        };
         let submitted = if pending {
             tab.submitted.as_ref().unwrap_or(search)
         } else {
@@ -677,7 +688,7 @@ impl State {
         crate::typing::with(|t| {
             t.searched();
             if pending {
-                t.edited();
+                t.edited(true);
             }
         });
         w.set_search_pending(pending);
