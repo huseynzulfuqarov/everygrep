@@ -571,6 +571,7 @@ or `skip`) control shortcuts. `rename-select-name-only` controls selection of
 the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
 opens, `copy-full-path-quotes` the quotes around copied full paths,
+`type-to-jump` typing in the result list to jump to a name (on),
 `confirm-open-over` the number of items opened at once without a question, `focus-search-on-show`
 whether showing the window again focuses the search field.
 `use-exclude-list`, `include-only-files` and `exclude-files` hold the switch

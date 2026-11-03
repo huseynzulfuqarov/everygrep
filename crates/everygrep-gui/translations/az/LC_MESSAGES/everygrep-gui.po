@@ -3202,3 +3202,18 @@ msgid "Export only the selected result"
 msgid_plural "Export only the {} selected results"
 msgstr[0] "Yalnız seçilmiş nəticəni ixrac et"
 msgstr[1] "Yalnız seçilmiş {} nəticəni ixrac et"
+
+msgid "Typing in the result list"
+msgstr "Nəticə siyahısında yazmaq"
+
+msgid "Jump to a name by typing its start"
+msgstr "Adın əvvəlini yazaraq ona keç"
+
+msgid "With the list focused, typing moves to the next row whose name starts with the typed text. A pause of a second starts a new text; typing one letter again steps through its names."
+msgstr "Siyahı fokusda olanda yazmaq, adı yazılan mətnlə başlayan növbəti sətrə keçir. Bir saniyəlik fasilə yeni mətnə başladır; eyni hərfi təkrar yazmaq o hərflə başlayan adlar üzrə bir-bir irəliləyir."
+
+msgid "Jump to: {}"
+msgstr "Keçid: {}"
+
+msgid "No name starts with {}."
+msgstr "{} ilə başlayan ad yoxdur."

@@ -1688,6 +1688,7 @@ impl Prefs {
         s.fileops.fill_window(w);
         w.set_path_click_opens_folder(s.path_click_opens_folder);
         w.set_copy_full_path_quotes(s.copy_full_path_quotes);
+        w.set_type_to_jump(s.type_to_jump);
         w.set_open_confirm_max(settings::MAX_OPEN_CONFIRM as i32);
         w.set_open_confirm_over(s.open_confirm_over as i32);
         w.set_focus_on_show(s.focus_on_show);
@@ -2714,6 +2715,7 @@ impl Prefs {
         let fileops = crate::fileops_settings::Settings::from_window(&w);
         let path_click = w.get_path_click_opens_folder();
         let quotes = w.get_copy_full_path_quotes();
+        let type_to_jump = w.get_type_to_jump();
         let open_over = usize::try_from(w.get_open_confirm_over())
             .unwrap_or(0)
             .min(settings::MAX_OPEN_CONFIRM);
@@ -2733,6 +2735,7 @@ impl Prefs {
             s.fileops = fileops.clone();
             s.path_click_opens_folder = path_click;
             s.copy_full_path_quotes = quotes;
+            s.type_to_jump = type_to_jump;
             s.open_confirm_over = open_over;
             s.focus_on_show = focus_on_show;
             if !remember {
@@ -2951,6 +2954,11 @@ impl Prefs {
     /// Whether Copy full path puts each path in double quotes.
     pub fn copy_full_path_quotes(&self) -> bool {
         self.settings.borrow().copy_full_path_quotes
+    }
+
+    /// Whether typing in the result list jumps to a name.
+    pub fn type_to_jump(&self) -> bool {
+        self.settings.borrow().type_to_jump
     }
 
     /// Whether showing the window focuses the search field.

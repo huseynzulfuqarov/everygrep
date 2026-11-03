@@ -212,6 +212,7 @@ words.
 | Move to trash | `Delete` | context menu |
 | Delete permanently | `Shift+Delete` | context menu |
 | Context menu | `Menu`, `Shift+F10` | right-click |
+| Jump to the next name starting with the typed text (a pause of a second starts over; Window page, on by default) | type in the list | — |
 | Clear the selection, then back to the search | `Esc` in the list | — |
 | Clear the search | `Esc` in the search field | — |
 | Back / forward through earlier searches | `Alt+←` / `Alt+→` | — |

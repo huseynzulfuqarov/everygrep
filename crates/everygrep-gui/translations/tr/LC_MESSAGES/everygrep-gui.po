@@ -3202,3 +3202,18 @@ msgid "Export only the selected result"
 msgid_plural "Export only the {} selected results"
 msgstr[0] "Yalnızca seçili sonucu dışa aktar"
 msgstr[1] "Yalnızca seçili {} sonucu dışa aktar"
+
+msgid "Typing in the result list"
+msgstr "Sonuç listesinde yazma"
+
+msgid "Jump to a name by typing its start"
+msgstr "Bir adın başını yazarak ona atla"
+
+msgid "With the list focused, typing moves to the next row whose name starts with the typed text. A pause of a second starts a new text; typing one letter again steps through its names."
+msgstr "Liste odaktayken yazmak, adı yazılan metinle başlayan sonraki satıra gider. Bir saniyelik duraklama yeni bir metin başlatır; aynı harfi yeniden yazmak o harfle başlayan adlar arasında tek tek ilerler."
+
+msgid "Jump to: {}"
+msgstr "Atla: {}"
+
+msgid "No name starts with {}."
+msgstr "{} ile başlayan ad yok."

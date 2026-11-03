@@ -558,6 +558,22 @@ impl ResultsModel {
             .is_some_and(|&id| self.selection.borrow().contains(id))
     }
 
+    /// The row a jump (see `jump.rs`) lands on from row `current`.
+    pub fn jump(&self, look: &crate::jump::Look, current: Option<usize>) -> Option<usize> {
+        let ids = self.ids.borrow();
+        let index = self.engine.index.read().ok()?;
+        if self.engine.epoch() != self.epoch.get() {
+            return None;
+        }
+        let store = index.store();
+        crate::jump::find(ids.len(), current, look.from_current, |row| {
+            let id = ids[row];
+            id.index() < store.len()
+                && store.is_live(id)
+                && crate::jump::folded(store.name(id)).starts_with(&look.prefix)
+        })
+    }
+
     /// The selected ids, in the order shown.
     pub fn selected_ids(&self) -> Vec<NodeId> {
         self.selection.borrow().selected(&self.ids.borrow())

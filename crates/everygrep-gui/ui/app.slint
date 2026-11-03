@@ -1099,6 +1099,12 @@ export component AppWindow inherits Window {
     in property <[HelpRow]> help-command-line;
     in-out property <bool> help-open;
     in-out property <int> help-page;
+    // Typing in the list: the row to move to for a typed key, -1 when the
+    // key is not for jumping, -2 when no name starts so.
+    callback jump-typed(string) -> int;
+    // Forgets the jump text: the cursor moved another way, a shortcut ran or
+    // the list lost the focus, so the next typed key starts a new jump.
+    callback jump-reset();
     // Copies a report about the program and the system (no paths).
     callback copy-troubleshooting-info();
     // Opens the settings file in the desktop's application for it.
@@ -1971,8 +1977,14 @@ export component AppWindow inherits Window {
     }
 
     // Moves the cursor; mode as for select(), or -1 to move without changing
-    // the selection.
+    // the selection. A jump in progress ends.
     function move-to(row: int, mode: int) {
+        root.jump-reset();
+        root.place-cursor(row, mode);
+    }
+
+    // move-to() without ending a jump, for the jump itself.
+    function place-cursor(row: int, mode: int) {
         if (root.results.length == 0) {
             return;
         }
@@ -2543,13 +2555,16 @@ export component AppWindow inherits Window {
                 vertical-stretch: 1;
                 // Shift extends the selection, Ctrl moves the cursor alone.
                 property <int> move-mode: 0;
+                focus-lost(reason) => { root.jump-reset(); }
                 key-pressed(event) => {
                     if (root.dispatch(2, event)) {
+                        root.jump-reset();
                         return accept;
                     }
                     // Movement and Esc are fixed; every other key is a command.
                     self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
                     if (event.modifiers.alt || event.modifiers.meta) {
+                        root.jump-reset();
                         return reject;
                     }
                     if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
@@ -2563,9 +2578,17 @@ export component AppWindow inherits Window {
                     if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
                     // Esc clears the selection first, then goes back to the search.
                     if (event.text == Key.Escape) {
+                        root.jump-reset();
                         if (!root.clear-selection()) { search.focus-and-select(); }
                         return accept;
                     }
+                    if (!event.modifiers.control) {
+                        let jump = root.jump-typed(event.text);
+                        if (jump >= 0) { root.place-cursor(jump, 0); }
+                        if (jump != -1) { return accept; }
+                    }
+                    // Not a jump key: a shortcut of the window may take it.
+                    root.jump-reset();
                     reject
                 }
 
@@ -2686,11 +2709,13 @@ export component AppWindow inherits Window {
                         ext-freq-width: root.ext-freq-width;
                         size-freq-width: root.size-freq-width;
                         pressed(mods) => {
+                            root.jump-reset();
                             root.current = i;
                             keys.focus();
                             root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
                         }
                         right-pressed(x, y) => {
+                            root.jump-reset();
                             root.current = i;
                             keys.focus();
                             if (!root.is-selected(i)) { root.select(i, 0); }

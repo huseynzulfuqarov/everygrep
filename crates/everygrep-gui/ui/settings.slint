@@ -232,6 +232,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> fileops-shortcut-collision;
     in-out property <bool> path-click-opens-folder;
     in-out property <bool> copy-full-path-quotes;
+    in-out property <bool> type-to-jump;
     in-out property <int> open-confirm-over;
     in property <int> open-confirm-max;
     in-out property <bool> focus-on-show;
@@ -1105,6 +1106,14 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.window-changed(); }
                             }
                             Note { text: @tr("Each path is put in double quotes, as Copy full path with quotes does."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Typing in the result list"); }
+                            CheckBox {
+                                text: @tr("Jump to a name by typing its start");
+                                checked <=> root.type-to-jump;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("With the list focused, typing moves to the next row whose name starts with the typed text. A pause of a second starts a new text; typing one letter again steps through its names."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Folder size"); }
                             HorizontalLayout {

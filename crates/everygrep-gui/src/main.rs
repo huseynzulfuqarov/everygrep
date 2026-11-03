@@ -24,6 +24,7 @@ mod history;
 mod history_csv;
 mod i18n;
 mod instance;
+mod jump;
 mod labels;
 mod look;
 mod open;
@@ -596,6 +597,7 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_export(&window, &model, &engine);
     connect_troubleshooting(&window, &engine);
     connect_settings_file(&window);
+    connect_jump(&window, &model);
     ON_PRESENT.with(|p| {
         *p.borrow_mut() = Some(Box::new({
             let (weak, engine, pause, prefs) = (weak.clone(), engine.clone(), pause, prefs.clone());
@@ -1625,6 +1627,41 @@ fn connect_troubleshooting(window: &AppWindow, engine: &Arc<Engine>) {
                 info(&w, tr("Troubleshooting information copied.").into());
             });
         });
+    });
+}
+
+/// Typing in the result list moves to a name that starts with the typed
+/// text (see `jump.rs`), unless Settings → Window turned it off. Moving
+/// the cursor another way, a shortcut or leaving the list ends the jump.
+fn connect_jump(window: &AppWindow, model: &Rc<ResultsModel>) {
+    let (weak, model) = (window.as_weak(), model.clone());
+    let jump = Rc::new(RefCell::new(jump::Jump::default()));
+    let reset = jump.clone();
+    window.on_jump_reset(move || reset.borrow_mut().clear());
+    window.on_jump_typed(move |text| {
+        let Some(w) = weak.upgrade() else { return -1 };
+        let mut on = true;
+        prefs::with(|p| on = p.type_to_jump());
+        if !on {
+            return -1;
+        }
+        let typed = jump.borrow_mut().typed(&text, std::time::Instant::now());
+        let Some(look) = typed else {
+            // Another key starts the next jump afresh.
+            jump.borrow_mut().clear();
+            return -1;
+        };
+        let current = usize::try_from(w.get_current()).ok();
+        match model.jump(&look, current) {
+            Some(row) => {
+                info(&w, fill(tr("Jump to: {}"), &[&look.shown]));
+                i32::try_from(row).unwrap_or(-2)
+            }
+            None => {
+                error(&w, fill(tr("No name starts with {}."), &[&look.shown]));
+                -2
+            }
+        }
     });
 }
 

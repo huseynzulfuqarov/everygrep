@@ -294,6 +294,9 @@ pub struct Settings {
     /// Whether Copy full path puts each path in double quotes, as Copy
     /// full path with quotes does.
     pub copy_full_path_quotes: bool,
+    /// Whether typing in the result list moves to a name that starts with
+    /// the typed text (see `jump.rs`).
+    pub type_to_jump: bool,
     /// Opening more items than this at once asks first; 0 never asks.
     pub open_confirm_over: usize,
     /// Whether showing the window (at a later launch, or with its shortcut)
@@ -372,6 +375,7 @@ impl Default for Settings {
             content: crate::content_settings::Settings::default(),
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
+            type_to_jump: true,
             open_confirm_over: DEFAULT_OPEN_CONFIRM,
             focus_on_show: true,
             dates_newest_first: false,
@@ -648,6 +652,7 @@ impl Settings {
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
+            "type-to-jump" => put_flag(&mut self.type_to_jump),
             "confirm-open-over" => value
                 .parse::<usize>()
                 .ok()
@@ -1009,6 +1014,7 @@ impl Settings {
             self.copy_full_path_quotes,
             d.copy_full_path_quotes,
         );
+        flag(&mut out, "type-to-jump", self.type_to_jump, d.type_to_jump);
         if all || self.open_confirm_over != d.open_confirm_over {
             line(
                 &mut out,
@@ -1251,6 +1257,7 @@ impl Settings {
                 self.fileops = d.fileops;
                 self.path_click_opens_folder = d.path_click_opens_folder;
                 self.copy_full_path_quotes = d.copy_full_path_quotes;
+                self.type_to_jump = d.type_to_jump;
                 self.open_confirm_over = d.open_confirm_over;
                 self.focus_on_show = d.focus_on_show;
                 self.dates_newest_first = d.dates_newest_first;
@@ -1885,6 +1892,7 @@ pub(crate) mod tests {
             rename_name_only: false,
             path_click_opens_folder: false,
             copy_full_path_quotes: true,
+            type_to_jump: false,
             open_confirm_over: 0,
             focus_on_show: false,
             dates_newest_first: true,
