@@ -32,7 +32,9 @@ First version, 0.1.0, not released yet.
 - Custom overflow-aware tab strip and rebindable tab commands; independent
   search, filter, matching, sort, columns, selection and navigation state.
 - Close selected, left, right or other tabs; reopen the last ten individually
-  or together. Background searches refresh only when shown.
+  or together. Background searches refresh only when shown. Only the 10
+  background tabs shown last keep their results in memory (a setting);
+  the others search again when shown.
 
 - Add Window settings for searches in tabs, immediate activation and restoring
   the last window's tabs, all off by default.

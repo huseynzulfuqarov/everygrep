@@ -5302,6 +5302,87 @@ mod tests {
         probe.engine.shutdown();
     }
 
+    /// 30 tabs of 1 000 000 rows each (their own lists): only the 10
+    /// background tabs shown last and the active one keep their rows; a
+    /// stopped content search keeps its matches. Prints the memory the rows
+    /// take before and after, and the resident size of the test process.
+    #[test]
+    fn only_the_background_tabs_shown_last_keep_their_results() {
+        let dir = Scratch::new("tab-release");
+        let root = dir.0.join("files");
+        fs::create_dir(&root).unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index"));
+        probe.wait_for(IndexState::Unwatched);
+        let model = crate::results::ResultsModel::new(probe.engine.clone());
+        let rss = || {
+            let statm = fs::read_to_string("/proc/self/statm").unwrap_or_default();
+            let pages: u64 = statm
+                .split_whitespace()
+                .nth(1)
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0);
+            pages * 4096 / (1024 * 1024)
+        };
+        let before = rss();
+        let mut tabs = crate::tabs::Tabs::default();
+        for i in 0..30u32 {
+            model.set_result(&SearchResult {
+                settled: None,
+                ids: Arc::new((0..1_000_000).map(NodeId).collect()),
+                groups: Arc::default(),
+                terms: Arc::default(),
+                took: Duration::ZERO,
+                error: None,
+                query: i.to_string(),
+                epoch: probe.engine.epoch(),
+                generation: 0,
+            });
+            if i > 0 {
+                tabs.add(crate::tabs::Tab::default(), true);
+            }
+            tabs.open[tabs.active].result = Some(model.freeze());
+            // Shown one after another, as when opening them.
+            tabs.shown(usize::MAX);
+        }
+        model.restore(None);
+        let held = |tabs: &crate::tabs::Tabs| {
+            tabs.open
+                .iter()
+                .filter_map(|t| t.result.as_ref())
+                .map(|r| r.rows() * std::mem::size_of::<NodeId>())
+                .sum::<usize>()
+                / (1024 * 1024)
+        };
+        let all = (held(&tabs), rss());
+        // Tab 3 was a content search the user stopped.
+        let stopped = StoppedSearch(QueryState::default());
+        tabs.open[3].stopped = Some(stopped);
+        tabs.select(29);
+        tabs.shown(10);
+        let kept: Vec<usize> = (0..30).filter(|&i| tabs.open[i].result.is_some()).collect();
+        assert_eq!(kept, [3, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
+        assert!(tabs.open[0].settled.is_none());
+        let after = (held(&tabs), rss());
+        eprintln!(
+            "30 tabs x 1M rows: rows held {} MiB, RSS {} MiB (from {before} MiB); after keeping 10 background tabs: rows {} MiB, RSS {} MiB",
+            all.0, all.1, after.0, after.1
+        );
+        assert_eq!(after.0, 12 * 1_000_000 * 4 / (1024 * 1024));
+        // Showing an old tab again keeps the active one and drops the
+        // oldest kept.
+        tabs.select(0);
+        tabs.shown(10);
+        assert!(tabs.open[29].result.is_some() && tabs.open[19].result.is_none());
+        tabs.shown(0);
+        assert_eq!(
+            (0..30)
+                .filter(|&i| tabs.open[i].result.is_some())
+                .collect::<Vec<_>>(),
+            [3]
+        );
+        probe.engine.shutdown();
+    }
+
     #[test]
     fn thirty_frozen_tabs_share_rows_keep_selection_and_reject_old_epochs() {
         use slint::Model;

@@ -66,6 +66,10 @@ pub const DEFAULT_HISTORY: usize = 200;
 pub const DEFAULT_OPEN_CONFIRM: usize = 32;
 /// The largest number the open question can be set to.
 pub const MAX_OPEN_CONFIRM: usize = 10_000;
+/// Background tabs that keep their results in memory, by default and at
+/// most.
+pub const DEFAULT_TAB_RESULTS: usize = 10;
+pub const MAX_TAB_RESULTS: usize = 1000;
 /// The name of the window's index file in a chosen folder, as in the
 /// cache folder.
 pub const INDEX_FILE_NAME: &str = "index.bin";
@@ -381,6 +385,9 @@ pub struct Settings {
     pub export_protect_formulas: bool,
     /// Opening more items than this at once asks first; 0 never asks.
     pub open_confirm_over: usize,
+    /// The background tabs shown last keep their results in memory; the
+    /// others search again when shown.
+    pub tab_results_kept: usize,
     /// Whether showing the window (at a later launch, or with its shortcut)
     /// moves the keyboard focus to the search field and selects its text;
     /// off keeps the focus where it was.
@@ -466,6 +473,7 @@ impl Default for Settings {
             export_format: crate::export::Format::Csv,
             export_protect_formulas: true,
             open_confirm_over: DEFAULT_OPEN_CONFIRM,
+            tab_results_kept: DEFAULT_TAB_RESULTS,
             focus_on_show: true,
             dates_newest_first: false,
             sizes_largest_first: false,
@@ -751,6 +759,12 @@ impl Settings {
                 .into_iter()
                 .find(|f| f.extension() == value)
                 .map(|f| self.export_format = f)
+                .is_some(),
+            "tab-results-kept" => value
+                .parse::<usize>()
+                .ok()
+                .filter(|n| *n <= MAX_TAB_RESULTS)
+                .map(|n| self.tab_results_kept = n)
                 .is_some(),
             "confirm-open-over" => value
                 .parse::<usize>()
@@ -1361,6 +1375,13 @@ impl Settings {
         if all || self.export_format != d.export_format {
             line(&mut out, "export-format", self.export_format.extension());
         }
+        if all || self.tab_results_kept != d.tab_results_kept {
+            line(
+                &mut out,
+                "tab-results-kept",
+                &self.tab_results_kept.to_string(),
+            );
+        }
         if all || self.open_confirm_over != d.open_confirm_over {
             line(
                 &mut out,
@@ -1738,6 +1759,7 @@ impl Settings {
                 self.open_searches_in_tabs = d.open_searches_in_tabs;
                 self.switch_to_new_tab = d.switch_to_new_tab;
                 self.restore_session = d.restore_session;
+                self.tab_results_kept = d.tab_results_kept;
                 self.on_close = d.on_close;
                 self.folder_size = d.folder_size;
                 self.remember_columns = d.remember_columns;
@@ -2335,6 +2357,17 @@ pub(crate) mod tests {
     fn tab_preferences_default_off_round_trip_and_reset_with_window() {
         let mut s = Settings::default();
         assert!(!s.open_searches_in_tabs && !s.switch_to_new_tab && !s.restore_session);
+        assert_eq!(s.tab_results_kept, 10);
+        assert_eq!(
+            Settings::parse("tab-results-kept = 0\n").tab_results_kept,
+            0
+        );
+        let bad = Settings::parse("tab-results-kept = 1001\n");
+        assert_eq!((bad.tab_results_kept, bad.problems.len()), (10, 1));
+        let mut kept = Settings::parse("tab-results-kept = 3\n");
+        assert!(kept.to_text().contains("tab-results-kept = 3\n"));
+        kept.reset(Page::Window);
+        assert_eq!(kept.tab_results_kept, 10);
         assert!(!s.to_text().contains("restore-session"));
         s = Settings::parse(
             "open-searches-in-tabs = true\nswitch-to-new-tab = true\nrestore-session = true\n",

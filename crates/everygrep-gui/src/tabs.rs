@@ -87,6 +87,8 @@ pub struct Tab {
     /// The tab's search, when its complete results were shown: shown again
     /// while the index is unchanged, they are not searched again.
     pub settled: Option<crate::engine::SettledSearch>,
+    /// When the tab was last shown ([`Tabs::shown`]); runtime only.
+    pub shown_at: u64,
 }
 
 #[derive(Clone)]
@@ -98,6 +100,8 @@ pub struct Tabs {
     pub recording: bool,
     /// Cleared/deleted searches stay visible in open tabs but must not return to disk.
     pub forgotten: HashSet<String>,
+    /// Counts the times a tab was shown, for [`Tab::shown_at`].
+    pub shown: u64,
 }
 
 impl Default for Tabs {
@@ -108,6 +112,7 @@ impl Default for Tabs {
             closed: Vec::new(),
             recording: true,
             forgotten: HashSet::new(),
+            shown: 0,
         }
     }
 }
@@ -156,6 +161,26 @@ impl Tabs {
     pub fn histories(&mut self, change: impl Fn(&mut History)) {
         for tab in self.open.iter_mut().chain(self.closed.iter_mut()) {
             change(&mut tab.history);
+        }
+    }
+
+    /// The active tab is shown now. Of the other tabs, the `keep` shown
+    /// last keep their results; the rest give theirs up and search again
+    /// when shown, except a content search the user stopped, whose matches
+    /// so far cannot be found again without reading the files.
+    pub fn shown(&mut self, keep: usize) {
+        self.shown += 1;
+        let active = self.active;
+        self.open[active].shown_at = self.shown;
+        let mut held: Vec<usize> = (0..self.open.len())
+            .filter(|&i| {
+                i != active && self.open[i].result.is_some() && self.open[i].stopped.is_none()
+            })
+            .collect();
+        held.sort_unstable_by_key(|&i| std::cmp::Reverse(self.open[i].shown_at));
+        for &i in held.iter().skip(keep) {
+            self.open[i].result = None;
+            self.open[i].settled = None;
         }
     }
 

@@ -607,7 +607,13 @@ line; a space matches a line end when matches run over lines). One term keeps fi
 
 Rust owns the tab list and ten closed search records. One `ResultsModel` and
 one engine search serve the active tab. Switching freezes Arc-backed ids,
-highlight terms and selection; inactive tabs do not submit work. Restoring a
+highlight terms and selection; inactive tabs do not submit work. Each time a
+tab is shown (`Tabs::shown`), only the background tabs shown last (10 by default,
+`tab-results-kept`) keep their frozen results; the others drop them (and their
+settled state) and search again when shown. A tab whose content search was
+stopped keeps its matches, since they cannot be found again without reading the
+files. Measured in a test, 30 tabs of 1 000 000 rows each: 114 MiB of row ids
+(RSS 129 MiB) before, 45 MiB (RSS 60 MiB) with 10 background tabs kept. Restoring a
 snapshot checks the engine's id epoch before showing it, then submits a fresh
 search. Old queued responses still go through the generation check. Query,
 filter references, matching toggles, sort, column layout (hash and frequency

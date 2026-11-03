@@ -187,6 +187,14 @@ pub struct ResultSnapshot {
     took: Duration,
 }
 
+impl ResultSnapshot {
+    /// Number of rows kept.
+    #[cfg(test)]
+    pub fn rows(&self) -> usize {
+        self.ids.len()
+    }
+}
+
 /// A file action was refused: a drive that is not connected holds some of
 /// its items, whose paths may now belong to other files, or to nothing.
 #[derive(Debug, PartialEq, Eq)]

@@ -377,7 +377,10 @@ Closing the last tab clears only its query and keeps its options, sort and layou
 New tabs inherit the active search's
 filter, matching options and column layout. Duplicate also keeps its search and
 selection. Background tabs freeze and refresh when shown; pending text still
-waits for Enter when search as you type is off.
+waits for Enter when search as you type is off. The 10 background tabs shown
+last keep their result lists in memory (Settings → Window → Background tabs
+that keep their results); older ones free theirs and search again when shown,
+except a content search that was stopped, which keeps its matches so far.
 
 Settings → Window includes opt-in preferences for opening searches in tabs,
 switching to newly opened tabs and restoring the last window's tabs. All three
@@ -621,7 +624,8 @@ that many days (`0` for ever; 90 by default), `history-sort` (`date`, `count`,
 `text`) orders the history list, and `always-search-suggestions` shows
 suggestions while searching as you type too. `open-searches-in-tabs`,
 `switch-to-new-tab` and `restore-session` hold the tab choices of the Window
-page.
+page, `tab-results-kept` (10, 0 to 1000) the background tabs that keep their
+results.
 `context-search-new-window`, `context-search-subfolders` and
 `context-search-exact-name` control context searches.
 `shortcut-kind` (`symlink` or `desktop`) and `shortcut-collision` (`number`

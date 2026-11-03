@@ -1964,6 +1964,8 @@ impl Prefs {
         w.set_type_to_jump(s.type_to_jump);
         w.set_open_confirm_max(settings::MAX_OPEN_CONFIRM as i32);
         w.set_open_confirm_over(s.open_confirm_over as i32);
+        w.set_tab_results_max(settings::MAX_TAB_RESULTS as i32);
+        w.set_tab_results_kept(s.tab_results_kept as i32);
         w.set_focus_on_show(s.focus_on_show);
         w.set_dates_newest_first(s.dates_newest_first);
         w.set_sizes_largest_first(s.sizes_largest_first);
@@ -3068,6 +3070,9 @@ impl Prefs {
             .unwrap_or(0)
             .min(settings::MAX_OPEN_CONFIRM);
         let focus_on_show = w.get_focus_on_show();
+        let tab_results = usize::try_from(w.get_tab_results_kept())
+            .unwrap_or(0)
+            .min(settings::MAX_TAB_RESULTS);
         let dates_newest_first = w.get_dates_newest_first();
         let sizes_largest_first = w.get_sizes_largest_first();
         self.change(move |s| {
@@ -3087,6 +3092,7 @@ impl Prefs {
             s.drive_root_labels = root_labels;
             s.type_to_jump = type_to_jump;
             s.open_confirm_over = open_over;
+            s.tab_results_kept = tab_results;
             s.focus_on_show = focus_on_show;
             if !remember {
                 s.columns = Columns::default();
@@ -3305,6 +3311,11 @@ impl Prefs {
     }
 
     /// Opening more items than this at once asks first; 0 never asks.
+    /// How many background tabs keep their results in memory.
+    pub fn tab_results_kept(&self) -> usize {
+        self.settings.borrow().tab_results_kept
+    }
+
     pub fn open_confirm_over(&self) -> usize {
         self.settings.borrow().open_confirm_over
     }

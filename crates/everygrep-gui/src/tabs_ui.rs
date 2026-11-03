@@ -598,6 +598,7 @@ impl State {
     }
 
     fn install(&self, w: &AppWindow) {
+        self.tabs.borrow_mut().shown(self.prefs.tab_results_kept());
         let tabs = self.tabs.borrow();
         let tab = &tabs.open[tabs.active];
         crate::folders::restore(&tab.folders);

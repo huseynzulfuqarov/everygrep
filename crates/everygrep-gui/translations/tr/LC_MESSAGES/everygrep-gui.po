@@ -3919,3 +3919,9 @@ msgstr "Değiştirilme tarihi"
 
 msgid "The results of the other fields are compared among themselves. Comparing contents reads the files of equal size from disk."
 msgstr "Diğer alanların sonuçları kendi aralarında karşılaştırılır. İçerik karşılaştırması aynı boyuttaki dosyaları diskten okur."
+
+msgid "Background tabs that keep their results"
+msgstr "Sonuçlarını tutan arka plan sekmeleri"
+
+msgid "The tabs shown last keep their result lists in memory; older ones free theirs and search again when shown (a stopped content search keeps its matches). Fewer saves memory with many tabs."
+msgstr "Son gösterilen sekmeler sonuç listelerini bellekte tutar; daha eskileri listelerini bırakır ve gösterildiklerinde yeniden arar (durdurulmuş bir içerik araması bulduklarını tutar). Çok sekmede daha küçük bir sayı bellekten tasarruf eder."

@@ -256,6 +256,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> drive-root-labels;
     in-out property <bool> type-to-jump;
     in-out property <int> open-confirm-over;
+    in-out property <int> tab-results-kept;
+    in property <int> tab-results-max;
     in property <int> open-confirm-max;
     in-out property <bool> focus-on-show;
     in-out property <bool> dates-newest-first;
@@ -1057,6 +1059,25 @@ export component SettingsWindow inherits Window {
                                 color: Theme.text-muted;
                                 wrap: word-wrap;
                             }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text {
+                                    text: @tr("Background tabs that keep their results");
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                SpinBox {
+                                    width: 140px;
+                                    horizontal-stretch: 0;
+                                    accessible-label: @tr("Background tabs that keep their results");
+                                    minimum: 0;
+                                    maximum: root.tab-results-max;
+                                    value <=> root.tab-results-kept;
+                                    edited => { root.window-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("The tabs shown last keep their result lists in memory; older ones free theirs and search again when shown (a stopped content search keeps its matches). Fewer saves memory with many tabs."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Closing the window"); }
                             HorizontalLayout {
