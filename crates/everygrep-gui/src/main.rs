@@ -1509,9 +1509,14 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                         fileops_undo_ui::refresh_open();
                         let (text, failed) = labels::pasted(op, &out, &folder);
                         if failed {
-                            error(&w, text);
+                            error(&w, text.clone());
                         } else {
-                            info(&w, text);
+                            info(&w, text.clone());
+                        }
+                        if out.history_cleared && !failed && !out.cancelled {
+                            w.set_notice(tr("Paste finished; undo history cleared.").into());
+                            w.set_notice_details(text.into());
+                            w.set_notice_details_label(w.get_notice());
                         }
                         // A cut is pasted once; after a failure or a cancel it
                         // stays, so pasting again moves what is left.
@@ -1804,11 +1809,13 @@ fn online_targets(
 }
 
 fn info(w: &AppWindow, text: String) {
+    w.set_notice_details(text.clone().into());
     w.set_notice_error(false);
     w.set_notice(text.into());
 }
 
 fn error(w: &AppWindow, text: String) {
+    w.set_notice_details(text.clone().into());
     w.set_notice_error(true);
     w.set_notice(text.into());
 }

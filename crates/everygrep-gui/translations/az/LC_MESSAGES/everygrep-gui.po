@@ -3407,3 +3407,6 @@ msgstr "Dəyişdirilmə: {}"
 
 msgid "Paste error"
 msgstr "Yapışdırma xətası"
+
+msgid "Paste finished; undo history cleared."
+msgstr "Yapışdırma bitdi; geri alma tarixçəsi silindi."

@@ -1188,6 +1188,8 @@ export component AppWindow inherits Window {
     // it reports a failure (drawn in the danger color; hints are muted).
     in property <string> notice;
     in property <bool> notice-error;
+    in property <string> notice-details;
+    in property <string> notice-details-label;
 
     // In-place rename: the row being edited (-1 for none), its text and the
     // part selected at the start.
@@ -3125,15 +3127,21 @@ export component AppWindow inherits Window {
                     }
                     // Shown in full up to a width that leaves room for the rest
                     // of the line even in a narrow window.
-                    Text {
-                        text: root.notice;
-                        font-size: Theme.small;
-                        color: root.notice-error ? Theme.danger : Theme.text-muted;
-                        vertical-alignment: center;
-                        horizontal-alignment: right;
-                        overflow: elide;
-                        min-width: min(self.preferred-width, 360px);
+                    notice-cell := Rectangle {
+                        min-width: min(notice-text.preferred-width, 360px);
+                        max-width: 360px;
                         horizontal-stretch: 0;
+                        notice-text := Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: root.notice;
+                            font-size: Theme.small;
+                            color: root.notice-error ? Theme.danger : Theme.text-muted;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                            overflow: elide;
+                        }
+                        notice-hover := TouchArea { }
                     }
                     Text {
                         text: root.status-right;
@@ -3201,6 +3209,26 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    if notice-hover.has-hover && root.notice != "": Rectangle {
+        x: max(Theme.s2, root.width - self.width - Theme.s2);
+        y: root.height - Theme.status-height - self.height - Theme.s2;
+        width: min(620px, root.width - 2 * Theme.s2);
+        height: notice-tip.preferred-height + 2 * Theme.s2;
+        background: Theme.surface;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.line;
+        notice-tip := Text {
+            x: Theme.s2;
+            y: Theme.s2;
+            width: parent.width - 2 * Theme.s2;
+            text: root.notice == root.notice-details-label ? root.notice-details : root.notice;
+            wrap: word-wrap;
+            font-size: Theme.small;
+            color: root.notice-error ? Theme.danger : Theme.text;
         }
     }
 
