@@ -3723,3 +3723,114 @@ msgstr "Sonra"
 msgid "Entries equal by one column are ordered by the next. A click on a column header sorts by that column alone."
 msgstr "Bir sütuna görə bərabər olan sətirlər növbəti sütuna görə sıralanır. Sütun başlığına klik yalnız həmin sütuna görə sıralayır."
 
+msgid "Full path column"
+msgstr "Tam yol sütunu"
+
+msgid "Parent path column"
+msgstr "Üst qovluğun yolu sütunu"
+
+msgid "Stem column"
+msgstr "Uzantısız ad sütunu"
+
+msgid "Name length column"
+msgstr "Ad uzunluğu sütunu"
+
+msgid "Path length column"
+msgstr "Yol uzunluğu sütunu"
+
+msgid "Size on disk column"
+msgstr "Diskdə ölçü sütunu"
+
+msgid "Total size column"
+msgstr "Ümumi ölçü sütunu"
+
+msgid "Items column"
+msgstr "Birbaşa element sayı sütunu"
+
+msgid "Files inside column"
+msgstr "Birbaşa fayl sayı sütunu"
+
+msgid "Subfolders column"
+msgstr "Birbaşa qovluq sayı sütunu"
+
+msgid "Items at any depth column"
+msgstr "Bütün alt element sayı sütunu"
+
+msgid "Files at any depth column"
+msgstr "Bütün alt fayl sayı sütunu"
+
+msgid "Subfolders at any depth column"
+msgstr "Bütün alt qovluq sayı sütunu"
+
+msgid "Folder depth column"
+msgstr "Qovluq dərinliyi sütunu"
+
+msgid "Hard link count column"
+msgstr "Sərt keçid sayı sütunu"
+
+msgid "Shortcut target column"
+msgstr "Qısayolun hədəfi sütunu"
+
+msgid "Owner column"
+msgstr "Sahib sütunu"
+
+msgid "Width column"
+msgstr "En sütunu"
+
+msgid "Height column"
+msgstr "Hündürlük sütunu"
+
+msgid "Dimensions column"
+msgstr "Ölçülər sütunu"
+
+msgid "Length column"
+msgstr "Müddət sütunu"
+
+msgid "Bit rate column"
+msgstr "Bit sürəti sütunu"
+
+msgid "Title column"
+msgstr "Başlıq sütunu"
+
+msgid "Artist column"
+msgstr "İfaçı sütunu"
+
+msgid "Album column"
+msgstr "Albom sütunu"
+
+msgid "Year column"
+msgstr "İl sütunu"
+
+msgid "Track column"
+msgstr "Trek sütunu"
+
+msgid "Genre column"
+msgstr "Janr sütunu"
+
+msgid "Rating column"
+msgstr "Reytinq sütunu"
+
+msgid "Tags column"
+msgstr "Teqlər sütunu"
+
+msgid "Page count column"
+msgstr "Səhifə sayı sütunu"
+
+msgid "Word count column"
+msgstr "Söz sayı sütunu"
+
+msgid "Camera maker column"
+msgstr "Kamera istehsalçısı sütunu"
+
+msgid "Camera model column"
+msgstr "Kamera modeli sütunu"
+
+msgid "Date taken column"
+msgstr "Çəkiliş tarixi sütunu"
+
+msgid "GPS latitude column"
+msgstr "GPS enliyi sütunu"
+
+msgid "GPS longitude column"
+msgstr "GPS uzunluğu sütunu"
+

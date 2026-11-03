@@ -3261,6 +3261,80 @@ export component AppWindow inherits Window {
         } else if (c == Command.size-frequency-column) {
             root.show-size-freq = !root.show-size-freq;
             root.toggled(c);
+        } else if (c == Command.full-path-column) {
+            root.set-column-shown(15, !root.col-shown(15));
+        } else if (c == Command.parent-path-column) {
+            root.set-column-shown(16, !root.col-shown(16));
+        } else if (c == Command.stem-column) {
+            root.set-column-shown(17, !root.col-shown(17));
+        } else if (c == Command.name-length-column) {
+            root.set-column-shown(18, !root.col-shown(18));
+        } else if (c == Command.path-length-column) {
+            root.set-column-shown(19, !root.col-shown(19));
+        } else if (c == Command.disk-size-column) {
+            root.set-column-shown(20, !root.col-shown(20));
+        } else if (c == Command.total-size-column) {
+            root.set-column-shown(21, !root.col-shown(21));
+        } else if (c == Command.child-count-column) {
+            root.set-column-shown(22, !root.col-shown(22));
+        } else if (c == Command.child-files-column) {
+            root.set-column-shown(23, !root.col-shown(23));
+        } else if (c == Command.child-folders-column) {
+            root.set-column-shown(24, !root.col-shown(24));
+        } else if (c == Command.desc-count-column) {
+            root.set-column-shown(25, !root.col-shown(25));
+        } else if (c == Command.desc-files-column) {
+            root.set-column-shown(26, !root.col-shown(26));
+        } else if (c == Command.desc-folders-column) {
+            root.set-column-shown(27, !root.col-shown(27));
+        } else if (c == Command.folder-depth-column) {
+            root.set-column-shown(28, !root.col-shown(28));
+        } else if (c == Command.hard-links-column) {
+            root.set-column-shown(29, !root.col-shown(29));
+        } else if (c == Command.shortcut-target-column) {
+            root.set-column-shown(30, !root.col-shown(30));
+        } else if (c == Command.owner-column) {
+            root.set-column-shown(31, !root.col-shown(31));
+        } else if (c == Command.width-column) {
+            root.set-column-shown(32, !root.col-shown(32));
+        } else if (c == Command.height-column) {
+            root.set-column-shown(33, !root.col-shown(33));
+        } else if (c == Command.dimensions-column) {
+            root.set-column-shown(34, !root.col-shown(34));
+        } else if (c == Command.length-column) {
+            root.set-column-shown(35, !root.col-shown(35));
+        } else if (c == Command.bit-rate-column) {
+            root.set-column-shown(36, !root.col-shown(36));
+        } else if (c == Command.title-column) {
+            root.set-column-shown(37, !root.col-shown(37));
+        } else if (c == Command.artist-column) {
+            root.set-column-shown(38, !root.col-shown(38));
+        } else if (c == Command.album-column) {
+            root.set-column-shown(39, !root.col-shown(39));
+        } else if (c == Command.year-column) {
+            root.set-column-shown(40, !root.col-shown(40));
+        } else if (c == Command.track-column) {
+            root.set-column-shown(41, !root.col-shown(41));
+        } else if (c == Command.genre-column) {
+            root.set-column-shown(42, !root.col-shown(42));
+        } else if (c == Command.rating-column) {
+            root.set-column-shown(43, !root.col-shown(43));
+        } else if (c == Command.tags-column) {
+            root.set-column-shown(44, !root.col-shown(44));
+        } else if (c == Command.page-count-column) {
+            root.set-column-shown(45, !root.col-shown(45));
+        } else if (c == Command.word-count-column) {
+            root.set-column-shown(46, !root.col-shown(46));
+        } else if (c == Command.camera-maker-column) {
+            root.set-column-shown(47, !root.col-shown(47));
+        } else if (c == Command.camera-model-column) {
+            root.set-column-shown(48, !root.col-shown(48));
+        } else if (c == Command.date-taken-column) {
+            root.set-column-shown(49, !root.col-shown(49));
+        } else if (c == Command.gps-lat-column) {
+            root.set-column-shown(50, !root.col-shown(50));
+        } else if (c == Command.gps-long-column) {
+            root.set-column-shown(51, !root.col-shown(51));
         } else if (c == Command.selection-details) {
             root.status-details = !root.status-details;
             root.toggled(c);
