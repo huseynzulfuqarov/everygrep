@@ -22,8 +22,8 @@
 //! written to a new file that then replaces the old one. A file that cannot
 //! be read as this format is ignored (and replaced at the next save).
 
-use std::collections::HashMap;
-use std::io;
+use std::collections::{BTreeSet, HashMap};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use crate::hash::FileKey;
@@ -147,7 +147,7 @@ impl HashCache {
     pub fn get(&mut self, key: &FileKey) -> Option<Cached> {
         let entry = self.entries.get_mut(key)?;
         entry.used = self.clock;
-        self.clock += 1;
+        self.clock = self.clock.saturating_add(1);
         // A use alone is not worth writing the file again.
         Some(entry.hashes)
     }
@@ -158,7 +158,7 @@ impl HashCache {
             return;
         }
         let used = self.clock;
-        self.clock += 1;
+        self.clock = self.clock.saturating_add(1);
         let entry = self.entries.entry(key).or_insert(Entry {
             hashes: Cached::default(),
             used,
@@ -245,41 +245,75 @@ impl HashCache {
     /// Reads a cache from the bytes of its file, keeping at most
     /// `max_bytes` of it (the entries used last).
     pub fn from_bytes(bytes: &[u8], max_bytes: u64) -> io::Result<Self> {
+        Self::read_from(bytes, bytes.len() as u64, max_bytes)
+    }
+
+    /// Parses one entry at a time and evicts by last use as it goes. Neither
+    /// the input buffer nor retained tables grow with the old file's size.
+    fn read_from(mut input: impl Read, length: u64, max_bytes: u64) -> io::Result<Self> {
         let bad = || io::Error::new(io::ErrorKind::InvalidData, "not a hash cache file");
-        let mut r = Reader(bytes);
-        if r.take(8).ok_or_else(bad)? != MAGIC {
+        let mut header = [0; 16];
+        input.read_exact(&mut header)?;
+        if &header[..8] != MAGIC {
             return Err(bad());
         }
-        let count = r.u64().ok_or_else(bad)?;
-        // Each entry takes at least ENTRY_BASE bytes: a count the file
-        // cannot hold is not trusted for the allocation.
-        if count > bytes.len() as u64 / ENTRY_BASE {
+        let count = u64::from_le_bytes(header[8..].try_into().map_err(|_| bad())?);
+        if count > length.saturating_sub(16) / ENTRY_BASE {
             return Err(bad());
         }
-        let mut cache = Self::new(u64::MAX);
-        cache.entries.reserve(count as usize);
+        let mut cache = Self::new(max_bytes);
+        let mut by_use = BTreeSet::new();
+        let mut bytes = [0; 125];
         for _ in 0..count {
-            let entry = r.entry().ok_or_else(bad)?;
-            let (key, e) = entry;
-            cache.clock = cache.clock.max(e.used + 1);
-            cache.bytes += e.hashes.bytes();
-            if let Some(old) = cache.entries.insert(key, e) {
+            input.read_exact(&mut bytes[..ENTRY_BASE as usize])?;
+            let flags = bytes[ENTRY_BASE as usize - 1];
+            if flags >> 5 != 0 {
+                return Err(bad());
+            }
+            let sizes = [16, 16, 16, 32, 4];
+            let extra: usize = sizes
+                .iter()
+                .enumerate()
+                .filter(|(bit, _)| flags & (1 << bit) != 0)
+                .map(|(_, size)| size)
+                .sum();
+            let size = ENTRY_BASE as usize + extra;
+            input.read_exact(&mut bytes[ENTRY_BASE as usize..size])?;
+            let (key, entry) = Reader(&bytes[..size]).entry().ok_or_else(bad)?;
+            cache.clock = cache.clock.max(entry.used.saturating_add(1));
+            if let Some(old) = cache.entries.remove(&key) {
                 cache.bytes -= old.hashes.bytes();
+                by_use.remove(&(old.used, key));
+            }
+            if entry.hashes.bytes() <= max_bytes {
+                cache.bytes += entry.hashes.bytes();
+                by_use.insert((entry.used, key));
+                cache.entries.insert(key, entry);
+            }
+            while cache.bytes > max_bytes {
+                let (_, key) = by_use.pop_first().expect("entries exceed limit");
+                if let Some(old) = cache.entries.remove(&key) {
+                    cache.bytes -= old.hashes.bytes();
+                }
             }
         }
-        if !r.0.is_empty() {
+        if input.read(&mut [0; 1])? != 0 {
             return Err(bad());
         }
-        cache.set_max_bytes(max_bytes);
-        cache.changed = false;
         Ok(cache)
     }
 
-    /// Loads the cache file at `path`, keeping at most `max_bytes`. A
-    /// missing file is an empty cache.
+    /// Loads with bounded buffers and retained entries. Disabled caching
+    /// bypasses the file altogether; a missing file is an empty cache.
     pub fn load(path: &Path, max_bytes: u64) -> io::Result<Self> {
-        match std::fs::read(path) {
-            Ok(bytes) => Self::from_bytes(&bytes, max_bytes),
+        if max_bytes == 0 {
+            return Ok(Self::new(0));
+        }
+        match std::fs::File::open(path) {
+            Ok(file) => {
+                let length = file.metadata()?.len();
+                Self::read_from(io::BufReader::new(file), length, max_bytes)
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Self::new(max_bytes)),
             Err(e) => Err(e),
         }
@@ -378,6 +412,40 @@ mod tests {
             ends: Some(v),
             ..Cached::default()
         }
+    }
+
+    #[test]
+    fn a_small_load_limit_bounds_the_retained_table_allocation() {
+        let mut large = HashCache::new(u64::MAX);
+        for i in 0..10_000 {
+            large.put(key(i), &ends(i.into()));
+        }
+        large.get(&key(0));
+        let limit = (ENTRY_BASE + 16) * 10;
+        let mut loaded = HashCache::from_bytes(&large.to_bytes(), limit).unwrap();
+        assert!(
+            loaded.get(&key(0)).is_some(),
+            "the most recent use was lost"
+        );
+        assert!(loaded.bytes() <= limit);
+        assert!(
+            loaded.entries.capacity() <= 32,
+            "retained capacity {} for {} entries",
+            loaded.entries.capacity(),
+            loaded.len()
+        );
+    }
+
+    #[test]
+    fn a_disabled_cache_load_does_not_read_or_parse_the_old_file() {
+        let dir =
+            std::env::temp_dir().join(format!("everygrep-cache-disabled-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hashes.bin");
+        std::fs::write(&path, b"old invalid cache").unwrap();
+        let loaded = HashCache::load(&path, 0);
+        let _ = std::fs::remove_dir_all(dir);
+        assert!(loaded.unwrap().is_empty());
     }
 
     #[test]
