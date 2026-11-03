@@ -394,6 +394,7 @@ impl State {
         let active = tabs.active;
         let tab = &mut tabs.open[active];
         tab.search = read(w);
+        tab.folders = crate::folders::freeze();
         let result = self.model.freeze();
         tab.settled = result.settled.clone();
         tab.result = Some(result);
@@ -409,6 +410,7 @@ impl State {
     fn install(&self, w: &AppWindow) {
         let tabs = self.tabs.borrow();
         let tab = &tabs.open[tabs.active];
+        crate::folders::restore(&tab.folders);
         let search = &tab.search;
         w.set_query(search.query.as_str().into());
         let policy = self.prefs.search_policy();

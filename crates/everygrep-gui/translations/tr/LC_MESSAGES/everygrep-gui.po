@@ -3364,3 +3364,33 @@ msgstr "Sütun ara"
 
 msgid "Name, Folder, Size and Modified are always shown."
 msgstr "Ad, Klasör, Boyut ve Değiştirme tarihi her zaman gösterilir."
+
+msgid "Folders panel"
+msgstr "Klasör paneli"
+
+msgid "Focus folders"
+msgstr "Klasörlere odaklan"
+
+msgid "Expand all"
+msgstr "Tümünü genişlet"
+
+msgid "Collapse all"
+msgstr "Tümünü daralt"
+
+msgid "Locate selected result"
+msgstr "Seçili sonucu ağaçta göster"
+
+msgid "Search this folder"
+msgstr "Bu klasörde ara"
+
+msgid "Search in new tab"
+msgstr "Yeni sekmede ara"
+
+msgid "Search in new window"
+msgstr "Yeni pencerede ara"
+
+msgid "The folder is no longer available."
+msgstr "Klasör artık kullanılamıyor."
+
+msgid "Folder actions"
+msgstr "Klasör işlemleri"

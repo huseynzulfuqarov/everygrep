@@ -863,6 +863,14 @@ impl Prefs {
         self.refresh();
     }
 
+    pub fn set_folders(&self, visible: bool, width: f32, recursive: bool) {
+        self.change(move |s| {
+            s.folders_visible = visible;
+            s.folders_width = width.clamp(140.0, 600.0);
+            s.folders_recursive = recursive;
+        });
+    }
+
     /// Changes what folders show in the Size column.
     pub fn set_folder_size(&self, folder_size: FolderSize) {
         self.change(move |s| s.folder_size = folder_size);
@@ -887,6 +895,9 @@ impl Prefs {
         m.set_file_undo_enabled(s.fileops.undo_enabled);
         m.set_status_details(s.status_details);
         m.set_show_menu_bar(s.menu_bar);
+        m.set_folders_visible(s.folders_visible);
+        m.set_folders_width(s.folders_width);
+        m.set_folders_recursive(s.folders_recursive);
     }
 
     /// Packs the main window's list as the density setting says.

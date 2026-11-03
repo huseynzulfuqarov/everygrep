@@ -1,0 +1,107 @@
+import { Button, CheckBox, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+export struct FolderEntry {
+    name: string, depth: int, children: bool, expanded: bool, selected: bool, offline: bool,
+}
+export component FoldersPanel inherits Rectangle {
+    in property <[FolderEntry]> entries;
+    in-out property <bool> recursive: true;
+    in-out property <int> current: -1;
+    in-out property <length> scroll-y <=> tree-list.content-y;
+    callback action(int, int);
+    callback recursive-changed();
+    callback key(KeyEvent) -> bool;
+    public function focus-tree() { keys.focus(); }
+    changed current => {
+        if (self.current >= 0) {
+            if (self.current * Theme.row-height + tree-list.content-y < 0px) {
+                tree-list.content-y = -self.current * Theme.row-height;
+            } else if ((self.current + 1) * Theme.row-height + tree-list.content-y > tree-list.visible-height) {
+                tree-list.content-y = tree-list.visible-height - (self.current + 1) * Theme.row-height;
+            }
+        }
+    }
+    background: Theme.surface;
+    keys := FocusScope {
+        key-pressed(e) => {
+            if (root.key(e)) { return accept; }
+            if (e.modifiers.control || e.modifiers.alt || e.modifiers.meta) { return reject; }
+            if (root.entries.length == 0) { return reject; }
+            if (e.text == Key.DownArrow) { root.current = min(root.entries.length - 1, root.current + 1); return accept; }
+            if (e.text == Key.UpArrow) { root.current = max(0, root.current - 1); return accept; }
+            if (e.text == Key.Home) { root.current = 0; return accept; }
+            if (e.text == Key.End) { root.current = root.entries.length - 1; return accept; }
+            if (root.current < 0 || root.current >= root.entries.length) { return reject; }
+            if (e.text == Key.RightArrow && !root.entries[root.current].expanded && root.entries[root.current].children) { root.action(root.current, 1); return accept; }
+            if (e.text == Key.LeftArrow && root.entries[root.current].expanded) { root.action(root.current, 1); return accept; }
+            if (e.text == Key.Return) { root.action(root.current, 0); return accept; }
+            if (e.text == Key.Menu || (e.modifiers.shift && e.text == Key.F10)) {
+                tree-menu.show({ x: 0px, y: 0px }); return accept;
+            }
+            return reject;
+        }
+        VerticalLayout {
+            spacing: Theme.s1;
+            Text { text: @tr("Folders"); color: Theme.text; font-weight: 600; height: Theme.header-height; }
+            actions := ContextMenuArea {
+                Menu {
+                    MenuItem { title: @tr("Expand all"); activated => { root.action(-1, 2); } }
+                    MenuItem { title: @tr("Collapse all"); activated => { root.action(-1, 3); } }
+                    MenuItem { title: @tr("Locate selected result"); activated => { root.action(-1, 8); } }
+                }
+                Button { text: @tr("Folder actions"); clicked => { actions.show({ x: 0px, y: self.height }); } }
+            }
+            CheckBox {
+                text: @tr("Include subfolders"); checked <=> root.recursive;
+                toggled => { root.recursive-changed(); root.action(-1, 9); }
+            }
+            tree-menu := ContextMenuArea {
+                vertical-stretch: 1;
+                Menu {
+                    MenuItem { title: @tr("Search this folder"); enabled: root.current >= 0; activated => { root.action(root.current, 0); } }
+                    MenuItem { title: @tr("Open"); enabled: root.current >= 0 && !root.entries[root.current].offline; activated => { root.action(root.current, 4); } }
+                    MenuItem { title: @tr("Search in new tab"); enabled: root.current >= 0; activated => { root.action(root.current, 5); } }
+                    MenuItem { title: @tr("Search in new window"); enabled: root.current >= 0; activated => { root.action(root.current, 6); } }
+                }
+                tree-list := ListView {
+                    for item[i] in root.entries: Rectangle {
+                        // Keep room for a readable name at any tree depth.
+                        property <length> indent: min(item.depth * 12px, max(0px, root.width - 120px));
+                        height: Theme.row-height;
+                        background: item.selected ? Theme.selection : keys.has-focus && root.current == i ? Theme.hover : Theme.surface;
+                        Rectangle {
+                            visible: keys.has-focus && root.current == i;
+                            border-width: 1px; border-color: Theme.accent;
+                        }
+                        HorizontalLayout {
+                            padding-left: parent.indent;
+                            Button {
+                                width: 28px; text: item.children ? (item.expanded ? "−" : "+") : "·";
+                                enabled: item.children;
+                                clicked => { root.current = i; keys.focus(); root.action(i, 1); }
+                            }
+                            Text {
+                                text: item.name;
+                                color: item.selected ? Theme.selection-text : item.offline ? Theme.text-offline : Theme.text;
+                                overflow: elide; vertical-alignment: center;
+                            }
+                        }
+                        TouchArea {
+                            x: parent.indent + 28px;
+                            width: max(0px, parent.width - self.x);
+                            pointer-event(e) => {
+                                if (e.kind == PointerEventKind.down) {
+                                    root.current = i; keys.focus();
+                                    if (e.button == PointerEventButton.left) { root.action(i, 0); }
+                                    if (e.button == PointerEventButton.right) {
+                                        tree-menu.show({ x: self.x + self.mouse-x, y: i * Theme.row-height + tree-list.content-y + self.mouse-y });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

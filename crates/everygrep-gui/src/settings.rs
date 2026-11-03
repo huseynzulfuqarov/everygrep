@@ -323,6 +323,9 @@ pub struct Settings {
     /// Whether the window has a menu bar; without it the ⋯ button holds the
     /// program's menu.
     pub menu_bar: bool,
+    pub folders_visible: bool,
+    pub folders_width: f32,
+    pub folders_recursive: bool,
     pub language: LanguageChoice,
     /// Removable drives: indexed automatically, kept when removed, and the
     /// drives never indexed.
@@ -387,6 +390,9 @@ impl Default for Settings {
             size_standard: SizeStandard::Jedec,
             status_details: true,
             menu_bar: true,
+            folders_visible: false,
+            folders_width: 220.0,
+            folders_recursive: true,
             language: LanguageChoice::System,
             drives: DriveSettings::default(),
             shortcuts: Vec::new(),
@@ -674,6 +680,11 @@ impl Settings {
                 .is_some(),
             "size-units" => SizeStandard::from_id(value)
                 .map(|s| self.size_standard = s)
+                .is_some(),
+            "folders-visible" => put_flag(&mut self.folders_visible),
+            "folders-subfolders" => put_flag(&mut self.folders_recursive),
+            "folders-width" => width(value)
+                .map(|v| self.folders_width = v.clamp(140.0, 600.0))
                 .is_some(),
             "menu-bar" => put_flag(&mut self.menu_bar),
             "language" => LanguageChoice::ALL
@@ -1055,6 +1066,21 @@ impl Settings {
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
         flag(
             &mut out,
+            "folders-visible",
+            self.folders_visible,
+            d.folders_visible,
+        );
+        flag(
+            &mut out,
+            "folders-subfolders",
+            self.folders_recursive,
+            d.folders_recursive,
+        );
+        if all || self.folders_width != d.folders_width {
+            line(&mut out, "folders-width", &self.folders_width.to_string());
+        }
+        flag(
+            &mut out,
             "alternate-row-color",
             self.alternate_rows,
             d.alternate_rows,
@@ -1246,6 +1272,9 @@ impl Settings {
                 self.language = d.language;
             }
             Page::Window => {
+                self.folders_visible = d.folders_visible;
+                self.folders_width = d.folders_width;
+                self.folders_recursive = d.folders_recursive;
                 self.open_searches_in_tabs = d.open_searches_in_tabs;
                 self.switch_to_new_tab = d.switch_to_new_tab;
                 self.restore_session = d.restore_session;

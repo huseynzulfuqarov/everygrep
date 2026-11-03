@@ -137,8 +137,14 @@ screen; when a change conflicts with them, the rules win or are changed first.
   when there is no estimate), updated at most ten times a second, with a
   small Cancel button when it can be cancelled. Cancel keeps the earlier
   state and says so in the note. Its key is not decided yet.
-- **Optional panes,** hidden by default: a preview pane on the right and a
-  sidebar of saved searches on the left.
+- **Folder panel,** hidden by default on the left: indexed roots and folders,
+  with expand/collapse buttons, keyboard arrows and Enter to search the folder.
+  Include subfolders is on by default. Choosing a folder replaces the field with
+  an explicit, boundary-safe location query. The context menu opens the folder
+  or searches it in another tab/window. Locate selected result reveals its folder.
+  Visibility and the dragged width are saved. Expansion, selection, keyboard cursor and scroll position belong to
+  each tab. View commands can be assigned keys in keyboard settings.
+- **Preview pane,** planned on the right and hidden by default.
 
 ## Visual system
 

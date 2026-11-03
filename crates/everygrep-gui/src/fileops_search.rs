@@ -77,7 +77,7 @@ pub(crate) fn query(
     }
 }
 
-fn window_args(base: &[OsString], query: &str, options: QueryOptions) -> Vec<OsString> {
+pub(crate) fn window_args(base: &[OsString], query: &str, options: QueryOptions) -> Vec<OsString> {
     let mut args = base.to_vec();
     // Giving a filter supplies explicit options, overriding a saved global
     // regex default that would otherwise treat the generated query as one regex.

@@ -3364,3 +3364,33 @@ msgstr "Sütun axtar"
 
 msgid "Name, Folder, Size and Modified are always shown."
 msgstr "Ad, Qovluq, Ölçü və Dəyişmə tarixi həmişə göstərilir."
+
+msgid "Folders panel"
+msgstr "Qovluq paneli"
+
+msgid "Focus folders"
+msgstr "Qovluqlara fokuslan"
+
+msgid "Expand all"
+msgstr "Hamısını genişləndir"
+
+msgid "Collapse all"
+msgstr "Hamısını yığ"
+
+msgid "Locate selected result"
+msgstr "Seçilmiş nəticəni ağacda göstər"
+
+msgid "Search this folder"
+msgstr "Bu qovluqda axtar"
+
+msgid "Search in new tab"
+msgstr "Yeni tabda axtar"
+
+msgid "Search in new window"
+msgstr "Yeni pəncərədə axtar"
+
+msgid "The folder is no longer available."
+msgstr "Qovluq artıq əlçatan deyil."
+
+msgid "Folder actions"
+msgstr "Qovluq əmrləri"

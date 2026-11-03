@@ -71,6 +71,7 @@ impl SearchState {
 #[derive(Clone, Default)]
 pub struct Tab {
     pub search: SearchState,
+    pub folders: crate::folders::View,
     // Runtime data is deliberately absent from the session file.
     pub result: Option<ResultSnapshot>,
     pub submitted: Option<SearchState>,

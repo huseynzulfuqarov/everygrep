@@ -1,6 +1,8 @@
 import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette } from "std-widgets.slint";
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
+import { FoldersPanel, FolderEntry } from "folders.slint";
+export { FolderEntry } from "folders.slint";
 import { Theme } from "theme.slint";
 import { FileopsConflict } from "fileops-conflict.slint";
 import { FileopsRename } from "fileops-rename.slint";
@@ -1086,6 +1088,15 @@ export component AppWindow inherits Window {
     in property <string> more-label;
     // Saves the result list to a file.
     callback export-results();
+    // Window-level panel layout, with tab-level tree navigation.
+    in-out property <bool> folders-visible;
+    in-out property <float> folders-width: 220;
+    in-out property <bool> folders-recursive: true;
+    in property <[FolderEntry]> folder-entries;
+    in-out property <int> folder-current: -1;
+    in-out property <length> folders-scroll-y;
+    callback folders-changed();
+    callback folder-action(int, int);
     // Index menu: builds the index again from scratch, and stops applying
     // file changes until updates are resumed (the "Watch for changes"
     // setting, the other way round).
@@ -1231,7 +1242,7 @@ export component AppWindow inherits Window {
     // right edge, or, when they do not fit (Folder at its minimum), they are
     // wider than the window and the list scrolls sideways. Until the user
     // drags Name, it takes 48 % of the room left by Size and Modified.
-    in-out property <length> name-want: (self.width - self.size-want - self.date-want) * 0.48;
+    in-out property <length> name-want: (list.visible-width - self.size-want - self.date-want) * 0.48;
     // Folder's own width, 0 for none: set only while the columns are wider
     // than the window (see src/columns.rs), or by fitting Folder when it
     // cannot get its width otherwise.
@@ -1314,7 +1325,7 @@ export component AppWindow inherits Window {
         + self.size-freq-width;
     property <length> name-width: max(self.name-min, self.name-want);
     property <length> folder-width: max(self.folder-min, max(self.folder-want,
-        self.width - self.name-width - self.fixed-width));
+        list.visible-width - self.name-width - self.fixed-width));
     // Width of all columns: the window's, or more when they do not fit.
     property <length> table-width: self.name-width + self.folder-width + self.fixed-width;
     // How far the list can scroll sideways.
@@ -1435,9 +1446,9 @@ export component AppWindow inherits Window {
             // Name takes the rest; when that is less than its minimum, Folder
             // keeps w as its own width and the columns get wider than the
             // window.
-            root.name-want = max(root.name-min, root.width - root.fixed-width - w);
+            root.name-want = max(root.name-min, list.visible-width - root.fixed-width - w);
             root.name-set = true;
-            root.folder-want = root.name-min + w + root.fixed-width > root.width ? w : 0px;
+            root.folder-want = root.name-min + w + root.fixed-width > list.visible-width ? w : 0px;
         } else if (c == 2) {
             root.size-want = w;
         } else {
@@ -1497,7 +1508,7 @@ export component AppWindow inherits Window {
         if (total <= 0px) {
             return;
         }
-        let f = root.width / total;
+        let f = list.visible-width / total;
         root.folder-want = 0px;
         root.size-want = max(root.size-min, w2 * f);
         root.date-want = max(root.date-min, w3 * f);
@@ -1567,7 +1578,7 @@ export component AppWindow inherits Window {
                 root.name-freq-min,
                 root.ext-freq-min,
                 root.size-freq-min],
-            window: root.width,
+            window: list.visible-width,
             folder-want: root.folder-want,
         }, left, right, delta);
         if (left <= 3) {
@@ -1968,6 +1979,13 @@ export component AppWindow inherits Window {
             root.copy-troubleshooting-info();
         } else if (c == Command.about) {
             root.about-open = true;
+        } else if (c == Command.folders-panel) {
+            root.folders-visible = !root.folders-visible;
+            root.folders-changed();
+        } else if (c == Command.focus-folders) {
+            root.folders-visible = true;
+            root.folders-changed();
+            folders.focus-tree();
         } else if (c == Command.refresh) {
             root.refresh();
         } else if (c == Command.organize-columns) {
@@ -2308,641 +2326,673 @@ export component AppWindow inherits Window {
             }
             Rectangle { height: 1px; background: Theme.line; }
 
-            // Column headers (positioned directly, so they never feed back into
-            // the window's layout). Right-click shows or hides optional columns.
-            Rectangle {
-                height: Theme.header-height;
-                background: Theme.surface-alt;
-                clip: true;
-                // The headers move with the rows when the list scrolls sideways.
-                Rectangle {
-                    x: list.content-x;
-                    width: root.table-width;
-                    height: parent.height;
-                    header-menu := ContextMenuArea {
-                        Menu {
-                            // Activating a checkable item flips its check mark, which
-                            // is tied to the column flag both ways.
-                            MenuItem {
-                                title: @tr("Type");
-                                checkable: true;
-                                checked <=> root.show-type;
-                                activated => { root.column-shown(4, root.show-type); }
-                            }
-                            MenuItem {
-                                title: @tr("Extension");
-                                checkable: true;
-                                checked <=> root.show-ext;
-                                activated => { root.column-shown(5, root.show-ext); }
-                            }
-                            MenuItem {
-                                title: @tr("Created");
-                                checkable: true;
-                                checked <=> root.show-created;
-                                activated => { root.column-shown(6, root.show-created); }
-                            }
-                            MenuItem {
-                                title: @tr("Accessed");
-                                checkable: true;
-                                checked <=> root.show-accessed;
-                                activated => { root.column-shown(7, root.show-accessed); }
-                            }
-                            MenuItem {
-                                title: @tr("Attributes");
-                                checkable: true;
-                                checked <=> root.show-attrs;
-                                activated => { root.column-shown(8, root.show-attrs); }
-                            }
-                            MenuItem {
-                                title: @tr("MD5");
-                                checkable: true;
-                                checked <=> root.show-md5;
-                                activated => { root.column-shown(9, root.show-md5); }
-                            }
-                            MenuItem {
-                                title: @tr("SHA-256");
-                                checkable: true;
-                                checked <=> root.show-sha256;
-                                activated => { root.column-shown(10, root.show-sha256); }
-                            }
-                            MenuItem {
-                                title: @tr("CRC-32");
-                                checkable: true;
-                                checked <=> root.show-crc32;
-                                activated => { root.column-shown(11, root.show-crc32); }
-                            }
-                            MenuItem {
-                                title: @tr("Same name");
-                                checkable: true;
-                                checked <=> root.show-name-freq;
-                                activated => { root.column-shown(12, root.show-name-freq); }
-                            }
-                            MenuItem {
-                                title: @tr("Same extension");
-                                checkable: true;
-                                checked <=> root.show-ext-freq;
-                                activated => { root.column-shown(13, root.show-ext-freq); }
-                            }
-                            MenuItem {
-                                title: @tr("Same size");
-                                checkable: true;
-                                checked <=> root.show-size-freq;
-                                activated => { root.column-shown(14, root.show-size-freq); }
-                            }
-                            MenuSeparator { }
-                            MenuItem {
-                                title: @tr("Size column to fit");
-                                activated => { root.fit-column(root.menu-column); }
-                            }
-                            MenuItem {
-                                title: @tr("Size all columns to fit");
-                                activated => { root.run(Command.fit-columns); }
-                            }
-                            MenuItem {
-                                title: @tr("Fit columns to window");
-                                activated => { root.run(Command.fit-columns-to-window); }
-                            }
-                            MenuSeparator { }
-                            MenuItem {
-                                title: @tr("Organize columns…");
-                                activated => { root.run(Command.organize-columns); }
-                            }
-                            MenuItem {
-                                title: @tr("Restore removed column");
-                                enabled: root.can-run(Command.restore-removed-column);
-                                activated => { root.run(Command.restore-removed-column); }
-                            }
-                            MenuItem {
-                                title: @tr("Reset columns");
-                                activated => { root.run(Command.reset-columns); }
-                            }
-                        }
-                        HeaderCell {
-                            x: Theme.s1;
-                            width: root.name-width - Theme.s1;
-                            height: parent.height;
-                            label: @tr("Name");
-                            sorted: root.sort-column == 0;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(0); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 0;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        HeaderCell {
-                            x: root.name-width;
-                            width: root.folder-width;
-                            height: parent.height;
-                            label: @tr("Folder");
-                            sorted: root.sort-column == 1;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(1); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 1;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        HeaderCell {
-                            x: root.name-width + root.folder-width;
-                            width: root.size-width;
-                            height: parent.height;
-                            label: @tr("Size");
-                            align: right;
-                            sorted: root.sort-column == 2;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(2); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 2;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        HeaderCell {
-                            x: root.name-width + root.folder-width + root.size-width;
-                            width: root.date-width;
-                            height: parent.height;
-                            label: @tr("Modified");
-                            sorted: root.sort-column == 3;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(3); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 3;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-type: HeaderCell {
-                            x: root.type-x;
-                            width: root.type-width;
-                            height: parent.height;
-                            label: @tr("Type");
-                            sorted: root.sort-column == 4;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(4); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 4;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-ext: HeaderCell {
-                            x: root.ext-x;
-                            width: root.ext-width;
-                            height: parent.height;
-                            label: @tr("Extension");
-                            sorted: root.sort-column == 5;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(5); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 5;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-created: HeaderCell {
-                            x: root.created-x;
-                            width: root.created-width;
-                            height: parent.height;
-                            label: @tr("Created");
-                            sorted: root.sort-column == 6;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(6); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 6;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-accessed: HeaderCell {
-                            x: root.accessed-x;
-                            width: root.accessed-width;
-                            height: parent.height;
-                            label: @tr("Accessed");
-                            sorted: root.sort-column == 7;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(7); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 7;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-attrs: HeaderCell {
-                            x: root.attr-x;
-                            width: root.attr-width;
-                            height: parent.height;
-                            label: @tr("Attributes");
-                            sorted: root.sort-column == 8;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(8); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 8;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-md5: HeaderCell {
-                            x: root.md5-x;
-                            width: root.md5-width;
-                            height: parent.height;
-                            label: @tr("MD5");
-                            right-pressed(x, y) => {
-                                root.menu-column = 9;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-sha256: HeaderCell {
-                            x: root.sha256-x;
-                            width: root.sha256-width;
-                            height: parent.height;
-                            label: @tr("SHA-256");
-                            right-pressed(x, y) => {
-                                root.menu-column = 10;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-crc32: HeaderCell {
-                            x: root.crc32-x;
-                            width: root.crc32-width;
-                            height: parent.height;
-                            label: @tr("CRC-32");
-                            right-pressed(x, y) => {
-                                root.menu-column = 11;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-name-freq: HeaderCell {
-                            x: root.name-freq-x;
-                            width: root.name-freq-width;
-                            height: parent.height;
-                            label: @tr("Same name");
-                            sorted: root.sort-column == 12;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(12); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 12;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-ext-freq: HeaderCell {
-                            x: root.ext-freq-x;
-                            width: root.ext-freq-width;
-                            height: parent.height;
-                            label: @tr("Same extension");
-                            sorted: root.sort-column == 13;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(13); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 13;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                        if root.show-size-freq: HeaderCell {
-                            x: root.size-freq-x;
-                            width: root.size-freq-width;
-                            height: parent.height;
-                            label: @tr("Same size");
-                            sorted: root.sort-column == 14;
-                            descending: root.sort-descending;
-                            clicked => { root.sort-by(14); }
-                            right-pressed(x, y) => {
-                                root.menu-column = 14;
-                                header-menu.show({ x: self.x + x, y: y });
-                            }
-                        }
-                    }
-                    // Boundary grips, on top of the cells.
-                    // A double-click on a grip sizes the column on its left to fit.
-                    ColumnGrip {
-                        x: root.name-width - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(0, delta); }
-                        fit => { root.fit-column(0); }
-                    }
-                    ColumnGrip {
-                        x: root.name-width + root.folder-width - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(1, delta); }
-                        fit => { root.fit-column(1); }
-                    }
-                    ColumnGrip {
-                        x: root.name-width + root.folder-width + root.size-width - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(2, delta); }
-                        fit => { root.fit-column(2); }
-                    }
-                    // One on the left edge of each optional column shown.
-                    if root.show-type: ColumnGrip {
-                        x: root.type-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(4, delta); }
-                        fit => { root.fit-column(root.left-of(4)); }
-                    }
-                    if root.show-ext: ColumnGrip {
-                        x: root.ext-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(5, delta); }
-                        fit => { root.fit-column(root.left-of(5)); }
-                    }
-                    if root.show-created: ColumnGrip {
-                        x: root.created-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(6, delta); }
-                        fit => { root.fit-column(root.left-of(6)); }
-                    }
-                    if root.show-accessed: ColumnGrip {
-                        x: root.accessed-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(7, delta); }
-                        fit => { root.fit-column(root.left-of(7)); }
-                    }
-                    if root.show-attrs: ColumnGrip {
-                        x: root.attr-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(8, delta); }
-                        fit => { root.fit-column(root.left-of(8)); }
-                    }
-                    if root.show-md5: ColumnGrip {
-                        x: root.md5-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(9, delta); }
-                        fit => { root.fit-column(root.left-of(9)); }
-                    }
-                    if root.show-sha256: ColumnGrip {
-                        x: root.sha256-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(10, delta); }
-                        fit => { root.fit-column(root.left-of(10)); }
-                    }
-                    if root.show-crc32: ColumnGrip {
-                        x: root.crc32-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(11, delta); }
-                        fit => { root.fit-column(root.left-of(11)); }
-                    }
-                    if root.show-name-freq: ColumnGrip {
-                        x: root.name-freq-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(12, delta); }
-                        fit => { root.fit-column(root.left-of(12)); }
-                    }
-                    if root.show-ext-freq: ColumnGrip {
-                        x: root.ext-freq-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(13, delta); }
-                        fit => { root.fit-column(root.left-of(13)); }
-                    }
-                    if root.show-size-freq: ColumnGrip {
-                        x: root.size-freq-x - self.width / 2;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(14, delta); }
-                        fit => { root.fit-column(root.left-of(14)); }
-                    }
-                    // The right edge of the last column: dragged to the right, the
-                    // columns get wider than the window.
-                    ColumnGrip {
-                        x: root.table-width - self.width;
-                        height: parent.height;
-                        dragged(delta) => { root.drag-boundary(99, delta); }
-                        fit => { root.fit-column(root.last-shown()); }
-                    }
-                }
-                // Measures the texts of fit-width(); never drawn.
-                Rectangle {
-                    width: 0px;
-                    height: 0px;
+            HorizontalLayout {
+                folders := FoldersPanel {
+                    visible: root.folders-visible;
+                    width: root.folders-visible ? root.folders-width * 1px : 0px;
+                    min-height: 0px;
                     clip: true;
-                    fit-a-probe := Text { text: root.fit-a; font-size: Theme.list-text; }
-                    fit-b-probe := Text { text: root.fit-b; font-size: Theme.list-text; }
-                    fit-c-probe := Text { text: root.fit-c; font-size: Theme.list-text; }
-                    fit-label-probe := Text { text: root.fit-label; font-size: Theme.small; font-weight: 600; }
+                    entries: root.folder-entries;
+                    current <=> root.folder-current;
+                    scroll-y <=> root.folders-scroll-y;
+                    recursive <=> root.folders-recursive;
+                    action(row, kind) => { root.folder-action(row, kind); }
+                    recursive-changed => { root.folders-changed(); }
+                    key(event) => { return root.dispatch(0, event); }
                 }
-            }
-            Rectangle { height: 1px; background: Theme.line; }
-
-            // Results
-            keys := FocusScope {
-                vertical-stretch: 1;
-                // Shift extends the selection, Ctrl moves the cursor alone.
-                property <int> move-mode: 0;
-                focus-lost(reason) => { root.jump-reset(); }
-                key-pressed(event) => {
-                    if (root.dispatch(2, event)) {
-                        root.jump-reset();
-                        return accept;
+                if root.folders-visible: Rectangle {
+                    width: 5px;
+                    background: Theme.line;
+                    grip := TouchArea {
+                        mouse-cursor: ew-resize;
+                        pointer-event(e) => {
+                            if (e.kind == PointerEventKind.up) { root.folders-changed(); }
+                        }
+                        // This grip moves with the panel boundary, so its
+                        // local delta is movement since the previous event.
+                        moved => { if (self.pressed) { root.folders-width = clamp(root.folders-width + (self.mouse-x - self.pressed-x) / 1px, 140, 600); } }
                     }
-                    // Movement and Esc are fixed; every other key is a command.
-                    self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
-                    if (event.modifiers.alt || event.modifiers.meta) {
-                        root.jump-reset();
-                        return reject;
-                    }
-                    if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
-                    if (event.text == Key.UpArrow) {
-                        if (root.current <= 0 && !event.modifiers.shift) { search.focus-and-select(); } else { root.move-to(root.current - 1, self.move-mode); }
-                        return accept;
-                    }
-                    if (event.text == Key.PageDown) { root.move-to(root.current + root.page, self.move-mode); return accept; }
-                    if (event.text == Key.PageUp) { root.move-to(root.current - root.page, self.move-mode); return accept; }
-                    if (event.text == Key.Home) { root.move-to(0, self.move-mode); return accept; }
-                    if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
-                    // Esc clears the selection first, then goes back to the search.
-                    if (event.text == Key.Escape) {
-                        root.jump-reset();
-                        if (!root.clear-selection()) { search.focus-and-select(); }
-                        return accept;
-                    }
-                    if (!event.modifiers.control) {
-                        let jump = root.jump-typed(event.text);
-                        if (jump >= 0) { root.place-cursor(jump, 0); }
-                        if (jump != -1) { return accept; }
-                    }
-                    // Not a jump key: a shortcut of the window may take it.
-                    root.jump-reset();
-                    reject
                 }
-
-                menu-area := ContextMenuArea {
-                    // Opened only by `show` (row right-click, menu key), which
-                    // first freezes the row's values for the menu items; on
-                    // its own it would open with the values of an older menu.
-                    enabled: false;
-                    Menu {
-                        if root.value-available: MenuItem {
-                            title: root.value-column == 3 ? @tr("Search this day") : @tr("Search this value");
-                            enabled: root.can-run(Command.search-property-value);
-                            activated => { root.run(Command.search-property-value); }
-                        }
-                        MenuItem {
-                            title: @tr("Search for this name");
-                            enabled: root.can-run(Command.search-filename);
-                            activated => { root.fileops-search-filename(-1, false, false); }
-                        }
-                        MenuItem {
-                            title: @tr("Search for this exact name");
-                            enabled: root.can-run(Command.search-exact-name);
-                            activated => { root.fileops-search-filename(-1, true, false); }
-                        }
-                        MenuItem {
-                            title: @tr("Search name without extension"); enabled: root.can-run(Command.search-stem);
-                            activated => { root.fileops-search-filename(-1, false, true); }
-                        }
-                        MenuItem {
-                            title: @tr("Search whole name without extension"); enabled: root.can-run(Command.search-whole-stem);
-                            activated => { root.fileops-search-filename(-1, true, true); }
-                        }
-                        MenuItem {
-                            title: @tr("Open");
-                            enabled: root.can-run(Command.open);
-                            activated => { root.run(Command.open); }
-                        }
-                        MenuItem {
-                            title: @tr("Open with…");
-                            enabled: root.can-run(Command.open-with);
-                            activated => { root.run(Command.open-with); }
-                        }
-                        MenuItem {
-                            title: @tr("Open containing folder");
-                            enabled: root.can-run(Command.open-folder);
-                            activated => { root.run(Command.open-folder); }
-                        }
-                        MenuItem {
-                            title: @tr("Search in EveryGrep");
-                            enabled: root.can-run(Command.search-in-program);
-                            activated => { root.run(Command.search-in-program); }
-                        }
-                        MenuItem {
-                            title: @tr("Search path in EveryGrep");
-                            enabled: root.can-run(Command.search-containing-folder);
-                            activated => { root.run(Command.search-containing-folder); }
-                        }
-                        MenuSeparator { }
-                        MenuItem {
-                            title: @tr("Cut");
-                            enabled: root.can-run(Command.cut);
-                            activated => { root.run(Command.cut); }
-                        }
-                        MenuItem {
-                            title: @tr("Copy");
-                            enabled: root.can-run(Command.copy);
-                            activated => { root.run(Command.copy); }
-                        }
-                        MenuItem {
-                            title: @tr("Paste into folder");
-                            enabled: root.can-run(Command.paste);
-                            activated => { root.run(Command.paste); }
-                        }
-                        MenuSeparator { }
-                        MenuItem {
-                            title: @tr("Copy name");
-                            enabled: root.can-run(Command.copy-name);
-                            activated => { root.run(Command.copy-name); }
-                        }
-                        MenuItem {
-                            title: @tr("Copy path");
-                            enabled: root.can-run(Command.copy-path);
-                            activated => { root.run(Command.copy-path); }
-                        }
-                        MenuItem {
-                            title: @tr("Copy full path");
-                            enabled: root.can-run(Command.copy-full-path);
-                            activated => { root.run(Command.copy-full-path); }
-                        }
-                        MenuItem {
-                            title: @tr("Copy path with quotes");
-                            enabled: root.can-run(Command.copy-path-quoted);
-                            activated => { root.run(Command.copy-path-quoted); }
-                        }
-                        MenuItem {
-                            title: @tr("Copy full path with quotes");
-                            enabled: root.can-run(Command.copy-full-path-quoted);
-                            activated => { root.run(Command.copy-full-path-quoted); }
-                        }
-                        MenuSeparator { }
-                        MenuItem {
-                            title: @tr("Rename");
-                            enabled: root.can-run(Command.rename);
-                            activated => { root.run(Command.rename); }
-                        }
-                        MenuItem {
-                            title: @tr("Create shortcuts…");
-                            enabled: root.can-run(Command.create-shortcut);
-                            activated => { root.run(Command.create-shortcut); }
-                        }
-                        MenuItem {
-                            title: @tr("Move to trash");
-                            enabled: root.can-run(Command.trash);
-                            activated => { root.run(Command.trash); }
-                        }
-                        MenuItem {
-                            title: @tr("Delete permanently…");
-                            enabled: root.can-run(Command.delete-permanently);
-                            activated => { root.run(Command.delete-permanently); }
-                        }
-                    }
-
-                list := ListView {
-                    // Wider than the window when the columns do not fit.
-                    content-width: root.table-width;
-                    for row[i] in root.results: Row {
-                        width: root.table-width;
-                        data: row;
-                        current: i == root.current && keys.has-focus;
-                        alternate: root.alternate-rows && Math.mod(i, 2) == 1;
-                        name-width: root.name-width;
-                        folder-width: root.folder-width;
-                        size-width: root.size-width;
-                        date-width: root.date-width;
-                        type-width: root.type-width;
-                        ext-width: root.ext-width;
-                        created-width: root.created-width;
-                        accessed-width: root.accessed-width;
-                        attr-width: root.attr-width;
-                        md5-width: root.md5-width;
-                        sha256-width: root.sha256-width;
-                        crc32-width: root.crc32-width;
-                        name-freq-width: root.name-freq-width;
-                        ext-freq-width: root.ext-freq-width;
-                        size-freq-width: root.size-freq-width;
-                        pressed(mods) => {
-                            root.jump-reset();
-                            root.current = i;
-                            keys.focus();
-                            root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
-                        }
-                        right-pressed(x, y, column) => {
-                            root.jump-reset();
-                            root.current = i;
-                            root.value-column = column;
-                            root.value-available = root.fileops-prepare-value(i, column);
-                            keys.focus();
-                            if (!root.is-selected(i)) { root.select(i, 0); }
-                            menu-area.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });
-                        }
-                        // In the Folder column it opens the containing
-                        // folder, when the setting says so.
-                        double-clicked(x) => {
-                            if (root.path-click-opens-folder && x >= root.name-width
-                                    && x < root.name-width + root.folder-width) {
-                                root.open-folder(i);
-                            } else {
-                                root.activate(i);
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    // Column headers (positioned directly, so they never feed back into
+                    // the window's layout). Right-click shows or hides optional columns.
+                    Rectangle {
+                        height: Theme.header-height;
+                        background: Theme.surface-alt;
+                        clip: true;
+                        // The headers move with the rows when the list scrolls sideways.
+                        Rectangle {
+                            x: list.content-x;
+                            width: root.table-width;
+                            height: parent.height;
+                            header-menu := ContextMenuArea {
+                                Menu {
+                                    // Activating a checkable item flips its check mark, which
+                                    // is tied to the column flag both ways.
+                                    MenuItem {
+                                        title: @tr("Type");
+                                        checkable: true;
+                                        checked <=> root.show-type;
+                                        activated => { root.column-shown(4, root.show-type); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Extension");
+                                        checkable: true;
+                                        checked <=> root.show-ext;
+                                        activated => { root.column-shown(5, root.show-ext); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Created");
+                                        checkable: true;
+                                        checked <=> root.show-created;
+                                        activated => { root.column-shown(6, root.show-created); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Accessed");
+                                        checkable: true;
+                                        checked <=> root.show-accessed;
+                                        activated => { root.column-shown(7, root.show-accessed); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Attributes");
+                                        checkable: true;
+                                        checked <=> root.show-attrs;
+                                        activated => { root.column-shown(8, root.show-attrs); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("MD5");
+                                        checkable: true;
+                                        checked <=> root.show-md5;
+                                        activated => { root.column-shown(9, root.show-md5); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("SHA-256");
+                                        checkable: true;
+                                        checked <=> root.show-sha256;
+                                        activated => { root.column-shown(10, root.show-sha256); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("CRC-32");
+                                        checkable: true;
+                                        checked <=> root.show-crc32;
+                                        activated => { root.column-shown(11, root.show-crc32); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Same name");
+                                        checkable: true;
+                                        checked <=> root.show-name-freq;
+                                        activated => { root.column-shown(12, root.show-name-freq); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Same extension");
+                                        checkable: true;
+                                        checked <=> root.show-ext-freq;
+                                        activated => { root.column-shown(13, root.show-ext-freq); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Same size");
+                                        checkable: true;
+                                        checked <=> root.show-size-freq;
+                                        activated => { root.column-shown(14, root.show-size-freq); }
+                                    }
+                                    MenuSeparator { }
+                                    MenuItem {
+                                        title: @tr("Size column to fit");
+                                        activated => { root.fit-column(root.menu-column); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Size all columns to fit");
+                                        activated => { root.run(Command.fit-columns); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Fit columns to window");
+                                        activated => { root.run(Command.fit-columns-to-window); }
+                                    }
+                                    MenuSeparator { }
+                                    MenuItem {
+                                        title: @tr("Organize columns…");
+                                        activated => { root.run(Command.organize-columns); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Restore removed column");
+                                        enabled: root.can-run(Command.restore-removed-column);
+                                        activated => { root.run(Command.restore-removed-column); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Reset columns");
+                                        activated => { root.run(Command.reset-columns); }
+                                    }
+                                }
+                                HeaderCell {
+                                    x: Theme.s1;
+                                    width: root.name-width - Theme.s1;
+                                    height: parent.height;
+                                    label: @tr("Name");
+                                    sorted: root.sort-column == 0;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(0); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 0;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                HeaderCell {
+                                    x: root.name-width;
+                                    width: root.folder-width;
+                                    height: parent.height;
+                                    label: @tr("Folder");
+                                    sorted: root.sort-column == 1;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(1); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 1;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                HeaderCell {
+                                    x: root.name-width + root.folder-width;
+                                    width: root.size-width;
+                                    height: parent.height;
+                                    label: @tr("Size");
+                                    align: right;
+                                    sorted: root.sort-column == 2;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(2); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 2;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                HeaderCell {
+                                    x: root.name-width + root.folder-width + root.size-width;
+                                    width: root.date-width;
+                                    height: parent.height;
+                                    label: @tr("Modified");
+                                    sorted: root.sort-column == 3;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(3); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 3;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-type: HeaderCell {
+                                    x: root.type-x;
+                                    width: root.type-width;
+                                    height: parent.height;
+                                    label: @tr("Type");
+                                    sorted: root.sort-column == 4;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(4); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 4;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-ext: HeaderCell {
+                                    x: root.ext-x;
+                                    width: root.ext-width;
+                                    height: parent.height;
+                                    label: @tr("Extension");
+                                    sorted: root.sort-column == 5;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(5); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 5;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-created: HeaderCell {
+                                    x: root.created-x;
+                                    width: root.created-width;
+                                    height: parent.height;
+                                    label: @tr("Created");
+                                    sorted: root.sort-column == 6;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(6); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 6;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-accessed: HeaderCell {
+                                    x: root.accessed-x;
+                                    width: root.accessed-width;
+                                    height: parent.height;
+                                    label: @tr("Accessed");
+                                    sorted: root.sort-column == 7;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(7); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 7;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-attrs: HeaderCell {
+                                    x: root.attr-x;
+                                    width: root.attr-width;
+                                    height: parent.height;
+                                    label: @tr("Attributes");
+                                    sorted: root.sort-column == 8;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(8); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 8;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-md5: HeaderCell {
+                                    x: root.md5-x;
+                                    width: root.md5-width;
+                                    height: parent.height;
+                                    label: @tr("MD5");
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 9;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-sha256: HeaderCell {
+                                    x: root.sha256-x;
+                                    width: root.sha256-width;
+                                    height: parent.height;
+                                    label: @tr("SHA-256");
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 10;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-crc32: HeaderCell {
+                                    x: root.crc32-x;
+                                    width: root.crc32-width;
+                                    height: parent.height;
+                                    label: @tr("CRC-32");
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 11;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-name-freq: HeaderCell {
+                                    x: root.name-freq-x;
+                                    width: root.name-freq-width;
+                                    height: parent.height;
+                                    label: @tr("Same name");
+                                    sorted: root.sort-column == 12;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(12); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 12;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-ext-freq: HeaderCell {
+                                    x: root.ext-freq-x;
+                                    width: root.ext-freq-width;
+                                    height: parent.height;
+                                    label: @tr("Same extension");
+                                    sorted: root.sort-column == 13;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(13); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 13;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                                if root.show-size-freq: HeaderCell {
+                                    x: root.size-freq-x;
+                                    width: root.size-freq-width;
+                                    height: parent.height;
+                                    label: @tr("Same size");
+                                    sorted: root.sort-column == 14;
+                                    descending: root.sort-descending;
+                                    clicked => { root.sort-by(14); }
+                                    right-pressed(x, y) => {
+                                        root.menu-column = 14;
+                                        header-menu.show({ x: self.x + x, y: y });
+                                    }
+                                }
+                            }
+                            // Boundary grips, on top of the cells.
+                            // A double-click on a grip sizes the column on its left to fit.
+                            ColumnGrip {
+                                x: root.name-width - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(0, delta); }
+                                fit => { root.fit-column(0); }
+                            }
+                            ColumnGrip {
+                                x: root.name-width + root.folder-width - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(1, delta); }
+                                fit => { root.fit-column(1); }
+                            }
+                            ColumnGrip {
+                                x: root.name-width + root.folder-width + root.size-width - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(2, delta); }
+                                fit => { root.fit-column(2); }
+                            }
+                            // One on the left edge of each optional column shown.
+                            if root.show-type: ColumnGrip {
+                                x: root.type-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(4, delta); }
+                                fit => { root.fit-column(root.left-of(4)); }
+                            }
+                            if root.show-ext: ColumnGrip {
+                                x: root.ext-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(5, delta); }
+                                fit => { root.fit-column(root.left-of(5)); }
+                            }
+                            if root.show-created: ColumnGrip {
+                                x: root.created-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(6, delta); }
+                                fit => { root.fit-column(root.left-of(6)); }
+                            }
+                            if root.show-accessed: ColumnGrip {
+                                x: root.accessed-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(7, delta); }
+                                fit => { root.fit-column(root.left-of(7)); }
+                            }
+                            if root.show-attrs: ColumnGrip {
+                                x: root.attr-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(8, delta); }
+                                fit => { root.fit-column(root.left-of(8)); }
+                            }
+                            if root.show-md5: ColumnGrip {
+                                x: root.md5-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(9, delta); }
+                                fit => { root.fit-column(root.left-of(9)); }
+                            }
+                            if root.show-sha256: ColumnGrip {
+                                x: root.sha256-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(10, delta); }
+                                fit => { root.fit-column(root.left-of(10)); }
+                            }
+                            if root.show-crc32: ColumnGrip {
+                                x: root.crc32-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(11, delta); }
+                                fit => { root.fit-column(root.left-of(11)); }
+                            }
+                            if root.show-name-freq: ColumnGrip {
+                                x: root.name-freq-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(12, delta); }
+                                fit => { root.fit-column(root.left-of(12)); }
+                            }
+                            if root.show-ext-freq: ColumnGrip {
+                                x: root.ext-freq-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(13, delta); }
+                                fit => { root.fit-column(root.left-of(13)); }
+                            }
+                            if root.show-size-freq: ColumnGrip {
+                                x: root.size-freq-x - self.width / 2;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(14, delta); }
+                                fit => { root.fit-column(root.left-of(14)); }
+                            }
+                            // The right edge of the last column: dragged to the right, the
+                            // columns get wider than the window.
+                            ColumnGrip {
+                                x: root.table-width - self.width;
+                                height: parent.height;
+                                dragged(delta) => { root.drag-boundary(99, delta); }
+                                fit => { root.fit-column(root.last-shown()); }
                             }
                         }
-                        editing: i == root.rename-row;
-                        edit-text <=> root.rename-text;
-                        edit-stem: root.rename-stem;
-                        edit-commit(text) => { root.rename-commit(text); }
-                        edit-cancel => { root.rename-cancel(); }
+                        // Measures the texts of fit-width(); never drawn.
+                        Rectangle {
+                            width: 0px;
+                            height: 0px;
+                            clip: true;
+                            fit-a-probe := Text { text: root.fit-a; font-size: Theme.list-text; }
+                            fit-b-probe := Text { text: root.fit-b; font-size: Theme.list-text; }
+                            fit-c-probe := Text { text: root.fit-c; font-size: Theme.list-text; }
+                            fit-label-probe := Text { text: root.fit-label; font-size: Theme.small; font-weight: 600; }
+                        }
                     }
-                }
-                }
+                    Rectangle { height: 1px; background: Theme.line; }
 
-                Text {
-                    visible: root.message != "";
-                    text: root.message;
-                    color: Theme.text-muted;
-                    font-size: Theme.body;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    wrap: word-wrap;
+                    // Results
+                    keys := FocusScope {
+                        vertical-stretch: 1;
+                        // Shift extends the selection, Ctrl moves the cursor alone.
+                        property <int> move-mode: 0;
+                        focus-lost(reason) => { root.jump-reset(); }
+                        key-pressed(event) => {
+                            if (root.dispatch(2, event)) {
+                                root.jump-reset();
+                                return accept;
+                            }
+                            // Movement and Esc are fixed; every other key is a command.
+                            self.move-mode = event.modifiers.shift ? 2 : event.modifiers.control ? -1 : 0;
+                            if (event.modifiers.alt || event.modifiers.meta) {
+                                root.jump-reset();
+                                return reject;
+                            }
+                            if (event.text == Key.DownArrow) { root.move-to(root.current + 1, self.move-mode); return accept; }
+                            if (event.text == Key.UpArrow) {
+                                if (root.current <= 0 && !event.modifiers.shift) { search.focus-and-select(); } else { root.move-to(root.current - 1, self.move-mode); }
+                                return accept;
+                            }
+                            if (event.text == Key.PageDown) { root.move-to(root.current + root.page, self.move-mode); return accept; }
+                            if (event.text == Key.PageUp) { root.move-to(root.current - root.page, self.move-mode); return accept; }
+                            if (event.text == Key.Home) { root.move-to(0, self.move-mode); return accept; }
+                            if (event.text == Key.End) { root.move-to(root.results.length - 1, self.move-mode); return accept; }
+                            // Esc clears the selection first, then goes back to the search.
+                            if (event.text == Key.Escape) {
+                                root.jump-reset();
+                                if (!root.clear-selection()) { search.focus-and-select(); }
+                                return accept;
+                            }
+                            if (!event.modifiers.control) {
+                                let jump = root.jump-typed(event.text);
+                                if (jump >= 0) { root.place-cursor(jump, 0); }
+                                if (jump != -1) { return accept; }
+                            }
+                            // Not a jump key: a shortcut of the window may take it.
+                            root.jump-reset();
+                            reject
+                        }
+
+                        menu-area := ContextMenuArea {
+                            // Opened only by `show` (row right-click, menu key), which
+                            // first freezes the row's values for the menu items; on
+                            // its own it would open with the values of an older menu.
+                            enabled: false;
+                            Menu {
+                                if root.value-available: MenuItem {
+                                    title: root.value-column == 3 ? @tr("Search this day") : @tr("Search this value");
+                                    enabled: root.can-run(Command.search-property-value);
+                                    activated => { root.run(Command.search-property-value); }
+                                }
+                                MenuItem {
+                                    title: @tr("Search for this name");
+                                    enabled: root.can-run(Command.search-filename);
+                                    activated => { root.fileops-search-filename(-1, false, false); }
+                                }
+                                MenuItem {
+                                    title: @tr("Search for this exact name");
+                                    enabled: root.can-run(Command.search-exact-name);
+                                    activated => { root.fileops-search-filename(-1, true, false); }
+                                }
+                                MenuItem {
+                                    title: @tr("Search name without extension"); enabled: root.can-run(Command.search-stem);
+                                    activated => { root.fileops-search-filename(-1, false, true); }
+                                }
+                                MenuItem {
+                                    title: @tr("Search whole name without extension"); enabled: root.can-run(Command.search-whole-stem);
+                                    activated => { root.fileops-search-filename(-1, true, true); }
+                                }
+                                MenuItem {
+                                    title: @tr("Open");
+                                    enabled: root.can-run(Command.open);
+                                    activated => { root.run(Command.open); }
+                                }
+                                MenuItem {
+                                    title: @tr("Open with…");
+                                    enabled: root.can-run(Command.open-with);
+                                    activated => { root.run(Command.open-with); }
+                                }
+                                MenuItem {
+                                    title: @tr("Open containing folder");
+                                    enabled: root.can-run(Command.open-folder);
+                                    activated => { root.run(Command.open-folder); }
+                                }
+                                MenuItem {
+                                    title: @tr("Search in EveryGrep");
+                                    enabled: root.can-run(Command.search-in-program);
+                                    activated => { root.run(Command.search-in-program); }
+                                }
+                                MenuItem {
+                                    title: @tr("Search path in EveryGrep");
+                                    enabled: root.can-run(Command.search-containing-folder);
+                                    activated => { root.run(Command.search-containing-folder); }
+                                }
+                                MenuSeparator { }
+                                MenuItem {
+                                    title: @tr("Cut");
+                                    enabled: root.can-run(Command.cut);
+                                    activated => { root.run(Command.cut); }
+                                }
+                                MenuItem {
+                                    title: @tr("Copy");
+                                    enabled: root.can-run(Command.copy);
+                                    activated => { root.run(Command.copy); }
+                                }
+                                MenuItem {
+                                    title: @tr("Paste into folder");
+                                    enabled: root.can-run(Command.paste);
+                                    activated => { root.run(Command.paste); }
+                                }
+                                MenuSeparator { }
+                                MenuItem {
+                                    title: @tr("Copy name");
+                                    enabled: root.can-run(Command.copy-name);
+                                    activated => { root.run(Command.copy-name); }
+                                }
+                                MenuItem {
+                                    title: @tr("Copy path");
+                                    enabled: root.can-run(Command.copy-path);
+                                    activated => { root.run(Command.copy-path); }
+                                }
+                                MenuItem {
+                                    title: @tr("Copy full path");
+                                    enabled: root.can-run(Command.copy-full-path);
+                                    activated => { root.run(Command.copy-full-path); }
+                                }
+                                MenuItem {
+                                    title: @tr("Copy path with quotes");
+                                    enabled: root.can-run(Command.copy-path-quoted);
+                                    activated => { root.run(Command.copy-path-quoted); }
+                                }
+                                MenuItem {
+                                    title: @tr("Copy full path with quotes");
+                                    enabled: root.can-run(Command.copy-full-path-quoted);
+                                    activated => { root.run(Command.copy-full-path-quoted); }
+                                }
+                                MenuSeparator { }
+                                MenuItem {
+                                    title: @tr("Rename");
+                                    enabled: root.can-run(Command.rename);
+                                    activated => { root.run(Command.rename); }
+                                }
+                                MenuItem {
+                                    title: @tr("Create shortcuts…");
+                                    enabled: root.can-run(Command.create-shortcut);
+                                    activated => { root.run(Command.create-shortcut); }
+                                }
+                                MenuItem {
+                                    title: @tr("Move to trash");
+                                    enabled: root.can-run(Command.trash);
+                                    activated => { root.run(Command.trash); }
+                                }
+                                MenuItem {
+                                    title: @tr("Delete permanently…");
+                                    enabled: root.can-run(Command.delete-permanently);
+                                    activated => { root.run(Command.delete-permanently); }
+                                }
+                            }
+
+                        list := ListView {
+                            // Wider than the window when the columns do not fit.
+                            content-width: root.table-width;
+                            for row[i] in root.results: Row {
+                                width: root.table-width;
+                                data: row;
+                                current: i == root.current && keys.has-focus;
+                                alternate: root.alternate-rows && Math.mod(i, 2) == 1;
+                                name-width: root.name-width;
+                                folder-width: root.folder-width;
+                                size-width: root.size-width;
+                                date-width: root.date-width;
+                                type-width: root.type-width;
+                                ext-width: root.ext-width;
+                                created-width: root.created-width;
+                                accessed-width: root.accessed-width;
+                                attr-width: root.attr-width;
+                                md5-width: root.md5-width;
+                                sha256-width: root.sha256-width;
+                                crc32-width: root.crc32-width;
+                                name-freq-width: root.name-freq-width;
+                                ext-freq-width: root.ext-freq-width;
+                                size-freq-width: root.size-freq-width;
+                                pressed(mods) => {
+                                    root.jump-reset();
+                                    root.current = i;
+                                    keys.focus();
+                                    root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
+                                }
+                                right-pressed(x, y, column) => {
+                                    root.jump-reset();
+                                    root.current = i;
+                                    root.value-column = column;
+                                    root.value-available = root.fileops-prepare-value(i, column);
+                                    keys.focus();
+                                    if (!root.is-selected(i)) { root.select(i, 0); }
+                                    menu-area.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });
+                                }
+                                // In the Folder column it opens the containing
+                                // folder, when the setting says so.
+                                double-clicked(x) => {
+                                    if (root.path-click-opens-folder && x >= root.name-width
+                                            && x < root.name-width + root.folder-width) {
+                                        root.open-folder(i);
+                                    } else {
+                                        root.activate(i);
+                                    }
+                                }
+                                editing: i == root.rename-row;
+                                edit-text <=> root.rename-text;
+                                edit-stem: root.rename-stem;
+                                edit-commit(text) => { root.rename-commit(text); }
+                                edit-cancel => { root.rename-cancel(); }
+                            }
+                        }
+                        }
+
+                        Text {
+                            visible: root.message != "";
+                            text: root.message;
+                            color: Theme.text-muted;
+                            font-size: Theme.body;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+
                 }
             }
-
             // Status line
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle {
@@ -3518,6 +3568,16 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: @tr("View");
+            MenuItem {
+                title: @tr("Folders panel"); shortcut: root.menu-keys.folders-panel;
+                enabled: root.can-run(Command.folders-panel);
+                activated => { root.run(Command.folders-panel); }
+            }
+            MenuItem {
+                title: @tr("Focus folders"); shortcut: root.menu-keys.focus-folders;
+                enabled: root.can-run(Command.focus-folders);
+                activated => { root.run(Command.focus-folders); }
+            }
             MenuItem {
                 title: @tr("Refresh");
                 shortcut: root.menu-keys.refresh;

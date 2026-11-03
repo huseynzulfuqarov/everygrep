@@ -20,6 +20,7 @@ mod fileops_undo;
 mod fileops_undo_ui;
 mod fileops_value;
 mod filetype;
+mod folders;
 mod format;
 mod hash_columns;
 mod hashes;
@@ -341,6 +342,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let pause = Rc::new(Timer::default());
+    folders::connect(&window, &engine, window_args.clone());
     tabs_ui::connect(&window, &engine, &model, &prefs, &pause, session_start);
     let query_edit = |manual: bool| {
         let (engine, weak, pause, prefs) =

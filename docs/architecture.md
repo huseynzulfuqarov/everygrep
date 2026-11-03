@@ -664,3 +664,15 @@ Filename and stem commands use byte-safe literal regexes. Stem expressions
 separate files with a last extension, files without one, and folders; a word
 occurring only in the extension never satisfies a stem search. All context
 commands share one routing function for history, tabs and new search windows.
+
+### Folder panel (`folders.rs`, `ui/folders.slint`)
+
+A single worker traverses the in-memory index into flattened visible folder rows,
+sorted by the result list’s natural name order. It reads no filesystem paths. Version/stamp and request
+serials skip unchanged work and discard answers for an older tab or expansion.
+The window polls completed rows without waiting for the index. Tree expansion
+and selected paths are frozen with each runtime tab; the location query uses the
+existing context-search generator and is persisted with the ordinary search.
+Visibility, recursive mode and width use the settings writer. The tree cursor and
+scroll position also travel with runtime tabs. Explicit Locate uses the existing
+result helpers to resolve the selected folder from the index, with no disk reads.
