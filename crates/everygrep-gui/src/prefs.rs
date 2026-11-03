@@ -192,6 +192,9 @@ pub struct Prefs {
     raw_chosen: RefCell<Option<String>>,
     raw_error: RefCell<String>,
     raw_lang: Cell<Option<i18n::Lang>>,
+    /// Keys changed in the table since its filter last changed: they stay
+    /// listed under "Only changed settings" (see [`raw_rows_for`]).
+    raw_kept: RefCell<Vec<String>>,
     seen: Arc<std::sync::Mutex<Option<settings::Stamp>>>,
     state: Cell<(IndexState, usize)>,
     /// A folder chooser is open.
@@ -317,6 +320,7 @@ impl Prefs {
             raw_chosen: RefCell::default(),
             raw_error: RefCell::default(),
             raw_lang: Cell::new(None),
+            raw_kept: RefCell::default(),
             seen: Arc::default(),
             state: Cell::new((IndexState::Loading, 0)),
             choosing: Cell::new(false),
@@ -1814,20 +1818,12 @@ impl Prefs {
     /// by its key. The value being edited is set only when a row is chosen,
     /// so filling again does not undo typing.
     fn fill_raw(&self, w: &SettingsWindow) {
-        let filter = w.get_raw_filter().to_lowercase();
-        let only_changed = w.get_raw_only_changed();
-        let rows: Vec<settings::RawRow> = self
-            .settings
-            .borrow()
-            .raw_rows()
-            .into_iter()
-            .filter(|r| !only_changed || r.modified())
-            .filter(|r| {
-                filter.is_empty()
-                    || r.key.to_lowercase().contains(&filter)
-                    || r.value.to_lowercase().contains(&filter)
-            })
-            .collect();
+        let rows = raw_rows_for(
+            self.settings.borrow().raw_rows(),
+            &w.get_raw_filter(),
+            w.get_raw_only_changed(),
+            &self.raw_kept.borrow(),
+        );
         // A new model scrolls the table back to the top: only when the rows
         // (or the language of their notes) changed.
         let lang = i18n::current();
@@ -1887,6 +1883,11 @@ impl Prefs {
         match new {
             Some(new) => {
                 self.raw_error.borrow_mut().clear();
+                let mut kept = self.raw_kept.borrow_mut();
+                if !kept.contains(&key) {
+                    kept.push(key.clone());
+                }
+                drop(kept);
                 self.replace_all(new, true);
                 let shown = self
                     .settings
@@ -2308,7 +2309,10 @@ impl Prefs {
         });
         w.on_reset_page(on_index(|p, i| p.reset(i)));
         w.on_export_settings(on(|p| p.export_settings()));
-        w.on_raw_filter_changed(on(|p| p.refresh()));
+        w.on_raw_filter_changed(on(|p| {
+            p.raw_kept.borrow_mut().clear();
+            p.refresh();
+        }));
         w.on_raw_chosen(on_index(|p, i| p.raw_chosen(i)));
         w.on_raw_apply(on(|p| {
             let value = p
@@ -3025,10 +3029,74 @@ pub fn page_index(name: &str) -> Option<usize> {
     }
 }
 
+/// The rows of the raw settings table for its filter text (matched in the
+/// key or the value, ignoring case) and "Only changed settings". A setting
+/// changed in the table (`kept`) stays listed under "Only changed settings"
+/// after it went back to its default, so that the rows do not move under
+/// the pointer and the chosen row keeps its place; a new filter drops it.
+fn raw_rows_for(
+    rows: Vec<settings::RawRow>,
+    filter: &str,
+    only_changed: bool,
+    kept: &[String],
+) -> Vec<settings::RawRow> {
+    let filter = filter.to_lowercase();
+    rows.into_iter()
+        .filter(|r| !only_changed || r.modified() || kept.contains(&r.key))
+        .filter(|r| {
+            filter.is_empty()
+                || r.key.to_lowercase().contains(&filter)
+                || r.value.to_lowercase().contains(&filter)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::settings::tests::Scratch;
+
+    #[test]
+    fn a_setting_reset_in_only_changed_stays_in_its_place() {
+        let row = |key: &str, value: &str, default: &str| settings::RawRow {
+            key: key.to_owned(),
+            value: value.to_owned(),
+            default: Some(default.to_owned()),
+            known: true,
+        };
+        // theme was reset (or toggled back) to its default in the table.
+        let rows = || {
+            vec![
+                row("density", "compact", "comfortable"),
+                row("file-undo-enabled", "true", "false"),
+                row("theme", "system", "system"),
+                row("type-to-jump", "false", "true"),
+            ]
+        };
+        let keys = |rows: Vec<settings::RawRow>| -> Vec<String> {
+            rows.into_iter().map(|r| r.key).collect()
+        };
+        assert_eq!(
+            keys(raw_rows_for(rows(), "", true, &[])),
+            ["density", "file-undo-enabled", "type-to-jump"]
+        );
+        let kept = ["theme".to_owned()];
+        assert_eq!(
+            keys(raw_rows_for(rows(), "", true, &kept)),
+            ["density", "file-undo-enabled", "theme", "type-to-jump"]
+        );
+        // The text filter still applies to a kept row, and with every
+        // setting listed nothing changes.
+        assert_eq!(
+            keys(raw_rows_for(rows(), "TYPE", true, &kept)),
+            ["type-to-jump"]
+        );
+        assert_eq!(keys(raw_rows_for(rows(), "", false, &[])).len(), 4);
+        assert_eq!(
+            keys(raw_rows_for(rows(), "compact", false, &[])),
+            ["density"]
+        );
+    }
 
     #[test]
     fn command_line_folders_are_never_saved() {
