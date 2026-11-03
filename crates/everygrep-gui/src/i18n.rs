@@ -15,7 +15,9 @@
 //! Placeholders are `{}` (the next argument) or `{0}`, `{1}` (by position),
 //! as in Slint's `@tr`; [`fill`] puts the arguments in. A test checks that
 //! every text marked in the sources has a translation in every catalog, with
-//! the same placeholders.
+//! the same placeholders, and that no text is left in English: a
+//! `# TODO: translate` comment or a translation equal to the English text
+//! fails, except for the words listed as the same in that language.
 //!
 //! Azerbaijani and Turkish nouns stay singular after a number ("12 fayl",
 //! "12 dosya"); their catalogs still have the two gettext plural forms
@@ -348,6 +350,40 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::Path;
 
+    /// Texts that stay the same as the English one in each language: names,
+    /// units and words the language takes over unchanged. Any other
+    /// translation equal to the English text is an untranslated placeholder.
+    const SAME_AS_ENGLISH: [&[&str]; 2] = [
+        &[
+            "Audio",
+            "Video",
+            "Regex",
+            "UUID {}",
+            "MD5",
+            "SHA-256",
+            "CRC-32",
+            "KiB",
+            "MiB",
+            "GiB",
+            "YYYY-MM-DD",
+        ],
+        &[
+            "Mar",
+            "May",
+            "Video",
+            "Program",
+            "Regex",
+            "UUID {}",
+            "MD5",
+            "SHA-256",
+            "CRC-32",
+            "KiB",
+            "MiB",
+            "GiB",
+            "YYYY-MM-DD",
+        ],
+    ];
+
     #[test]
     fn locale_names() {
         assert_eq!(Lang::from_locale("az_AZ.UTF-8"), Some(Lang::Az));
@@ -540,6 +576,15 @@ mod tests {
     fn every_text_is_translated() {
         let sources = sources();
         for (i, lang) in [Lang::Az, Lang::Tr].into_iter().enumerate() {
+            for (n, line) in CATALOGS[i].lines().enumerate() {
+                assert!(
+                    !(line.starts_with('#') && line.contains("TODO")),
+                    "{lang:?}: line {} is marked as not translated yet",
+                    n + 1
+                );
+            }
+            let same_as_english = SAME_AS_ENGLISH[i];
+            let mut same_seen = BTreeSet::new();
             let messages = parse_po(CATALOGS[i]).unwrap_or_else(|e| panic!("{lang:?}: {e}"));
             let header = &messages[0];
             assert!(header.msgid.is_empty(), "{lang:?}: header first");
@@ -567,7 +612,20 @@ mod tests {
                         placeholders(english),
                         "{lang:?}: placeholders of {key:?} form {n}"
                     );
+                    if text == english {
+                        assert!(
+                            same_as_english.contains(&english.as_str()),
+                            "{lang:?}: {key:?} form {n} is still in English"
+                        );
+                        same_seen.insert(english.as_str());
+                    }
                 }
+            }
+            for word in same_as_english {
+                assert!(
+                    same_seen.contains(word),
+                    "{lang:?}: {word:?} is listed as the same as English but is not"
+                );
             }
             let missing: Vec<_> = sources.difference(&seen).collect();
             assert!(missing.is_empty(), "{lang:?} lacks {missing:#?}");

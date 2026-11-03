@@ -1111,160 +1111,133 @@ msgstr "Çevrim dışı: sürücü bağlı değil"
 msgid "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first."
 msgstr "Bağlı olmayan bir sürücüdeki öğeler açılamaz, yeniden adlandırılamaz veya silinemez. Önce sürücüyü bağlayın."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Indexing: {}%"
-msgstr "Indexing: {}%"
+msgstr "Dizin oluşturuluyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Indexing: {} item"
 msgid_plural "Indexing: {} items"
-msgstr[0] "Indexing: {} item"
-msgstr[1] "Indexing: {} items"
+msgstr[0] "Dizin oluşturuluyor: {} öğe"
+msgstr[1] "Dizin oluşturuluyor: {} öğe"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Rescanning: {}%"
-msgstr "Rescanning: {}%"
+msgstr "Yeniden taranıyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Rescanning: {} item"
 msgid_plural "Rescanning: {} items"
-msgstr[0] "Rescanning: {} item"
-msgstr[1] "Rescanning: {} items"
+msgstr[0] "Yeniden taranıyor: {} öğe"
+msgstr[1] "Yeniden taranıyor: {} öğe"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Indexing {0}: {1}%"
-msgstr "Indexing {0}: {1}%"
+msgstr "{0} dizine ekleniyor: {1}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Indexing {0}: {1} item"
 msgid_plural "Indexing {0}: {1} items"
-msgstr[0] "Indexing {0}: {1} item"
-msgstr[1] "Indexing {0}: {1} items"
+msgstr[0] "{0} dizine ekleniyor: {1} öğe"
+msgstr[1] "{0} dizine ekleniyor: {1} öğe"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Updating: {}%"
-msgstr "Updating: {}%"
+msgstr "Güncelleniyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Updating: {} folder"
 msgid_plural "Updating: {} folders"
-msgstr[0] "Updating: {} folder"
-msgstr[1] "Updating: {} folders"
+msgstr[0] "Güncelleniyor: {} klasör"
+msgstr[1] "Güncelleniyor: {} klasör"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Searching: {}%"
-msgstr "Searching: {}%"
+msgstr "Aranıyor: {}%"
 
 #: src/labels.rs
 msgid "Searching file contents: {}%"
 msgstr "Dosya içerikleri aranıyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Sorting: {}%"
-msgstr "Sorting: {}%"
+msgstr "Sıralanıyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Indexing cancelled. Nothing was saved; use Rebuild index now in the settings to index again."
-msgstr "Indexing cancelled. Nothing was saved; use Rebuild index now in the settings to index again."
+msgstr "Dizin oluşturma iptal edildi. Hiçbir şey kaydedilmedi; dizini yeniden oluşturmak için ayarlardaki “Dizini şimdi yeniden oluştur” düğmesini kullanın."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Rescan cancelled. The previous index is kept."
-msgstr "Rescan cancelled. The previous index is kept."
+msgstr "Yeniden tarama iptal edildi. Önceki dizin korunuyor."
 
 #: src/labels.rs
 msgid "Indexing {} cancelled. It goes on where it stopped when it is connected again."
 msgstr "{} dizinleme iptal edildi. Yeniden bağlandığında kaldığı yerden devam eder."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Search cancelled. The list shows the previous results."
-msgstr "Search cancelled. The list shows the previous results."
+msgstr "Arama iptal edildi. Listede önceki sonuçlar gösteriliyor."
 
 #: src/labels.rs
 msgid "Content search cancelled. The list shows the matches found so far."
 msgstr "İçerik araması iptal edildi. Listede şimdiye kadar bulunanlar gösteriliyor."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Sort cancelled. The previous order is kept."
-msgstr "Sort cancelled. The previous order is kept."
+msgstr "Sıralama iptal edildi. Önceki sıra korunuyor."
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Copy"
 msgstr "Kopyala"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Copy path"
-msgstr "Copy path"
+msgstr "Yolu kopyala"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Cut"
-msgstr "Cut"
+msgstr "Kes"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Open with…"
-msgstr "Open with…"
+msgstr "Birlikte aç…"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Paste into folder"
-msgstr "Paste into folder"
+msgstr "Klasöre yapıştır"
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "Another paste is still running."
-msgstr "Another paste is still running."
+msgstr "Başka bir yapıştırma işlemi hâlâ sürüyor."
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "Cannot show the application chooser: {}"
-msgstr "Cannot show the application chooser: {}"
+msgstr "Uygulama seçici gösterilemedi: {}"
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "Select a folder to paste into."
-msgstr "Select a folder to paste into."
+msgstr "Yapıştırmak için bir klasör seçin."
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "Select one folder to paste into."
-msgstr "Select one folder to paste into."
+msgstr "Yapıştırmak için yalnızca bir klasör seçin."
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "Select one item to open it with another application."
-msgstr "Select one item to open it with another application."
+msgstr "Başka bir uygulamayla açmak için tek bir öğe seçin."
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "The clipboard holds no files to paste."
-msgstr "The clipboard holds no files to paste."
+msgstr "Panoda yapıştırılacak dosya yok."
 
-# TODO: translate (English for now)
 #: src/transfer.rs
 msgid "A folder cannot be pasted into itself."
-msgstr "A folder cannot be pasted into itself."
+msgstr "Bir klasör kendi içine yapıştırılamaz."
 
-# TODO: translate (English for now)
 #: src/transfer.rs
 msgid "copied, but the original could not be removed: {}"
-msgstr "copied, but the original could not be removed: {}"
+msgstr "kopyalandı, ancak asıl öğe silinemedi: {}"
 
 #: src/transfer.rs
 msgid "“{}” changed after it was copied"
@@ -1274,365 +1247,297 @@ msgstr "“{}” kopyalandıktan sonra değişti"
 msgid "the partial copy “{}” could not be removed: {}"
 msgstr "kısmi kopya “{}” silinemedi: {}"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Copying: {}%"
-msgstr "Copying: {}%"
+msgstr "Kopyalanıyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Copying…"
-msgstr "Copying…"
+msgstr "Kopyalanıyor…"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Could not paste {0} of {1}: {2}: {3}."
-msgstr "Could not paste {0} of {1}: {2}: {3}."
+msgstr "{1} öğeden {0} öğe yapıştırılamadı: {2}: {3}."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Moving: {}%"
-msgstr "Moving: {}%"
+msgstr "Taşınıyor: {}%"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Moving…"
-msgstr "Moving…"
+msgstr "Taşınıyor…"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Copied the folder path."
 msgid_plural "Copied {} folder paths."
-msgstr[0] "Copied the folder path."
-msgstr[1] "Copied {} folder paths."
+msgstr[0] "Klasör yolu kopyalandı."
+msgstr[1] "{} klasör yolu kopyalandı."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Copied {0} item into {1}."
 msgid_plural "Copied {0} items into {1}."
-msgstr[0] "Copied {0} item into {1}."
-msgstr[1] "Copied {0} items into {1}."
+msgstr[0] "{0} öğe {1} klasörüne kopyalandı."
+msgstr[1] "{0} öğe {1} klasörüne kopyalandı."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Copied {} item. Paste it into a folder to copy it there."
 msgid_plural "Copied {} items. Paste them into a folder to copy them there."
-msgstr[0] "Copied {} item. Paste it into a folder to copy it there."
-msgstr[1] "Copied {} items. Paste them into a folder to copy them there."
+msgstr[0] "{} öğe kopyalandı. Bir klasöre yapıştırdığınızda oraya kopyalanır."
+msgstr[1] "{} öğe kopyalandı. Bir klasöre yapıştırdığınızda oraya kopyalanır."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Cut {} item. Paste it into a folder to move it there."
 msgid_plural "Cut {} items. Paste them into a folder to move them there."
-msgstr[0] "Cut {} item. Paste it into a folder to move it there."
-msgstr[1] "Cut {} items. Paste them into a folder to move them there."
+msgstr[0] "{} öğe kesildi. Bir klasöre yapıştırdığınızda oraya taşınır."
+msgstr[1] "{} öğe kesildi. Bir klasöre yapıştırdığınızda oraya taşınır."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Moved {0} item into {1}."
 msgid_plural "Moved {0} items into {1}."
-msgstr[0] "Moved {0} item into {1}."
-msgstr[1] "Moved {0} items into {1}."
+msgstr[0] "{0} öğe {1} klasörüne taşındı."
+msgstr[1] "{0} öğe {1} klasörüne taşındı."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Paste cancelled after {0} item into {1}."
 msgid_plural "Paste cancelled after {0} items into {1}."
-msgstr[0] "Paste cancelled after {0} item into {1}."
-msgstr[1] "Paste cancelled after {0} items into {1}."
+msgstr[0] "Yapıştırma iptal edildi; o ana kadar {0} öğe {1} klasörüne yapıştırıldı."
+msgstr[1] "Yapıştırma iptal edildi; o ana kadar {0} öğe {1} klasörüne yapıştırıldı."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "{} got a new name because the name was taken."
 msgid_plural "{} got new names because the names were taken."
-msgstr[0] "{} got a new name because the name was taken."
-msgstr[1] "{} got new names because the names were taken."
+msgstr[0] "Ad kullanımda olduğu için {} yeni ad aldı."
+msgstr[1] "Adlar kullanımda olduğu için {} yeni ad aldı."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "{} special file (pipe, socket or device) was left out."
 msgid_plural "{} special files (pipes, sockets or devices) were left out."
-msgstr[0] "{} special file (pipe, socket or device) was left out."
-msgstr[1] "{} special files (pipes, sockets or devices) were left out."
+msgstr[0] "{} özel dosya (kanal, soket veya aygıt) atlandı."
+msgstr[1] "{} özel dosya (kanal, soket veya aygıt) atlandı."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "{} was already in this folder."
 msgid_plural "{} were already in this folder."
-msgstr[0] "{} was already in this folder."
-msgstr[1] "{} were already in this folder."
+msgstr[0] "{} zaten bu klasördeydi."
+msgstr[1] "{} zaten bu klasördeydi."
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Created"
-msgstr "Created"
+msgstr "Oluşturma tarihi"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Accessed"
-msgstr "Accessed"
+msgstr "Erişim tarihi"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Attributes"
-msgstr "Attributes"
+msgstr "Öznitelikler"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Created column"
-msgstr "Created column"
+msgstr "Oluşturma tarihi sütunu"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Accessed column"
-msgstr "Accessed column"
+msgstr "Erişim tarihi sütunu"
 
-# TODO: translate (English for now)
 #: ui/app.slint
 msgid "Attributes column"
-msgstr "Attributes column"
+msgstr "Öznitelikler sütunu"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."
-msgstr "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."
+msgstr "Tür, Uzantı, Oluşturma tarihi, Erişim tarihi ve Öznitelikler sütunlarını göstermek için sütun başlıklarına sağ tıklayın; genişliği değiştirmek için başlık kenarlarını sürükleyin."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "None. Folders listed here are left out of the index with all they hold."
-msgstr "None. Folders listed here are left out of the index with all they hold."
+msgstr "Yok. Burada listelenen klasörler, içerdikleri her şeyle birlikte dizin dışında bırakılır."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Use the exclude list"
-msgstr "Use the exclude list"
+msgstr "Hariç tutma listesini kullan"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Folder pattern"
-msgstr "Folder pattern"
+msgstr "Klasör kalıbı"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Folder name or pattern: node_modules, *.git, regex:^te?mp$"
-msgstr "Folder name or pattern: node_modules, *.git, regex:^te?mp$"
+msgstr "Klasör adı veya kalıp: node_modules, *.git, regex:^te?mp$"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Add pattern"
-msgstr "Add pattern"
+msgstr "Kalıp ekle"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Include only files"
-msgstr "Include only files"
+msgstr "Yalnızca şu dosyaları dahil et"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Empty includes all files. Example: *.mp3;*.jpg"
-msgstr "Empty includes all files. Example: *.mp3;*.jpg"
+msgstr "Boşsa tüm dosyalar dahil edilir. Örnek: *.mp3;*.jpg"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Exclude files"
-msgstr "Exclude files"
+msgstr "Şu dosyaları hariç tut"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Example: *.tmp;~*"
-msgstr "Example: *.tmp;~*"
+msgstr "Örnek: *.tmp;~*"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Separate patterns with “;”. * matches any characters except /, ** any characters, ? one character. A pattern is matched against the whole name, ignoring case; with a / it is matched against the full path. regex: starts a regular expression. An exclude pattern wins over an include pattern."
-msgstr "Separate patterns with “;”. * matches any characters except /, ** any characters, ? one character. A pattern is matched against the whole name, ignoring case; with a / it is matched against the full path. regex: starts a regular expression. An exclude pattern wins over an include pattern."
+msgstr "Kalıpları “;” ile ayırın. * / dışındaki tüm karakterlerle, ** tüm karakterlerle, ? tek bir karakterle eşleşir. Kalıp, büyük/küçük harf ayrımı yapılmadan adın tamamıyla; / içeriyorsa tam yolla eşleştirilir. regex: bir düzenli ifade başlatır. Hariç tutma kalıbı, dahil etme kalıbından önceliklidir."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Apply filters"
-msgstr "Apply filters"
+msgstr "Filtreleri uygula"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Changing the lists or the switch indexes again."
-msgstr "Changing the lists or the switch indexes again."
+msgstr "Listeleri değiştirmek veya bu seçeneği açıp kapatmak dizini yeniden oluşturur."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "{0}: “{1}” has an empty regular expression. Nothing was changed."
-msgstr "{0}: “{1}” has an empty regular expression. Nothing was changed."
+msgstr "{0}: “{1}” kalıbında düzenli ifade boş. Hiçbir şey değiştirilmedi."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."
-msgstr "{0}: “{1}” is not a valid pattern ({2}). Nothing was changed."
+msgstr "{0}: “{1}” geçerli bir kalıp değil ({2}). Hiçbir şey değiştirilmedi."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Watch for changes"
-msgstr "Watch for changes"
+msgstr "Değişiklikleri izle"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Off: files added, removed or renamed while EveryGrep runs are not seen, and the status line says so. Turning it on again catches up with the changes, then watches."
-msgstr "Off: files added, removed or renamed while EveryGrep runs are not seen, and the status line says so. Turning it on again catches up with the changes, then watches."
+msgstr "Kapalıyken EveryGrep çalışırken eklenen, silinen veya yeniden adlandırılan dosyalar görülmez ve durum satırı bunu belirtir. Yeniden açıldığında önce kaçırılan değişiklikler yakalanır, ardından izlemeye devam edilir."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "changes not watched"
-msgstr "changes not watched"
+msgstr "değişiklikler izlenmiyor"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "{} entry · watching for changes is off"
 msgid_plural "{} entries · watching for changes is off"
-msgstr[0] "{} entry · watching for changes is off"
-msgstr[1] "{} entries · watching for changes is off"
+msgstr[0] "{} kayıt · değişiklik izleme kapalı"
+msgstr[1] "{} kayıt · değişiklik izleme kapalı"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Search as you type"
-msgstr "Search as you type"
+msgstr "Yazarken ara"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Off: the results change only when you press Enter in the search field."
-msgstr "Off: the results change only when you press Enter in the search field."
+msgstr "Kapalıyken sonuçlar yalnızca arama alanında Enter'a bastığınızda değişir."
 
-# TODO: translate (English for now)
 #: src/main.rs
 msgid "Press Enter to search."
-msgstr "Press Enter to search."
+msgstr "Aramak için Enter'a basın."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Leave the extension unselected when renaming"
-msgstr "Leave the extension unselected when renaming"
+msgstr "Yeniden adlandırırken uzantıyı seçme"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Off: the whole name is selected, extension included."
-msgstr "Off: the whole name is selected, extension included."
+msgstr "Kapalıyken uzantı dahil adın tamamı seçilir."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Showing the window"
-msgstr "Showing the window"
+msgstr "Pencere gösterilince"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Focus the search field when the window is shown"
-msgstr "Focus the search field when the window is shown"
+msgstr "Pencere gösterildiğinde arama alanına geç"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."
-msgstr "Its text is selected, so typing starts a new search. Off: the field or the list that had the focus keeps it."
+msgstr "Alanın metni seçilir, böylece yazmak yeni bir arama başlatır. Kapalıyken odak, önceden odakta olan alanda veya listede kalır."
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Starting"
-msgstr "Starting"
+msgstr "Açılış"
 
-# TODO: translate (English for now)
 #: ui/settings.slint
 msgid "Start EveryGrep when I log in"
-msgstr "Start EveryGrep when I log in"
+msgstr "Oturum açtığımda EveryGrep'i başlat"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "The window opens when you log in. To start without a window, choose \"Hide the window and keep running\" above."
-msgstr "The window opens when you log in. To start without a window, choose \"Hide the window and keep running\" above."
+msgstr "Oturum açtığınızda pencere açılır. Pencere olmadan başlatmak için yukarıda “Pencereyi gizle, çalışmaya devam et” seçeneğini seçin."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "EveryGrep starts without a window, loads the index and watches for changes; starting it again shows the window at once."
-msgstr "EveryGrep starts without a window, loads the index and watches for changes; starting it again shows the window at once."
+msgstr "EveryGrep pencere olmadan başlar, dizini yükler ve değişiklikleri izler; yeniden başlatıldığında pencere hemen görünür."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Cannot change starting on login: {}"
-msgstr "Cannot change starting on login: {}"
+msgstr "Oturum açılışında başlatma ayarı değiştirilemedi: {}"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want."
-msgstr "In GNOME: open Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts, press +, enter a name (for example EveryGrep) and one of the commands below, then press the keys you want (for example Super+F). Add one shortcut for each command you want."
+msgstr "GNOME'da: Ayarlar → Klavye → Kısayolları Görüntüle ve Özelleştir → Özel Kısayollar'ı açın, + düğmesine basın, bir ad (örneğin EveryGrep) ve aşağıdaki komutlardan birini girin, ardından istediğiniz tuşlara basın (örneğin Super+F). İstediğiniz her komut için bir kısayol ekleyin."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Show the window"
-msgstr "Show the window"
+msgstr "Pencereyi göster"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Starts EveryGrep, or brings its window to the front with the search field ready."
-msgstr "Starts EveryGrep, or brings its window to the front with the search field ready."
+msgstr "EveryGrep'i başlatır veya penceresini arama alanı hazır olarak öne getirir."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Show or hide the window"
-msgstr "Show or hide the window"
+msgstr "Pencereyi göster veya gizle"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Like Show, but when the window is already in front it closes it, as the close button does (it hides or quits, as set on the Window page)."
-msgstr "Like Show, but when the window is already in front it closes it, as the close button does (it hides or quits, as set on the Window page)."
+msgstr "“Pencereyi göster” gibidir, ancak pencere zaten öndeyse kapat düğmesi gibi onu kapatır (Pencere sayfasındaki ayara göre gizler veya çıkar)."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Open a new window"
-msgstr "Open a new window"
+msgstr "Yeni pencere aç"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Opens another window over the same index, even when one is open."
-msgstr "Opens another window over the same index, even when one is open."
+msgstr "Açık bir pencere olsa bile aynı dizin üzerinde başka bir pencere açar."
 
-# TODO: translate (English for now)
 #: ui/stalled.slint
 msgid "Terminate"
-msgstr "Terminate"
+msgstr "Sonlandır"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "The previous EveryGrep window is still closing"
-msgstr "The previous EveryGrep window is still closing"
+msgstr "EveryGrep hâlâ kapanıyor"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance."
-msgstr "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance."
+msgstr "Bu birkaç saniye sürebilir. Kapanır kapanmaz EveryGrep açılır; çalışan örneği sonlandırabilirsiniz de."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "The open EveryGrep window does not answer"
-msgstr "The open EveryGrep window does not answer"
+msgstr "Açık EveryGrep penceresi yanıt vermiyor"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Terminate the existing instance? EveryGrep opens as soon as it has ended."
-msgstr "Terminate the existing instance? EveryGrep opens as soon as it has ended."
+msgstr "Çalışan örnek sonlandırılsın mı? Sona erer ermez EveryGrep açılır."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Waiting for EveryGrep to close…"
-msgstr "Waiting for EveryGrep to close…"
+msgstr "EveryGrep'in kapanması bekleniyor…"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "The previous EveryGrep window did not close in time"
-msgstr "The previous EveryGrep window did not close in time"
+msgstr "EveryGrep'in kapanması beklenirken süre doldu"
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Try again in a moment, or end it in System Monitor."
-msgstr "Try again in a moment, or end it in System Monitor."
+msgstr "Biraz sonra yeniden deneyin veya Sistem İzleyicisi'nde sonlandırın."
 
-# TODO: translate (English for now)
 #: src/labels.rs
 msgid "Cannot terminate the existing instance: {}"
-msgstr "Cannot terminate the existing instance: {}"
+msgstr "Çalışan örnek sonlandırılamadı: {}"
 
 #: src/commands.rs
 msgid "Previous filter"
