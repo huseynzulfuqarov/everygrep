@@ -472,7 +472,8 @@ A frozen filter that differs from the live one is available in the same
 selector; choosing another filter leaves the snapshot unused.
 
 Advanced Search (Search menu, Ctrl+Shift+F) is a separate window with a session
-form. Words may use `*` and `?`; the exact phrase is literal. Name/path, location
+form; with the window already open the key brings it to the front (shown again
+as a new surface, as the main window is). Words may use `*` and `?`; the exact phrase is literal. Name/path, location
 and subfolder scope, the existing filter choices, type, extension and inclusive
 size/date ranges build the query. Dates are local YYYY-MM-DD. Empty bounds are
 unrestricted; invalid or reversed ranges leave the main field unchanged.

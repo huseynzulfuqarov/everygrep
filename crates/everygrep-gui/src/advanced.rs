@@ -77,6 +77,10 @@ impl State {
         *self.filters.borrow_mut() = filters;
         crate::prefs::with(|p| apply_scheme(p.color_scheme()));
         if let Some(w) = self.window.borrow().as_ref() {
+            // An open window may be behind the main window. As for the main
+            // window (see `raise` in main.rs), showing it again gives a new
+            // surface, which GNOME brings to the front with the focus.
+            let _ = w.hide();
             let _ = w.show();
         }
     }
