@@ -74,6 +74,20 @@ impl HashStore {
         }
     }
 
+    /// Clears on a helper thread of its own and reports the result and usage
+    /// there. Not on the settings thread: a clear that waits for a slow
+    /// cache read or save must not hold up the settings saves after it.
+    pub fn clear_later(
+        self: &std::sync::Arc<Self>,
+        done: impl FnOnce(io::Result<()>, u64) + Send + 'static,
+    ) {
+        let store = std::sync::Arc::clone(self);
+        std::thread::spawn(move || {
+            let result = store.clear();
+            done(result, store.bytes());
+        });
+    }
+
     /// Bytes the hashes take in the file: those in memory once it was read,
     /// otherwise the size of the file.
     pub fn bytes(&self) -> u64 {
@@ -169,6 +183,46 @@ mod tests {
     use super::*;
     use everygrep_core::hash::FileKey;
     use everygrep_core::hashcache::Cached;
+
+    #[test]
+    fn a_clear_holds_up_neither_the_caller_nor_later_settings_saves() {
+        use std::sync::{Arc, mpsc};
+        use std::time::{Duration, Instant};
+        let store = Arc::new(HashStore::default());
+        let held = Arc::clone(&store);
+        let (ready_tx, ready) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let _cache = held.cache().lock().unwrap();
+            ready_tx.send(()).unwrap();
+            let _ = blocked.recv_timeout(Duration::from_secs(2));
+        });
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        let writer = crate::settings::Writer::start();
+        let (done_tx, done) = mpsc::channel();
+        let start = Instant::now();
+        store.clear_later(move |result, used| done_tx.send((result.is_ok(), used)).unwrap());
+        let elapsed = start.elapsed();
+        // A settings save asked after the clear is not held up by it.
+        writer.run(|| {});
+        let saves_done = writer.wait_done(Duration::from_millis(500));
+        let waiting = done.try_recv().is_err();
+        let _ = release.send(());
+        reader.join().unwrap();
+        assert!(
+            elapsed < Duration::from_millis(300),
+            "clear took {elapsed:?}"
+        );
+        assert!(saves_done, "a later settings save waited for the clear");
+        assert!(
+            waiting,
+            "clear should still have been queued behind the read"
+        );
+        assert_eq!(
+            done.recv_timeout(Duration::from_secs(5)).unwrap(),
+            (true, 0)
+        );
+    }
 
     #[test]
     fn moving_takes_the_file_or_the_cache_along() {

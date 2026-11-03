@@ -2479,18 +2479,23 @@ impl Prefs {
 
     /// Empties the hash cache and removes its file.
     fn clear_hash_cache(&self) {
-        let result = self.engine.hashes.clear();
-        if let Some(w) = self.window.borrow().as_ref() {
-            w.set_hash_cache_used(
-                crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
-            );
-        }
-        if let Err(e) = result {
-            self.set_error(Some(i18n::fill(
-                i18n::tr("Could not remove the hash cache file: {}"),
-                &[&e.to_string()],
-            )));
-        }
+        self.engine.hashes.clear_later(|result, used| {
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|p| {
+                    if let Some(w) = p.window.borrow().as_ref() {
+                        w.set_hash_cache_used(
+                            crate::content_settings::hash_cache_used(used).into(),
+                        );
+                    }
+                    if let Err(e) = result {
+                        p.set_error(Some(i18n::fill(
+                            i18n::tr("Could not remove the hash cache file: {}"),
+                            &[&e.to_string()],
+                        )));
+                    }
+                });
+            });
+        });
     }
 
     /// A saved query may override parsing for its own expression. The next
