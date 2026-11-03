@@ -675,12 +675,12 @@ impl Read for Piped<'_> {
             if self.progress.is_cancelled() {
                 return Err(io::Error::other("cancelled"));
             }
+            if std::time::Instant::now() >= self.deadline {
+                self.timed_out = true;
+                return Err(io::Error::from(io::ErrorKind::TimedOut));
+            }
             match self.inner.read(buf) {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    if std::time::Instant::now() >= self.deadline {
-                        self.timed_out = true;
-                        return Err(io::Error::from(io::ErrorKind::TimedOut));
-                    }
                     std::thread::sleep(Duration::from_millis(2));
                 }
                 other => return other,
@@ -1279,6 +1279,45 @@ mod tests {
             objects.len() + 1
         ));
         out.into_bytes()
+    }
+
+    #[test]
+    fn a_pdf_pipe_times_out_with_continuous_output_as_well_as_silence() {
+        use std::process::{Command, Stdio};
+        for continuous in [true, false] {
+            let mut command = Command::new(if continuous { "yes" } else { "sleep" });
+            if !continuous {
+                command.arg("5");
+            }
+            let mut child = command
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut stdout = child.stdout.take().unwrap();
+            // Ensure output is already available before setting an expired deadline.
+            if continuous {
+                stdout.read_exact(&mut [0; 1]).unwrap();
+            }
+            let flags = rustix::fs::fcntl_getfl(&stdout).unwrap();
+            rustix::fs::fcntl_setfl(&stdout, flags | rustix::fs::OFlags::NONBLOCK).unwrap();
+            let progress = Progress::new();
+            let mut reader = Piped {
+                inner: stdout,
+                progress: &progress,
+                deadline: std::time::Instant::now(),
+                timed_out: false,
+            };
+            let read = reader.read(&mut [0; 4096]);
+            let _ = child.kill();
+            child.wait().unwrap();
+            assert_eq!(
+                read.unwrap_err().kind(),
+                io::ErrorKind::TimedOut,
+                "continuous={continuous}"
+            );
+            assert!(reader.timed_out);
+        }
     }
 
     #[test]
