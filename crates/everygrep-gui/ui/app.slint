@@ -2255,7 +2255,7 @@ export component AppWindow inherits Window {
             if (root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) { return false; }
             return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
         }
-        if (root.can-run(c) || (!root.confirm-open && !root.fileops-rename-open && !root.fileops-conflict-open && root.current >= 0 && root.needs-online(c))) {
+        if (root.can-run(c) || (!root.confirm-open && !root.fileops-rename-open && !root.fileops-conflict-open && ((root.current >= 0 && root.needs-online(c)) || c == Command.undo-file || c == Command.redo-file))) {
             root.run(c);
         }
         true

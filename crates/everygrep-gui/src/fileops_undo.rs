@@ -145,8 +145,24 @@ static JOURNAL: Mutex<Journal> = Mutex::new(Journal {
 });
 // Serializes this program's destructive operations, never held by the UI.
 static FILES: Mutex<()> = Mutex::new(());
-pub fn file_guard() -> std::sync::MutexGuard<'static, ()> {
-    FILES.lock().expect("file operations")
+pub struct FileGuard(Option<std::sync::MutexGuard<'static, ()>>);
+impl FileGuard {
+    fn new(guard: std::sync::MutexGuard<'static, ()>) -> Self {
+        crate::fileops_undo_ui::request_refresh();
+        Self(Some(guard))
+    }
+}
+impl Drop for FileGuard {
+    fn drop(&mut self) {
+        drop(self.0.take());
+        crate::fileops_undo_ui::request_refresh();
+    }
+}
+pub fn file_guard() -> FileGuard {
+    FileGuard::new(FILES.lock().expect("file operations"))
+}
+fn try_file_guard() -> Option<FileGuard> {
+    FILES.try_lock().ok().map(FileGuard::new)
 }
 
 pub fn configure(s: &Settings) {
@@ -156,6 +172,8 @@ pub fn configure(s: &Settings) {
     }
     c.enabled = s.undo_enabled;
     c.limit = s.undo_limit;
+    drop(c);
+    crate::fileops_undo_ui::request_refresh();
 }
 fn config() -> Config {
     *CONFIG.lock().expect("configuration")
@@ -415,7 +433,7 @@ fn ensure_absent(path: &Path) -> Result<(), String> {
 /// Renames, and records the rename when undo is on. The answer is a notice
 /// for the user when undo history could not follow the rename.
 pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameError> {
-    let _files = FILES.try_lock().map_err(|_| {
+    let _files = try_file_guard().ok_or_else(|| {
         actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
     })?;
     let c = config();
@@ -637,7 +655,7 @@ pub enum Request {
     Through(u64),
 }
 pub fn run(request: Request, progress: &Progress) -> (String, bool) {
-    let Ok(_files) = FILES.try_lock() else {
+    let Some(_files) = try_file_guard() else {
         return (tr("A file operation is still running.").into(), true);
     };
     let c = config();
@@ -904,6 +922,18 @@ mod tests {
         j.cursor = 0;
         assert_eq!(j.availability(true), (false, true));
         assert_eq!(j.availability(false), (false, false));
+    }
+
+    #[test]
+    fn file_guard_disables_actions_and_releases_on_early_return() {
+        fn attempt() {
+            let _guard = file_guard();
+            assert_eq!(availability(), (false, false));
+            assert!(try_file_guard().is_none());
+        }
+        attempt();
+        let _guard = file_guard();
+        assert_eq!(availability(), (false, false));
     }
 
     #[test]

@@ -10,25 +10,35 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-thread_local! { static ACTION_TIMER: slint::Timer = slint::Timer::default(); }
+thread_local! { static MAIN: RefCell<Vec<slint::Weak<AppWindow>>> = const { RefCell::new(Vec::new()) }; }
+static CONNECTED: AtomicBool = AtomicBool::new(false);
+
+pub fn request_refresh() {
+    if CONNECTED.load(Ordering::Relaxed) {
+        let _ = slint::invoke_from_event_loop(refresh_actions);
+    }
+}
+
+pub fn refresh_actions() {
+    let (undo, redo) = fileops_undo::availability();
+    MAIN.with(|windows| {
+        windows.borrow_mut().retain(|weak| {
+            let Some(w) = weak.upgrade() else {
+                return false;
+            };
+            w.set_file_can_undo(undo);
+            w.set_file_can_redo(redo);
+            true
+        })
+    });
+}
 thread_local! { static WINDOW: RefCell<Option<FileUndoWindow>> = const { RefCell::new(None) }; }
 static BUSY: AtomicBool = AtomicBool::new(false);
 
 pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
-    ACTION_TIMER.with(|timer| {
-        let weak = w.as_weak();
-        timer.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(100),
-            move || {
-                if let Some(w) = weak.upgrade() {
-                    let (undo, redo) = fileops_undo::availability();
-                    w.set_file_can_undo(undo);
-                    w.set_file_can_redo(redo);
-                }
-            },
-        );
-    });
+    MAIN.with(|windows| windows.borrow_mut().push(w.as_weak()));
+    CONNECTED.store(true, Ordering::Relaxed);
+    refresh_actions();
     w.on_file_undo({
         let (weak, engine) = (w.as_weak(), engine.clone());
         move |redo| {
@@ -53,6 +63,7 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
 
 fn reverse(w: &AppWindow, engine: &Arc<Engine>, request: Request) {
     if BUSY.swap(true, Ordering::SeqCst) {
+        crate::info(w, tr("A file operation is still running.").into());
         return;
     }
     let (weak, engine) = (w.as_weak(), engine.clone());
@@ -67,6 +78,7 @@ fn reverse(w: &AppWindow, engine: &Arc<Engine>, request: Request) {
         drop(job);
         let _ = weak.upgrade_in_event_loop(move |w| {
             BUSY.store(false, Ordering::SeqCst);
+            refresh_actions();
             if failed {
                 crate::error(&w, text.clone());
             } else {
@@ -97,6 +109,7 @@ fn refresh(w: &FileUndoWindow) {
     std::thread::spawn(move || {
         let view = fileops_undo::view(filter);
         let _ = weak.upgrade_in_event_loop(move |w| {
+            refresh_actions();
             if w.get_revision() != revision {
                 return;
             }
@@ -201,6 +214,7 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
                         let result = export();
                         let _ = weak.upgrade_in_event_loop(move |w| {
                             BUSY.store(false, Ordering::SeqCst);
+                            refresh_actions();
                             w.set_busy(false);
                             if let Err(e) = result {
                                 w.set_notice(
@@ -245,6 +259,7 @@ fn export() -> Result<(), String> {
 }
 
 pub fn refresh_open() {
+    refresh_actions();
     WINDOW.with(|slot| {
         if let Some(w) = slot.borrow().as_ref() {
             refresh(w);
