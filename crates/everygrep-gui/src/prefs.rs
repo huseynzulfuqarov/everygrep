@@ -1123,11 +1123,12 @@ impl Prefs {
         self.refresh();
     }
 
-    pub fn set_folders(&self, visible: bool, width: f32, recursive: bool) {
+    pub fn set_folders(&self, visible: bool, width: f32, recursive: bool, dim_empty: bool) {
         self.change(move |s| {
             s.folders_visible = visible;
             s.folders_width = width.clamp(140.0, 600.0);
             s.folders_recursive = recursive;
+            s.folders_dim_empty = dim_empty;
         });
     }
 
@@ -1158,6 +1159,7 @@ impl Prefs {
         m.set_folders_visible(s.folders_visible);
         m.set_folders_width(s.folders_width);
         m.set_folders_recursive(s.folders_recursive);
+        m.set_folders_dim_empty(s.folders_dim_empty);
     }
 
     /// Packs the main window's list as the density setting says.

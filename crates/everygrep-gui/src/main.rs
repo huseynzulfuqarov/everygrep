@@ -2428,6 +2428,8 @@ fn show_results(w: &AppWindow, result: SearchResult) {
         }
         w.set_rename_row(row.map_or(-1, |r| r as i32));
     });
+    // Folders without these results are shown grey.
+    folders::results_changed();
     if count == 0 {
         w.set_current(-1);
     } else if let Some(row) = kept {

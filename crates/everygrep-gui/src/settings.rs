@@ -420,6 +420,8 @@ pub struct Settings {
     pub folders_visible: bool,
     pub folders_width: f32,
     pub folders_recursive: bool,
+    /// Whether folders that hold none of the current results are grey.
+    pub folders_dim_empty: bool,
     pub language: LanguageChoice,
     /// Removable drives: indexed automatically, kept when removed, and the
     /// drives never indexed.
@@ -496,6 +498,7 @@ impl Default for Settings {
             folders_visible: false,
             folders_width: 220.0,
             folders_recursive: true,
+            folders_dim_empty: true,
             language: LanguageChoice::System,
             drives: DriveSettings::default(),
             shortcuts: Vec::new(),
@@ -808,6 +811,7 @@ impl Settings {
                 .is_some(),
             "folders-visible" => put_flag(&mut self.folders_visible),
             "folders-subfolders" => put_flag(&mut self.folders_recursive),
+            "folders-grey-empty" => put_flag(&mut self.folders_dim_empty),
             "folders-width" => width(value)
                 .map(|v| self.folders_width = v.clamp(140.0, 600.0))
                 .is_some(),
@@ -1488,6 +1492,12 @@ impl Settings {
             self.folders_recursive,
             d.folders_recursive,
         );
+        flag(
+            &mut out,
+            "folders-grey-empty",
+            self.folders_dim_empty,
+            d.folders_dim_empty,
+        );
         if all || self.folders_width != d.folders_width {
             line(&mut out, "folders-width", &self.folders_width.to_string());
         }
@@ -1813,6 +1823,7 @@ impl Settings {
                 self.folders_visible = d.folders_visible;
                 self.folders_width = d.folders_width;
                 self.folders_recursive = d.folders_recursive;
+                self.folders_dim_empty = d.folders_dim_empty;
                 self.open_searches_in_tabs = d.open_searches_in_tabs;
                 self.switch_to_new_tab = d.switch_to_new_tab;
                 self.restore_session = d.restore_session;

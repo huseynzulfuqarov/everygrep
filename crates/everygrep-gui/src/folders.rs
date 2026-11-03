@@ -1,4 +1,5 @@
 //! Indexed folders only. Tree traversal and sorting run on a single worker.
+//! Folders that hold none of the current results can be shown grey.
 use crate::{AppWindow, FolderEntry, engine::Engine};
 use everygrep_core::{index::Index, store::NodeId};
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
@@ -26,12 +27,18 @@ struct Row {
     children: bool,
     expanded: bool,
     offline: bool,
+    /// Neither the folder nor anything in it is among the current results.
+    empty: bool,
 }
+/// The listed results and the engine epoch they belong to.
+type Results = (Arc<Vec<NodeId>>, u64);
 struct Ask {
     visible: bool,
     serial: u64,
     view: View,
     all: Option<bool>,
+    /// Given when folders without results are shown grey.
+    results: Option<Results>,
 }
 struct Answer {
     epoch: u64,
@@ -70,7 +77,35 @@ pub fn restore(view: &View) {
     });
 }
 
-fn build(index: &Index, mut view: View, all: Option<bool>) -> (Vec<Row>, View) {
+/// Marks every folder that is, or holds, one of `ids`: each result marks
+/// its folders up to the first one marked already, so each node is
+/// visited at most once.
+fn holding(index: &Index, ids: &[NodeId]) -> Vec<bool> {
+    let store = index.store();
+    let mut marked = vec![false; store.len()];
+    for &id in ids {
+        if id.index() >= store.len() || !store.is_live(id) {
+            continue;
+        }
+        let mut node = Some(id);
+        while let Some(n) = node {
+            if std::mem::replace(&mut marked[n.index()], true) {
+                break;
+            }
+            node = store.parent(n);
+        }
+    }
+    marked
+}
+
+/// The rows of the tree. With `hits` (see [`holding`]) folders that hold
+/// no result are marked empty.
+fn build(
+    index: &Index,
+    mut view: View,
+    all: Option<bool>,
+    hits: Option<&[bool]>,
+) -> (Vec<Row>, View) {
     if all == Some(false) {
         view.expanded.clear();
     }
@@ -100,12 +135,22 @@ fn build(index: &Index, mut view: View, all: Option<bool>) -> (Vec<Row>, View) {
             children: !children.is_empty(),
             expanded,
             offline: index.is_offline(id),
+            empty: hits.is_some_and(|h| !h.get(id.index()).copied().unwrap_or(false)),
         });
         if expanded {
             pending.extend(children.into_iter().rev().map(|c| (c, depth + 1)));
         }
     }
     (rows, view)
+}
+
+/// The results changed: folders without results are marked again.
+pub fn results_changed() {
+    with(|s| {
+        if s.visible.get() && s.main.upgrade().is_some_and(|w| w.get_folders_dim_empty()) {
+            s.ask(None);
+        }
+    });
 }
 
 pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
@@ -115,6 +160,9 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
     std::thread::spawn(move || {
         let Ok(mut ask) = receive.recv() else { return };
         let mut previous = None;
+        // The marks of the results last asked about, kept while the index
+        // and the results stay the same.
+        let mut marks: Option<(Arc<Vec<NodeId>>, u64, Vec<bool>)> = None;
         loop {
             for newer in receive.try_iter() {
                 if newer.serial > ask.serial {
@@ -127,7 +175,21 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
                 if previous != Some(key) {
                     previous = Some(key);
                     let epoch = worker.epoch();
-                    let (rows, view) = build(&index, ask.view.clone(), ask.all.take());
+                    let hits = match &ask.results {
+                        // Results of another index say nothing about this one.
+                        Some((ids, at)) if *at == epoch => {
+                            let version = index.version();
+                            let same = marks
+                                .as_ref()
+                                .is_some_and(|(i, v, _)| Arc::ptr_eq(i, ids) && *v == version);
+                            if !same {
+                                marks = Some((Arc::clone(ids), version, holding(&index, ids)));
+                            }
+                            marks.as_ref().map(|(_, _, m)| m.as_slice())
+                        }
+                        _ => None,
+                    };
+                    let (rows, view) = build(&index, ask.view.clone(), ask.all.take(), hits);
                     drop(index);
                     // Keep worker state on timeouts; no repeated UI cloning of
                     // a fully expanded tree while the index stays unchanged.
@@ -174,6 +236,7 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
                         w.get_folders_visible(),
                         w.get_folders_width(),
                         w.get_folders_recursive(),
+                        w.get_folders_dim_empty(),
                     )
                 });
                 s.ask(None);
@@ -223,6 +286,7 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
                             expanded: r.expanded,
                             selected: selected.as_ref() == Some(&r.path),
                             offline: r.offline,
+                            empty: r.empty,
                         })
                         .collect::<Vec<_>>(),
                 )));
@@ -249,13 +313,19 @@ impl State {
     }
     fn ask(&self, all: Option<bool>) {
         self.serial.set(self.serial.get().wrapping_add(1));
-        let visible = self.main.upgrade().is_some_and(|w| w.get_folders_visible());
+        let w = self.main.upgrade();
+        let visible = w.as_ref().is_some_and(|w| w.get_folders_visible());
         self.visible.set(visible);
+        let mut results = None;
+        if let Some(w) = w.as_ref().filter(|w| w.get_folders_dim_empty()) {
+            crate::with_model(w, |m| results = Some(m.snapshot()));
+        }
         let _ = self.send.send(Ask {
             visible,
             serial: self.serial.get(),
             view: self.capture(),
             all,
+            results,
         });
     }
     fn action(&self, row: i32, kind: i32) {
@@ -408,19 +478,51 @@ mod tests {
         store.add(Some(root), b"file", false, Meta::default());
         store.add(Some(z), b"deep", true, Meta::default());
         let index = Index::new(store);
-        let (rows, _) = build(&index, View::default(), None);
+        let (rows, _) = build(&index, View::default(), None, None);
         assert_eq!(rows.len(), 1);
         assert!(rows[0].children);
-        let (rows, view) = build(&index, View::default(), Some(true));
+        let (rows, view) = build(&index, View::default(), Some(true), None);
         assert_eq!(
             rows.iter()
                 .map(|r| (r.name.as_str(), r.depth))
                 .collect::<Vec<_>>(),
             [("/tmp/index-only", 0), ("a", 1), ("z", 1), ("deep", 2)]
         );
-        let (rows, view) = build(&index, view, Some(false));
+        let (rows, view) = build(&index, view, Some(false), None);
         assert_eq!(rows.len(), 1);
         assert!(view.expanded.is_empty());
+    }
+    #[test]
+    fn folders_without_results_are_marked_empty() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/tmp/tree-empty", true, Meta::default());
+        let docs = store.add(Some(root), b"docs", true, Meta::default());
+        let deep = store.add(Some(docs), b"deep", true, Meta::default());
+        let hit = store.add(Some(deep), b"hit.txt", false, Meta::default());
+        store.add(Some(root), b"music", true, Meta::default());
+        let pics = store.add(Some(root), b"pics", true, Meta::default());
+        let index = Index::new(store);
+        let marks = holding(&index, &[hit, pics]);
+        let (rows, _) = build(&index, View::default(), Some(true), Some(&marks));
+        let empty: Vec<_> = rows.iter().map(|r| (r.name.as_str(), r.empty)).collect();
+        assert_eq!(
+            empty,
+            [
+                ("/tmp/tree-empty", false),
+                ("docs", false),
+                ("deep", false),
+                ("music", true),
+                // A folder that is itself a result is not empty.
+                ("pics", false),
+            ]
+        );
+        // Without results to compare (none asked, or another index) no
+        // folder is grey; no result at all makes every folder grey.
+        let (rows, _) = build(&index, View::default(), Some(true), None);
+        assert!(rows.iter().all(|r| !r.empty));
+        let none = holding(&index, &[]);
+        let (rows, _) = build(&index, View::default(), Some(true), Some(&none));
+        assert!(rows.iter().all(|r| r.empty));
     }
     #[test]
     fn children_use_the_result_lists_natural_order() {
@@ -429,7 +531,7 @@ mod tests {
         for name in [b"a10".as_slice(), b"a2", b"A1"] {
             store.add(Some(root), name, true, Meta::default());
         }
-        let (rows, _) = build(&Index::new(store), View::default(), Some(true));
+        let (rows, _) = build(&Index::new(store), View::default(), Some(true), None);
         assert_eq!(
             rows[1..]
                 .iter()
@@ -445,13 +547,13 @@ mod tests {
         let root = store.add(None, b"/tmp/tree-offline", true, Meta::default());
         let child = store.add(Some(root), b"child", true, Meta::default());
         let mut index = Index::new(store);
-        let (_, view) = build(&index, View::default(), Some(true));
+        let (_, view) = build(&index, View::default(), Some(true), None);
         index.set_offline(root, true);
-        let (rows, _) = build(&index, view.clone(), None);
+        let (rows, _) = build(&index, view.clone(), None, None);
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.offline));
         index.remove(child);
-        let (rows, _) = build(&index, view, None);
+        let (rows, _) = build(&index, view, None, None);
         assert_eq!(rows.len(), 1);
         assert!(!rows[0].children);
     }
@@ -462,12 +564,12 @@ mod tests {
         let root = store.add(None, b"/tmp/tree-tabs", true, Meta::default());
         store.add(Some(root), b"child", true, Meta::default());
         let index = Index::new(store);
-        let (_, first) = build(&index, View::default(), Some(true));
+        let (_, first) = build(&index, View::default(), Some(true), None);
         let mut other = first.clone();
         other.selected = Some(PathBuf::from("/tmp/tree-tabs/child"));
-        let (_, other) = build(&index, other, Some(false));
-        assert_eq!(build(&index, first.clone(), None).0.len(), 2);
-        assert_eq!(build(&index, other, None).0.len(), 1);
+        let (_, other) = build(&index, other, Some(false), None);
+        assert_eq!(build(&index, first.clone(), None, None).0.len(), 2);
+        assert_eq!(build(&index, other, None, None).0.len(), 1);
         assert!(first.selected.is_none());
     }
 
@@ -476,7 +578,7 @@ mod tests {
         let mut store = NodeStore::new();
         let root = store.add(None, b"/tmp/tree-open", true, Meta::default());
         let mut index = Index::new(store);
-        let (rows, _) = build(&index, View::default(), None);
+        let (rows, _) = build(&index, View::default(), None, None);
         assert!(still_online(&index, &rows[0], 1, 1));
         assert!(!still_online(&index, &rows[0], 1, 2));
         index.set_offline(root, true);
@@ -493,7 +595,7 @@ mod tests {
         let root = store.add(None, b"/tmp/tree-raw", true, Meta::default());
         store.add(Some(root), b"a\xff\"|<>*?", true, Meta::default());
         let index = Index::new(store);
-        let (rows, _) = build(&index, View::default(), Some(true));
+        let (rows, _) = build(&index, View::default(), Some(true), None);
         assert_eq!(
             rows[1].path.as_os_str().as_bytes(),
             b"/tmp/tree-raw/a\xff\"|<>*?"
@@ -503,13 +605,15 @@ mod tests {
 
     #[test]
     fn panel_settings_round_trip_and_reject_bad_widths() {
+        assert!(crate::settings::Settings::default().folders_dim_empty);
         let s = crate::settings::Settings::parse(
-            "folders-visible = true\nfolders-width = 310\nfolders-subfolders = false\n",
+            "folders-visible = true\nfolders-width = 310\nfolders-subfolders = false\nfolders-grey-empty = false\n",
         );
         let s = crate::settings::Settings::parse(&s.to_text());
         assert!(s.folders_visible);
         assert_eq!(s.folders_width, 310.0);
         assert!(!s.folders_recursive);
+        assert!(!s.folders_dim_empty);
         let s = crate::settings::Settings::parse("folders-width = NaN\n");
         assert_eq!(s.folders_width, 220.0);
         assert_eq!(s.problems.len(), 1);

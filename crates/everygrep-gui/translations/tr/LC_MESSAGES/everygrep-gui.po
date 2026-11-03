@@ -3985,3 +3985,7 @@ msgstr "Ayarlar dosyası bu pencerenin dışında değiştirildi"
 #: src/labels.rs
 msgid "Apply the settings it holds now? Cancel: this window keeps its settings until the next start, and you are asked again only when the file changes again."
 msgstr "İçindeki ayarlar şimdi uygulansın mı? İptal: bu pencere bir sonraki açılışa kadar kendi ayarlarını korur ve dosya yeniden değişene kadar bir daha sorulmaz."
+
+#: ui/folders.slint
+msgid "Grey out folders without results"
+msgstr "Sonuç içermeyen klasörleri gri göster"

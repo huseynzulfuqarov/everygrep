@@ -2,10 +2,13 @@ import { Button, CheckBox, ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 export struct FolderEntry {
     name: string, depth: int, children: bool, expanded: bool, selected: bool, offline: bool,
+    // Holds none of the current results.
+    empty: bool,
 }
 export component FoldersPanel inherits Rectangle {
     in property <[FolderEntry]> entries;
     in-out property <bool> recursive: true;
+    in-out property <bool> dim-empty: true;
     in-out property <int> current: -1;
     in-out property <length> scroll-y <=> tree-list.content-y;
     callback action(int, int);
@@ -61,6 +64,13 @@ export component FoldersPanel inherits Rectangle {
                     MenuItem { title: @tr("Expand all"); activated => { root.action(-1, 2); } }
                     MenuItem { title: @tr("Collapse all"); activated => { root.action(-1, 3); } }
                     MenuItem { title: @tr("Locate selected result"); activated => { root.action(-1, 8); } }
+                    MenuSeparator { }
+                    MenuItem {
+                        title: @tr("Grey out folders without results");
+                        checkable: true;
+                        checked <=> root.dim-empty;
+                        activated => { root.recursive-changed(); }
+                    }
                 }
                 Button { text: @tr("Folder actions"); clicked => { actions.show({ x: 0px, y: self.height }); } }
             }
@@ -95,7 +105,7 @@ export component FoldersPanel inherits Rectangle {
                             }
                             Text {
                                 text: item.name;
-                                color: item.selected ? Theme.selection-text : item.offline ? Theme.text-offline : Theme.text;
+                                color: item.selected ? Theme.selection-text : item.offline ? Theme.text-offline : item.empty ? Theme.text-muted : Theme.text;
                                 overflow: elide; vertical-alignment: center;
                             }
                         }

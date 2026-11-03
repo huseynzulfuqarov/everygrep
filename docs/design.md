@@ -151,7 +151,10 @@ screen; when a change conflicts with them, the rules win or are changed first.
   state and says so in the note. Its key is not decided yet.
 - **Folder panel,** hidden by default on the left: indexed roots and folders,
   with expand/collapse buttons, keyboard arrows and Enter to search the folder.
-  Include subfolders is on by default. Choosing a folder replaces the search
+  Include subfolders is on by default. Folders that hold none of the current
+  results are grey (Folder actions → "Grey out folders without results", on
+  by default; while the results are not given yet, or belong to an older
+  index, no folder is grey). Choosing a folder replaces the search
   with an explicit, boundary-safe location query; the field shows it as a
   label with the folder's name (full path as its tip, "(no subfolders)" when
   subfolders are left out) in front of the text, so terms typed after it

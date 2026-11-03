@@ -1693,6 +1693,7 @@ export component AppWindow inherits Window {
     in-out property <bool> folders-visible;
     in-out property <float> folders-width: 220;
     in-out property <bool> folders-recursive: true;
+    in-out property <bool> folders-dim-empty: true;
     in property <[FolderEntry]> folder-entries;
     in-out property <int> folder-current: -1;
     in-out property <length> folders-scroll-y;
@@ -3897,6 +3898,7 @@ export component AppWindow inherits Window {
                     current <=> root.folder-current;
                     scroll-y <=> root.folders-scroll-y;
                     recursive <=> root.folders-recursive;
+                    dim-empty <=> root.folders-dim-empty;
                     action(row, kind) => { root.folder-action(row, kind); }
                     recursive-changed => { root.folders-changed(); }
                     close => { root.run(Command.close-folders-panel); }

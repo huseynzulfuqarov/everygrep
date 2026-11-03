@@ -622,6 +622,7 @@ impl State {
         // A frequency column shown now needs a search to count the index.
         let counting = !counted && self.model.frequency_columns().any();
         self.model.restore(tab.result.as_ref());
+        crate::folders::results_changed();
         w.set_current(if self.model.row_count() == 0 {
             -1
         } else {
