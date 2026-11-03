@@ -129,13 +129,19 @@ pub struct Writer {
     format: Format,
     zone: Zone,
     rows: usize,
+    protect_formulas: bool,
 }
 
 impl Writer {
     /// Starts an export to `target`: creates the temporary file next to it
     /// and writes the start of the format (a header line, the playlist tag,
     /// the opening of the array or the page).
-    pub fn create(target: &Path, format: Format, zone: Zone) -> io::Result<Self> {
+    pub fn create(
+        target: &Path,
+        format: Format,
+        zone: Zone,
+        protect_formulas: bool,
+    ) -> io::Result<Self> {
         let (file, tmp) = crate::settings::create_temp(target)?;
         let mut w = Self {
             out: BufWriter::with_capacity(1 << 16, file),
@@ -144,6 +150,7 @@ impl Writer {
             format,
             zone,
             rows: 0,
+            protect_formulas,
         };
         let head: &[u8] = match format {
             Format::Csv => b"Name,Folder,Size,Modified,Offline\r\n",
@@ -164,17 +171,39 @@ impl Writer {
     pub fn row(&mut self, row: &Row) -> io::Result<()> {
         let out = &mut self.out;
         match self.format {
-            Format::Tsv => {
-                text_line(out, row.name)?;
-                out.write_all(b"\t")?;
-                text_line(out, row.folder)?;
-                writeln!(
-                    out,
-                    "\t{}\t{}\t{}",
-                    row.size,
-                    local_time(row.mtime_ns, &self.zone),
-                    if row.offline { "yes" } else { "" }
-                )?;
+            Format::Csv | Format::Tsv => {
+                let size = row.size.to_string();
+                let modified = local_time(row.mtime_ns, &self.zone);
+                let offline = if row.offline { &b"yes"[..] } else { &b""[..] };
+                for (i, cell) in [
+                    row.name,
+                    row.folder,
+                    size.as_bytes(),
+                    modified.as_bytes(),
+                    offline,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    if i > 0 {
+                        out.write_all(if self.format == Format::Csv {
+                            b","
+                        } else {
+                            b"\t"
+                        })?;
+                    }
+                    if self.format == Format::Csv {
+                        csv_field(out, cell, self.protect_formulas)?;
+                    } else {
+                        out.write_all(formula_prefix(cell, self.protect_formulas))?;
+                        text_line(out, cell)?;
+                    }
+                }
+                out.write_all(if self.format == Format::Csv {
+                    b"\r\n"
+                } else {
+                    b"\n"
+                })?;
             }
             Format::M3u8 => {
                 let path = full_path_bytes(row);
@@ -209,18 +238,6 @@ impl Writer {
                 writeln!(
                     out,
                     "</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                    row.size,
-                    local_time(row.mtime_ns, &self.zone),
-                    if row.offline { "yes" } else { "" }
-                )?;
-            }
-            Format::Csv => {
-                csv_field(out, row.name)?;
-                out.write_all(b",")?;
-                csv_field(out, row.folder)?;
-                write!(
-                    out,
-                    ",{},{},{}\r\n",
                     row.size,
                     local_time(row.mtime_ns, &self.zone),
                     if row.offline { "yes" } else { "" }
@@ -345,12 +362,23 @@ fn text_line(out: &mut impl Write, text: &[u8]) -> io::Result<()> {
     out.write_all(&text[start..])
 }
 
+/// Spreadsheet protection is applied to original bytes before escaping.
+fn formula_prefix(text: &[u8], protect: bool) -> &'static [u8] {
+    if protect && text.first().is_some_and(|b| b"=+-@\t\r".contains(b)) {
+        b"'"
+    } else {
+        b""
+    }
+}
+
 /// One CSV field, quoted when it has a comma, a quote or a line break.
-fn csv_field(out: &mut impl Write, text: &[u8]) -> io::Result<()> {
+fn csv_field(out: &mut impl Write, text: &[u8], protect: bool) -> io::Result<()> {
     if !text.iter().any(|b| b",\"\n\r".contains(b)) {
+        out.write_all(formula_prefix(text, protect))?;
         return out.write_all(text);
     }
     out.write_all(b"\"")?;
+    out.write_all(formula_prefix(text, protect))?;
     let mut start = 0;
     for (i, b) in text.iter().enumerate() {
         if *b == b'"' {
@@ -418,7 +446,7 @@ mod tests {
     fn csv_and_text_exports() {
         let dir = Scratch::new("export");
         let csv = dir.0.join("out.csv");
-        let mut w = Writer::create(&csv, Format::Csv, utc()).unwrap();
+        let mut w = Writer::create(&csv, Format::Csv, utc(), true).unwrap();
         for r in rows() {
             w.row(&r).unwrap();
         }
@@ -431,7 +459,7 @@ mod tests {
              bad\xffbyte,/,7,1970-01-01 00:00:00,\r\n"
         );
         let txt = dir.0.join("out.txt");
-        let mut w = Writer::create(&txt, Format::Text, utc()).unwrap();
+        let mut w = Writer::create(&txt, Format::Text, utc(), true).unwrap();
         for r in rows() {
             w.row(&r).unwrap();
         }
@@ -444,7 +472,7 @@ mod tests {
         );
         // A line break, tab or backslash in a name is written as an escape,
         // so every result stays one line.
-        let mut w = Writer::create(&txt, Format::Text, utc()).unwrap();
+        let mut w = Writer::create(&txt, Format::Text, utc(), true).unwrap();
         w.row(&Row {
             name: b"a\\b\tc\rd\ne",
             folder: b"/x",
@@ -468,7 +496,7 @@ mod tests {
     fn export_bytes(format: Format, rows: &[Row]) -> Vec<u8> {
         let dir = Scratch::new("export-format");
         let path = dir.0.join(format!("out.{}", format.extension()));
-        let mut w = Writer::create(&path, format, utc()).unwrap();
+        let mut w = Writer::create(&path, format, utc(), true).unwrap();
         for r in rows {
             w.row(r).unwrap();
         }
@@ -502,7 +530,7 @@ mod tests {
     fn playlist_export_leaves_out_paths_with_line_breaks() {
         let dir = Scratch::new("export-m3u8");
         let path = dir.0.join("out.m3u8");
-        let mut w = Writer::create(&path, Format::M3u8, utc()).unwrap();
+        let mut w = Writer::create(&path, Format::M3u8, utc(), true).unwrap();
         for r in rows() {
             w.row(&r).unwrap();
         }
@@ -557,6 +585,90 @@ mod tests {
             b"/f\x80/a\xff,\\t\"\\\\\\n\n"
         );
         assert_eq!(export_bytes(Format::M3u8, rows), b"#EXTM3U\n");
+    }
+
+    #[test]
+    fn spreadsheet_protection_covers_each_trigger_and_can_be_disabled() {
+        let cases: &[(&[u8], &[u8], &[u8])] = &[
+            (b"=x\xff", b"'=x\xff", b"'=x\xff"),
+            (b"+x\xff", b"'+x\xff", b"'+x\xff"),
+            (b"-x\xff", b"'-x\xff", b"'-x\xff"),
+            (b"@x\xff", b"'@x\xff", b"'@x\xff"),
+            (b"\tx\xff", b"'\tx\xff", b"'\\tx\xff"),
+            (b"\rx\xff", b"\"'\rx\xff\"", b"'\\rx\xff"),
+        ];
+        for &(name, csv_cell, tsv_cell) in cases {
+            let row = Row {
+                name,
+                folder: name,
+                size: 1,
+                mtime_ns: 0,
+                offline: false,
+            };
+            for format in [Format::Csv, Format::Tsv] {
+                let protected = export_bytes(format, std::slice::from_ref(&row));
+                let cell = if format == Format::Csv {
+                    csv_cell
+                } else {
+                    tsv_cell
+                };
+                let separator = if format == Format::Csv { b',' } else { b'\t' };
+                let mut expected = cell.to_vec();
+                expected.push(separator);
+                expected.extend_from_slice(cell);
+                assert!(
+                    protected.windows(expected.len()).any(|s| s == expected),
+                    "{format:?}: {name:?}"
+                );
+                let dir = Scratch::new("export-unprotected");
+                let path = dir.0.join("out");
+                let mut writer = Writer::create(&path, format, utc(), false).unwrap();
+                writer.row(&row).unwrap();
+                writer.finish().unwrap();
+                let plain = fs::read(path).unwrap();
+                assert_ne!(plain, protected);
+                assert!(!plain.contains(&b'\''));
+            }
+            let json = export(Format::Json, std::slice::from_ref(&row));
+            assert!(!json.contains('\''));
+        }
+        for cell in [
+            b"".as_slice(),
+            b"normal",
+            b"1+2",
+            b" =x",
+            b"'already",
+            b"\n=x",
+        ] {
+            assert!(formula_prefix(cell, true).is_empty());
+        }
+        let mut csv = Vec::new();
+        csv_field(&mut csv, b"=a,\"b", true).unwrap();
+        assert_eq!(csv, b"\"'=a,\"\"b\"");
+    }
+
+    #[test]
+    fn protection_does_not_change_json_html_text_or_playlists() {
+        let row = Row {
+            name: b"=song.mp3",
+            folder: b"/music",
+            size: 1,
+            mtime_ns: 0,
+            offline: false,
+        };
+        for format in [Format::Json, Format::Html, Format::Text, Format::M3u8] {
+            let protected = export_bytes(format, std::slice::from_ref(&row));
+            let dir = Scratch::new("export-other");
+            let path = dir.0.join("out");
+            let mut writer = Writer::create(&path, format, utc(), false).unwrap();
+            writer.row(&row).unwrap();
+            writer.finish().unwrap();
+            assert_eq!(fs::read(path).unwrap(), protected, "{format:?}");
+        }
+        assert_eq!(
+            export_bytes(Format::M3u8, &[row]),
+            b"#EXTM3U\n/music/=song.mp3\n"
+        );
     }
 
     #[test]
@@ -640,7 +752,7 @@ mod tests {
         let dir = Scratch::new("export-keep");
         let target = dir.0.join("keep.csv");
         fs::write(&target, "old").unwrap();
-        let mut w = Writer::create(&target, Format::Csv, utc()).unwrap();
+        let mut w = Writer::create(&target, Format::Csv, utc(), true).unwrap();
         w.row(&rows()[0]).unwrap();
         w.abandon();
         drop(w);
@@ -657,7 +769,7 @@ mod tests {
         // The temporary name an export of this process used to take.
         let planted = dir.0.join(format!(".out.csv.tmp-{}", std::process::id()));
         std::os::unix::fs::symlink(&victim, &planted).unwrap();
-        let mut w = Writer::create(&target, Format::Text, utc()).unwrap();
+        let mut w = Writer::create(&target, Format::Text, utc(), true).unwrap();
         w.row(&rows()[0]).unwrap();
         assert_eq!(w.finish().unwrap(), 1);
         assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");

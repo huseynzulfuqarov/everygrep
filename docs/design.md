@@ -260,6 +260,11 @@ Continue opens the desktop save dialog with the chosen extension already in
 the filename. A typed known extension chooses that format; the accepted path
 is used exactly. There is no later confirmation dialog. The last successful
 export format is remembered; cancellation and failed writes do not change it.
+Window settings include “Protect spreadsheet formulas in CSV and TSV”
+(`export-protect-formulas`, on by default). It prefixes cells beginning with
+`=`, `+`, `-`, `@`, tab or CR with an apostrophe before delimiter escaping.
+Turning it off writes those original cells. JSON, HTML, Text and M3U8 are
+unaffected. The playlist format remains M3U8 only.
 
 Actions apply to the selected rows when the row they start from is selected,
 otherwise to that row alone. Several selected items give one path or name per

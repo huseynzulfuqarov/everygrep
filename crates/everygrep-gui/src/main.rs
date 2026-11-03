@@ -1645,6 +1645,8 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
             selection.only_selected =
                 w.get_export_only_selected() && selection.selected_count() > 0;
             let ids = selection.rows();
+            let mut protect_formulas = true;
+            prefs::with(|p| protect_formulas = p.export_protect_formulas());
             let (engine, weak) = (engine.clone(), weak.clone());
             std::thread::spawn(move || {
                 let name = format!("everygrep-results.{}", chosen.extension());
@@ -1662,7 +1664,7 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
                         let format = export::saved_format(&target, chosen);
                         exporting_note(&weak, ids.len());
                         Some(
-                            write_export(&engine, &ids, epoch, &target, format)
+                            write_export(&engine, &ids, epoch, &target, format, protect_formulas)
                                 .map(|n| (n, target, format)),
                         )
                     }
@@ -1786,12 +1788,18 @@ fn write_export(
     epoch: u64,
     target: &std::path::Path,
     format: export::Format,
+    protect_formulas: bool,
 ) -> Result<usize, String> {
     use std::os::unix::ffi::OsStrExt;
     const CHUNK: usize = 20_000;
     let failed = |e: std::io::Error| fill(tr("Cannot export: {}"), &[&e]);
-    let mut out = export::Writer::create(target, format, everygrep_core::localtime::Zone::local())
-        .map_err(failed)?;
+    let mut out = export::Writer::create(
+        target,
+        format,
+        everygrep_core::localtime::Zone::local(),
+        protect_formulas,
+    )
+    .map_err(failed)?;
     for chunk in ids.chunks(CHUNK) {
         let index = engine.index.read().expect("index lock");
         if engine.epoch() != epoch {

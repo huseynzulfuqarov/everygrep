@@ -3557,3 +3557,9 @@ msgstr "İşarələnməyəndə bütün nəticələr ixrac olunur."
 
 msgid "Continue…"
 msgstr "Davam et…"
+
+msgid "Protect spreadsheet formulas in CSV and TSV"
+msgstr "CSV və TSV-də cədvəl formulalarından qoru"
+
+msgid "Adds an apostrophe before cells starting with =, +, -, @, tab or carriage return. Other formats keep their contents."
+msgstr "Başlanğıcı =, +, -, @, tab və ya sətir əvvəlinə qayıdış simvolu olan xanalara apostrof əlavə edir. Digər formatların məzmunu saxlanılır."

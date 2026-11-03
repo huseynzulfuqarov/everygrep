@@ -3557,3 +3557,9 @@ msgstr "İşaretlenmezse tüm sonuçlar dışa aktarılır."
 
 msgid "Continue…"
 msgstr "Devam…"
+
+msgid "Protect spreadsheet formulas in CSV and TSV"
+msgstr "CSV ve TSV içinde tablo formüllerinden koru"
+
+msgid "Adds an apostrophe before cells starting with =, +, -, @, tab or carriage return. Other formats keep their contents."
+msgstr "Başında =, +, -, @, sekme veya satır başı bulunan hücrelere kesme işareti ekler. Diğer biçimlerin içeriği korunur."
