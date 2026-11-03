@@ -237,6 +237,65 @@ impl IndexRules {
             && c.exclude.is_empty()
     }
 
+    /// Whether every entry admitted here was also admitted by `previous`.
+    /// Uses list containment, never guesses whether two patterns are equivalent.
+    /// A false result requires reading the filesystem again.
+    pub fn can_refilter_from(&self, previous: &Self) -> bool {
+        if previous.is_empty() || self == previous {
+            return true;
+        }
+        let effective = |rules: &Self| {
+            let spec = rules.spec();
+            if spec.enabled {
+                spec
+            } else {
+                RuleSpec::default()
+            }
+        };
+        let old = effective(previous);
+        let new = effective(self);
+        let old_include = split_items(&old.include_files);
+        let new_include = split_items(&new.include_files);
+        let old_exclude = split_items(&old.exclude_files);
+        let new_exclude = split_items(&new.exclude_files);
+        old.folders.iter().all(|item| new.folders.contains(item))
+            && old_exclude.iter().all(|item| new_exclude.contains(item))
+            && (old_include.is_empty()
+                || (!new_include.is_empty()
+                    && new_include.iter().all(|item| old_include.contains(item))))
+    }
+
+    /// Parents whose listings may expose newly admitted exact-path folders.
+    /// `None` means wider file/name patterns cannot be localized safely.
+    pub fn incremental_parents(&self, previous: &Self) -> Option<HashSet<PathBuf>> {
+        if self.can_refilter_from(previous) {
+            return Some(HashSet::new());
+        }
+        let mut covered = self.spec();
+        if !covered.enabled {
+            covered = RuleSpec::default();
+        }
+        // Restore only the old exact folder exclusions. If this still fails
+        // containment, another rule change needs a full scan.
+        let old = previous.spec();
+        for folder in old.folders.iter().filter(|p| {
+            let bytes = p.as_os_str().as_bytes();
+            bytes.starts_with(b"/") && !bytes.contains(&b'*') && !bytes.contains(&b'?')
+        }) {
+            covered.folders.push(folder.clone());
+        }
+        if !Self::new(covered).ok()?.can_refilter_from(previous) {
+            return None;
+        }
+        Some(
+            previous
+                .excluded_paths()
+                .difference(&self.excluded_paths())
+                .filter_map(|path| path.parent().map(Path::to_path_buf))
+                .collect(),
+        )
+    }
+
     /// Whether a rule depends on more than an entry's own name, so moving a
     /// folder can change what is left out below it.
     pub fn uses_paths(&self) -> bool {

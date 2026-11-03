@@ -1,10 +1,11 @@
 //! Building a [`NodeStore`] by walking directory trees.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+use crate::index::Index;
 use crate::listing::{Entry, Listing, Tree};
 use crate::progress::{Cancelled, Progress};
 use crate::rules::IndexRules;
@@ -86,6 +87,141 @@ pub fn scan_with_progress(
     options: &ScanOptions,
     progress: &Progress,
 ) -> Result<ScanStats, Cancelled> {
+    scan_reusing(store, roots, options, progress, None)
+}
+
+/// The index a replacement index may take listings from (see
+/// [`update_with_progress`]).
+pub struct Source<'a> {
+    pub index: &'a Index,
+    /// The roots (normalized) and options `index` was built with.
+    pub roots: &'a [PathBuf],
+    pub options: &'a ScanOptions,
+    /// Folders whose changes were not observed (their watch failed): their
+    /// listings are read again instead of copied.
+    pub unobserved: HashSet<PathBuf>,
+    /// File sizes and times may be older than the disk (the index was loaded
+    /// from its file and caught up by folder times only, or changes were not
+    /// watched for a while): with file details, they are read again for every
+    /// copied file.
+    pub stale_file_details: bool,
+}
+
+impl<'a> Source<'a> {
+    /// A source whose folders and file details were all kept current.
+    pub fn current(index: &'a Index, roots: &'a [PathBuf], options: &'a ScanOptions) -> Self {
+        Self {
+            index,
+            roots,
+            options,
+            unobserved: HashSet::new(),
+            stale_file_details: false,
+        }
+    }
+}
+
+/// Builds a replacement index, reading only new coverage when the new rules
+/// are a restriction of the old ones. `roots` and the source roots must
+/// already be normalized. Only these roots are reused; unrelated drive trees
+/// stay out. Returns whether reuse was safe (false means a full scan was
+/// performed). The source is unchanged, including when cancelled.
+pub fn update_with_progress(
+    store: &mut NodeStore,
+    roots: &[PathBuf],
+    options: &ScanOptions,
+    source: Source<'_>,
+    progress: &Progress,
+) -> Result<bool, Cancelled> {
+    let Source {
+        index,
+        roots: previous_roots,
+        options: previous_options,
+        unobserved,
+        stale_file_details,
+    } = source;
+    let reopen = options.rules.incremental_parents(&previous_options.rules);
+    if options.with_metadata != previous_options.with_metadata || reopen.is_none() {
+        scan_with_progress(store, roots, options, progress)?;
+        return Ok(false);
+    }
+    let mut reusable = HashMap::new();
+    for path in previous_roots {
+        if let Some(id) = index.find_child(None, path.as_os_str().as_bytes()) {
+            reusable.insert(path.clone(), id);
+            // A formerly nested folder can now be an explicit root, including
+            // one whose parent is excluded by the new rules.
+            for root in roots {
+                if let Ok(relative) = root.strip_prefix(path) {
+                    let mut found = Some(id);
+                    for part in relative.components() {
+                        found = found.and_then(|parent| {
+                            index.find_child(Some(parent), part.as_os_str().as_bytes())
+                        });
+                    }
+                    if let Some(id) = found {
+                        reusable.insert(root.clone(), id);
+                    }
+                }
+            }
+        }
+    }
+    let reuse = Reuse {
+        index,
+        roots: reusable,
+        reopen: reopen.unwrap_or_default(),
+        unobserved,
+        refresh_files: stale_file_details && options.with_metadata,
+    };
+    scan_reusing(store, roots, options, progress, Some(&reuse))?;
+    Ok(true)
+}
+
+struct Reuse<'a> {
+    index: &'a Index,
+    roots: HashMap<PathBuf, NodeId>,
+    reopen: HashSet<PathBuf>,
+    unobserved: HashSet<PathBuf>,
+    /// Copied files get their size and time from the disk.
+    refresh_files: bool,
+}
+
+impl Reuse<'_> {
+    fn find(&self, path: &Path) -> Option<NodeId> {
+        if self.reopen.contains(path) || self.unobserved.contains(path) {
+            return None;
+        }
+        if let Some(&id) = self.roots.get(path) {
+            return (self.index.store().is_dir(id) && self.index.store().meta(id).mtime_ns != 0)
+                .then_some(id);
+        }
+        for (root, &id) in &self.roots {
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let mut found = Some(id);
+            for part in relative.components() {
+                found = found.and_then(|parent| {
+                    self.index
+                        .find_child(Some(parent), part.as_os_str().as_bytes())
+                });
+            }
+            if let Some(id) = found {
+                return (self.index.store().is_dir(id)
+                    && self.index.store().meta(id).mtime_ns != 0)
+                    .then_some(id);
+            }
+        }
+        None
+    }
+}
+
+fn scan_reusing(
+    store: &mut NodeStore,
+    roots: &[PathBuf],
+    options: &ScanOptions,
+    progress: &Progress,
+    reuse: Option<&Reuse<'_>>,
+) -> Result<ScanStats, Cancelled> {
     let skip = Skip::new(options);
     let mut stats = ScanStats::default();
     for root in roots {
@@ -106,11 +242,12 @@ pub fn scan_with_progress(
         progress.add(1);
         if meta.is_dir() {
             stats.dirs += 1;
-            walk(store, id, root, options, &skip, &mut stats, progress)?;
+            walk(store, id, root, &skip, &mut stats, progress, reuse)?;
         } else {
             stats.files += 1;
         }
     }
+    progress.check()?;
     Ok(stats)
 }
 
@@ -118,10 +255,10 @@ fn walk(
     store: &mut NodeStore,
     root_id: NodeId,
     root: &Path,
-    options: &ScanOptions,
     skip: &Skip,
     stats: &mut ScanStats,
     progress: &Progress,
+    reuse: Option<&Reuse<'_>>,
 ) -> Result<(), Cancelled> {
     let mut pending = vec![(root_id, root.to_path_buf())];
     // Without the root no folder can be read: the root then fails like a
@@ -131,10 +268,10 @@ fn walk(
         store,
         tree.as_ref().ok(),
         &mut pending,
-        options,
         skip,
         stats,
         progress,
+        reuse,
     );
     if result.is_err() {
         // Cancelled: the folders not read yet keep a time no folder has, so a
@@ -161,10 +298,10 @@ fn walk_pending(
     store: &mut NodeStore,
     tree: Option<&Tree>,
     pending: &mut Vec<(NodeId, PathBuf)>,
-    options: &ScanOptions,
     skip: &Skip,
     stats: &mut ScanStats,
     progress: &Progress,
+    reuse: Option<&Reuse<'_>>,
 ) -> Result<(), Cancelled> {
     let mut unreported = 0;
     while !pending.is_empty() {
@@ -173,9 +310,77 @@ fn walk_pending(
         let Some((dir_id, dir)) = pending.pop() else {
             break;
         };
+        if let Some((reuse, old)) = reuse.and_then(|r| r.find(&dir).map(|id| (r, id))) {
+            // Keep the time associated with the copied listing. Installing a
+            // new watcher catches up changes made while the old one was down.
+            store.set_meta(dir_id, reuse.index.store().meta(old));
+            let source = reuse.index.store();
+            let mut complete = true;
+            let mut looked_at = 0;
+            for child in source.children(old) {
+                let name = source.name(child);
+                let is_dir = source.is_dir(child);
+                // Rejected entries are not progress (the total is what the
+                // new index holds), but even a filter dropping a huge listing
+                // must check cancellation between small batches.
+                looked_at += 1;
+                if looked_at == PROGRESS_BATCH {
+                    looked_at = 0;
+                    progress.add(std::mem::take(&mut unreported));
+                    progress.check()?;
+                }
+                if !skip.rules.accepts(&dir, name, is_dir) {
+                    continue;
+                }
+                let meta = if reuse.refresh_files && !is_dir {
+                    let path = dir.join(std::ffi::OsStr::from_bytes(name));
+                    match fs::symlink_metadata(&path) {
+                        Ok(m) if !m.is_dir() => skip.meta_of(&m),
+                        // Gone or replaced by a folder: the folder is read
+                        // again by the catch-up that follows, as after a
+                        // partial listing.
+                        _ => {
+                            complete = false;
+                            stats.errors += 1;
+                            Meta::default()
+                        }
+                    }
+                } else {
+                    source.meta(child)
+                };
+                let id = store.add(Some(dir_id), name, is_dir, meta);
+                unreported += 1;
+                if is_dir {
+                    stats.dirs += 1;
+                    let path = dir.join(std::ffi::OsStr::from_bytes(name));
+                    if skip.enters(&path) {
+                        pending.push((id, path));
+                    }
+                } else {
+                    stats.files += 1;
+                }
+            }
+            if !complete {
+                store.set_meta(
+                    dir_id,
+                    Meta {
+                        mtime_ns: 0,
+                        ..store.meta(dir_id)
+                    },
+                );
+            }
+            continue;
+        }
         // A failed or partial listing must be retried even if chmod leaves
         // the directory's modification time unchanged.
-        let complete_meta = store.meta(dir_id);
+        let mut complete_meta = store.meta(dir_id);
+        if reuse.is_some() {
+            // Its time may come from a copied, older listing of its parent;
+            // read before the listing, as a full scan does.
+            if let Some(m) = fs::symlink_metadata(&dir).ok().filter(|m| m.is_dir()) {
+                complete_meta.mtime_ns = Meta::from_metadata(&m).mtime_ns;
+            }
+        }
         store.set_meta(
             dir_id,
             Meta {
@@ -203,7 +408,7 @@ fn walk_pending(
             if !skip.rules.accepts(&dir, name, is_dir) {
                 continue;
             }
-            let meta = if options.with_metadata || is_dir {
+            let meta = if skip.with_metadata || is_dir {
                 match entries.meta(&entry) {
                     Ok(m) => m,
                     Err(_) => {
@@ -398,6 +603,421 @@ mod tests {
             .collect();
         paths.sort();
         (paths, stats)
+    }
+
+    fn snapshot(index: &Index) -> Vec<(PathBuf, bool, Meta, u32)> {
+        let store = index.store();
+        let mut result: Vec<_> = index
+            .order()
+            .iter()
+            .map(|id| {
+                (
+                    store.path(id),
+                    store.is_dir(id),
+                    store.meta(id),
+                    store.items(id),
+                )
+            })
+            .collect();
+        result.sort_by(|a, b| a.0.cmp(&b.0));
+        result
+    }
+
+    fn find_path(index: &Index, path: &Path) -> Option<NodeId> {
+        index.roots().iter().copied().find_map(|root| {
+            let relative = path.strip_prefix(index.store().path(root)).ok()?;
+            relative.components().try_fold(root, |parent, part| {
+                index.find_child(Some(parent), part.as_os_str().as_bytes())
+            })
+        })
+    }
+
+    fn full(roots: &[PathBuf], options: &ScanOptions) -> Index {
+        let mut store = NodeStore::new();
+        scan(&mut store, roots, options);
+        Index::new(store)
+    }
+
+    #[test]
+    fn incremental_roots_match_full_rebuilds_and_only_read_new_coverage() {
+        use std::sync::{Arc, Mutex};
+        let base = temp_tree("incremental-roots");
+        let alias = base.join("alias");
+        std::os::unix::fs::symlink(base.join("a"), &alias).unwrap();
+        let cases = [
+            (
+                vec![base.join("a")],
+                vec![base.join("a"), base.join("skip")],
+                vec![base.join("skip"), base.join("skip/inner")],
+            ),
+            // A new enclosing root reads its own listing and uncovered siblings.
+            (
+                vec![base.join("a/b"), base.join("skip")],
+                vec![base.clone()],
+                vec![base.clone(), base.join("a")],
+            ),
+            // Removing an enclosing root retains the requested nested tree.
+            (
+                vec![base.clone(), base.join("a")],
+                vec![base.join("a/b")],
+                vec![],
+            ),
+            // Duplicate, nested and symlink aliases have one normalized root.
+            (
+                vec![base.join("a")],
+                vec![alias, base.join("a"), base.join("a/b")],
+                vec![],
+            ),
+            (
+                vec![base.join("a"), base.join("skip")],
+                vec![base.join("a")],
+                vec![],
+            ),
+            (vec![base.join("a")], vec![base.join("missing")], vec![]),
+        ];
+        for (old, new, mut expected_reads) in cases {
+            let old = normalize_roots(&old);
+            let new = normalize_roots(&new);
+            let options = ScanOptions::default();
+            let previous = full(&old, &options);
+            let before = snapshot(&previous);
+            let reads = Arc::new(Mutex::new(Vec::new()));
+            let recorded = Arc::clone(&reads);
+            let hook = crate::listing::hook::set(move |path| {
+                recorded.lock().unwrap().push(path.to_path_buf())
+            });
+            let mut store = NodeStore::new();
+            let progress = Progress::new();
+            assert!(
+                update_with_progress(
+                    &mut store,
+                    &new,
+                    &options,
+                    Source::current(&previous, &old, &options),
+                    &progress
+                )
+                .unwrap()
+            );
+            drop(hook);
+            let mut actual_reads = reads.lock().unwrap().clone();
+            actual_reads.sort();
+            expected_reads.sort();
+            assert_eq!(actual_reads, expected_reads, "{old:?} -> {new:?}");
+            assert_eq!(
+                snapshot(&Index::new(store)),
+                snapshot(&full(&new, &options))
+            );
+            assert_eq!(snapshot(&previous), before, "source stays intact");
+            if !new.ends_with(&[base.join("missing")]) {
+                assert!(progress.done() > 0);
+            }
+        }
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn incremental_filters_and_fallbacks_match_full_rebuilds() {
+        let base = temp_tree("incremental-rules");
+        fs::write(base.join("a/music.mp3"), b"music").unwrap();
+        let all = IndexRules::default();
+        let exact = rules(&[base.join("skip")], "", "", true);
+        let pattern = rules(&["sk*".into()], "", "", true);
+        let cases = [
+            (all.clone(), exact.clone(), true),
+            (exact.clone(), all.clone(), true), // Reopen only the exact folder.
+            (all.clone(), pattern.clone(), true),
+            (pattern.clone(), all.clone(), false),
+            (all.clone(), rules(&[], "*.txt;*.mp3", "*.bak", true), true),
+            (
+                rules(&[], "*.txt;*.mp3", "", true),
+                rules(&[], "*.txt", "two*", true),
+                true,
+            ),
+            (rules(&[], "*.txt", "", true), all.clone(), false),
+            (rules(&[], "", "*.txt", true), all.clone(), false),
+            (
+                exact.clone(),
+                rules(&[base.join("skip")], "", "", false),
+                true,
+            ),
+            (pattern, rules(&["sk*".into()], "", "", false), false),
+            (exact, rules(&[base.join("a")], "*.txt", "", true), true),
+            (
+                all.clone(),
+                rules(&["regex:^b$".into()], "regex:(?i)txt$", "two*", true),
+                true,
+            ),
+        ];
+        for (old_rules, new_rules, expected_reuse) in cases {
+            // Include promotion of a formerly excluded folder to an explicit
+            // root: roots bypass folder filters, descendants still obey them.
+            for (old_roots, new_roots) in [
+                (vec![base.clone()], vec![base.clone()]),
+                (vec![base.clone()], vec![base.join("skip")]),
+                (vec![base.join("skip")], vec![base.clone()]),
+            ] {
+                for with_metadata in [true, false] {
+                    let old = ScanOptions {
+                        with_metadata,
+                        rules: old_rules.clone(),
+                    };
+                    let new = ScanOptions {
+                        with_metadata,
+                        rules: new_rules.clone(),
+                    };
+                    let previous = full(&old_roots, &old);
+                    let mut store = NodeStore::new();
+                    assert_eq!(
+                        update_with_progress(
+                            &mut store,
+                            &new_roots,
+                            &new,
+                            Source::current(&previous, &old_roots, &old),
+                            &Progress::new()
+                        )
+                        .unwrap(),
+                        expected_reuse
+                    );
+                    assert_eq!(
+                        snapshot(&Index::new(store)),
+                        snapshot(&full(&new_roots, &new)),
+                        "{old_rules:?} -> {new_rules:?}"
+                    );
+                }
+            }
+        }
+        // File metadata cannot be recovered from a names-only index.
+        let roots = [base.clone()];
+        let old = ScanOptions {
+            with_metadata: false,
+            ..ScanOptions::default()
+        };
+        let previous = full(&roots, &old);
+        let mut store = NodeStore::new();
+        assert!(
+            !update_with_progress(
+                &mut store,
+                &roots,
+                &ScanOptions::default(),
+                Source::current(&previous, &roots, &old),
+                &Progress::new()
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            snapshot(&Index::new(store)),
+            snapshot(&full(&roots, &ScanOptions::default()))
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_file_root_that_became_a_folder_is_scanned_instead_of_reused() {
+        let base = temp_tree("incremental-root-type");
+        let root = base.join("flip");
+        fs::write(&root, b"file").unwrap();
+        let roots = [root.clone()];
+        let options = ScanOptions::default();
+        let previous = full(&roots, &options);
+        fs::remove_file(&root).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("child.txt"), b"child").unwrap();
+        let mut store = NodeStore::new();
+        update_with_progress(
+            &mut store,
+            &roots,
+            &options,
+            Source::current(&previous, &roots, &options),
+            &Progress::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot(&Index::new(store)),
+            snapshot(&full(&roots, &options))
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn reopening_an_exact_exclusion_reads_only_its_parent_and_new_tree() {
+        use std::sync::{Arc, Mutex};
+        let base = temp_tree("incremental-reopen");
+        let roots = [base.clone()];
+        let old = ScanOptions {
+            rules: rules(&[base.join("skip")], "", "", true),
+            ..ScanOptions::default()
+        };
+        let previous = full(&roots, &old);
+        let reads = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&reads);
+        let hook = crate::listing::hook::set(move |path| {
+            recorded.lock().unwrap().push(path.to_path_buf())
+        });
+        let mut store = NodeStore::new();
+        update_with_progress(
+            &mut store,
+            &roots,
+            &ScanOptions::default(),
+            Source::current(&previous, &roots, &old),
+            &Progress::new(),
+        )
+        .unwrap();
+        drop(hook);
+        let mut reads = reads.lock().unwrap().clone();
+        reads.sort();
+        assert_eq!(
+            reads,
+            [base.clone(), base.join("skip"), base.join("skip/inner")]
+        );
+        assert_eq!(
+            snapshot(&Index::new(store)),
+            snapshot(&full(&roots, &ScanOptions::default()))
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn unobserved_folders_are_read_again_and_the_rest_is_copied() {
+        use std::sync::{Arc, Mutex};
+        let base = temp_tree("incremental-unobserved");
+        let roots = [base.clone()];
+        let options = ScanOptions::default();
+        let previous = full(&roots, &options);
+        // Missed because the folder had no watch.
+        fs::write(base.join("a/b/missed.txt"), b"m").unwrap();
+        let reads = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&reads);
+        let hook = crate::listing::hook::set(move |path| {
+            recorded.lock().unwrap().push(path.to_path_buf())
+        });
+        let mut store = NodeStore::new();
+        let mut source = Source::current(&previous, &roots, &options);
+        source.unobserved.insert(base.join("a/b"));
+        assert!(
+            update_with_progress(&mut store, &roots, &options, source, &Progress::new()).unwrap()
+        );
+        drop(hook);
+        assert_eq!(*reads.lock().unwrap(), [base.join("a/b")]);
+        assert_eq!(
+            snapshot(&Index::new(store)),
+            snapshot(&full(&roots, &options))
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn stale_file_details_are_read_again_without_reading_folders() {
+        use std::sync::{Arc, Mutex};
+        let base = temp_tree("incremental-stale-details");
+        let roots = [base.clone()];
+        let options = ScanOptions::default();
+        let previous = full(&roots, &options);
+        // Rewritten in place: no folder time changes, so a catch-up by
+        // folder times keeps the old size and time.
+        fs::write(base.join("a/one.txt"), b"rewritten in place").unwrap();
+        fs::remove_file(base.join("a/b/two.TXT")).unwrap();
+        let narrower = ScanOptions {
+            rules: rules(&[], "", "*.bak", true),
+            ..ScanOptions::default()
+        };
+        let copied = |stale: bool| {
+            let reads = Arc::new(Mutex::new(Vec::new()));
+            let recorded = Arc::clone(&reads);
+            let hook = crate::listing::hook::set(move |path| {
+                recorded.lock().unwrap().push(path.to_path_buf())
+            });
+            let mut store = NodeStore::new();
+            let mut source = Source::current(&previous, &roots, &options);
+            source.stale_file_details = stale;
+            assert!(
+                update_with_progress(&mut store, &roots, &narrower, source, &Progress::new())
+                    .unwrap()
+            );
+            drop(hook);
+            assert!(reads.lock().unwrap().is_empty(), "no folder is listed");
+            Index::new(store)
+        };
+        let size = |index: &Index| {
+            let id = find_path(index, &base.join("a/one.txt")).unwrap();
+            index.store().meta(id).size
+        };
+        assert_eq!(size(&copied(false)), 1, "a current source is trusted");
+        let mut refreshed = copied(true);
+        assert_eq!(size(&refreshed), b"rewritten in place".len() as u64);
+        // The removed file's folder is marked for the catch-up, which drops it.
+        crate::sync::catch_up(&mut refreshed, &narrower);
+        assert_eq!(snapshot(&refreshed), snapshot(&full(&roots, &narrower)));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn progress_of_a_reused_tree_counts_only_kept_entries() {
+        let base = temp_tree("incremental-progress");
+        for i in 0..3000 {
+            fs::write(base.join(format!("a/drop{i}.tmp")), b"").unwrap();
+        }
+        let roots = [base.clone()];
+        let previous = full(&roots, &ScanOptions::default());
+        let narrower = ScanOptions {
+            rules: rules(&[], "", "*.tmp", true),
+            ..ScanOptions::default()
+        };
+        let progress = Progress::new();
+        let mut store = NodeStore::new();
+        assert!(
+            update_with_progress(
+                &mut store,
+                &roots,
+                &narrower,
+                Source::current(&previous, &roots, &ScanOptions::default()),
+                &progress
+            )
+            .unwrap()
+        );
+        let fresh = Progress::new();
+        scan_with_progress(&mut NodeStore::new(), &roots, &narrower, &fresh).unwrap();
+        assert_eq!(progress.done(), fresh.done());
+        assert_eq!(progress.done(), Index::new(store).len() as u64);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn incremental_cancel_preserves_source_and_copied_times_allow_catch_up() {
+        let base = temp_tree("incremental-cancel");
+        let roots = [base.clone()];
+        let options = ScanOptions::default();
+        let previous = full(&roots, &options);
+        let before = snapshot(&previous);
+        let cancelled = Progress::new();
+        cancelled.cancel_when_done(2);
+        let mut store = NodeStore::new();
+        assert_eq!(
+            update_with_progress(
+                &mut store,
+                &roots,
+                &options,
+                Source::current(&previous, &roots, &options),
+                &cancelled
+            ),
+            Err(Cancelled)
+        );
+        assert_eq!(snapshot(&previous), before);
+        // A change made while watches were down must not be hidden by a fresh
+        // directory time paired with a copied, older listing.
+        fs::write(base.join("late.txt"), b"late").unwrap();
+        let mut store = NodeStore::new();
+        update_with_progress(
+            &mut store,
+            &roots,
+            &options,
+            Source::current(&previous, &roots, &options),
+            &Progress::new(),
+        )
+        .unwrap();
+        let mut updated = Index::new(store);
+        crate::sync::catch_up(&mut updated, &options);
+        assert_eq!(snapshot(&updated), snapshot(&full(&roots, &options)));
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
