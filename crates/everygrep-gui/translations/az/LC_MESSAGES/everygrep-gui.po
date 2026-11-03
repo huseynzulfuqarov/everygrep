@@ -284,7 +284,7 @@ msgstr "EveryGrep bağlanandan sonra tarixçəni saxla"
 
 #: ui/settings.slint
 msgid "Off: the history is forgotten when EveryGrep quits. Turning it off deletes the saved history."
-msgstr "Sönülü olanda tarixçə EveryGrep bağlananda unudulur. Söndürmək saxlanmış tarixçəni silir."
+msgstr "Söndürüləndə tarixçə EveryGrep bağlananda unudulur. Söndürmək saxlanmış tarixçəni silir."
 
 #: ui/settings.slint
 msgid "Language and colors"
@@ -1205,7 +1205,7 @@ msgstr "Kəs"
 
 #: ui/app.slint
 msgid "Open with…"
-msgstr "Bununla aç…"
+msgstr "Başqa proqramla aç…"
 
 #: ui/app.slint
 msgid "Paste into folder"
@@ -1331,7 +1331,7 @@ msgstr "Yaradılma tarixi"
 
 #: ui/app.slint
 msgid "Accessed"
-msgstr "Giriş tarixi"
+msgstr "Son açılma tarixi"
 
 #: ui/app.slint
 msgid "Attributes"
@@ -1343,7 +1343,7 @@ msgstr "Yaradılma tarixi sütunu"
 
 #: ui/app.slint
 msgid "Accessed column"
-msgstr "Giriş tarixi sütunu"
+msgstr "Son açılma tarixi sütunu"
 
 #: ui/app.slint
 msgid "Attributes column"
@@ -1351,7 +1351,7 @@ msgstr "Atributlar sütunu"
 
 #: ui/settings.slint
 msgid "Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."
-msgstr "Növ, Genişlənmə, Yaradılma tarixi, Giriş tarixi və Atributlar sütunlarını göstərmək üçün sütun başlıqlarına sağ klikləyin; enini dəyişmək üçün başlıqların kənarını dartın."
+msgstr "Növ, Genişlənmə, Yaradılma tarixi, Son açılma tarixi və Atributlar sütunlarını göstərmək üçün sütun başlıqlarına sağ klikləyin; enini dəyişmək üçün başlıqların kənarını dartın."
 
 #: ui/settings.slint
 msgid "None. Folders listed here are left out of the index with all they hold."
@@ -2131,7 +2131,7 @@ msgstr "Faylların ölçüsünü və dəyişmə tarixini indeksə yaz"
 
 #: ui/settings.slint
 msgid "Off: only names are read, so indexing is faster, but the Size and Modified columns are empty for files, folders show no total size, and size: and modified: find no files. Created, Accessed and Attributes are read from the disk either way. Changing it indexes again."
-msgstr "Söndürülsə, yalnız adlar oxunur və indeksləmə daha tez gedir, amma fayllar üçün Ölçü və Dəyişmə tarixi sütunları boş qalır, qovluqlar ümumi ölçünü göstərmir, size: və modified: heç bir fayl tapmır. Yaradılma tarixi, Açılma tarixi və Atributlar hər halda diskdən oxunur. Dəyişdirmək indeksi yenidən qurur."
+msgstr "Söndürüləndə yalnız adlar oxunur və indeksləmə daha tez gedir, amma fayllar üçün Ölçü və Dəyişmə tarixi sütunları boş qalır, qovluqlar ümumi ölçünü göstərmir, size: və modified: heç bir fayl tapmır. Yaradılma tarixi, Son açılma tarixi və Atributlar hər halda diskdən oxunur. Dəyişdirmək indeksi yenidən qurur."
 
 #: src/labels.rs
 msgid "The saved index is damaged or from another version, so it is built again. Nothing else is lost."
@@ -2325,7 +2325,7 @@ msgstr "Ayarlar faylında bu pəncərədən kənarda edilən dəyişiklikləri t
 
 #: ui/settings.slint
 msgid "The file is looked at every 2 seconds; a change by another program or another EveryGrep window is applied at once, as an import would be. Off: such changes apply at the next start, and a change made here keeps them in the file."
-msgstr "Fayla hər 2 saniyədən bir baxılır; başqa proqramın və ya başqa EveryGrep pəncərəsinin etdiyi dəyişiklik, idxal kimi, dərhal tətbiq olunur. Söndürülsə, belə dəyişikliklər növbəti açılışda tətbiq olunur, burada edilən dəyişiklik isə onları faylda saxlayır."
+msgstr "Fayla hər 2 saniyədən bir baxılır; başqa proqramın və ya başqa EveryGrep pəncərəsinin etdiyi dəyişiklik, idxal kimi, dərhal tətbiq olunur. Söndürüləndə belə dəyişikliklər növbəti açılışda tətbiq olunur, burada edilən dəyişiklik isə onları faylda saxlayır."
 
 #: src/labels.rs
 msgid "The settings file was changed outside this window; its settings now apply."
@@ -2706,10 +2706,10 @@ msgid "Created to"
 msgstr "Yaradılma, son"
 
 msgid "Accessed from"
-msgstr "Giriş, başlanğıc"
+msgstr "Son açılma, başlanğıc"
 
 msgid "Accessed to"
-msgstr "Giriş, son"
+msgstr "Son açılma, son"
 
 msgid "YYYY-MM-DD"
 msgstr "YYYY-MM-DD"
