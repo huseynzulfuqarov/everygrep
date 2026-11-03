@@ -148,7 +148,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
   Include subfolders is on by default. Choosing a folder replaces the field with
   an explicit, boundary-safe location query. The context menu opens the folder
   or searches it in another tab/window. Locate selected result reveals its folder.
-  Visibility and the dragged width are saved. Expansion, selection, keyboard cursor and scroll position belong to
+  Visibility and the dragged width are saved. Opening it scrolls the result
+  list back to its left edge, so the names start in view. Expansion, selection, keyboard cursor and scroll position belong to
   each tab. View commands can be assigned keys in keyboard settings. The header
   close button, Esc in the tree and View → Close folders panel hide the sidebar
   and return focus to results (or the search field when empty).

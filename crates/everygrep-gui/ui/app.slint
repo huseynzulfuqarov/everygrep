@@ -1333,6 +1333,12 @@ export component AppWindow inherits Window {
     changed scroll-room => {
         list.content-x = max(list.content-x, -self.scroll-room);
     }
+    // Opening the folder panel narrows the list. An earlier sideways scroll
+    // (to see columns past the window's edge) would then cut off the start
+    // of the names, so the list goes back to its left edge.
+    changed folders-visible => {
+        if (self.folders-visible) { list.content-x = 0; }
+    }
     // Left edges of the optional columns.
     property <length> type-x: self.name-width + self.folder-width + self.size-width + self.date-width;
     property <length> ext-x: self.type-x + self.type-width;
