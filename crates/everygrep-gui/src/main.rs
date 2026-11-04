@@ -1738,22 +1738,25 @@ fn files_to_paste(
         });
         then(w, found);
     };
-    match with_x11(|x| x.map(|x| x.owns())) {
-        Some(false) => {
-            let weak = w.as_weak();
-            with_x11(|x| {
-                if let Some(x) = x {
-                    x.read_then(move |found| {
-                        let _ = weak.upgrade_in_event_loop(move |w| finish(&w, found));
-                    });
-                }
-            });
-        }
-        Some(true) => {
-            let held = HELD.with(|h| h.borrow().as_ref().map(|h| (h.op, h.paths.clone())));
-            finish(w, held);
-        }
-        None => finish(w, None),
+    // Ask the current selection owner even when the cached flag says ours:
+    // a SelectionClear event may still be waiting on the clipboard thread.
+    if with_x11(|x| x.is_some()) {
+        let weak = w.as_weak();
+        with_x11(|x| {
+            if let Some(x) = x {
+                x.read_then(move |found| {
+                    let _ = weak.upgrade_in_event_loop(move |w| finish(&w, found));
+                });
+            }
+        });
+    } else {
+        finish(w, None);
+    }
+}
+
+fn text_fallback_notice(w: &AppWindow, op: clipboard::Operation) {
+    if op == clipboard::Operation::Cut {
+        info(w, tr("The text clipboard cannot track Cut safely. Paste will copy; use Move to folder… to move.").into());
     }
 }
 
@@ -1764,6 +1767,16 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
     use std::sync::atomic::Ordering::SeqCst;
     let weak = window.as_weak();
     let row = |r: i32| usize::try_from(r).ok();
+
+    window.on_clipboard_text_written(|| {
+        with_x11(|x| {
+            if let Some(x) = x {
+                x.cancel_offers();
+            }
+        });
+        HELD.with(|h| *h.borrow_mut() = None);
+        CUT_PASTED.with(|c| *c.borrow_mut() = None);
+    });
 
     let put = {
         let (weak, model) = (weak.clone(), model.clone());
@@ -1794,14 +1807,16 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                                 .map(str::to_owned)
                         });
                         if let Some(text) = text {
-                            w.invoke_copy_text(text.into());
+                            w.invoke_copy_file_text(text.into());
+                            text_fallback_notice(&w, offered.op);
                         }
                     });
                 });
                 true
             });
             if !offered {
-                w.invoke_copy_text(held.text.as_str().into());
+                w.invoke_copy_file_text(held.text.as_str().into());
+                text_fallback_notice(&w, held.op);
             }
         }
     };

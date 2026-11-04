@@ -10,8 +10,8 @@
 //! [`crate::x11clip`]).
 //! The window also remembers the files and the operation here. Without
 //! XWayland, Cut and Copy put the full paths on the clipboard as text, and
-//! Paste in this window uses what was remembered while the clipboard still
-//! holds that text. Text from elsewhere is accepted when every line is a
+//! Paste in this window copies those paths: text alone cannot prove that
+//! the original Cut offer is still owned by this window. Text from elsewhere is accepted when every line is a
 //! file: an absolute path, a `file://` URI, or one of the two formats above
 //! written as text.
 
@@ -112,11 +112,14 @@ pub struct Held {
 }
 
 /// What to paste, given the files this window put on the clipboard and the
-/// text the clipboard holds now. The remembered files count only while the
-/// clipboard still holds their text; something copied since replaces them.
+/// text the clipboard holds now. Text equality can preserve lossless paths,
+/// but cannot prove clipboard ownership or Cut intent. Only file-format
+/// offers (read separately) or an explicit cut payload can request a move.
 pub fn to_paste(held: Option<&Held>, clipboard_text: &str) -> Option<(Operation, Vec<PathBuf>)> {
     match held {
-        Some(h) if h.text == clipboard_text && !h.paths.is_empty() => Some((h.op, h.paths.clone())),
+        Some(h) if h.text == clipboard_text && !h.paths.is_empty() => {
+            Some((Operation::Copy, h.paths.clone()))
+        }
         _ => parse(clipboard_text),
     }
 }
@@ -276,7 +279,38 @@ mod tests {
     }
 
     #[test]
-    fn held_files_count_while_the_clipboard_has_their_text() {
+    fn a_new_identical_path_text_cannot_repeat_an_old_cut() {
+        let dir = std::env::temp_dir().join(format!("everygrep-stale-cut-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let src = dir.join("file");
+        let dest = dir.join("dest");
+        std::fs::write(&src, "selected bytes").unwrap();
+        std::fs::create_dir(&dest).unwrap();
+        let text = crate::actions::paths_text(std::slice::from_ref(&src), false);
+        let old = Held {
+            op: Operation::Cut,
+            paths: vec![src.clone()],
+            text: text.clone(),
+        };
+        let (op, paths) = to_paste(Some(&old), &text).unwrap();
+        assert_eq!(op, Operation::Copy);
+        let out = crate::transfer::paste(
+            op,
+            &paths,
+            &dest,
+            &everygrep_core::progress::Progress::new(),
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(std::fs::read(&src).unwrap(), b"selected bytes");
+        assert_eq!(std::fs::read(dest.join("file")).unwrap(), b"selected bytes");
+        // Explicit file payloads still carry Cut intent.
+        let payload = String::from_utf8(gnome_copied_files(Operation::Cut, &[src])).unwrap();
+        assert_eq!(parse(&payload).unwrap().0, Operation::Cut);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn remembered_text_paths_always_copy_without_verified_ownership() {
         let held = Held {
             op: Operation::Cut,
             paths: vec![PathBuf::from("/a")],
@@ -284,7 +318,7 @@ mod tests {
         };
         assert_eq!(
             to_paste(Some(&held), "/a"),
-            Some((Operation::Cut, vec![PathBuf::from("/a")]))
+            Some((Operation::Copy, vec![PathBuf::from("/a")]))
         );
         // Copied elsewhere since: the clipboard text wins, as a copy.
         assert_eq!(

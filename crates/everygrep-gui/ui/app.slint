@@ -4269,7 +4269,14 @@ export component AppWindow inherits Window {
 
     // Puts text on the clipboard through a hidden text field; Slint has no
     // clipboard API of its own.
+    callback clipboard-text-written();
     public function copy-text(text: string) {
+        root.clipboard-text-written();
+        root.copy-file-text(text);
+    }
+
+    // File offers keep their lossless paths while publishing fallback text.
+    public function copy-file-text(text: string) {
         clip.text = text;
         clip.select-all();
         clip.copy();

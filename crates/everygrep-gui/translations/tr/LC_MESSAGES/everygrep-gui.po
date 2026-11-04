@@ -5324,3 +5324,7 @@ msgstr "Genişletilmiş öznitelikler tam olarak korunamadı."
 #: src/transfer_metadata.rs
 msgid "Ownership, permissions or timestamps could not be preserved exactly."
 msgstr "Sahiplik, izinler veya zaman damgaları tam olarak korunamadı."
+
+#: src/main.rs
+msgid "The text clipboard cannot track Cut safely. Paste will copy; use Move to folder… to move."
+msgstr "Metin panosu Kes işlemini güvenle izleyemiyor. Yapıştır kopyalayacak; taşımak için Klasöre taşı… seçin."

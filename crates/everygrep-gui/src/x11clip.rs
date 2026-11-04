@@ -20,7 +20,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -162,7 +162,7 @@ fn atoms_in(bytes: &[u8]) -> impl Iterator<Item = Atom> + '_ {
 
 /// Requests to the clipboard thread.
 enum Cmd {
-    Offer(Held, Sender<bool>),
+    Offer(Held, u64, Sender<bool>),
     /// Gives the clipboard up if this program holds it.
     Clear,
     /// Reads the clipboard, then takes it with nothing on it if it holds
@@ -214,6 +214,7 @@ pub struct X11Clipboard {
     wake: Atom,
     tx: Sender<Cmd>,
     owns: Arc<AtomicBool>,
+    offer_epoch: Arc<AtomicU64>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -245,6 +246,7 @@ impl X11Clipboard {
         let wake = atoms.wake;
         let (tx, rx) = mpsc::channel();
         let owns = Arc::new(AtomicBool::new(false));
+        let offer_epoch = Arc::new(AtomicU64::new(0));
         let max_write = conn.maximum_request_bytes().saturating_sub(REQUEST_HEADER);
         let mut worker = Worker {
             conn: conn.clone(),
@@ -252,6 +254,8 @@ impl X11Clipboard {
             atoms,
             rx,
             owns: owns.clone(),
+            offer_epoch: offer_epoch.clone(),
+            held_epoch: 0,
             held: None,
             read: None,
             max_write,
@@ -266,6 +270,7 @@ impl X11Clipboard {
             wake,
             tx,
             owns,
+            offer_epoch,
             thread: Some(thread),
         })
     }
@@ -275,11 +280,17 @@ impl X11Clipboard {
     /// [`OFFER_WAIT`]; the caller then puts the text on the clipboard).
     pub fn offer_then(&self, held: Held, done: impl FnOnce(bool) + Send + 'static) {
         let (reply, answer) = mpsc::channel();
-        if !self.send(Cmd::Offer(held, reply)) {
+        let epoch = self.offer_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        if !self.send(Cmd::Offer(held, epoch, reply)) {
             done(false);
             return;
         }
         answer_then(answer, OFFER_WAIT, false, done);
+    }
+
+    /// A new text write invalidates even file offers still queued on the worker.
+    pub fn cancel_offers(&self) {
+        self.offer_epoch.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Gives the clipboard up if this program still holds it.
@@ -399,7 +410,9 @@ struct Worker {
     atoms: Atoms,
     rx: Receiver<Cmd>,
     owns: Arc<AtomicBool>,
+    offer_epoch: Arc<AtomicU64>,
     held: Option<Held>,
+    held_epoch: u64,
     read: Option<Read>,
     /// Largest content written in one request; larger content is refused.
     max_write: usize,
@@ -465,8 +478,13 @@ impl Worker {
     /// Runs one request; `false` to stop.
     fn command(&mut self, cmd: Cmd) -> XResult<bool> {
         match cmd {
-            Cmd::Offer(held, reply) => {
+            Cmd::Offer(held, epoch, reply) => {
+                if self.offer_epoch.load(Ordering::SeqCst) != epoch {
+                    let _ = reply.send(false);
+                    return Ok(true);
+                }
                 self.held = Some(held);
+                self.held_epoch = epoch;
                 self.conn
                     .set_selection_owner(self.window, self.atoms.clipboard, CURRENT_TIME)?;
                 let owner = self
@@ -474,7 +492,7 @@ impl Worker {
                     .get_selection_owner(self.atoms.clipboard)?
                     .reply()?
                     .owner;
-                let owns = owner == self.window;
+                let owns = owner == self.window && self.offer_epoch.load(Ordering::SeqCst) == epoch;
                 if !owns {
                     self.held = None;
                 }
@@ -508,7 +526,11 @@ impl Worker {
         } else {
             e.property
         };
-        let ok = match (&self.held, self.atoms.target(e.target)) {
+        let active = self
+            .held
+            .as_ref()
+            .filter(|_| self.offer_epoch.load(Ordering::SeqCst) == self.held_epoch);
+        let ok = match (active, self.atoms.target(e.target)) {
             (Some(held), Some(target)) if e.selection == self.atoms.clipboard => {
                 self.write(e.requestor, property, e.target, target, held)?
             }
