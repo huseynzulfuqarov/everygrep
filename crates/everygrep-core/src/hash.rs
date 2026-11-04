@@ -195,21 +195,36 @@ pub fn ends_hash(file: &OpenFile, progress: &Progress) -> Result<u128, HashError
     Ok(h.finish_128())
 }
 
+/// Why two opened files could not be compared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompareError {
+    Cancelled,
+    /// The descriptors that failed a read or changed while being compared.
+    Unreadable {
+        first: bool,
+        second: bool,
+    },
+}
+
 /// Whether `a` and `b` hold the same bytes, read side by side in pieces of
 /// [`BUFFER`]; files of different sizes do not. A cancel of `progress` is
 /// seen before each piece. A file that is no longer the one opened (its
 /// size, modification time or change time changed, by the end of the reading) is
-/// [`HashError::Unreadable`]: equal pieces of it say nothing.
-pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<bool, HashError> {
+/// [`CompareError::Unreadable`]: equal pieces of it say nothing.
+pub fn same_contents(
+    a: &OpenFile,
+    b: &OpenFile,
+    progress: &Progress,
+) -> Result<bool, CompareError> {
     same_contents_with_read(a, b, progress, read_exact_at)
 }
 
-fn same_contents_with_read(
+pub(crate) fn same_contents_with_read(
     a: &OpenFile,
     b: &OpenFile,
     progress: &Progress,
     mut read: impl FnMut(&File, &mut [u8], u64) -> Result<(), HashError>,
-) -> Result<bool, HashError> {
+) -> Result<bool, CompareError> {
     let size = a.key.size;
     if size != b.key.size {
         return Ok(false);
@@ -219,21 +234,30 @@ fn same_contents_with_read(
     let mut at = 0u64;
     while at < size {
         if progress.is_cancelled() {
-            return Err(HashError::Cancelled);
+            return Err(CompareError::Cancelled);
         }
         let n = (size - at).min(BUFFER as u64) as usize;
-        read(&a.file, &mut x[..n], at)?;
-        read(&b.file, &mut y[..n], at)?;
+        read(&a.file, &mut x[..n], at).map_err(|_| CompareError::Unreadable {
+            first: true,
+            second: false,
+        })?;
+        read(&b.file, &mut y[..n], at).map_err(|_| CompareError::Unreadable {
+            first: false,
+            second: true,
+        })?;
         if x[..n] != y[..n] {
             return Ok(false);
         }
         at += n as u64;
     }
-    for file in [a, b] {
-        let meta = file.file.metadata().map_err(|_| HashError::Unreadable)?;
-        if FileKey::of(&meta) != file.key || (meta.ctime(), meta.ctime_nsec()) != file.ctime {
-            return Err(HashError::Unreadable);
-        }
+    let unchanged = |file: &OpenFile| {
+        file.file.metadata().is_ok_and(|meta| {
+            FileKey::of(&meta) == file.key && (meta.ctime(), meta.ctime_nsec()) == file.ctime
+        })
+    };
+    let (first, second) = (!unchanged(a), !unchanged(b));
+    if first || second {
+        return Err(CompareError::Unreadable { first, second });
     }
     Ok(true)
 }
@@ -447,12 +471,24 @@ mod tests {
         use std::io::Write;
         let mut append = std::fs::OpenOptions::new().append(true).open(&b).unwrap();
         append.write_all(b"more").unwrap();
-        assert_eq!(same_contents(&x, &y, &progress), Err(HashError::Unreadable));
+        assert_eq!(
+            same_contents(&x, &y, &progress),
+            Err(CompareError::Unreadable {
+                first: false,
+                second: true
+            })
+        );
         // Empty files are compared without reading too.
         let (e, f) = (dir.file("e", b""), dir.file("f", b""));
         let (x, y) = (open(&e).unwrap(), open(&f).unwrap());
         std::fs::write(&f, b"now full").unwrap();
-        assert_eq!(same_contents(&x, &y, &progress), Err(HashError::Unreadable));
+        assert_eq!(
+            same_contents(&x, &y, &progress),
+            Err(CompareError::Unreadable {
+                first: false,
+                second: true
+            })
+        );
     }
 
     #[test]
@@ -477,7 +513,13 @@ mod tests {
             Ok(())
         });
         assert_eq!(reads, 4);
-        assert_eq!(result, Err(HashError::Unreadable));
+        assert_eq!(
+            result,
+            Err(CompareError::Unreadable {
+                first: false,
+                second: true
+            })
+        );
     }
 
     #[test]

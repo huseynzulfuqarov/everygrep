@@ -411,6 +411,26 @@ pub fn compare_contents(
     threads: usize,
     progress: &Progress,
 ) -> Result<Dupes, Cancelled> {
+    compare_contents_with(
+        grouped,
+        cache,
+        options,
+        threads,
+        progress,
+        &hash::same_contents,
+    )
+}
+
+fn compare_contents_with(
+    grouped: Grouped,
+    cache: Option<&Mutex<HashCache>>,
+    options: CompareOptions,
+    threads: usize,
+    progress: &Progress,
+    same_contents: &(
+         impl Fn(&hash::OpenFile, &hash::OpenFile, &Progress) -> Result<bool, hash::CompareError> + Sync
+     ),
+) -> Result<Dupes, Cancelled> {
     let Grouped { dupes, candidates } = grouped;
     let steps = 3 + u64::from(options.verify_bytes);
     progress.restart(Some(candidates.files() as u64 * steps));
@@ -521,7 +541,7 @@ pub fn compare_contents(
         .map(|run| run.iter().map(|r| r.1).collect())
         .collect();
     if options.verify_bytes {
-        let verified = verify(runs, threads, progress, &path_of)?;
+        let verified = verify(runs, threads, progress, &path_of, same_contents)?;
         runs = verified.groups;
         dropped.extend(verified.lost.iter().map(&id_of));
         let counted = verified.counted;
@@ -546,8 +566,7 @@ enum Compared {
     Equal,
     Different,
     /// They could not be compared: whether the first file and the member
-    /// are gone, changed or unreadable. When neither looks so (a read
-    /// failed), the member counts as such.
+    /// are gone, changed or unreadable.
     Lost {
         first: bool,
         member: bool,
@@ -565,11 +584,13 @@ fn verify<'a>(
     threads: usize,
     progress: &Progress,
     path_of: &(impl Fn(&Looked) -> &'a Path + Sync),
+    same_contents: &(
+         impl Fn(&hash::OpenFile, &hash::OpenFile, &Progress) -> Result<bool, hash::CompareError> + Sync
+     ),
 ) -> Result<Verified, Cancelled> {
     let mut done = Vec::new();
     let mut lost = Vec::new();
     let mut counted: HashSet<(usize, usize)> = HashSet::new();
-    let still = |l: &Looked| reopen(path_of(l), &l.key).is_ok();
     while !pending.is_empty() {
         let pairs: Vec<(Looked, Looked)> = pending
             .iter()
@@ -583,17 +604,14 @@ fn verify<'a>(
                     member: y.is_err(),
                 });
             };
-            match hash::same_contents(x, y, progress) {
+            match same_contents(x, y, progress) {
                 Ok(true) => Ok(Compared::Equal),
                 Ok(false) => Ok(Compared::Different),
-                Err(HashError::Cancelled) => Err(HashError::Cancelled),
-                Err(_) => {
-                    let first = !still(a);
-                    Ok(Compared::Lost {
-                        first,
-                        member: !first || !still(b),
-                    })
-                }
+                Err(hash::CompareError::Cancelled) => Err(HashError::Cancelled),
+                Err(hash::CompareError::Unreadable { first, second }) => Ok(Compared::Lost {
+                    first,
+                    member: second,
+                }),
             }
         })?;
         let mut same = same.into_iter();
@@ -619,6 +637,9 @@ fn verify<'a>(
             }
             if first_lost {
                 lost.push(equal.remove(0));
+                // Earlier successful comparisons used a first file that is
+                // now lost. Compare all remaining members with a healthy one.
+                other.append(&mut equal);
             }
             for l in &group {
                 if counted.insert((l.group, l.member)) {
@@ -1281,7 +1302,7 @@ mod tests {
             groups,
             counted,
             lost,
-        } = verify(vec![looked], 2, &progress, &path_of).unwrap();
+        } = verify(vec![looked], 2, &progress, &path_of, &hash::same_contents).unwrap();
         let members: Vec<Vec<usize>> = groups
             .iter()
             .map(|g| g.iter().map(|l| l.member).collect())
@@ -1307,8 +1328,14 @@ mod tests {
                 ..l
             })
             .collect();
-        let Verified { groups, lost, .. } =
-            verify(vec![first_gone], 1, &Progress::new(), &path_of).unwrap();
+        let Verified { groups, lost, .. } = verify(
+            vec![first_gone],
+            1,
+            &Progress::new(),
+            &path_of,
+            &hash::same_contents,
+        )
+        .unwrap();
         let members: Vec<Vec<usize>> = groups
             .iter()
             .map(|g| g.iter().map(|l| l.member).collect())
@@ -1328,7 +1355,106 @@ mod tests {
                 })
                 .collect(),
         ];
-        assert!(verify(again, 1, &cancelled, &path_of).is_err());
+        assert!(verify(again, 1, &cancelled, &path_of, &hash::same_contents).is_err());
+    }
+
+    fn verification_read_error(failed_read: usize) {
+        use std::os::unix::fs::FileExt;
+        let tree = Tree::new(
+            &format!("read-error-{failed_read}"),
+            &[("a", b"same"), ("b", b"same")],
+        );
+        for q in ["unique:", "distinct:"] {
+            let ids = search(
+                &tree.index,
+                &Query::parse("", QueryOptions::default()).unwrap(),
+                1,
+            );
+            let grouped = group(&tree.index, &ids, &spec(q));
+            let compare = |a: &hash::OpenFile, b: &hash::OpenFile, progress: &Progress| {
+                let mut reads = 0;
+                hash::same_contents_with_read(a, b, progress, |file, buf, at| {
+                    reads += 1;
+                    if reads == failed_read {
+                        Err(HashError::Unreadable)
+                    } else {
+                        file.read_exact_at(buf, at)
+                            .map_err(|_| HashError::Unreadable)
+                    }
+                })
+            };
+            let dupes = compare_contents_with(
+                grouped,
+                None,
+                CompareOptions {
+                    verify_bytes: true,
+                    ..CompareOptions::default()
+                },
+                1,
+                &Progress::new(),
+                &compare,
+            )
+            .unwrap();
+            let expected = if failed_read == 1 { "b" } else { "a" };
+            assert_eq!(
+                tree.show(&dupes.arrange(&dupes.to_sort())),
+                [expected],
+                "{q}"
+            );
+        }
+    }
+
+    #[test]
+    fn verification_read_error_in_first_file_keeps_the_healthy_member() {
+        verification_read_error(1);
+    }
+
+    #[test]
+    fn verification_read_error_in_member_keeps_the_healthy_first_file() {
+        verification_read_error(2);
+    }
+
+    #[test]
+    fn verification_regroups_healthy_members_after_a_transient_first_read_error() {
+        let tree = Tree::new(
+            "transient-read",
+            &[("a", b"same"), ("b", b"same"), ("c", b"same")],
+        );
+        for (q, expected) in [
+            ("unique:", vec![]),
+            ("distinct:", vec!["b"]),
+            ("duplicates:", vec!["b", "c"]),
+        ] {
+            let ids = search(
+                &tree.index,
+                &Query::parse("", QueryOptions::default()).unwrap(),
+                1,
+            );
+            let grouped = group(&tree.index, &ids, &spec(q));
+            let calls = AtomicUsize::new(0);
+            let compare = |a: &hash::OpenFile, b: &hash::OpenFile, progress: &Progress| {
+                if calls.fetch_add(1, AtomicOrdering::SeqCst) == 0 {
+                    hash::same_contents_with_read(a, b, progress, |_, _, _| {
+                        Err(HashError::Unreadable)
+                    })
+                } else {
+                    hash::same_contents(a, b, progress)
+                }
+            };
+            let dupes = compare_contents_with(
+                grouped,
+                None,
+                CompareOptions {
+                    verify_bytes: true,
+                    ..CompareOptions::default()
+                },
+                1,
+                &Progress::new(),
+                &compare,
+            )
+            .unwrap();
+            assert_eq!(tree.show(&dupes.arrange(&dupes.to_sort())), expected, "{q}");
+        }
     }
 
     #[test]
