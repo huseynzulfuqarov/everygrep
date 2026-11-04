@@ -37,6 +37,10 @@
 //! nospace:"my file"   whitespace is ignored: "myfile", "my  file"
 //! regex:^img_\d+$     a regular expression (to the next space)
 //! limit:100           only the first 100 results (after sorting)
+//! type:image ext:png  exact name-derived type category and extension
+//! attributes:=RH     exact attribute set (R H D L X); without = requires those bits
+//! sha1:a9993e364706816aba3e25717850c26c9cd0d89d
+//!                     exact digest; also md5:, sha256:, sha384:, sha512:, crc32:, xxhash:
 //! content:invoice     files whose contents hold the text (read from disk;
 //!                     see crate::content); content:<a b> = both texts,
 //!                     regex:content:^foo, case:content:, wholeword:content:;
@@ -198,6 +202,12 @@ enum Pred {
     Hidden(bool),
     /// Entries that pass a result filter.
     Kind(Filter),
+    /// Exact name-derived type category, used with an extension for column values.
+    Type(FileKind),
+    Attributes {
+        bits: crate::details::Attributes,
+        exact: bool,
+    },
     /// Extensions without the leading dot (may contain dots, such as
     /// `tar.gz`), wildcard patterns for an extension (`jp*`), and `none`,
     /// which also accepts files that have no extension. They are folded and
@@ -714,6 +724,21 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             // 0 is an unknown time (see `Meta::mtime_ns`), not 1970.
             let t = store.meta(id).mtime_ns;
             t != 0 && *min <= t && t <= *max
+        }
+        Pred::Type(kind) => classify(store.name(id), store.is_dir(id)) == *kind,
+        Pred::Attributes { bits, exact } => {
+            if !scratch.on_disk(store, id) {
+                return false;
+            }
+            let path = std::ffi::OsStr::from_bytes(path_bytes(store, id, scratch));
+            let details = crate::details::Details::read(std::path::Path::new(path), store.name(id));
+            details.attributes.is_some_and(|actual| {
+                if *exact {
+                    actual == *bits
+                } else {
+                    actual.has(bits.0)
+                }
+            })
         }
         Pred::DiskTime { field, min, max } => {
             if !scratch.on_disk(store, id) {
@@ -1952,6 +1977,33 @@ impl Parser {
                     return Ok(Some(self.with_rest(Pred::IsDir, tail, m)?));
                 }
                 "ext" => return Ok(Some(Node::Leaf(parse_ext(&value, m.case)))),
+                "type" => {
+                    let kind = FileKind::from_id(&value)
+                        .ok_or_else(|| ParseError(format!("unknown file type: {value}")))?;
+                    return Ok(Some(Node::Leaf(Pred::Type(kind))));
+                }
+                "attributes" | "attrib" => {
+                    let (letters, exact) = value
+                        .strip_prefix('=')
+                        .map_or((value.as_str(), false), |s| (s, true));
+                    if letters.is_empty() && !exact {
+                        return Err(ParseError(
+                            "attributes needs R, H, D, L or X (use = for an exact set)".into(),
+                        ));
+                    }
+                    let bits =
+                        crate::details::Attributes::parse_letters(letters).ok_or_else(|| {
+                            ParseError("attributes accepts only R, H, D, L and X".into())
+                        })?;
+                    self.reads_disk = true;
+                    return Ok(Some(Node::Leaf(Pred::Attributes { bits, exact })));
+                }
+                word if crate::hash::Algorithm::from_keyword(word).is_some() => {
+                    return self.parse_hash(
+                        crate::hash::Algorithm::from_keyword(word).expect("known hash"),
+                        &value,
+                    );
+                }
                 "size" => return parse_size(&value).map(Some),
                 "modified" => {
                     return self.parse_modified(&value).map(|p| Some(Node::Leaf(p)));
@@ -2044,6 +2096,30 @@ impl Parser {
             },
             pattern,
         }))))
+    }
+
+    fn parse_hash(
+        &mut self,
+        algorithm: crate::hash::Algorithm,
+        value: &str,
+    ) -> Result<Option<Node>, ParseError> {
+        if self.content.len() + self.checked_content == MAX_CONTENT_TERMS {
+            return Err(ParseError(format!(
+                "a query can have at most {MAX_CONTENT_TERMS} content terms"
+            )));
+        }
+        self.reads_disk = true;
+        if self.check_only {
+            algorithm.parse_hex(value).map_err(ParseError)?;
+            self.checked_content += 1;
+            return Ok(Some(Node::All));
+        }
+        let term = Arc::new(ContentTerm::hash(algorithm, value).map_err(ParseError)?);
+        self.content.push(term.clone());
+        Ok(Some(Node::Leaf(Pred::Content(
+            self.content.len() - 1,
+            term,
+        ))))
     }
 
     /// The text of a `content:` term; without one, a group that follows
@@ -2213,11 +2289,11 @@ fn cost(node: &Node) -> u8 {
         // Executables may be looked up on disk, and these times always are:
         // last.
         Node::Leaf(Pred::Kind(Filter::Executable)) => 5,
-        Node::Leaf(Pred::DiskTime { .. }) => 6,
+        Node::Leaf(Pred::DiskTime { .. } | Pred::Attributes { .. }) => 6,
         // Files are read: only for entries that passed all the other terms.
         Node::Leaf(Pred::Content(..)) => 7,
         // Classifying looks at the name; let text terms narrow first.
-        Node::Leaf(Pred::Kind(_)) => 2,
+        Node::Leaf(Pred::Kind(_) | Pred::Type(_)) => 2,
         // Hidden status walks parent names; let cheap name terms narrow first.
         Node::Leaf(Pred::Hidden(_)) => 2,
         Node::Leaf(_) => 0,
@@ -2236,7 +2312,9 @@ fn split_modifier(word: &str) -> Option<(String, &str)> {
 
 /// Whether `head` (lowercase) is a modifier, a function or a filter word.
 fn is_known_modifier(head: &str) -> bool {
-    KNOWN_MODIFIERS.contains(&head) || Filter::from_query_word(head).is_some()
+    KNOWN_MODIFIERS.contains(&head)
+        || Filter::from_query_word(head).is_some()
+        || crate::hash::Algorithm::from_keyword(head).is_some()
 }
 
 /// Compiles a regular expression; case is ignored unless `case` is set.
@@ -2297,6 +2375,9 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "folders",
     "dir",
     "ext",
+    "type",
+    "attributes",
+    "attrib",
     "size",
     "modified",
     "created",
@@ -3097,6 +3178,60 @@ mod tests {
             out.sort();
             out
         }
+    }
+
+    #[test]
+    fn digest_type_and_attribute_syntax_validates_values_and_waits_for_file_reads() {
+        use crate::hash::Algorithm;
+        let o = QueryOptions::default();
+        for algorithm in Algorithm::ALL {
+            let len = match algorithm {
+                Algorithm::Md5 | Algorithm::Xxh3 => 32,
+                Algorithm::Sha1 => 40,
+                Algorithm::Sha256 => 64,
+                Algorithm::Sha384 => 96,
+                Algorithm::Sha512 => 128,
+                Algorithm::Crc32 => 8,
+            };
+            let q = format!("{}:{}", algorithm.keyword(), "A".repeat(len));
+            assert!(Query::text_reads_files(&q, o));
+            assert!(Query::parse(&q, o).unwrap().reads_files());
+            assert!(!Query::text_reads_files(
+                &q,
+                QueryOptions { regex: true, ..o }
+            ));
+            for bad in [
+                "".to_owned(),
+                "0".repeat(len - 1),
+                "0".repeat(len + 1),
+                "g".repeat(len),
+            ] {
+                let q = format!("{}:{bad}", algorithm.keyword());
+                assert!(Query::parse(&q, o).is_err(), "{q}");
+                assert!(!Query::text_reads_files(&q, o));
+            }
+        }
+        for alias in [
+            "SHA-1", "sha-256", "sha-384", "sha-512", "crc-32", "xxh3", "xxh3-128",
+        ] {
+            let a = Algorithm::from_keyword(alias).unwrap();
+            assert_eq!(Algorithm::from_keyword(a.keyword()), Some(a));
+        }
+        for kind in FileKind::ALL {
+            assert_eq!(FileKind::from_id(kind.id()), Some(kind));
+            assert!(Query::parse(&format!("type:{}", kind.id()), o).is_ok());
+        }
+        for bad in ["type:unknown", "attributes:", "attributes:=Q", "attrib:RXZ"] {
+            assert!(Query::parse(bad, o).is_err());
+        }
+        let many = std::iter::repeat_n(
+            "md5:900150983cd24fb0d6963f7d28e17f72",
+            MAX_CONTENT_TERMS + 1,
+        )
+        .collect::<Vec<_>>()
+        .join(" ");
+        assert!(Query::parse(&many, o).is_err());
+        assert!(!Query::text_reads_files(&many, o));
     }
 
     #[test]

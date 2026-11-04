@@ -33,7 +33,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use everygrep_core::content::{ContentCache, ContentOptions, Decisions, decide_all};
+#[cfg(test)]
+use everygrep_core::content::decide_all;
+use everygrep_core::content::{ContentCache, ContentOptions, Decisions, decide_all_with_hashes};
 use everygrep_core::drives::{self, Drive, DriveEnv, DriveInfo, MountWatch};
 use everygrep_core::dupe;
 use everygrep_core::hashcache::DEFAULT_MAX_BYTES;
@@ -1615,11 +1617,17 @@ impl Engine {
             let options = *self.content_options.lock().expect("lock");
             let reading = Instant::now();
             let mut last: Option<(Instant, usize)> = None;
-            let read = decide_all(
+            let hashes = query
+                .content_terms()
+                .iter()
+                .any(|term| term.hash_algorithm().is_some())
+                .then(|| self.hashes.cache());
+            let read = decide_all_with_hashes(
                 &staged.pending,
                 query.content_terms(),
                 &options,
                 Some(&self.content_cache),
+                hashes,
                 threads.min(CONTENT_THREADS),
                 task.progress(),
                 &decisions,
@@ -5575,6 +5583,116 @@ mod tests {
         assert_eq!(probe.names("keep"), ["keep.txt"]);
         assert!(epoch > 1, "compacted (or built again) after the deletes");
         e.shutdown();
+    }
+
+    #[test]
+    fn column_value_queries_use_visible_cached_details_and_the_shared_hash_store() {
+        use crate::hash_columns::{HashColumns, HashReader};
+        use crate::results::{DetailColumns, DetailReader, ResultsModel};
+        use everygrep_core::hash::Algorithm;
+        use slint::Model;
+        let dir = Scratch::new("column-value-queries");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("report.txt"), b"abc").unwrap();
+        fs::write(root.join("other.bin"), b"other").unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("report", QueryOptions::default());
+        let result = loop {
+            let result = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if result.query == "report" && result.ids.len() == 1 {
+                break result;
+            }
+        };
+        let model = ResultsModel::new(probe.engine.clone());
+        model.set_result(&result);
+        assert!(model.value_query(0, 4, true).unwrap().contains("type:text"));
+        assert!(model.value_query(0, 8, false).is_none());
+        assert!(model.value_query(0, 52, false).is_none());
+        let (detail_tx, details) = mpsc::channel();
+        model.read_details_with(DetailReader::start(move |batch| {
+            let _ = detail_tx.send(batch);
+        }));
+        let (hash_tx, hashes) = mpsc::channel();
+        model.read_hashes_with(HashReader::start(
+            probe.engine.hashes.clone(),
+            move |batch| {
+                let _ = hash_tx.send(batch);
+            },
+        ));
+        model.set_detail_columns(DetailColumns {
+            created: true,
+            accessed: true,
+            attributes: true,
+        });
+        model.set_hash_columns(HashColumns {
+            md5: true,
+            sha1: true,
+            sha256: true,
+            sha384: true,
+            sha512: true,
+            crc32: true,
+            xxhash: true,
+        });
+        model.row_data(0).unwrap();
+        assert!(
+            model.value_query(0, 8, false).is_none(),
+            "a menu must not synchronously read attributes"
+        );
+        assert!(
+            model.value_query(0, 9, false).is_none(),
+            "a menu must not synchronously hash"
+        );
+        model.take_details(details.recv_timeout(Duration::from_secs(10)).unwrap());
+        model.take_hashes(hashes.recv_timeout(Duration::from_secs(10)).unwrap());
+        assert_eq!(model.value_query(0, 8, false).unwrap(), "attributes:=");
+        assert!(
+            model
+                .value_query(0, 7, false)
+                .unwrap()
+                .starts_with("accessed:")
+        );
+        assert_eq!(
+            model.value_query(0, 9, false).unwrap(),
+            "md5:900150983cd24fb0d6963f7d28e17f72"
+        );
+        assert_eq!(
+            model.value_query(0, 55, false).unwrap(),
+            "xxhash:06b05ab6733a618578af5f94892f3950"
+        );
+        let frozen = model.value_query(0, 52, false).unwrap();
+        for algorithm in Algorithm::ALL {
+            let query = model.value_query(0, algorithm.column(), true).unwrap();
+            assert_eq!(probe.names(&query), ["report.txt"]);
+        }
+        assert_eq!(
+            probe.engine.hashes.cache().lock().unwrap().len(),
+            2,
+            "queries and rows share one hash store"
+        );
+        let other_key = everygrep_core::hash::open(&root.join("other.bin"))
+            .unwrap()
+            .key;
+        assert!(
+            probe
+                .engine
+                .hashes
+                .cache()
+                .lock()
+                .unwrap()
+                .get(&other_key)
+                .unwrap()
+                .sha512
+                .is_some()
+        );
+        // The menu's owned query remains the chosen value when the row changes.
+        fs::write(root.join("report.txt"), b"changed").unwrap();
+        model.restore(None);
+        assert!(model.value_query(0, 52, false).is_none());
+        assert!(probe.names(&frozen).is_empty());
+        probe.engine.shutdown();
     }
 
     #[test]

@@ -113,6 +113,22 @@ pub fn syntax() -> Vec<Row> {
             tr("Files whose contents another result has too"),
         ),
         row(
+            "type:image ext:png",
+            tr("Exact file type category and extension, as shown in the Type column"),
+        ),
+        row(
+            "attributes:=RH",
+            tr(
+                "Exact attributes: R read-only, H hidden, D directory, L link, X executable; omit = to require the listed attributes",
+            ),
+        ),
+        row(
+            "md5:900150983cd24fb0d6963f7d28e17f72",
+            tr(
+                "Exact file digest: MD5, SHA-1/256/384/512, CRC-32 or xxHash. Full files are read on demand, using the shared hash cache.",
+            ),
+        ),
+        row(
             "limit:10",
             tr("Only the first 10 results in the shown order"),
         ),

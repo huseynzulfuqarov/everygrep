@@ -955,6 +955,27 @@ impl ResultsModel {
                     case,
                 )
             }
+            4 => {
+                let ext = if is_dir {
+                    &b""[..]
+                } else {
+                    name.iter()
+                        .rposition(|&b| b == b'.')
+                        .filter(|&i| i > 0)
+                        .map_or(&b""[..], |i| &name[i + 1..])
+                };
+                build(Value::Type(filetype::classify(name, is_dir), ext), case)
+            }
+            8 => build(
+                Value::Attributes(self.detail_cache.borrow().get(&id)?.attributes?),
+                case,
+            ),
+            c if everygrep_core::hash::Algorithm::from_column(c).is_some() => {
+                let algorithm = everygrep_core::hash::Algorithm::from_column(c)?;
+                let hashes = *self.hash_cache.borrow().get(&id)?;
+                let value = algorithm.bytes(&hashes)?;
+                build(Value::Hash(algorithm, &value), case)
+            }
             5 if !is_dir => {
                 let ext = name
                     .iter()

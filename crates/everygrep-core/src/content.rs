@@ -194,6 +194,7 @@ pub struct ContentTerm {
     /// in one.
     ascii_literal: bool,
     key: String,
+    digest: Option<(crate::hash::Algorithm, Vec<u8>)>,
 }
 
 impl fmt::Debug for ContentTerm {
@@ -248,6 +249,7 @@ impl ContentTerm {
             multi_line,
             encoding,
             ascii_literal: !regex && text.is_ascii(),
+            digest: None,
             key: format!(
                 "{encoding:?}/{}/{}/{}/{text}",
                 u8::from(regex),
@@ -255,6 +257,24 @@ impl ContentTerm {
                 u8::from(whole_word)
             ),
         })
+    }
+
+    /// An exact digest comparison, evaluated by the same cancellable workers
+    /// as text contents, with the hash cache shared by columns and sorting.
+    pub fn hash(algorithm: crate::hash::Algorithm, value: &str) -> Result<Self, String> {
+        let expected = algorithm.parse_hex(value)?;
+        let mut term = Self::new("", false, false, false, ContentEncoding::Auto)?;
+        term.key = format!(
+            "hash/{}/{}",
+            algorithm.keyword(),
+            crate::hash::hex(&expected)
+        );
+        term.digest = Some((algorithm, expected));
+        Ok(term)
+    }
+
+    pub fn hash_algorithm(&self) -> Option<crate::hash::Algorithm> {
+        self.digest.as_ref().map(|(algorithm, _)| *algorithm)
     }
 
     /// Identifies what the term matches: equal keys match the same files.
@@ -342,7 +362,31 @@ pub fn search_file(
     options: &ContentOptions,
     progress: &Progress,
 ) -> Result<Outcome, Cancelled> {
+    search_file_with_hashes(path, term, options, None, progress)
+}
+
+fn search_file_with_hashes(
+    path: &Path,
+    term: &ContentTerm,
+    options: &ContentOptions,
+    hashes: Option<&Mutex<crate::hashcache::HashCache>>,
+    progress: &Progress,
+) -> Result<Outcome, Cancelled> {
     progress.check()?;
+    if let Some((algorithm, expected)) = &term.digest {
+        return match crate::hash::read_cached(path, algorithm.wanted(), hashes, progress) {
+            Ok(found) => Ok(
+                if algorithm.bytes(&found).as_deref() == Some(expected.as_slice()) {
+                    Outcome::Match
+                } else {
+                    Outcome::NoMatch
+                },
+            ),
+            Err(crate::hash::HashError::Cancelled) => Err(Cancelled),
+            Err(crate::hash::HashError::NotAFile) => Ok(Outcome::NotAFile),
+            Err(crate::hash::HashError::Unreadable) => Ok(Outcome::Unreadable),
+        };
+    }
     let mut file = match open_regular(path) {
         Ok(file) => file,
         Err(outcome) => return Ok(outcome),
@@ -512,6 +556,24 @@ pub fn decide_all(
     threads: usize,
     progress: &Progress,
     decisions: &Decisions,
+    tick: impl FnMut(),
+) -> Result<(), Cancelled> {
+    decide_all_with_hashes(
+        pending, terms, options, cache, None, threads, progress, decisions, tick,
+    )
+}
+
+/// Like [`decide_all`], sharing digests with the table's optional hash columns.
+#[allow(clippy::too_many_arguments)]
+pub fn decide_all_with_hashes(
+    pending: &[Pending],
+    terms: &[Arc<ContentTerm>],
+    options: &ContentOptions,
+    cache: Option<&Mutex<ContentCache>>,
+    hashes: Option<&Mutex<crate::hashcache::HashCache>>,
+    threads: usize,
+    progress: &Progress,
+    decisions: &Decisions,
     mut tick: impl FnMut(),
 ) -> Result<(), Cancelled> {
     if let Some(cache) = cache {
@@ -535,7 +597,8 @@ pub fn decide_all(
                     if progress.is_cancelled() {
                         break;
                     }
-                    let answer = |t: usize| answer(entry, &terms[t], options, cache, progress);
+                    let answer =
+                        |t: usize| answer(entry, &terms[t], options, cache, hashes, progress);
                     match decide(entry.table, terms.len(), answer) {
                         Ok(matched) => decisions.set(i, matched),
                         Err(Cancelled) => break,
@@ -574,6 +637,7 @@ fn answer(
     term: &ContentTerm,
     options: &ContentOptions,
     cache: Option<&Mutex<ContentCache>>,
+    hashes: Option<&Mutex<crate::hashcache::HashCache>>,
     progress: &Progress,
 ) -> Result<bool, Cancelled> {
     progress.check()?;
@@ -586,7 +650,7 @@ fn answer(
             return Ok(found);
         }
     }
-    let outcome = search_file(path, term, options, progress)?;
+    let outcome = search_file_with_hashes(path, term, options, hashes, progress)?;
     // Unreadable or changing files must be tried again. Metadata comes
     // from disk even when details were omitted from the index or watching
     // is paused; replacement at the same path also invalidates an answer.
@@ -1069,6 +1133,219 @@ mod tests {
             out.extend_from_slice(&bytes);
         }
         out
+    }
+
+    #[test]
+    fn digest_terms_compare_raw_bytes_for_every_algorithm_and_share_hashes() {
+        use crate::hash::Algorithm;
+        use crate::hashcache::HashCache;
+        let dir = Dir::new("digest-terms");
+        // Its extension must not invoke document extraction for a digest query.
+        let path = dir.file("raw.docx", b"abc");
+        let other = dir.file("other.bin", b"abc\0");
+        let cache = Mutex::new(HashCache::default());
+        let options = ContentOptions {
+            max_size: 1,
+            documents: false,
+            ..ContentOptions::default()
+        };
+        let vectors = [
+            (Algorithm::Md5, "900150983cd24fb0d6963f7d28e17f72"),
+            (Algorithm::Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d"),
+            (
+                Algorithm::Sha256,
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                Algorithm::Sha384,
+                "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7",
+            ),
+            (
+                Algorithm::Sha512,
+                "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+            ),
+            (Algorithm::Crc32, "352441c2"),
+            (Algorithm::Xxh3, "06b05ab6733a618578af5f94892f3950"),
+        ];
+        for (algorithm, digest) in vectors {
+            let term = ContentTerm::hash(algorithm, &digest.to_ascii_uppercase()).unwrap();
+            assert_eq!(term.hash_algorithm(), Some(algorithm));
+            assert_eq!(
+                search_file_with_hashes(&path, &term, &options, Some(&cache), &Progress::new())
+                    .unwrap(),
+                Outcome::Match
+            );
+            assert_eq!(
+                search_file(&other, &term, &options, &Progress::new()).unwrap(),
+                Outcome::NoMatch
+            );
+            let known = cache
+                .lock()
+                .unwrap()
+                .get(&crate::hash::open(&path).unwrap().key)
+                .unwrap();
+            assert_eq!(crate::hash::hex(&algorithm.bytes(&known).unwrap()), digest);
+        }
+        assert_eq!(cache.lock().unwrap().len(), 1);
+        let term = ContentTerm::hash(Algorithm::Sha1, vectors[1].1).unwrap();
+        let cancelled = Progress::new();
+        cancelled.cancel();
+        assert_eq!(
+            search_file_with_hashes(&path, &term, &options, Some(&cache), &cancelled),
+            Err(Cancelled)
+        );
+        let link = dir.0.join("link");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert_eq!(
+            search_file(&link, &term, &options, &Progress::new()).unwrap(),
+            Outcome::NotAFile
+        );
+        assert_eq!(
+            search_file(&dir.0, &term, &options, &Progress::new()).unwrap(),
+            Outcome::NotAFile
+        );
+    }
+
+    #[test]
+    fn digest_terms_take_cached_values_invalidate_changed_files_and_work_without_cache() {
+        use crate::hash::Algorithm;
+        use crate::hashcache::{Cached, HashCache};
+        let dir = Dir::new("digest-cache");
+        let path = dir.file("abc", b"abc");
+        let cache = Mutex::new(HashCache::default());
+        // A distinct sentinel proves a cache hit: reading abc again would differ.
+        cache.lock().unwrap().put(
+            crate::hash::open(&path).unwrap().key,
+            &Cached {
+                sha1: Some([0; 20]),
+                ..Cached::default()
+            },
+        );
+        let sentinel = ContentTerm::hash(Algorithm::Sha1, &"0".repeat(40)).unwrap();
+        assert_eq!(
+            search_file_with_hashes(
+                &path,
+                &sentinel,
+                &ContentOptions::default(),
+                Some(&cache),
+                &Progress::new()
+            )
+            .unwrap(),
+            Outcome::Match
+        );
+        std::fs::write(&path, b"changed").unwrap();
+        assert_eq!(
+            search_file_with_hashes(
+                &path,
+                &sentinel,
+                &ContentOptions::default(),
+                Some(&cache),
+                &Progress::new()
+            )
+            .unwrap(),
+            Outcome::NoMatch
+        );
+        let path = dir.file("uncached", b"abc");
+        let disabled = Mutex::new(HashCache::new(0));
+        let abc =
+            ContentTerm::hash(Algorithm::Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d").unwrap();
+        assert_eq!(
+            search_file_with_hashes(
+                &path,
+                &abc,
+                &ContentOptions::default(),
+                Some(&disabled),
+                &Progress::new()
+            )
+            .unwrap(),
+            Outcome::Match
+        );
+        assert!(disabled.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn digest_queries_compose_with_text_boolean_logic_and_skip_offline_entries() {
+        use crate::index::Index;
+        use crate::query::{EvalScratch, Query, QueryOptions};
+        use crate::store::{Meta, NodeStore};
+        let dir = Dir::new("digest-query");
+        for (name, bytes) in [
+            ("a.txt", b"abc".as_slice()),
+            ("b.txt", b"hay"),
+            ("c.txt", b"other"),
+            ("abc.docx", b"abc"),
+        ] {
+            dir.file(name, bytes);
+        }
+        let mut store = NodeStore::new();
+        let root = store.add(None, dir.0.as_os_str().as_bytes(), true, Meta::default());
+        for name in [b"a.txt".as_slice(), b"b.txt", b"c.txt", b"abc.docx"] {
+            store.add(Some(root), name, false, Meta::default());
+        }
+        let index = Index::new(store);
+        let query = Query::parse(
+            "file: <sha1:a9993e364706816aba3e25717850c26c9cd0d89d | content:hay>",
+            QueryOptions::default(),
+        )
+        .unwrap();
+        assert!(query.reads_files());
+        let mut names: Vec<_> = crate::search::search(&index, &query, 2)
+            .iter()
+            .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.txt", "abc.docx", "b.txt"]);
+        let mut scratch = EvalScratch::with_offline_roots(&[root]);
+        for id in index.order().iter() {
+            assert!(!query.matches(index.store(), id, &mut scratch));
+        }
+        let literal = Query::parse("content:sha1:abc", QueryOptions::default()).unwrap();
+        assert!(literal.content_terms()[0].hash_algorithm().is_none());
+    }
+
+    #[test]
+    fn type_and_attribute_queries_use_categories_and_live_link_metadata() {
+        use crate::query::{EvalScratch, Query, QueryOptions};
+        use crate::store::{Meta, NodeStore};
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Dir::new("value-metadata");
+        let hidden = dir.file(".hidden", b"x");
+        std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let plain = dir.file("plain.txt", b"x");
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&hidden, dir.0.join("link")).unwrap();
+        let mut store = NodeStore::new();
+        let root = store.add(None, dir.0.as_os_str().as_bytes(), true, Meta::default());
+        let hidden_id = store.add(Some(root), b".hidden", false, Meta::default());
+        let plain_id = store.add(Some(root), b"plain.txt", false, Meta::default());
+        let link = store.add(Some(root), b"link", false, Meta::default());
+        let source = store.add(Some(root), b"CMakeLists.txt", false, Meta::default());
+        let matches = |text: &str, id| {
+            Query::parse(text, QueryOptions::default())
+                .unwrap()
+                .matches(&store, id, &mut EvalScratch::default())
+        };
+        assert!(matches("attributes:=RH", hidden_id));
+        assert!(matches("attrib:r", hidden_id));
+        assert!(!matches("attributes:=R", hidden_id));
+        assert!(matches("attributes:=", plain_id));
+        assert!(matches("attributes:=L", link));
+        assert!(
+            !matches("attributes:R", link),
+            "link metadata does not follow the target"
+        );
+        assert!(matches("attributes:D", root));
+        assert!(matches("type:text ext:txt", plain_id));
+        assert!(!matches("type:text ext:txt", source));
+        assert!(matches("type:code ext:txt", source));
+        let query = Query::parse("attributes:=RH", QueryOptions::default()).unwrap();
+        assert!(!query.matches(
+            &store,
+            hidden_id,
+            &mut EvalScratch::with_offline_roots(&[root])
+        ));
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o400)).unwrap();
+        assert!(matches("attributes:=R", plain_id));
     }
 
     #[test]

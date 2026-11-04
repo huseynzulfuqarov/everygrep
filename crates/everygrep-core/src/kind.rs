@@ -51,6 +51,32 @@ impl FileKind {
         FileKind::DiskImage,
         FileKind::Link,
     ];
+    /// Stable query name, independent of translations and icon paths.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Folder => "folder",
+            Self::File => "file",
+            Self::Text => "text",
+            Self::Document => "document",
+            Self::Pdf => "pdf",
+            Self::Spreadsheet => "spreadsheet",
+            Self::Presentation => "presentation",
+            Self::Image => "image",
+            Self::Audio => "audio",
+            Self::Video => "video",
+            Self::Archive => "archive",
+            Self::Code => "code",
+            Self::Executable => "executable",
+            Self::Font => "font",
+            Self::DiskImage => "disk-image",
+            Self::Link => "link",
+        }
+    }
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.id().eq_ignore_ascii_case(id))
+    }
 }
 
 /// Longest extension we look up, in bytes. Longer suffixes are not extensions.

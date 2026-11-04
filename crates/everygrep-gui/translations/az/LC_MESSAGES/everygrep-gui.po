@@ -4559,3 +4559,12 @@ msgstr "FƏRQLİ"
 
 msgid "Paused"
 msgstr "FASİLƏ"
+
+msgid "Exact file type category and extension, as shown in the Type column"
+msgstr "Növ sütununda göstərilən dəqiq fayl növü kateqoriyası və uzantısı"
+
+msgid "Exact attributes: R read-only, H hidden, D directory, L link, X executable; omit = to require the listed attributes"
+msgstr "Dəqiq atributlar: R yalnız oxunan, H gizli, D qovluq, L keçid, X icra olunan; sadalanan atributların olmasını tələb etmək üçün = işarəsini çıxarın"
+
+msgid "Exact file digest: MD5, SHA-1/256/384/512, CRC-32 or xxHash. Full files are read on demand, using the shared hash cache."
+msgstr "Dəqiq fayl heşi: MD5, SHA-1/256/384/512, CRC-32 və ya xxHash. Ortaq heş keşi ilə fayllar lazım olduqda tam oxunur."

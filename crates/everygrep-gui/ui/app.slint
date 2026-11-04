@@ -775,6 +775,10 @@ component Row inherits Rectangle {
         if (x < root.name-width + root.folder-width + root.size-width) { return 2; }
         if (x < root.type-x) { return 3; }
         if (x >= root.type-x + root.type-width && x < root.type-x + root.type-width + root.ext-width) { return 5; }
+        if (root.type-width > 0px && x >= root.type-x && x < root.type-x + root.type-width) { return 4; }
+        if (root.created-width > 0px && x >= root.created-x && x < root.created-x + root.created-width) { return 6; }
+        if (root.accessed-width > 0px && x >= root.created-x + root.created-width && x < root.created-x + root.created-width + root.accessed-width) { return 7; }
+        if (root.attr-width > 0px && x >= root.created-x + root.created-width + root.accessed-width && x < root.md5-x) { return 8; }
         if (root.md5-width > 0px && x >= root.md5-x && x < root.md5-x + root.md5-width) { return 9; }
         if (root.sha256-width > 0px && x >= root.sha256-x && x < root.sha256-x + root.sha256-width) { return 10; }
         if (root.crc32-width > 0px && x >= root.crc32-x && x < root.crc32-x + root.crc32-width) { return 11; }

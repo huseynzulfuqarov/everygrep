@@ -73,6 +73,18 @@ impl Attributes {
         self.0 & bits == bits
     }
 
+    /// Parses attribute letters, ignoring order and ASCII case. Unknown letters fail.
+    pub fn parse_letters(text: &str) -> Option<Self> {
+        let mut bits = 0;
+        for letter in text.bytes() {
+            let (bit, _) = Self::LETTERS
+                .iter()
+                .find(|(_, c)| *c as u8 == letter.to_ascii_uppercase())?;
+            bits |= bit;
+        }
+        Some(Self(bits))
+    }
+
     /// The letters of the bits that are set, in the order `RHDLX`.
     pub fn letters(self) -> String {
         Self::LETTERS

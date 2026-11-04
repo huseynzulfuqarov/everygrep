@@ -18,6 +18,9 @@ pub enum Value<'a> {
     Created(i64, u32, u32),
     Accessed(i64, u32, u32),
     Extension(&'a [u8]),
+    Type(everygrep_core::kind::FileKind, &'a [u8]),
+    Attributes(everygrep_core::details::Attributes),
+    Hash(everygrep_core::hash::Algorithm, &'a [u8]),
 }
 
 pub fn filename(name: &[u8], exact: bool, case: bool) -> String {
@@ -87,6 +90,23 @@ pub fn build(value: Value<'_>, case: bool) -> Option<String> {
         Value::Day(y, m, d) => day("modified", y, m, d)?,
         Value::Created(y, m, d) => day("created", y, m, d)?,
         Value::Accessed(y, m, d) => day("accessed", y, m, d)?,
+        Value::Type(kind, ext) => {
+            if kind == everygrep_core::kind::FileKind::Folder {
+                "type:folder".into()
+            } else {
+                format!(
+                    "<type:{} {} >",
+                    kind.id(),
+                    build(Value::Extension(ext), false)?
+                )
+            }
+        }
+        Value::Attributes(attributes) => format!("attributes:={}", attributes.letters()),
+        Value::Hash(algorithm, bytes) => {
+            let value = everygrep_core::hash::hex(bytes);
+            algorithm.parse_hex(&value).ok()?;
+            format!("{}:{value}", algorithm.keyword())
+        }
         Value::Extension(ext) => {
             let mode = if case { "case" } else { "nocase" };
             if ext.is_empty() {
@@ -189,6 +209,84 @@ mod tests {
             .unwrap()
             .matches(store, id, &mut EvalScratch::default())
     }
+    #[test]
+    fn type_values_match_the_displayed_category_and_extension() {
+        use everygrep_core::kind::{FileKind, classify};
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/tmp", true, Meta::default());
+        let files: Vec<_> = [
+            b"CMakeLists.txt".as_slice(),
+            b"notes.txt",
+            b"NOTES.TXT",
+            b"Makefile",
+            b"README",
+            b"plain",
+            b"archive.tar.gz",
+            b"archive.gz",
+            b"a.weird;*?",
+            b"b.weird;*?",
+        ]
+        .into_iter()
+        .map(|name| store.add(Some(root), name, false, Meta::default()))
+        .collect();
+        for &id in &files {
+            let name = store.name(id);
+            let text = String::from_utf8_lossy(name);
+            let extension = crate::labels::extension(&text, false);
+            let kind = classify(name, false);
+            let displayed = crate::labels::type_name(kind, extension);
+            let query = build(Value::Type(kind, extension.as_bytes()), true).unwrap();
+            for &candidate in &files {
+                let name = String::from_utf8_lossy(store.name(candidate));
+                let other = crate::labels::type_name(
+                    classify(store.name(candidate), false),
+                    crate::labels::extension(&name, false),
+                );
+                assert_eq!(
+                    matches(&query, &store, candidate),
+                    displayed == other,
+                    "{query}: {name}"
+                );
+            }
+            assert!(!matches(&query, &store, root));
+        }
+        let folder = build(Value::Type(FileKind::Folder, b""), false).unwrap();
+        assert!(matches(&folder, &store, root));
+        assert!(!matches(&folder, &store, files[0]));
+    }
+
+    #[test]
+    fn attribute_and_hash_values_build_exact_queries_without_injection() {
+        use everygrep_core::details::Attributes;
+        use everygrep_core::hash::Algorithm;
+        assert_eq!(
+            build(Value::Attributes(Attributes::default()), true).unwrap(),
+            "attributes:="
+        );
+        assert_eq!(
+            build(
+                Value::Attributes(Attributes(Attributes::HIDDEN | Attributes::READ_ONLY)),
+                false
+            )
+            .unwrap(),
+            "attributes:=RH"
+        );
+        for a in Algorithm::ALL {
+            let len = match a {
+                Algorithm::Md5 | Algorithm::Xxh3 => 16,
+                Algorithm::Sha1 => 20,
+                Algorithm::Sha256 => 32,
+                Algorithm::Sha384 => 48,
+                Algorithm::Sha512 => 64,
+                Algorithm::Crc32 => 4,
+            };
+            let q = build(Value::Hash(a, &vec![0xab; len]), true).unwrap();
+            assert!(q.starts_with(a.keyword()));
+            assert!(Query::text_reads_files(&q, QueryOptions::default()));
+            assert!(build(Value::Hash(a, b"|<>"), false).is_none());
+        }
+    }
+
     #[test]
     fn values_use_raw_bytes_and_cannot_inject_query_operators() {
         let mut store = NodeStore::new();

@@ -4559,3 +4559,12 @@ msgstr "FARKLI"
 
 msgid "Paused"
 msgstr "DURAKLATILDI"
+
+msgid "Exact file type category and extension, as shown in the Type column"
+msgstr "Tür sütununda gösterilen tam dosya türü kategorisi ve uzantısı"
+
+msgid "Exact attributes: R read-only, H hidden, D directory, L link, X executable; omit = to require the listed attributes"
+msgstr "Tam öznitelikler: R salt okunur, H gizli, D klasör, L bağlantı, X çalıştırılabilir; listelenen öznitelikleri aramak için = işaretini kaldırın"
+
+msgid "Exact file digest: MD5, SHA-1/256/384/512, CRC-32 or xxHash. Full files are read on demand, using the shared hash cache."
+msgstr "Tam dosya özeti: MD5, SHA-1/256/384/512, CRC-32 veya xxHash. Ortak özet önbelleği kullanılarak dosyaların tamamı gerektiğinde okunur."

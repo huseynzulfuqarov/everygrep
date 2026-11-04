@@ -323,6 +323,61 @@ impl Algorithm {
         Self::Crc32,
         Self::Xxh3,
     ];
+    /// Query keyword, independent of display titles.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Self::Md5 => "md5",
+            Self::Sha1 => "sha1",
+            Self::Sha256 => "sha256",
+            Self::Sha384 => "sha384",
+            Self::Sha512 => "sha512",
+            Self::Crc32 => "crc32",
+            Self::Xxh3 => "xxhash",
+        }
+    }
+    pub fn from_keyword(word: &str) -> Option<Self> {
+        let word = word.to_ascii_lowercase();
+        match word.as_str() {
+            "sha-1" => Some(Self::Sha1),
+            "sha-256" => Some(Self::Sha256),
+            "sha-384" => Some(Self::Sha384),
+            "sha-512" => Some(Self::Sha512),
+            "crc-32" => Some(Self::Crc32),
+            "xxh3" | "xxh3-128" => Some(Self::Xxh3),
+            _ => Self::ALL.into_iter().find(|a| a.keyword() == word),
+        }
+    }
+    /// Parses an exact digest; no truncation, whitespace or query syntax.
+    pub fn parse_hex(self, value: &str) -> Result<Vec<u8>, String> {
+        let bytes = match self {
+            Self::Md5 | Self::Xxh3 => 16,
+            Self::Sha1 => 20,
+            Self::Sha256 => 32,
+            Self::Sha384 => 48,
+            Self::Sha512 => 64,
+            Self::Crc32 => 4,
+        };
+        if value.len() != 2 * bytes || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!(
+                "{} needs {} hexadecimal digits",
+                self.keyword(),
+                2 * bytes
+            ));
+        }
+        let digit = |b: u8| {
+            if b.is_ascii_digit() {
+                b - b'0'
+            } else {
+                b.to_ascii_lowercase() - b'a' + 10
+            }
+        };
+        Ok(value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|c| digit(c[0]) * 16 + digit(c[1]))
+            .collect())
+    }
+
     pub fn column(self) -> i32 {
         match self {
             Self::Md5 => 9,
