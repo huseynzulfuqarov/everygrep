@@ -302,6 +302,10 @@ pub struct Columns {
 }
 
 /// Every setting the window has. `Default` gives the program's behaviour
+/// Default and range of [`Settings::event_buffer_kib`].
+pub const DEFAULT_EVENT_BUFFER_KIB: u32 = 64;
+pub const EVENT_BUFFER_KIB: std::ops::RangeInclusive<u32> = 16..=4096;
+
 /// without a settings file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
@@ -470,6 +474,13 @@ pub struct Settings {
     pub shortcuts_by_position: bool,
     /// Read a file list again when its file changes on disk.
     pub reload_changed_lists: bool,
+    /// Folders to index whose subfolders' contents are left out.
+    pub shallow_roots: Vec<PathBuf>,
+    /// Size of the buffer change events are read into, in KiB.
+    pub event_buffer_kib: u32,
+    /// After lost change events (a full kernel queue): build the index
+    /// again (true) or only catch up by folder times (false).
+    pub rescan_after_lost_events: bool,
     /// Commands whose keys differ from the defaults: the command's id and
     /// its keys, which replace the defaults (an empty list removes them).
     pub shortcuts: Vec<(String, Vec<(Scope, Chord)>)>,
@@ -559,6 +570,9 @@ impl Default for Settings {
             hide_offline: false,
             shortcuts_by_position: true,
             reload_changed_lists: true,
+            shallow_roots: Vec::new(),
+            event_buffer_kib: DEFAULT_EVENT_BUFFER_KIB,
+            rescan_after_lost_events: true,
             shortcuts: Vec::new(),
             unknown: Vec::new(),
             problems: Vec::new(),
@@ -569,13 +583,14 @@ impl Default for Settings {
 /// Keys that are written once per value (a folder, a drive, a command's
 /// keys); the raw settings table shows them but edits them only on their
 /// pages.
-pub const LIST_KEYS: [&str; 6] = [
+pub const LIST_KEYS: [&str; 7] = [
     "root",
     "exclude",
     "ignore-drive",
     "file-list",
     "file-list-off",
     "shortcut",
+    "root-without-subfolders",
 ];
 
 /// One line of the raw settings table: a key and its value as the file
@@ -632,6 +647,7 @@ impl Settings {
     /// The rules of the excluded folders and file filters.
     pub fn rule_spec(&self) -> RuleSpec {
         RuleSpec {
+            shallow: self.shallow_roots.clone(),
             enabled: self.use_excludes,
             folders: self.excludes.clone(),
             include_files: self.include_files.clone(),
@@ -645,6 +661,7 @@ impl Settings {
         self.excludes = spec.folders.clone();
         self.include_files = spec.include_files.clone();
         self.exclude_files = spec.exclude_files.clone();
+        self.shallow_roots = spec.shallow.clone();
     }
 
     /// Reads settings from the text of a settings file.
@@ -736,6 +753,23 @@ impl Settings {
             }
             "hide-offline-entries" => put_flag(&mut self.hide_offline),
             "reload-changed-file-lists" => put_flag(&mut self.reload_changed_lists),
+            "rescan-after-lost-events" => put_flag(&mut self.rescan_after_lost_events),
+            "event-buffer-kib" => value
+                .parse::<u32>()
+                .ok()
+                .filter(|n| EVENT_BUFFER_KIB.contains(n))
+                .map(|n| self.event_buffer_kib = n)
+                .is_some(),
+            "root-without-subfolders" => {
+                let Some(path) = unescape(value).filter(|p| p.first() == Some(&b'/')) else {
+                    return false;
+                };
+                let path = PathBuf::from(OsString::from_vec(path));
+                if !self.shallow_roots.contains(&path) {
+                    self.shallow_roots.push(path);
+                }
+                true
+            }
             "use-exclude-list" => put_flag(&mut self.use_excludes),
             "watch-changes" => put_flag(&mut self.watch_changes),
             "index-folder" => {
@@ -1427,6 +1461,26 @@ impl Settings {
             self.reload_changed_lists,
             d.reload_changed_lists,
         );
+        for root in &self.shallow_roots {
+            line(
+                &mut out,
+                "root-without-subfolders",
+                &escape(root.as_os_str().as_bytes()),
+            );
+        }
+        if all || self.event_buffer_kib != d.event_buffer_kib {
+            line(
+                &mut out,
+                "event-buffer-kib",
+                &self.event_buffer_kib.to_string(),
+            );
+        }
+        flag(
+            &mut out,
+            "rescan-after-lost-events",
+            self.rescan_after_lost_events,
+            d.rescan_after_lost_events,
+        );
         flag(
             &mut out,
             "open-searches-in-tabs",
@@ -2032,6 +2086,9 @@ impl Settings {
                 self.file_lists = d.file_lists;
                 self.hide_offline = d.hide_offline;
                 self.reload_changed_lists = d.reload_changed_lists;
+                self.shallow_roots = d.shallow_roots;
+                self.event_buffer_kib = d.event_buffer_kib;
+                self.rescan_after_lost_events = d.rescan_after_lost_events;
             }
             Page::Search => {
                 self.options = d.options;
@@ -2383,6 +2440,7 @@ fn is_known(key: &str) -> bool {
     // Every known key accepts at least one of these values.
     [
         "true",
+        "64",
         "all",
         "quit",
         "total",
@@ -3528,6 +3586,24 @@ shortcut = edit.cut list F9
         assert!(text.contains("hide-offline-entries = true\n"));
         assert!(text.contains("reload-changed-file-lists = false\n"));
         assert!(Settings::default().reload_changed_lists);
+        let s2 = Settings {
+            shallow_roots: vec!["/srv/a b".into()],
+            event_buffer_kib: 512,
+            rescan_after_lost_events: false,
+            ..Settings::default()
+        };
+        let text2 = s2.to_text();
+        assert_eq!(Settings::parse(&text2), s2, "{text2}");
+        assert_eq!(s2.rule_spec().shallow, s2.shallow_roots);
+        for bad in [
+            "event-buffer-kib = 1",
+            "event-buffer-kib = 99999",
+            "root-without-subfolders = rel",
+        ] {
+            let s = Settings::parse(bad);
+            assert_eq!(s.event_buffer_kib, DEFAULT_EVENT_BUFFER_KIB, "{bad}");
+            assert!(s.shallow_roots.is_empty(), "{bad}");
+        }
         let back = Settings::parse(&text);
         assert_eq!(back.file_lists[0].path, odd);
         // Relative paths and repeats are not taken.

@@ -5192,3 +5192,21 @@ msgstr "Aç…"
 
 msgid "Save as…"
 msgstr "Fərqli saxla…"
+
+msgid "A larger buffer reads many changes at once. When more changes come than the system queue holds, events are lost; then the folders are indexed again, or, with the switch off, only checked by their modification times (faster; changed file sizes are read again when needed)."
+msgstr "Böyük bufer çox dəyişikliyi bir dəfəyə oxuyur. Sistem növbəsinin tuta biləcəyindən çox dəyişiklik gələndə hadisələr itir; onda qovluqlar yenidən indekslənir, açar bağlı olduqda isə yalnız dəyişmə vaxtlarına görə yoxlanır (daha tez; dəyişən fayl ölçüləri lazım olanda yenidən oxunur)."
+
+msgid "Change event buffer (KiB)"
+msgstr "Dəyişiklik hadisələri buferi (KiB)"
+
+msgid "Index again when change events were lost"
+msgstr "Dəyişiklik hadisələri itəndə yenidən indekslə"
+
+msgid "Index the subfolders of the selected folder"
+msgstr "Seçilmiş qovluğun alt qovluqlarını indekslə"
+
+msgid "System queue: {} events (fs.inotify.max_queued_events)."
+msgstr "Sistem növbəsi: {} hadisə (fs.inotify.max_queued_events)."
+
+msgid "{} (without subfolders)"
+msgstr "{} (alt qovluqsuz)"

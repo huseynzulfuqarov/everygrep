@@ -16,6 +16,26 @@ use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
 use crate::transfer::Outcome;
 
 /// Name of a filter in the filter selector.
+/// The kernel's limit of queued change events, for the Indexing page.
+pub fn event_queue_note() -> String {
+    let limit = std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events")
+        .ok()
+        .and_then(|t| t.trim().parse::<u64>().ok());
+    let text = tr(
+        "A larger buffer reads many changes at once. When more changes come than the system queue holds, events are lost; then the folders are indexed again, or, with the switch off, only checked by their modification times (faster; changed file sizes are read again when needed).",
+    );
+    match limit {
+        Some(n) => format!(
+            "{text} {}",
+            fill(
+                tr("System queue: {} events (fs.inotify.max_queued_events)."),
+                &[&n]
+            )
+        ),
+        None => text.into(),
+    }
+}
+
 pub fn filter(f: Filter) -> &'static str {
     match f {
         Filter::All => tr("All"),

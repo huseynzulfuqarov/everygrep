@@ -131,6 +131,16 @@ pub fn rules_fingerprint(rules: &RuleSpec) -> u64 {
         put_u64(&mut buf, bytes.len() as u64);
         buf.extend_from_slice(bytes);
     }
+    // Only when used, so indexes saved before keep their fingerprint.
+    if !rules.shallow.is_empty() {
+        buf.extend_from_slice(b"shallow");
+        put_u64(&mut buf, rules.shallow.len() as u64);
+        for path in &rules.shallow {
+            let bytes = path.as_os_str().as_bytes();
+            put_u64(&mut buf, bytes.len() as u64);
+            buf.extend_from_slice(bytes);
+        }
+    }
     checksum(&buf)
 }
 

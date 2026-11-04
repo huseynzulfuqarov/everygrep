@@ -27,7 +27,7 @@
 use std::collections::{HashMap, HashSet};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
@@ -459,6 +459,10 @@ pub struct Engine {
     reindexed: AtomicU64,
     /// Whether file changes are watched (see [`Engine::set_watching`]).
     watching: AtomicBool,
+    /// Size of the watcher's read buffer in bytes (see Settings).
+    event_buffer: AtomicUsize,
+    /// After lost events: build again (true) or catch up by folder times.
+    rescan_after_lost: AtomicBool,
     index_file: Mutex<Option<PathBuf>>,
     /// Serializes index publication and destination changes.
     saving: Mutex<()>,
@@ -724,6 +728,8 @@ impl Engine {
             file_details_current: AtomicBool::new(false),
             reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
+            event_buffer: AtomicUsize::new(64 << 10),
+            rescan_after_lost: AtomicBool::new(true),
             index_file: Mutex::new(index_file),
             saving: Mutex::new(()),
             generation: AtomicU64::new(0),
@@ -1189,6 +1195,14 @@ impl Engine {
     /// meanwhile, then watches again.
     pub fn set_watching(&self, on: bool) {
         self.watching.store(on, Ordering::SeqCst);
+    }
+
+    /// The event read buffer size and what lost events lead to; taken by
+    /// the watching thread before its next wait.
+    pub fn set_event_options(&self, buffer_bytes: usize, rescan_after_lost: bool) {
+        self.event_buffer.store(buffer_bytes, Ordering::SeqCst);
+        self.rescan_after_lost
+            .store(rescan_after_lost, Ordering::SeqCst);
     }
 
     fn scan_options(&self) -> ScanOptions {
@@ -2601,6 +2615,10 @@ impl Engine {
                     pending_refresh = true;
                 }
             }
+            let buffer = self.event_buffer.load(Ordering::SeqCst);
+            if watcher.buffer_size() != buffer {
+                watcher.set_buffer_size(buffer);
+            }
             match watcher.wait(Some(Duration::from_millis(250))) {
                 Ok(events) if !events.is_empty() || watcher.has_pending() => {
                     let mut index = self.index.write().expect("index lock");
@@ -2617,7 +2635,20 @@ impl Engine {
                         self.bump_epoch();
                         pending_refresh = true;
                     }
-                    if stats.overflow {
+                    if stats.overflow && !self.rescan_after_lost.load(Ordering::SeqCst) {
+                        // Chosen in Settings: catch up by folder times, which
+                        // finds added, removed and renamed entries, instead
+                        // of reading every folder again.
+                        self.forget_details();
+                        drop(index);
+                        self.report(IndexState::CatchingUp);
+                        let roots = online_roots(&self.index.read().expect("index lock"));
+                        watcher.catch_up_shared(&self.index, &roots, &Progress::new(), &|| {
+                            self.interrupted(true)
+                        });
+                        self.report(IndexState::Watching);
+                        pending_refresh = true;
+                    } else if stats.overflow {
                         // Events were lost: details may have changed unseen.
                         self.forget_details();
                         drop(index);

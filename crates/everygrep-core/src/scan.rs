@@ -587,12 +587,46 @@ mod tests {
 
     fn rules(folders: &[PathBuf], include: &str, exclude: &str, enabled: bool) -> IndexRules {
         IndexRules::new(crate::rules::RuleSpec {
+            shallow: Vec::new(),
             enabled,
             folders: folders.to_vec(),
             include_files: include.into(),
             exclude_files: exclude.into(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn a_root_without_subfolders_keeps_only_its_own_entries() {
+        let base = temp_tree("shallow");
+        let spec = |shallow: Vec<PathBuf>, enabled: bool| crate::rules::RuleSpec {
+            shallow,
+            enabled,
+            ..Default::default()
+        };
+        for enabled in [true, false] {
+            let options = ScanOptions {
+                rules: IndexRules::new(spec(vec![base.join("")], enabled)).unwrap(),
+                ..Default::default()
+            };
+            let (paths, _) = scanned_paths(&base, &options);
+            assert!(paths.contains(&base.join("a")));
+            assert!(paths.contains(&base.join("skip")));
+            assert!(!paths.contains(&base.join("a/one.txt")), "{paths:?}");
+            assert!(!paths.contains(&base.join("a/b")));
+            assert!(!paths.contains(&base.join("skip/inner/hidden.txt")));
+        }
+        // A deeper folder without subfolders, inside a normal root.
+        let options = ScanOptions {
+            rules: IndexRules::new(spec(vec![base.join("a")], true)).unwrap(),
+            ..Default::default()
+        };
+        let (paths, _) = scanned_paths(&base, &options);
+        assert!(paths.contains(&base.join("a/one.txt")));
+        assert!(paths.contains(&base.join("a/b")));
+        assert!(!paths.contains(&base.join("a/b/two.TXT")));
+        assert!(paths.contains(&base.join("skip/inner/hidden.txt")));
+        let _ = fs::remove_dir_all(&base);
     }
 
     fn scanned_paths(base: &Path, options: &ScanOptions) -> (Vec<PathBuf>, ScanStats) {

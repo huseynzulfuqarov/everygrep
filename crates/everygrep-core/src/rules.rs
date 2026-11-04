@@ -58,11 +58,16 @@ pub struct RuleSpec {
     pub include_files: String,
     /// Files to exclude, as one `;`-separated text.
     pub exclude_files: String,
+    /// Folders to index without their subfolders' contents: their own
+    /// entries (files and subfolders) are indexed, nothing deeper. Used
+    /// whether or not the lists above are switched on.
+    pub shallow: Vec<PathBuf>,
 }
 
 impl Default for RuleSpec {
     fn default() -> Self {
         Self {
+            shallow: Vec::new(),
             enabled: true,
             folders: Vec::new(),
             include_files: String::new(),
@@ -164,6 +169,7 @@ struct Compiled {
     /// Whether any folder or file rule needs the full path.
     folder_paths_needed: bool,
     file_paths_needed: bool,
+    shallow: Vec<Vec<u8>>,
 }
 
 /// Compiled rules, cheap to clone. `Default` leaves nothing out.
@@ -190,6 +196,15 @@ impl IndexRules {
     /// pattern.
     pub fn new(spec: RuleSpec) -> Result<Self, RuleError> {
         let mut c = Compiled::default();
+        for folder in &spec.shallow {
+            let mut path = folder.as_os_str().as_bytes().to_vec();
+            while path.len() > 1 && path.ends_with(b"/") {
+                path.pop();
+            }
+            if path.starts_with(b"/") && path.len() > 1 {
+                c.shallow.push(path);
+            }
+        }
         if spec.enabled {
             for folder in &spec.folders {
                 let bytes = folder.as_os_str().as_bytes();
@@ -235,6 +250,7 @@ impl IndexRules {
             && c.folders.is_empty()
             && c.include.is_empty()
             && c.exclude.is_empty()
+            && c.shallow.is_empty()
     }
 
     /// Whether every entry admitted here was also admitted by `previous`.
@@ -243,6 +259,11 @@ impl IndexRules {
     pub fn can_refilter_from(&self, previous: &Self) -> bool {
         if previous.is_empty() || self == previous {
             return true;
+        }
+        // A folder that indexes its subfolders again needs them read.
+        let shallow = self.spec().shallow;
+        if !previous.spec().shallow.iter().all(|s| shallow.contains(s)) {
+            return false;
         }
         let effective = |rules: &Self| {
             let spec = rules.spec();
@@ -300,7 +321,7 @@ impl IndexRules {
     /// folder can change what is left out below it.
     pub fn uses_paths(&self) -> bool {
         let c = &self.compiled;
-        c.folder_paths_needed || c.file_paths_needed
+        c.folder_paths_needed || c.file_paths_needed || !c.shallow.is_empty()
     }
 
     /// Folders excluded by their exact path.
@@ -315,6 +336,15 @@ impl IndexRules {
     /// Whether the entry `name` in the folder `parent` is indexed.
     pub fn accepts(&self, parent: &Path, name: &[u8], is_dir: bool) -> bool {
         let c = &*self.compiled;
+        if !c.shallow.is_empty() {
+            let parent = parent.as_os_str().as_bytes();
+            // Below a subfolder of a folder indexed without subfolders.
+            if c.shallow.iter().any(|s| {
+                parent.len() > s.len() + 1 && parent.starts_with(s) && parent[s.len()] == b'/'
+            }) {
+                return false;
+            }
+        }
         let (rules, needs_path): (&[Rule], bool) = if is_dir {
             if c.folder_paths.is_empty() && c.folders.is_empty() {
                 return true;
@@ -483,6 +513,7 @@ mod tests {
 
     fn rules(folders: &[&str], include: &str, exclude: &str) -> IndexRules {
         IndexRules::new(RuleSpec {
+            shallow: Vec::new(),
             enabled: true,
             folders: folders.iter().map(PathBuf::from).collect(),
             include_files: include.into(),
@@ -497,6 +528,40 @@ mod tests {
 
     fn dir(r: &IndexRules, path: &str) -> bool {
         r.accepts_path(Path::new(path), true)
+    }
+
+    #[test]
+    fn shallow_folders_refilter_only_when_they_shrink_and_change_the_fingerprint() {
+        let spec = |shallow: &[&str]| RuleSpec {
+            shallow: shallow.iter().map(PathBuf::from).collect(),
+            ..RuleSpec::default()
+        };
+        let none = IndexRules::new(spec(&[])).unwrap();
+        let one = IndexRules::new(spec(&["/r/"])).unwrap();
+        assert!(none.is_empty() && !one.is_empty() && one.uses_paths());
+        assert!(one.accepts(Path::new("/r"), b"sub", true));
+        assert!(one.accepts(Path::new("/r"), b"f.txt", false));
+        assert!(!one.accepts(Path::new("/r/sub"), b"f.txt", false));
+        assert!(!one.accepts(Path::new("/r/sub/deeper"), b"x", true));
+        assert!(one.accepts(Path::new("/rx/sub"), b"f.txt", false));
+        assert!(one.accepts_path(Path::new("/r"), true));
+        // Leaving subfolders out filters what is there; taking them in again
+        // reads the disk.
+        assert!(one.can_refilter_from(&none));
+        assert!(!none.can_refilter_from(&one));
+        assert_eq!(none.incremental_parents(&one), None);
+        // Indexes saved before keep their fingerprint.
+        let plain = RuleSpec::default();
+        assert_eq!(
+            crate::persist::rules_fingerprint(&plain),
+            crate::persist::rules_fingerprint(&spec(&[]))
+        );
+        assert_ne!(
+            crate::persist::rules_fingerprint(&plain),
+            crate::persist::rules_fingerprint(&spec(&["/r"]))
+        );
+        // "/" or a relative path is ignored.
+        assert!(IndexRules::new(spec(&["/", "rel"])).unwrap().is_empty());
     }
 
     #[test]
@@ -621,6 +686,7 @@ mod tests {
     #[test]
     fn switched_off_leaves_nothing_out() {
         let r = IndexRules::new(RuleSpec {
+            shallow: Vec::new(),
             enabled: false,
             folders: vec!["/a".into(), "x*".into()],
             include_files: "*.mp3".into(),

@@ -405,6 +405,21 @@ impl Watcher {
         Ok(self.apply_batch(index, &events))
     }
 
+    /// Sets the size of the buffer events are read into, within
+    /// [`inotify::MIN_BUFFER_SIZE`] and 16 MiB. A larger buffer takes many
+    /// events with fewer reads; the kernel's own queue limit stays.
+    pub fn set_buffer_size(&mut self, bytes: usize) {
+        let bytes = bytes.clamp(crate::inotify::MIN_BUFFER_SIZE, 16 << 20);
+        if self.buf.len() != bytes {
+            self.buf = vec![0; bytes];
+        }
+    }
+
+    /// The size of the read buffer; 0 before the first read with the default.
+    pub fn buffer_size(&self) -> usize {
+        self.buf.len()
+    }
+
     /// Waits up to `timeout` for events without touching the index. Together
     /// with [`apply_batch`](Self::apply_batch) this lets a caller that shares the
     /// index between threads hold its lock only while changes are applied.

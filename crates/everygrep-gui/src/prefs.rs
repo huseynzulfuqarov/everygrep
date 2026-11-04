@@ -1586,7 +1586,11 @@ impl Prefs {
     /// Changes the folders to index and the rules, reusing unchanged coverage.
     /// Rules that do not compile change nothing: the reason is shown on the
     /// Indexing page and false returned.
-    fn set_index(&self, roots: Vec<PathBuf>, rules: RuleSpec) -> bool {
+    fn set_index(&self, roots: Vec<PathBuf>, mut rules: RuleSpec) -> bool {
+        // "Without subfolders" belongs to a folder to index; it goes with it.
+        rules
+            .shallow
+            .retain(|s| roots.is_empty() || roots.contains(s));
         if let Err(e) = IndexRules::new(rules.clone()) {
             *self.rule_error.borrow_mut() = labels::bad_rule(&e);
             self.refresh();
@@ -2093,6 +2097,13 @@ impl Prefs {
 
     /// Shows in the Index menu whether updates are paused.
     pub fn apply_watch_changes(&self) {
+        {
+            let s = self.settings.borrow();
+            self.engine.set_event_options(
+                s.event_buffer_kib as usize * 1024,
+                s.rescan_after_lost_events,
+            );
+        }
         if let Some(m) = self.main.upgrade() {
             m.set_index_paused(!self.settings.borrow().watch_changes);
         }
@@ -2210,7 +2221,35 @@ impl Prefs {
         };
         let roots = self.shown_roots();
         let index = self.index.borrow();
-        w.set_roots(items(&roots));
+        let shallow = &index.rules.shallow;
+        w.set_roots(ModelRc::new(VecModel::from(
+            roots
+                .iter()
+                .map(|p| {
+                    let text = if shallow.contains(p) {
+                        crate::i18n::fill(
+                            crate::i18n::tr("{} (without subfolders)"),
+                            &[&p.display()],
+                        )
+                    } else {
+                        p.display().to_string()
+                    };
+                    StandardListViewItem::from(SharedString::from(text))
+                })
+                .collect::<Vec<_>>(),
+        )));
+        w.set_roots_deep(ModelRc::new(VecModel::from(
+            roots
+                .iter()
+                .map(|p| !shallow.contains(p))
+                .collect::<Vec<_>>(),
+        )));
+        {
+            let s = self.settings.borrow();
+            w.set_event_buffer_kib(s.event_buffer_kib as i32);
+            w.set_rescan_after_lost(s.rescan_after_lost_events);
+        }
+        w.set_event_queue_note(labels::event_queue_note().into());
         w.set_roots_count(labels::folder_count(roots.len()).into());
         w.set_excludes(items(&index.rules.folders));
         w.set_excludes_count(labels::folder_count(index.rules.folders.len()).into());
@@ -2842,6 +2881,50 @@ impl Prefs {
         };
         w.on_add_roots(on(|p| p.choose(true)));
         w.on_add_excludes(on(|p| p.choose(false)));
+        w.on_root_deep_changed({
+            let weak = me.clone();
+            move |i, deep| {
+                let (Some(p), Ok(i)) = (weak.upgrade(), usize::try_from(i)) else {
+                    return;
+                };
+                let roots = p.shown_roots();
+                let Some(root) = roots.get(i).cloned() else {
+                    return;
+                };
+                let rules = p.rules_with(|r| {
+                    r.shallow.retain(|s| *s != root);
+                    if !deep {
+                        r.shallow.push(root);
+                    }
+                });
+                p.set_index(roots, rules);
+            }
+        });
+        w.on_event_options_changed({
+            let weak = me.clone();
+            move || {
+                let Some(p) = weak.upgrade() else { return };
+                let Some((kib, rescan)) = p
+                    .window
+                    .borrow()
+                    .as_ref()
+                    .map(|w| (w.get_event_buffer_kib(), w.get_rescan_after_lost()))
+                else {
+                    return;
+                };
+                let kib = u32::try_from(kib)
+                    .unwrap_or(settings::DEFAULT_EVENT_BUFFER_KIB)
+                    .clamp(
+                        *settings::EVENT_BUFFER_KIB.start(),
+                        *settings::EVENT_BUFFER_KIB.end(),
+                    );
+                p.change(move |s| {
+                    s.event_buffer_kib = kib;
+                    s.rescan_after_lost_events = rescan;
+                });
+                p.apply_watch_changes();
+            }
+        });
         w.on_remove_root(on_index(|p, i| {
             let mut roots = p.shown_roots();
             if i < roots.len() && roots.len() > 1 {
@@ -4075,6 +4158,7 @@ mod tests {
         assert_eq!(setup.roots, [PathBuf::from("/home/me")]);
         assert_eq!(setup.rules.folders, [PathBuf::from("/home/me/tmp")]);
         let rules = RuleSpec {
+            shallow: Vec::new(),
             enabled: false,
             folders: vec!["*.git".into()],
             include_files: String::new(),

@@ -67,6 +67,7 @@ component FolderList inherits VerticalLayout {
     in property <int> keep: 0;
     callback add();
     callback remove(int);
+    out property <int> current: list.current-item;
 
     spacing: Theme.s2;
     HorizontalLayout {
@@ -133,6 +134,13 @@ export component SettingsWindow inherits Window {
     in property <bool> can-scan-now: true;
     callback add-roots();
     callback remove-root(int);
+    // Per folder to index: whether its subfolders are indexed.
+    in property <[bool]> roots-deep;
+    callback root-deep-changed(int, bool);
+    in-out property <int> event-buffer-kib: 64;
+    in-out property <bool> rescan-after-lost;
+    in property <string> event-queue-note;
+    callback event-options-changed();
     callback add-excludes();
     callback remove-exclude(int);
     // Excluded folders and file filters, and their switch.
@@ -485,7 +493,7 @@ export component SettingsWindow inherits Window {
                             spacing: Theme.s4;
                             vertical-stretch: 1;
                             if root.index-note != "": Note { text: root.index-note; }
-                            FolderList {
+                            roots-list := FolderList {
                                 title: @tr("Folders to index");
                                 count: root.roots-count;
                                 empty-text: @tr("Your home folder");
@@ -493,6 +501,26 @@ export component SettingsWindow inherits Window {
                                 keep: 1;
                                 add => { root.add-roots(); }
                                 remove(i) => { root.remove-root(i); }
+                            }
+                            if roots-list.current >= 0 && roots-list.current < root.roots-deep.length: CheckBox {
+                                text: @tr("Index the subfolders of the selected folder");
+                                checked: root.roots-deep[roots-list.current];
+                                toggled => { root.root-deep-changed(roots-list.current, self.checked); }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                HorizontalLayout {
+                                    spacing: Theme.gap;
+                                    Text { text: @tr("Change event buffer (KiB)"); color: Theme.text; vertical-alignment: center; }
+                                    SpinBox { accessible-label: @tr("Change event buffer (KiB)"); minimum: 16; maximum: 4096; value <=> root.event-buffer-kib; edited => { root.event-options-changed(); } }
+                                    Rectangle { horizontal-stretch: 1; }
+                                }
+                                CheckBox {
+                                    text: @tr("Index again when change events were lost");
+                                    checked <=> root.rescan-after-lost;
+                                    toggled => { root.event-options-changed(); }
+                                }
+                                Note { text: root.event-queue-note; }
                             }
                             VerticalLayout {
                                 spacing: Theme.s2;
