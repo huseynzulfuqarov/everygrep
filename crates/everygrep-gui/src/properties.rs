@@ -117,6 +117,20 @@ impl Reader {
 /// Shortest time between two automatic passes of the property indexer.
 const REWALK_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// One indexer pass must use rules and the revision describing those rules.
+fn indexer_snapshot(
+    options: &Mutex<crate::property_settings::Settings>,
+    revision: &AtomicU64,
+    after_clone: impl FnOnce(),
+) -> (crate::property_settings::Settings, u64) {
+    let current = options.lock().expect("property options");
+    let options = current.clone();
+    after_clone();
+    let revision = revision.load(Ordering::SeqCst);
+    drop(current);
+    (options, revision)
+}
+
 /// Opt-in warming uses the same cache as display and sorting. No UI thread
 /// waits for this worker, and unchanged index versions do not rescan.
 pub fn start_indexer(engine: Arc<Engine>) {
@@ -127,15 +141,11 @@ pub fn start_indexer(engine: Arc<Engine>) {
             let mut last_pass = std::time::Instant::now() - REWALK_EVERY;
             while !engine.property_stopping() {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                let options = engine
-                    .property_options
-                    .lock()
-                    .expect("property options")
-                    .clone();
+                let (options, revision) =
+                    indexer_snapshot(&engine.property_options, &engine.property_revision, || {});
                 if options.cache_mb == 0 || !options.rules.iter().any(|r| r.enabled) {
                     continue;
                 }
-                let revision = engine.property_revision.load(Ordering::SeqCst);
                 let Ok(index) = engine.index.try_read() else {
                     continue;
                 };
@@ -205,4 +215,61 @@ pub fn start_indexer(engine: Arc<Engine>) {
                 let _ = engine.properties.save();
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indexer_rules_and_revision_stay_consistent_during_a_settings_change() {
+        let mut old = crate::property_settings::Settings::default();
+        old.rules[0].enabled = true;
+        let mut new = old.clone();
+        new.rules[0].exclude = "*.png".into();
+        new.rules[1].enabled = true;
+        let options = Mutex::new(old.clone());
+        let revision = AtomicU64::new(0);
+        let first = std::thread::scope(|scope| {
+            let (cloned_tx, cloned_rx) = mpsc::channel();
+            let (resume_tx, resume_rx) = mpsc::channel();
+            let worker = scope.spawn(|| {
+                indexer_snapshot(&options, &revision, move || {
+                    cloned_tx.send(()).unwrap();
+                    resume_rx
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                        .unwrap();
+                })
+            });
+            cloned_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            // This is the settings setter's critical section. If the clone
+            // already released the lock, change the rules before revision is read.
+            let changed = match options.try_lock() {
+                Ok(mut current) => {
+                    *current = new.clone();
+                    revision.fetch_add(1, Ordering::SeqCst);
+                    true
+                }
+                Err(std::sync::TryLockError::WouldBlock) => false,
+                Err(error) => panic!("property options: {error}"),
+            };
+            resume_tx.send(()).unwrap();
+            let first = worker.join().unwrap();
+            if !changed {
+                let mut current = options.lock().unwrap();
+                *current = new.clone();
+                revision.fetch_add(1, Ordering::SeqCst);
+            }
+            first
+        });
+        let next = indexer_snapshot(&options, &revision, || {});
+        assert_eq!(first.1, 0);
+        assert_eq!(first.0, old);
+        assert_eq!(next, (new, 1));
+        // With an unchanged index, this revision difference is what requests
+        // a new pass instead of treating the new rules as already completed.
+        assert_ne!((7, 9, first.1), (7, 9, next.1));
+    }
 }
