@@ -594,6 +594,16 @@ pub struct SettledSearch {
     state: QueryState,
     version: u64,
     epoch: u64,
+    /// How files were read and compared for it: results found with other
+    /// settings are not the answer any more.
+    reading: ReadOptions,
+}
+
+/// The settings that decide how a search reads and compares files.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ReadOptions {
+    content: ContentOptions,
+    compare: dupe::CompareOptions,
 }
 
 /// A content search the user stopped, with the request whose matches so
@@ -1207,11 +1217,13 @@ impl Engine {
             state: q.clone(),
             version: version?,
             epoch: self.epoch(),
+            reading: self.read_options(),
         })
     }
 
     /// Makes `settled` the current request again without searching, when
-    /// the query, its filter and the order asked for are the ones it had and
+    /// the query, its filter, the order asked for and the settings that read
+    /// and compare files are the ones it had and
     /// the index has not changed since (same ids, same version): its results
     /// (kept by the caller) are still the answer. A search or sort running
     /// for another request is cancelled. Never waits for the index: while
@@ -1231,7 +1243,10 @@ impl Engine {
             sort,
             hide_offline: self.query.lock().expect("lock").hide_offline,
         };
-        if state != settled.state || self.epoch() != settled.epoch {
+        if state != settled.state
+            || self.epoch() != settled.epoch
+            || self.read_options() != settled.reading
+        {
             return None;
         }
         let index = self.index.try_read().ok()?;
@@ -1329,6 +1344,14 @@ impl Engine {
         self.epoch.load(Ordering::SeqCst)
     }
 
+    /// How files are read and compared now.
+    fn read_options(&self) -> ReadOptions {
+        ReadOptions {
+            content: *self.content_options.lock().expect("lock"),
+            compare: *self.compare_options.lock().expect("lock"),
+        }
+    }
+
     /// Whether `generation` is still the newest request.
     pub fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
@@ -1399,6 +1422,9 @@ impl Engine {
                 break;
             }
             let state = self.query.lock().expect("lock").clone();
+            // Before the search reads them, so a change meanwhile does not
+            // let its results stand for the new settings.
+            let reading = self.read_options();
             let started = Instant::now();
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
@@ -1429,6 +1455,7 @@ impl Engine {
                                         state: state.clone(),
                                         version: searched,
                                         epoch,
+                                        reading,
                                     }),
                                     ids: Arc::new(ids),
                                     groups: Arc::new(groups),
@@ -1528,6 +1555,7 @@ impl Engine {
                         state: state.clone(),
                         version,
                         epoch,
+                        reading,
                     }),
                     ids: Arc::new(ids),
                     groups: Arc::default(),
@@ -5815,6 +5843,48 @@ mod tests {
             assert_eq!(probe.names("content:absent"), ["a.txt"]);
             probe.engine.shutdown();
         }
+    }
+
+    #[test]
+    fn a_tab_shown_again_searches_when_reading_settings_changed() {
+        let dir = Scratch::new("settled-settings");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.txt"), "same\n").unwrap();
+        fs::write(root.join("b.txt"), "same\n").unwrap();
+        fs::write(root.join("e1"), "").unwrap();
+        fs::write(root.join("e2"), "").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let engine = &probe.engine;
+        let (options, sort) = (QueryOptions::default(), engine.asked_sort());
+        assert_eq!(probe.names("duplicates:"), ["a.txt", "b.txt"]);
+        let dupes = engine.settled_search().expect("complete");
+        let content = probe.names("content:same");
+        let found = engine.settled_search().expect("complete");
+        assert_eq!(content, ["a.txt", "b.txt"]);
+        // Another tab turns on empty files, then byte verification, then
+        // off line breaks: the kept results were found with other settings.
+        let compare = everygrep_core::dupe::CompareOptions {
+            empty_files: true,
+            ..Default::default()
+        };
+        engine.set_compare_options(compare);
+        let show = |s: &SettledSearch, text| engine.show_settled(s, text, options, None, sort);
+        assert!(show(&dupes, "duplicates:").is_none(), "empty files");
+        assert_eq!(probe.names("duplicates:"), ["a.txt", "b.txt", "e1", "e2"]);
+        let shown = engine.settled_search().expect("complete");
+        engine.set_compare_options(everygrep_core::dupe::CompareOptions {
+            verify_bytes: true,
+            ..compare
+        });
+        assert!(show(&shown, "duplicates:").is_none(), "byte verification");
+        engine.set_content_options(ContentOptions {
+            multi_line: false,
+            ..ContentOptions::default()
+        });
+        assert!(show(&found, "content:same").is_none(), "line breaks");
+        engine.shutdown();
     }
 
     #[test]
