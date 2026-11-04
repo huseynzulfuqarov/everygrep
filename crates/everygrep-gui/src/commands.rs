@@ -235,7 +235,7 @@ impl Key {
     }
 
     /// Whether the key types a character (a space included).
-    fn printable(self) -> bool {
+    pub fn printable(self) -> bool {
         matches!(
             self,
             Key::Char(_) | Key::Named("Space" | "Plus" | "Comma" | "Semicolon")

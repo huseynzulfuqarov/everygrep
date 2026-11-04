@@ -164,12 +164,13 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
             let Ok(w) = FileUndoWindow::new() else {
                 return;
             };
+            crate::physical::watch(w.window());
             w.on_resolve_key(|text, ctrl, alt, shift, meta| {
-                let Some(chord) = crate::commands::Chord::from_event(&text, ctrl, alt, shift, meta)
-                else {
-                    return -1;
-                };
-                crate::commands::with_current(|keys| history_key(keys, chord))
+                crate::physical::chords(&text, ctrl, alt, shift, meta)
+                    .into_iter()
+                    .map(|chord| crate::commands::with_current(|keys| history_key(keys, chord)))
+                    .find(|&k| k >= 0)
+                    .unwrap_or(-1)
             });
             // Stable IDs are kept apart from the visible table cells.
             w.on_reverse({

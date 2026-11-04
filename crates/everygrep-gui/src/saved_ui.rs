@@ -133,21 +133,23 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
         });
     });
     w.on_saved_key(|text, ctrl, alt, shift, meta| {
-        let Some(chord) = Chord::from_event(&text, ctrl, alt, shift, meta) else {
+        let chords = crate::physical::chords(&text, ctrl, alt, shift, meta);
+        if chords.is_empty() {
             return false;
-        };
+        }
         with(|s| {
             // Command bindings have priority even after an external settings edit.
-            if commands::with_current(|k| k.bindings().iter().any(|b| b.chord == chord)) {
+            if commands::with_current(|k| k.bindings().iter().any(|b| chords.contains(&b.chord))) {
                 return false;
             }
-            let target = s
-                .library
-                .borrow()
-                .shortcuts
-                .iter()
-                .find(|key| key.chord == chord)
-                .map(|key| key.target);
+            let target = chords.iter().find_map(|chord| {
+                s.library
+                    .borrow()
+                    .shortcuts
+                    .iter()
+                    .find(|key| key.chord == *chord)
+                    .map(|key| key.target)
+            });
             match target {
                 Some(Target::Filter(id)) => {
                     if let Some(w) = s.main.upgrade() {
@@ -407,7 +409,10 @@ impl State {
     fn open(&self, bookmarks: bool) {
         if self.window.borrow().is_none() {
             let w = match SavedWindow::new() {
-                Ok(w) => w,
+                Ok(w) => {
+                    crate::physical::watch(w.window());
+                    w
+                }
                 Err(e) => {
                     if let Some(m) = self.main.upgrade() {
                         crate::error(&m, e.to_string());
@@ -420,7 +425,7 @@ impl State {
             });
             w.on_capture_shortcut(|text, ctrl, alt, shift, meta| {
                 with(|s| {
-                    if let Some(chord) = Chord::from_event(&text, ctrl, alt, shift, meta) {
+                    if let Some(chord) = crate::physical::chord(&text, ctrl, alt, shift, meta) {
                         s.draft_shortcut.set(Some(chord));
                         if let Some(w) = s.window.borrow().as_ref() {
                             w.set_shortcut_text(chord.display().into());

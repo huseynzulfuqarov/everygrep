@@ -1196,6 +1196,7 @@ name = "everygrep-gui"
 version = "0.1.0"
 dependencies = [
  "everygrep-core",
+ "i-slint-backend-winit",
  "slint",
  "slint-build",
  "x11rb",

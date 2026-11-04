@@ -464,6 +464,10 @@ pub struct Settings {
     pub file_lists: Vec<FileListSetting>,
     /// Leave entries of offline drives and file lists out of the results.
     pub hide_offline: bool,
+    /// Whether a shortcut with Ctrl, Alt or Super is taken by the key's
+    /// position, whatever the keyboard layout; off by the character it
+    /// types.
+    pub shortcuts_by_position: bool,
     /// Commands whose keys differ from the defaults: the command's id and
     /// its keys, which replace the defaults (an empty list removes them).
     pub shortcuts: Vec<(String, Vec<(Scope, Chord)>)>,
@@ -551,6 +555,7 @@ impl Default for Settings {
             drives: DriveSettings::default(),
             file_lists: Vec::new(),
             hide_offline: false,
+            shortcuts_by_position: true,
             shortcuts: Vec::new(),
             unknown: Vec::new(),
             problems: Vec::new(),
@@ -853,6 +858,7 @@ impl Settings {
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
             "drive-root-labels" => put_flag(&mut self.drive_root_labels),
+            "shortcuts-by-key-position" => put_flag(&mut self.shortcuts_by_position),
             "load-file-details" => put_flag(&mut self.read_extended_auto),
             "type-to-jump" => put_flag(&mut self.type_to_jump),
             "export-protect-formulas" => put_flag(&mut self.export_protect_formulas),
@@ -1619,6 +1625,12 @@ impl Settings {
             "drive-root-labels",
             self.drive_root_labels,
             d.drive_root_labels,
+        );
+        flag(
+            &mut out,
+            "shortcuts-by-key-position",
+            self.shortcuts_by_position,
+            d.shortcuts_by_position,
         );
         flag(
             &mut out,
@@ -2876,6 +2888,7 @@ pub(crate) mod tests {
             copy_full_path_quotes: true,
             drive_root_labels: false,
             read_extended_auto: true,
+            shortcuts_by_position: false,
             type_to_jump: false,
             open_confirm_over: 0,
             focus_on_show: false,
@@ -2980,6 +2993,7 @@ pub(crate) mod tests {
         assert!(text.contains("open-folder-on-path-double-click = false\n"));
         assert!(text.contains("copy-full-path-quotes = true\n"));
         assert!(text.contains("load-file-details = true\n"));
+        assert!(text.contains("shortcuts-by-key-position = false\n"));
         assert!(text.contains("confirm-open-over = 0\n"));
         assert_eq!(
             Settings::parse("confirm-open-over = 99999\n").open_confirm_over,

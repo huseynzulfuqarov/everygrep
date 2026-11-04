@@ -4814,3 +4814,9 @@ msgstr "Ekrandakı sətirlərin çatışmayan ölçü və tarixlərini oxu"
 
 msgid "When the index holds names only, the rows shown read their size and date from disk, as Load file details does for the selected items. Off: only that command reads them."
 msgstr "İndeksdə yalnız adlar olanda görünən sətirlər ölçü və tarixlərini diskdən oxuyur, seçilmiş elementlər üçün \"Genişləndirilmiş məlumatı oxu\" etdiyi kimi. Söndürüləndə onları yalnız bu əmr oxuyur."
+
+msgid "Match shortcuts by key position"
+msgstr "Qısayolları düymənin yerinə görə tut"
+
+msgid "A shortcut with Ctrl, Alt or Super stays on the same key whatever the keyboard layout (Ctrl+W is the key marked W on a US keyboard). Off: the character the key types counts. Shortcuts set by a character only a layout has keep working."
+msgstr "Ctrl, Alt və ya Super ilə qısayol klaviatura düzümündən asılı olmayaraq eyni düymədə qalır (Ctrl+W ABŞ klaviaturasında W yazılmış düymədir). Söndürüləndə düymənin yazdığı simvol nəzərə alınır. Yalnız bir düzümdə olan simvolla təyin edilmiş qısayollar işləməyə davam edir."

@@ -20,6 +20,10 @@ slint = { version = "1.18", default-features = false, features = [
     "renderer-femtovg",
     "accessibility",
 ] }
+# The window's raw key events, for shortcuts by key position (see
+# src/physical.rs). Already built as part of Slint's winit backend; pinned to
+# the version Slint uses, as its API is Slint's own.
+i-slint-backend-winit = { version = "=1.18.1", default-features = false }
 # Single instance over the session bus. Same version and features as the
 # copy Slint already uses for accessibility, so no new crates.
 zbus = { version = "5.19", default-features = false, features = [

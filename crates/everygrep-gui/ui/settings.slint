@@ -301,6 +301,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> export-protect-formulas;
     in-out property <bool> drive-root-labels;
     in-out property <bool> read-extended-auto;
+    in-out property <bool> keys-by-position;
+    callback keys-by-position-changed(bool);
     in-out property <bool> type-to-jump;
     in-out property <int> open-confirm-over;
     in-out property <int> tab-results-kept;
@@ -1452,6 +1454,12 @@ export component SettingsWindow inherits Window {
                             alignment: start;
                             vertical-stretch: 1;
                             Heading { text: @tr("Shortcuts in the window"); }
+                            CheckBox {
+                                text: @tr("Match shortcuts by key position");
+                                checked <=> root.keys-by-position;
+                                toggled => { root.keys-by-position-changed(self.checked); }
+                            }
+                            Note { text: @tr("A shortcut with Ctrl, Alt or Super stays on the same key whatever the keyboard layout (Ctrl+W is the key marked W on a US keyboard). Off: the character the key types counts. Shortcuts set by a character only a layout has keep working."); }
                             HorizontalLayout {
                                 spacing: Theme.s3;
                                 Text {

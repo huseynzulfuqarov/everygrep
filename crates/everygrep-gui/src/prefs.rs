@@ -2162,6 +2162,7 @@ impl Prefs {
         if self.window.borrow().is_none() {
             match SettingsWindow::new() {
                 Ok(w) => {
+                    crate::physical::watch(w.window());
                     self.connect(&w);
                     *self.window.borrow_mut() = Some(w);
                     self.apply_theme();
@@ -2363,6 +2364,7 @@ impl Prefs {
         w.set_export_protect_formulas(s.export_protect_formulas);
         w.set_drive_root_labels(s.drive_root_labels);
         w.set_read_extended_auto(s.read_extended_auto);
+        w.set_keys_by_position(s.shortcuts_by_position);
         w.set_type_to_jump(s.type_to_jump);
         w.set_open_confirm_max(settings::MAX_OPEN_CONFIRM as i32);
         w.set_open_confirm_over(s.open_confirm_over as i32);
@@ -3009,13 +3011,21 @@ impl Prefs {
                 p.refresh();
             }
         }));
+        w.on_keys_by_position_changed({
+            let me = me.clone();
+            move |on| {
+                let Some(p) = me.upgrade() else { return };
+                p.change(move |s| s.shortcuts_by_position = on);
+                crate::physical::set_enabled(on);
+            }
+        });
         w.on_key_pressed_in_dialog({
             let me = me.clone();
             move |text, ctrl, alt, shift, meta| {
                 let Some(p) = me.upgrade() else { return };
                 let (Some(mut d), Some(chord)) = (
                     p.key_dialog.get(),
-                    Chord::from_event(&text, ctrl, alt, shift, meta),
+                    crate::physical::chord(&text, ctrl, alt, shift, meta),
                 ) else {
                     return;
                 };
@@ -3313,6 +3323,7 @@ impl Prefs {
         m.set_select_search_on_click(s.select_search_on_click);
         self.engine.set_hide_when_empty(s.hide_results_when_empty);
         crate::scope_ui::set_shown(&m, s.scope_selector);
+        crate::physical::set_enabled(s.shortcuts_by_position);
         crate::with_model(&m, |model| model.apply_behaviour(&s));
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);

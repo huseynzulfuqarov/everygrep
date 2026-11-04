@@ -42,6 +42,7 @@ mod labels;
 mod look;
 mod menus;
 mod open;
+mod physical;
 mod portal;
 mod prefs;
 mod preview;
@@ -192,6 +193,8 @@ fn main() -> Result<(), slint::PlatformError> {
         settings.options
     };
     let window = AppWindow::new()?;
+    physical::set_enabled(settings.shortcuts_by_position);
+    physical::watch(window.window());
     window.on_reset_sort_columns(sort_dialog::reset_columns_sort);
     window.on_single_column_sort(sort_dialog::single_column_sort);
     // Read when the native window is created on first show, so it must be set
@@ -877,13 +880,13 @@ fn connect_menus(w: &AppWindow) {
     apply_keys(w);
     set_help(w);
     w.on_resolve_key(|scope, text, ctrl, alt, shift, meta| {
-        let chord = commands::Chord::from_event(&text, ctrl, alt, shift, meta);
-        match (commands::Scope::from_index(scope), chord) {
-            (Some(scope), Some(chord)) => {
-                commands::with_current(|k| k.resolve(scope, &chord)).unwrap_or(Command::None)
-            }
-            _ => Command::None,
-        }
+        let Some(scope) = commands::Scope::from_index(scope) else {
+            return Command::None;
+        };
+        physical::chords(&text, ctrl, alt, shift, meta)
+            .iter()
+            .find_map(|chord| commands::with_current(|k| k.resolve(scope, chord)))
+            .unwrap_or(Command::None)
     });
     let pick = |all_len: usize, i: i32| usize::try_from(i).ok().filter(|&i| i < all_len);
     w.on_choose_theme(move |i| {
