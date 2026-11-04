@@ -14,6 +14,7 @@ mod diagnostics;
 mod engine;
 mod export;
 mod file_properties;
+mod fileops_bulk;
 mod fileops_conflict;
 mod fileops_drop;
 mod fileops_rename;
@@ -1141,6 +1142,34 @@ enum Pending {
 /// Open, copy, rename, trash and delete.
 fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     let rename_dialog = fileops_rename::Dialog::connect(window);
+    let bulk_dialog = fileops_bulk::Dialog::connect(window);
+    let bulk_start = {
+        let (weak, model, dialog) = (window.as_weak(), model.clone(), bulk_dialog.clone());
+        move |r: i32| {
+            let Some(w) = weak.upgrade() else { return };
+            let Some(Targets { paths, .. }) =
+                online_targets(&weak, &model, usize::try_from(r).ok())
+            else {
+                return;
+            };
+            if paths.is_empty() {
+                return;
+            }
+            w.set_bulk_title(
+                fill(
+                    trn("Rename {} item", "Rename {} items", paths.len()),
+                    &[&format::count(paths.len())],
+                )
+                .into(),
+            );
+            dialog.start(&w, paths);
+        }
+    };
+    let bulk_start = Rc::new(bulk_start);
+    window.on_fileops_bulk_rename({
+        let bulk_start = bulk_start.clone();
+        move |r| bulk_start(r)
+    });
     window.on_fileops_new_folder({
         let (weak, model, dialog) = (window.as_weak(), model.clone(), rename_dialog.clone());
         move |r| {
@@ -1274,7 +1303,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 return;
             };
             if model.is_selected(r) && model.selected_count() > 1 {
-                info(&w, tr("Select one item to rename it.").into());
+                bulk_start(r as i32);
                 return;
             }
             if model.targets_offline(Some(r)) {

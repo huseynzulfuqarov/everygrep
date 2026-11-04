@@ -653,6 +653,82 @@ pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameE
     Ok(note)
 }
 
+/// What a batch rename did.
+#[derive(Debug, Default)]
+pub struct BatchOutcome {
+    /// Items renamed, as (old path, new path).
+    pub done: Vec<(PathBuf, PathBuf)>,
+    /// Items not renamed, with the reason.
+    pub failed: Vec<(PathBuf, String)>,
+    /// A notice when undo history could not follow.
+    pub note: Option<String>,
+}
+
+/// Renames each item to its new name, never replacing anything, and
+/// records the renamed ones as one undo step. An item that cannot be
+/// renamed (its name taken meanwhile, gone, no permission) is reported and
+/// the others go on; undo then reverses the ones that were renamed.
+pub fn rename_batch(items: &[(PathBuf, String)]) -> Result<BatchOutcome, String> {
+    let _files =
+        try_file_guard().ok_or_else(|| tr("A file operation is still running.").to_owned())?;
+    let c = config();
+    let mut out = BatchOutcome::default();
+    let mut stamps = Vec::new();
+    for (from, name) in items {
+        let before = Stamp::read(from).ok();
+        match actions::rename(from, name) {
+            Ok(Some(to)) => {
+                stamps.push(before);
+                out.done.push((from.clone(), to));
+            }
+            Ok(None) => {}
+            Err(e) => out.failed.push((from.clone(), e.to_string())),
+        }
+    }
+    if !c.enabled || out.done.is_empty() {
+        return Ok(out);
+    }
+    let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut entries = Vec::new();
+    for ((from, to), before) in out.done.iter().zip(stamps) {
+        let Ok(expected) = Snapshot::read(to) else {
+            entries.clear();
+            break;
+        };
+        if let Some(before) = before {
+            journal.advance_rename(before, expected.0[0].1);
+        }
+        entries.push(Entry {
+            id: 0,
+            kind: Kind::Rename,
+            from: from.clone(),
+            to: to.clone(),
+            expected,
+            source: None,
+            applied: true,
+            skipped: None,
+        });
+    }
+    let what = tr("The rename could not be recorded for undo.");
+    // Never a step with only some of the renamed items.
+    let dropped = if entries.len() != out.done.len() {
+        Some(journal.forget(c))
+    } else {
+        match journal.push_group(entries, c) {
+            Some(Err(dropped)) => Some(dropped),
+            _ => None,
+        }
+    };
+    out.note = dropped.map(|dropped| {
+        if dropped {
+            format!("{what} {}", tr("Earlier undo steps were removed."))
+        } else {
+            what.into()
+        }
+    });
+    Ok(out)
+}
+
 /// Makes the folder `name` in `parent`, and records it when undo is on.
 /// Never takes an existing name: the caller offers a free one. The answer
 /// has a notice for the user when undo history could not follow.
@@ -1061,6 +1137,14 @@ pub fn csv(rows: &[Row]) -> String {
         out.push_str("\r\n");
     }
     out
+}
+
+/// Serializes tests that use the session journal or the file lock.
+#[cfg(test)]
+pub fn tests_lock() -> std::sync::MutexGuard<'static, ()> {
+    tests::TEST_JOURNAL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]
@@ -2013,6 +2097,80 @@ mod new_item_tests {
         fs::write(&file, "edited after the restore").unwrap();
         assert_eq!(j.step(true, &trash, &p).unwrap().done, 0);
         assert_eq!(fs::read(&file).unwrap(), b"edited after the restore");
+    }
+
+    #[test]
+    fn a_batch_rename_is_one_undo_step_for_every_renamed_item() {
+        with_undo(|| {
+            let t = Temp::new();
+            let names = ["a.txt", "b.txt", "c.txt"];
+            for n in names {
+                fs::write(t.work(n), n).unwrap();
+            }
+            let items: Vec<_> = names
+                .iter()
+                .map(|n| (t.work(n), format!("2024 {n}")))
+                .collect();
+            let out = rename_batch(&items).unwrap();
+            assert_eq!(out.done.len(), 3);
+            assert!(out.failed.is_empty() && out.note.is_none());
+            assert_eq!(JOURNAL.lock().unwrap().cursor, 3);
+            let undone = step(false);
+            assert_eq!((undone.done, undone.skipped.len()), (3, 0));
+            for n in names {
+                assert_eq!(fs::read(t.work(n)).unwrap(), n.as_bytes());
+            }
+            assert_eq!(step(true).done, 3);
+            for n in names {
+                assert_eq!(
+                    fs::read(t.work(&format!("2024 {n}"))).unwrap(),
+                    n.as_bytes()
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn a_batch_rename_reports_items_it_could_not_rename_and_undoes_the_rest() {
+        with_undo(|| {
+            let t = Temp::new();
+            for n in ["a", "b", "c"] {
+                fs::write(t.work(n), n).unwrap();
+            }
+            // Taken after the preview: never replaced.
+            fs::write(t.work("new b"), "someone else").unwrap();
+            let items = vec![
+                (t.work("a"), "new a".to_owned()),
+                (t.work("b"), "new b".to_owned()),
+                (t.work("gone"), "new gone".to_owned()),
+                (t.work("c"), "new c".to_owned()),
+            ];
+            let out = rename_batch(&items).unwrap();
+            assert_eq!(out.done.len(), 2);
+            assert_eq!(out.failed.len(), 2);
+            assert!(out.failed[0].1.contains("already exists"));
+            assert_eq!(fs::read(t.work("new b")).unwrap(), b"someone else");
+            assert_eq!(fs::read(t.work("b")).unwrap(), b"b");
+            // Changed outside after the rename: undo leaves it, restores c.
+            fs::write(t.work("new a"), "edited").unwrap();
+            let undone = step(false);
+            assert_eq!((undone.done, undone.skipped.len()), (1, 1));
+            assert_eq!(fs::read(t.work("c")).unwrap(), b"c");
+            assert_eq!(fs::read(t.work("new a")).unwrap(), b"edited");
+            assert!(!t.work("a").exists());
+        });
+    }
+
+    #[test]
+    fn a_batch_rename_refuses_to_start_while_another_operation_runs() {
+        let _test = super::tests::TEST_JOURNAL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        fs::write(t.work("a"), "a").unwrap();
+        let _running = file_guard();
+        assert!(rename_batch(&[(t.work("a"), "b".into())]).is_err());
+        assert!(t.work("a").exists() && !t.work("b").exists());
     }
 
     #[test]

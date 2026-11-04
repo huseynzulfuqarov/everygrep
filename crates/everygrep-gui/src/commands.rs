@@ -778,6 +778,14 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[(List, "Ctrl+Shift+N")],
     },
     Spec {
+        cmd: Command::BulkRename,
+        id: "edit.bulk-rename",
+        category: Category::Edit,
+        label: || tr("Rename several items…"),
+        // F2 opens it too when several items are selected.
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::CopyToFolder,
         id: "file.copy-to-folder",
         category: Category::File,
@@ -1931,6 +1939,7 @@ impl Keymap {
             rename => Rename,
             create_shortcut => CreateShortcut,
             new_folder => NewFolder,
+            bulk_rename => BulkRename,
             copy_to_folder => CopyToFolder,
             move_to_folder => MoveToFolder,
             search_in_program => SearchInProgram,

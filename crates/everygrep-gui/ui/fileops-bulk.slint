@@ -1,0 +1,212 @@
+import { Button, CheckBox, ComboBox, LineEdit, ListView, SpinBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// One row of the preview: state 0 renamed, 1 left as it is, 2 a problem.
+export struct BulkRow {
+    old: string,
+    new: string,
+    note: string,
+    state: int,
+}
+
+// Renaming several items: a rule, and the old and new names of every item
+// before anything changes (see src/fileops_bulk.rs). Modal within the main
+// window, like the rename dialog.
+export component FileopsBulk inherits Rectangle {
+    in property <string> title;
+    in-out property <int> mode;
+    in-out property <string> text;
+    in-out property <string> with;
+    in-out property <bool> match-case;
+    in-out property <bool> keep-extension;
+    in-out property <bool> at-end;
+    in-out property <int> date-format;
+    in-out property <int> start;
+    in-out property <int> step;
+    in-out property <int> digits;
+    in property <[BulkRow]> rows;
+    in property <string> summary;
+    in property <bool> can-apply;
+    in property <bool> busy;
+    callback changed();
+    callback apply();
+    callback cancel();
+
+    // 0 before, 1 after, 2 replace, 3 regular expression, 4 date, 5 number.
+    property <bool> finds: root.mode == 2 || root.mode == 3;
+    property <bool> places: root.mode == 4 || root.mode == 5;
+
+    background: #00000060;
+    TouchArea { }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { if (!root.busy) { root.cancel(); } return accept; }
+            reject
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: max(0px, (parent.height - self.height) / 2);
+            width: min(760px, parent.width - 2 * Theme.s5);
+            height: min(640px, parent.height - 2 * Theme.s5);
+            clip: true;
+            background: Theme.surface;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000040;
+            VerticalLayout {
+                padding: Theme.dialog-padding;
+                spacing: Theme.s3;
+                Text {
+                    text: root.title;
+                    color: Theme.text;
+                    font-size: Theme.body + 2px;
+                    font-weight: 600;
+                }
+                HorizontalLayout {
+                    spacing: Theme.gap;
+                    Text { text: @tr("Change"); color: Theme.text; vertical-alignment: center; }
+                    ComboBox {
+                        model: [@tr("Add text before the name"), @tr("Add text after the name"), @tr("Replace text"),
+                            @tr("Replace with a regular expression"), @tr("Add the modification date"), @tr("Add a number")];
+                        current-index <=> root.mode;
+                        enabled: !root.busy;
+                        selected => { root.changed(); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: Theme.gap;
+                    Text {
+                        min-width: 120px;
+                        vertical-alignment: center;
+                        color: Theme.text;
+                        text: root.mode == 2 ? @tr("Find") : root.mode == 3 ? @tr("Pattern") : root.places ? @tr("Separator") : @tr("Text");
+                    }
+                    LineEdit {
+                        text <=> root.text;
+                        enabled: !root.busy;
+                        accessible-label: root.mode == 2 ? @tr("Find") : root.mode == 3 ? @tr("Pattern") : root.places ? @tr("Separator") : @tr("Text");
+                        init => { self.focus(); }
+                        edited => { root.changed(); }
+                    }
+                }
+                if root.finds: HorizontalLayout {
+                    spacing: Theme.gap;
+                    Text { min-width: 120px; vertical-alignment: center; color: Theme.text; text: @tr("Replace with"); }
+                    LineEdit {
+                        text <=> root.with;
+                        enabled: !root.busy;
+                        accessible-label: @tr("Replace with");
+                        edited => { root.changed(); }
+                    }
+                }
+                if root.mode == 3: Text {
+                    text: @tr("Groups: $1 or ${{1}}; write ${{1}}_ when a letter, digit or _ follows.");
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+                if root.mode == 4: HorizontalLayout {
+                    spacing: Theme.gap;
+                    Text { min-width: 120px; vertical-alignment: center; color: Theme.text; text: @tr("Date format"); }
+                    ComboBox {
+                        model: ["2026-11-04", "20261104", "2026-11-04 20.15.09"];
+                        current-index <=> root.date-format;
+                        enabled: !root.busy;
+                        selected => { root.changed(); }
+                    }
+                }
+                if root.mode == 5: HorizontalLayout {
+                    spacing: Theme.gap;
+                    Text { vertical-alignment: center; color: Theme.text; text: @tr("Start"); }
+                    SpinBox { value <=> root.start; minimum: 0; maximum: 999999; enabled: !root.busy; edited => { root.changed(); } }
+                    Text { vertical-alignment: center; color: Theme.text; text: @tr("Step"); }
+                    SpinBox { value <=> root.step; minimum: 1; maximum: 1000; enabled: !root.busy; edited => { root.changed(); } }
+                    Text { vertical-alignment: center; color: Theme.text; text: @tr("Digits"); }
+                    SpinBox { value <=> root.digits; minimum: 1; maximum: 12; enabled: !root.busy; edited => { root.changed(); } }
+                }
+                HorizontalLayout {
+                    spacing: Theme.s4;
+                    if root.places: ComboBox {
+                        model: [@tr("Before the name"), @tr("After the name")];
+                        current-index: root.at-end ? 1 : 0;
+                        enabled: !root.busy;
+                        selected(value) => { root.at-end = self.current-index == 1; root.changed(); }
+                    }
+                    if root.finds: CheckBox {
+                        text: @tr("Match case");
+                        checked <=> root.match-case;
+                        enabled: !root.busy;
+                        toggled => { root.changed(); }
+                    }
+                    CheckBox {
+                        text: @tr("Keep the extension");
+                        checked <=> root.keep-extension;
+                        enabled: !root.busy;
+                        toggled => { root.changed(); }
+                    }
+                }
+                // Old and new names; nothing changes before Rename.
+                Rectangle {
+                    vertical-stretch: 1;
+                    min-height: 160px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    border-radius: Theme.radius;
+                    clip: true;
+                    VerticalLayout {
+                        HorizontalLayout {
+                            padding-left: Theme.s2;
+                            padding-right: Theme.s2;
+                            height: Theme.row-height;
+                            spacing: Theme.s2;
+                            Text { width: 40%; text: @tr("Old name"); color: Theme.text-muted; vertical-alignment: center; }
+                            Text { text: @tr("New name"); color: Theme.text-muted; vertical-alignment: center; }
+                        }
+                        ListView {
+                            for row in root.rows: HorizontalLayout {
+                                padding-left: Theme.s2;
+                                padding-right: Theme.s2;
+                                spacing: Theme.s2;
+                                height: row.note == "" ? Theme.row-height : 2 * Theme.row-height;
+                                Text {
+                                    width: 40%;
+                                    text: row.old;
+                                    color: Theme.text;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                                VerticalLayout {
+                                    Text {
+                                        text: row.new;
+                                        color: row.state == 2 ? Theme.danger : row.state == 1 ? Theme.text-muted : Theme.text;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                    if row.note != "": Text {
+                                        text: row.note;
+                                        color: row.state == 2 ? Theme.danger : Theme.text-muted;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Text { text: root.summary; color: root.can-apply ? Theme.text : Theme.text-muted; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: Theme.s2;
+                    Button { text: @tr("Cancel"); enabled: !root.busy; clicked => { root.cancel(); } }
+                    Button {
+                        text: @tr("Rename");
+                        primary: true;
+                        enabled: root.can-apply && !root.busy;
+                        clicked => { root.apply(); }
+                    }
+                }
+            }
+        }
+    }
+}

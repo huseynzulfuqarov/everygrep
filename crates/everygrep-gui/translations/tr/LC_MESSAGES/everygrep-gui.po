@@ -857,9 +857,6 @@ msgstr[0] "Yol kopyalandı."
 msgstr[1] "{} yol kopyalandı."
 
 
-#: src/main.rs
-msgid "Select one item to rename it."
-msgstr "Yeniden adlandırmak için tek bir öğe seçin."
 
 #: src/main.rs
 msgid "Move {} to the trash?"
@@ -4250,3 +4247,145 @@ msgstr "Kopyalamak için bırakırken Ctrl tuşunu basılı tutun."
 #: ui/fileops-settings.slint
 msgid "Move on the same drive, copy to another drive"
 msgstr "Aynı sürücüde taşı, başka sürücüye kopyala"
+
+#: src/fileops_bulk.rs
+msgid "{0} Not renamed: {1}. First: {2}: {3}"
+msgstr "{0} Adı değiştirilemeyen: {1}. İlki: {2}: {3}"
+
+#: ui/fileops-bulk.slint
+msgid "Add a number"
+msgstr "Numara ekle"
+
+#: ui/fileops-bulk.slint
+msgid "Add text after the name"
+msgstr "Adın sonuna metin ekle"
+
+#: ui/fileops-bulk.slint
+msgid "Add text before the name"
+msgstr "Adın önüne metin ekle"
+
+#: ui/fileops-bulk.slint
+msgid "Add the modification date"
+msgstr "Değiştirilme tarihini ekle"
+
+#: ui/fileops-bulk.slint
+msgid "After the name"
+msgstr "Addan sonra"
+
+#: src/fileops_bulk.rs
+msgid "Another item of the list gets this name."
+msgstr "Listedeki başka bir öğe de bu adı alıyor."
+
+#: ui/fileops-bulk.slint
+msgid "Before the name"
+msgstr "Addan önce"
+
+#: ui/fileops-bulk.slint
+msgid "Change"
+msgstr "Değişiklik"
+
+#: ui/fileops-bulk.slint
+msgid "Date format"
+msgstr "Tarih biçimi"
+
+#: ui/fileops-bulk.slint
+msgid "Digits"
+msgstr "Basamak sayısı"
+
+#: ui/fileops-bulk.slint
+msgid "Find"
+msgstr "Aranan"
+
+#: ui/fileops-bulk.slint
+msgid "Groups: $1 or ${{1}}; write ${{1}}_ when a letter, digit or _ follows."
+msgstr "Gruplar: $1 veya ${{1}}; ardından harf, rakam veya _ geliyorsa ${{1}}_ yazın."
+
+#: src/fileops_bulk.rs
+msgid "{} has a problem: nothing is renamed until it is solved."
+msgid_plural "{} have problems: nothing is renamed until they are solved."
+msgstr[0] "{} öğede sorun var: çözülene kadar hiçbir şeyin adı değişmez."
+msgstr[1] "{} öğede sorun var: çözülene kadar hiçbir şeyin adı değişmez."
+
+#: src/fileops_bulk.rs
+msgid "{} item will be renamed."
+msgid_plural "{} items will be renamed."
+msgstr[0] "{} öğenin adı değişecek."
+msgstr[1] "{} öğenin adı değişecek."
+
+#: ui/fileops-bulk.slint
+msgid "Keep the extension"
+msgstr "Uzantıyı koru"
+
+#: src/fileops_bulk.rs
+msgid "No change"
+msgstr "Değişiklik yok"
+
+#: ui/fileops-bulk.slint
+msgid "Old name"
+msgstr "Eski ad"
+
+#: ui/fileops-bulk.slint
+msgid "Pattern"
+msgstr "Desen"
+
+#: src/fileops_bulk.rs
+msgid "Renamed {} item."
+msgid_plural "Renamed {} items."
+msgstr[0] "{} öğenin adı değiştirildi."
+msgstr[1] "{} öğenin adı değiştirildi."
+
+#: src/main.rs
+msgid "Rename {} item"
+msgid_plural "Rename {} items"
+msgstr[0] "{} öğenin adını değiştir"
+msgstr[1] "{} öğenin adını değiştir"
+
+#: ui/app.slint
+msgid "Rename several items…"
+msgstr "Birden çok öğeyi yeniden adlandır…"
+
+#: ui/fileops-bulk.slint
+msgid "Replace text"
+msgstr "Metni değiştir"
+
+#: ui/fileops-bulk.slint
+msgid "Replace with a regular expression"
+msgstr "Düzenli ifadeyle değiştir"
+
+#: ui/fileops-bulk.slint
+msgid "Replace with"
+msgstr "Bununla değiştir"
+
+#: src/fileops_bulk.rs
+msgid "Select at most {} items to rename them together."
+msgstr "Birlikte yeniden adlandırmak için en fazla {} öğe seçin."
+
+#: ui/fileops-bulk.slint
+msgid "Separator"
+msgstr "Ayırıcı"
+
+#: ui/fileops-bulk.slint
+msgid "Start"
+msgstr "Başlangıç"
+
+#: src/fileops_bulk.rs
+msgid "{} stays as it is."
+msgid_plural "{} stay as they are."
+msgstr[0] "{} öğe olduğu gibi kalıyor."
+msgstr[1] "{} öğe olduğu gibi kalıyor."
+
+#: ui/fileops-bulk.slint
+msgid "Step"
+msgstr "Adım"
+
+#: src/fileops_bulk.rs
+msgid "The name is not valid text; it is left as it is."
+msgstr "Ad geçerli bir metin değil; olduğu gibi bırakılıyor."
+
+#: src/fileops_bulk.rs
+msgid "The regular expression is not valid: {}"
+msgstr "Düzenli ifade geçerli değil: {}"
+
+#: src/fileops_bulk.rs
+msgid "Type the text to find."
+msgstr "Aranacak metni yazın."
