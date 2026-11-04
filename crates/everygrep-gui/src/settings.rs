@@ -436,6 +436,9 @@ pub struct Settings {
     /// Whether the window has a menu bar; without it the ⋯ button holds the
     /// program's menu.
     pub menu_bar: bool,
+    /// Whether the window shows the status line at its bottom; without it,
+    /// progress and messages appear in a small box there while they last.
+    pub status_bar: bool,
     pub folders_visible: bool,
     pub preview_visible: bool,
     pub preview_width: f32,
@@ -523,6 +526,7 @@ impl Default for Settings {
             size_standard: SizeStandard::Jedec,
             status_details: true,
             menu_bar: true,
+            status_bar: true,
             folders_visible: false,
             preview_visible: false,
             preview_width: 300.0,
@@ -880,6 +884,7 @@ impl Settings {
                 .map(|v| self.folders_width = v.clamp(140.0, 600.0))
                 .is_some(),
             "menu-bar" => put_flag(&mut self.menu_bar),
+            "status-bar" => put_flag(&mut self.status_bar),
             "language" => LanguageChoice::ALL
                 .into_iter()
                 .find(|l| l.id() == value)
@@ -1641,6 +1646,7 @@ impl Settings {
             d.status_details,
         );
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
+        flag(&mut out, "status-bar", self.status_bar, d.status_bar);
         flag(
             &mut out,
             "folders-visible",
@@ -1992,6 +1998,7 @@ impl Settings {
                 self.size_standard = d.size_standard;
                 self.status_details = d.status_details;
                 self.menu_bar = d.menu_bar;
+                self.status_bar = d.status_bar;
                 self.language = d.language;
             }
             Page::Window => {
@@ -2868,6 +2875,7 @@ pub(crate) mod tests {
             size_standard: SizeStandard::Iec,
             status_details: false,
             menu_bar: false,
+            status_bar: false,
             drives: DriveSettings {
                 auto: false,
                 keep_offline: false,
@@ -2892,6 +2900,7 @@ pub(crate) mod tests {
         assert!(text.contains("density = compact\n"));
         assert!(text.contains("status-details = false\n"));
         assert!(text.contains("menu-bar = false\n"));
+        assert!(text.contains("status-bar = false\n"));
         assert!(text.contains("alternate-row-color = false\n"));
         assert!(text.contains("size-format = mb\n"));
         assert!(text.contains("size-units = iec\n"));

@@ -4580,3 +4580,12 @@ msgstr "Arama gecikmesi (ms)"
 
 msgid "While you type, the search waits this long after the last key. 0 searches at once; Enter always searches at once."
 msgstr "Yazarken arama son tuştan sonra bu kadar bekler. 0 hemen arar; Enter her zaman hemen arar."
+
+msgid "Status bar"
+msgstr "Durum çubuğu"
+
+msgid "Show the status line"
+msgstr "Durum satırını göster"
+
+msgid "Without it, progress, the Cancel button and messages appear in a small box at the bottom right while they last."
+msgstr "Kapalıyken ilerleme, İptal düğmesi ve iletiler sürdükleri sürece sağ alttaki küçük bir kutuda görünür."

@@ -260,6 +260,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> density;
     in-out property <bool> status-details;
     in-out property <bool> menu-bar;
+    in-out property <bool> status-bar;
     in-out property <bool> alternate-rows;
     in property <[string]> size-unit-names;
     in-out property <int> size-unit;
@@ -1171,6 +1172,12 @@ export component SettingsWindow inherits Window {
                             Note { text: @tr("For the Size column and the status line. Automatic shows bytes below one kilobyte, then the largest unit that fits. Size searches (size:) always count 1 KB as 1024 bytes."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Status line"); }
+                            CheckBox {
+                                text: @tr("Show the status line");
+                                checked <=> root.status-bar;
+                                toggled => { root.appearance-changed(); }
+                            }
+                            Note { text: @tr("Without it, progress, the Cancel button and messages appear in a small box at the bottom right while they last."); }
                             CheckBox {
                                 text: @tr("Show details of the selected items");
                                 checked <=> root.status-details;

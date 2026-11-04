@@ -891,6 +891,7 @@ fn connect_menus(w: &AppWindow) {
     w.on_hide_offline_changed(|hide| prefs::with(|p| p.set_hide_offline(hide)));
     w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
+    w.on_status_bar_changed(|on| prefs::with(|p| p.set_status_bar(on)));
 }
 
 /// Requests from later launches, waiting for the UI thread.

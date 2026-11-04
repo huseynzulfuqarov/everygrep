@@ -1269,6 +1269,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::StatusBar,
+        id: "view.status-bar",
+        category: Category::View,
+        label: || tr("Status bar"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::FitColumns,
         id: "view.fit-columns",
         category: Category::View,
@@ -2051,6 +2058,7 @@ impl Keymap {
             dupe_group_column => DupeGroupColumn,
             selection_details => SelectionDetails,
             menu_bar => MenuBar,
+            status_bar => StatusBar,
             fit_columns => FitColumns,
             fit_columns_to_window => FitColumnsToWindow,
             organize_columns => OrganizeColumns,

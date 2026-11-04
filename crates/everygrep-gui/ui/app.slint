@@ -1875,6 +1875,7 @@ export component AppWindow inherits Window {
     // are saved as settings; the program sets the lists again after a
     // change.
     in-out property <bool> show-menu-bar: true;
+    in-out property <bool> show-status-bar: true;
     in-out property <bool> status-details: true;
     // Search → Filter and the Bookmarks menu: part of a long list, and
     // whether some entries are left out (then "More…" opens the organizer).
@@ -1884,6 +1885,7 @@ export component AppWindow inherits Window {
     in property <[MenuChoice]> density-items;
     in property <[MenuChoice]> folder-size-items;
     callback menu-bar-changed(bool);
+    callback status-bar-changed(bool);
     callback status-details-changed(bool);
     callback choose-theme(int);
     callback choose-density(int);
@@ -3708,6 +3710,9 @@ export component AppWindow inherits Window {
         } else if (c == Command.menu-bar) {
             root.show-menu-bar = !root.show-menu-bar;
             root.toggled(c);
+        } else if (c == Command.status-bar) {
+            root.show-status-bar = !root.show-status-bar;
+            root.toggled(c);
         } else if (c == Command.match-case) {
             root.match-case = !root.match-case;
             root.toggled(c);
@@ -3891,6 +3896,8 @@ export component AppWindow inherits Window {
             root.status-details-changed(root.status-details);
         } else if (c == Command.menu-bar) {
             root.menu-bar-changed(root.show-menu-bar);
+        } else if (c == Command.status-bar) {
+            root.status-bar-changed(root.show-status-bar);
         } else if (c == Command.pause-index-updates) {
             root.index-paused-changed(root.index-paused);
         } else if (c == Command.hide-offline-entries) {
@@ -5664,9 +5671,10 @@ export component AppWindow inherits Window {
                 }
             }
             // Status line
-            Rectangle { height: 1px; background: Theme.line; }
+            Rectangle { height: root.show-status-bar ? 1px : 0px; visible: root.show-status-bar; background: Theme.line; }
             Rectangle {
-                height: Theme.status-height;
+                height: root.show-status-bar ? Theme.status-height : 0px;
+                visible: root.show-status-bar;
                 background: Theme.surface-alt;
                 HorizontalLayout {
                     padding-left: Theme.margin;
@@ -5830,9 +5838,56 @@ export component AppWindow inherits Window {
         }
     }
 
+    // With the status line hidden: the running operation, its Cancel
+    // button and the last message, in a box at the bottom right while they
+    // last. A click on the message hides it until the next one.
+    property <string> dismissed-notice;
+    property <bool> floating-notice: root.notice != "" && root.notice != root.dismissed-notice;
+    property <bool> floating-cancel: root.can-cancel && !root.fileops-conflict-open && !root.export-open;
+    if !root.show-status-bar && (root.progress-text != "" || root.floating-cancel || root.floating-notice): Rectangle {
+        x: max(Theme.s2, root.width - self.width - Theme.s2);
+        y: root.height - self.height - Theme.s2;
+        width: min(floating-row.preferred-width, root.width - 2 * Theme.s2);
+        height: floating-row.preferred-height;
+        background: Theme.surface;
+        border-radius: Theme.radius;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000030;
+        floating-row := HorizontalLayout {
+            padding: Theme.s2;
+            spacing: Theme.s3;
+            if root.progress-text != "": Text {
+                text: root.progress-text;
+                font-size: Theme.small;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+            if root.floating-cancel: VerticalLayout {
+                alignment: center;
+                StatusButton {
+                    text: @tr("Cancel");
+                    clicked => { root.cancel-task(); }
+                }
+            }
+            if root.floating-notice: Text {
+                text: root.notice;
+                font-size: Theme.small;
+                color: root.notice-error ? Theme.danger : Theme.text-muted;
+                vertical-alignment: center;
+                max-width: 480px;
+                overflow: elide;
+                accessible-role: text;
+                accessible-label: root.notice;
+                TouchArea { clicked => { root.dismissed-notice = root.notice; } }
+            }
+        }
+    }
+
     if notice-hover.has-hover && root.notice != "": Rectangle {
         x: max(Theme.s2, root.width - self.width - Theme.s2);
-        y: root.height - Theme.status-height - self.height - Theme.s2;
+        y: root.height - (root.show-status-bar ? Theme.status-height : 0px) - self.height - Theme.s2;
         width: min(620px, root.width - 2 * Theme.s2);
         height: notice-tip.preferred-height + 2 * Theme.s2;
         background: Theme.surface;
@@ -6659,6 +6714,13 @@ export component AppWindow inherits Window {
                 checkable: true;
                 checked <=> root.show-menu-bar;
                 activated => { root.toggled(Command.menu-bar); }
+            }
+            MenuItem {
+                title: @tr("Status bar");
+                shortcut: root.menu-keys.status-bar;
+                checkable: true;
+                checked <=> root.show-status-bar;
+                activated => { root.toggled(Command.status-bar); }
             }
         }
         Menu {

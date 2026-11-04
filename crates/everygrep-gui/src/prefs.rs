@@ -1136,11 +1136,20 @@ impl Prefs {
         }
     }
 
-    /// Shows or hides the main window's menu bar.
+    /// Shows or hides the main window's menu bar and status line.
     pub fn apply_menu_bar(&self) {
         if let Some(m) = self.main.upgrade() {
-            m.set_show_menu_bar(self.settings.borrow().menu_bar);
+            let s = self.settings.borrow();
+            m.set_show_menu_bar(s.menu_bar);
+            m.set_show_status_bar(s.status_bar);
         }
+    }
+
+    /// Changes whether the main window has a status line.
+    pub fn set_status_bar(&self, on: bool) {
+        self.change(move |s| s.status_bar = on);
+        self.apply_menu_bar();
+        self.refresh();
     }
 
     /// Changes whether the main window has a menu bar.
@@ -1214,6 +1223,7 @@ impl Prefs {
         m.set_drag_to_folders(s.fileops.drag_to_folders);
         m.set_status_details(s.status_details);
         m.set_show_menu_bar(s.menu_bar);
+        m.set_show_status_bar(s.status_bar);
         m.set_preview_visible(s.preview_visible);
         m.set_preview_width(s.preview_width);
         m.set_folders_visible(s.folders_visible);
@@ -2350,6 +2360,7 @@ impl Prefs {
             .collect();
         w.set_status_details(s.status_details);
         w.set_menu_bar(s.menu_bar);
+        w.set_status_bar(s.status_bar);
         w.set_alternate_rows(s.alternate_rows);
         w.set_size_unit_names(ModelRc::new(VecModel::from(
             SizeUnit::ALL
@@ -3310,6 +3321,7 @@ impl Prefs {
             .unwrap_or_default();
         let details = w.get_status_details();
         let menu_bar = w.get_menu_bar();
+        let status_bar = w.get_status_bar();
         let alternate_rows = w.get_alternate_rows();
         let size_unit = usize::try_from(w.get_size_unit())
             .ok()
@@ -3328,6 +3340,7 @@ impl Prefs {
             s.density = density;
             s.status_details = details;
             s.menu_bar = menu_bar;
+            s.status_bar = status_bar;
             s.alternate_rows = alternate_rows;
             s.size_unit = size_unit;
             s.size_standard = size_standard;
