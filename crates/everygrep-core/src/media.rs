@@ -371,7 +371,7 @@ fn xmp_values(bytes: &[u8], wanted: &[Property]) -> Vec<(Property, Value)> {
     }
     values
 }
-fn image_size(r: &mut (impl Read + Seek)) -> Option<(u64, u64)> {
+pub(crate) fn image_size(r: &mut (impl Read + Seek)) -> Option<(u64, u64)> {
     let mut h = [0; 32];
     let n = r.read(&mut h).ok()?;
     let be = |at| Some(u32::from_be_bytes(h.get(at..at + 4)?.try_into().ok()?) as u64);

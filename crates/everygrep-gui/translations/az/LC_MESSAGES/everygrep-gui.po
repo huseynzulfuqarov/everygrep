@@ -4084,3 +4084,15 @@ msgid "Saved the file list of {0} ({1} entry) to {2}."
 msgid_plural "Saved the file list of {0} ({1} entries) to {2}."
 msgstr[0] "{0} qovluğunun fayl siyahısı ({1} qeyd) {2} faylına saxlanıldı."
 msgstr[1] "{0} qovluğunun fayl siyahısı ({1} qeyd) {2} faylına saxlanıldı."
+
+msgid "Preview"
+msgstr "Önizləmə"
+
+msgid "Preview panel"
+msgstr "Önizləmə paneli"
+
+msgid "Focus preview"
+msgstr "Önizləməyə keç"
+
+msgid "Close preview panel"
+msgstr "Önizləmə panelini bağla"

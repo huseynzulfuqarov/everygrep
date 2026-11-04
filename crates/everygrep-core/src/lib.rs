@@ -19,6 +19,7 @@ pub mod localtime;
 pub mod media;
 pub mod order;
 pub mod persist;
+pub mod preview;
 pub mod progress;
 pub mod property;
 mod property_process;

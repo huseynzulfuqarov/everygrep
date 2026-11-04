@@ -1,0 +1,46 @@
+import { Button, TextEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+export component PreviewPanel inherits Rectangle {
+    in property <image> picture;
+    in property <image> icon;
+    in property <string> text;
+    in property <string> info;
+    callback close();
+    callback key(KeyEvent) -> bool;
+    public function focus-panel() { keys.focus(); if (root.text != "") { editor.focus(); } }
+    background: Theme.surface;
+    keys := FocusScope {
+        key-pressed(e) => {
+            if (e.text == Key.Escape) { root.close(); return accept; }
+            if (root.key(e)) { return accept; }
+            return reject;
+        }
+        VerticalLayout {
+            padding-right: Theme.margin;
+            padding-left: Theme.gap;
+            padding-bottom: Theme.gap;
+            spacing: Theme.s2;
+            HorizontalLayout {
+                height: Theme.header-height;
+                Text { text: @tr("Preview"); color: Theme.text; font-weight: 600; vertical-alignment: center; }
+                Button { width: 28px; text: "×"; accessible-label: @tr("Close preview panel"); clicked => { root.close(); } }
+            }
+            if root.text == "": Image {
+                source: root.picture.width > 0 ? root.picture : root.icon;
+                image-fit: contain;
+                min-height: 0px;
+                vertical-stretch: 1;
+            }
+            editor := TextEdit {
+                visible: root.text != "";
+                min-height: 0px;
+                max-height: root.text != "" ? 100000px : 0px;
+                vertical-stretch: root.text != "" ? 1 : 0;
+                text: root.text;
+                read-only: true;
+                wrap: word-wrap;
+            }
+            Text { text: root.info; color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; overflow: elide; }
+        }
+    }
+}

@@ -4084,3 +4084,15 @@ msgid "Saved the file list of {0} ({1} entry) to {2}."
 msgid_plural "Saved the file list of {0} ({1} entries) to {2}."
 msgstr[0] "{0} klasörünün dosya listesi ({1} kayıt) {2} konumuna kaydedildi."
 msgstr[1] "{0} klasörünün dosya listesi ({1} kayıt) {2} konumuna kaydedildi."
+
+msgid "Preview"
+msgstr "Önizleme"
+
+msgid "Preview panel"
+msgstr "Önizleme paneli"
+
+msgid "Focus preview"
+msgstr "Önizlemeye odaklan"
+
+msgid "Close preview panel"
+msgstr "Önizleme panelini kapat"

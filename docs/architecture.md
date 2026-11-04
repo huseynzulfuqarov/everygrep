@@ -24,6 +24,28 @@ zbus (session bus); see `THIRD-PARTY-LICENSES.md` for the full list.
 
 ## Core
 
+Preview input (`preview.rs`) reuses the content reader's regular-file opening
+and encoding order. The GUI has one debounced preview worker, with cancellation
+and stale-answer rejection. Freedesktop PNG records are keyed by the MD5 of the
+file URI and checked against its modification time and optional size. PNG/JPEG
+decoding uses Slint's already linked image decoder on that worker, after a
+25-million-pixel header check and a 32 MiB encoded-input limit. EXIF orientation
+and scaling happen before transferring an RGBA buffer to the event loop.
+Generated 128/256-pixel thumbnails are published atomically with private modes
+and standard URI, MTime and Size tags; files inside the thumbnail directory are
+never thumbnailed. Text reads stop at 256 KiB.
+
+System thumbnailers are discovered from installed desktop definitions and MIME
+globs. They run only through bubblewrap, with all namespaces isolated, a fresh
+session, cleared environment, dropped capabilities, read-only runtime and input
+binds, private temporary storage and no host home. A native seccomp filter on
+x86-64/aarch64 denies kernel administration, mount, tracing, io_uring and new
+user namespaces (so helpers that start their own nested sandbox fail). Wall
+time is limited to five seconds, output files to 4 MiB, CPU time to five
+seconds and address space to 2 GiB. Missing sandbox support skips this tier.
+Failures are recorded under `fail/everygrep` only when a helper exits by
+itself; timeouts and cancellations are retried later.
+
 ### Node store (`store.rs`)
 
 Nodes live in parallel columns indexed by a `NodeId` (u32):

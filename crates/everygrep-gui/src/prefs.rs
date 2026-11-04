@@ -1127,6 +1127,13 @@ impl Prefs {
         self.refresh();
     }
 
+    pub fn set_preview(&self, visible: bool, width: f32) {
+        self.change(move |s| {
+            s.preview_visible = visible;
+            s.preview_width = width.clamp(180.0, 700.0);
+        });
+    }
+
     pub fn set_folders(&self, visible: bool, width: f32, recursive: bool, dim_empty: bool) {
         self.change(move |s| {
             s.folders_visible = visible;
@@ -1160,6 +1167,8 @@ impl Prefs {
         m.set_file_undo_enabled(s.fileops.undo_enabled);
         m.set_status_details(s.status_details);
         m.set_show_menu_bar(s.menu_bar);
+        m.set_preview_visible(s.preview_visible);
+        m.set_preview_width(s.preview_width);
         m.set_folders_visible(s.folders_visible);
         m.set_folders_width(s.folders_width);
         m.set_folders_recursive(s.folders_recursive);

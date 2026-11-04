@@ -166,7 +166,12 @@ screen; when a change conflicts with them, the rules win or are changed first.
   each tab. View commands can be assigned keys in keyboard settings. The header
   close button, Esc in the tree and View → Close folders panel hide the sidebar
   and return focus to results (or the search field when empty).
-- **Preview pane,** planned on the right and hidden by default.
+- **Preview panel,** on the right and hidden by default. View provides toggle,
+  focus and close commands; its header close button and Esc return focus to
+  results. Visibility and dragged width are saved like the folders panel.
+  The selected current row is previewed after a short pause. Images fit the
+  panel; text is read-only, selectable and limited to its first 256 KiB.
+  Other entries show their type icon, full path, size and modification time.
 
 ## Visual system
 

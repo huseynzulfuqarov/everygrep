@@ -1,6 +1,7 @@
 import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette } from "std-widgets.slint";
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
+import { PreviewPanel } from "preview.slint";
 import { FoldersPanel, FolderEntry } from "folders.slint";
 export { FolderEntry } from "folders.slint";
 import { Theme } from "theme.slint";
@@ -1691,6 +1692,15 @@ export component AppWindow inherits Window {
     // Saves the result list to a file.
     callback export-results();
     // Window-level panel layout, with tab-level tree navigation.
+    in-out property <bool> preview-visible;
+    in-out property <float> preview-width: 300;
+    in property <image> preview-image;
+    in property <string> preview-text;
+    in property <string> preview-info;
+    in property <int> preview-kind: 1;
+    callback preview-changed();
+    callback preview-selection-changed();
+    changed current => { root.preview-selection-changed(); }
     in-out property <bool> folders-visible;
     in-out property <float> folders-width: 220;
     in-out property <bool> folders-recursive: true;
@@ -3129,6 +3139,7 @@ export component AppWindow inherits Window {
         if (root.export-open || root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
             return false;
         }
+        if (c == Command.close-preview-panel) { return root.preview-visible; }
         if (c == Command.close-folders-panel) { return root.folders-visible; }
         if (c == Command.undo-file) { return root.file-undo-enabled && root.file-can-undo; }
         if (c == Command.redo-file) { return root.file-undo-enabled && root.file-can-redo; }
@@ -3166,6 +3177,8 @@ export component AppWindow inherits Window {
             self.running = false;
             if (root.focus-after-menu == 1 && root.folders-visible) {
                 folders.focus-tree();
+            } else if (root.focus-after-menu == 3 && root.preview-visible) {
+                preview.focus-panel();
             } else if (root.focus-after-menu == 2) {
                 if (root.results.length > 0) { root.focus-list(); } else { root.focus-search(); }
             }
@@ -3469,6 +3482,13 @@ export component AppWindow inherits Window {
             root.open-debug-log();
         } else if (c == Command.about) {
             root.about-open = true;
+        } else if (c == Command.preview-panel) {
+            root.preview-visible = !root.preview-visible; root.preview-changed();
+        } else if (c == Command.focus-preview) {
+            root.preview-visible = true; root.preview-changed(); preview.focus-panel(); root.focus-soon(3);
+        } else if (c == Command.close-preview-panel) {
+            root.preview-visible = false; root.preview-changed();
+            if (root.results.length > 0) { root.focus-list(); } else { root.focus-search(); } root.focus-soon(2);
         } else if (c == Command.close-folders-panel) {
             root.folders-visible = false;
             root.folders-changed();
@@ -5141,6 +5161,23 @@ export component AppWindow inherits Window {
                     }
 
                 }
+                if root.preview-visible: Rectangle {
+                    width: 5px; background: Theme.line;
+                    TouchArea {
+                        mouse-cursor: ew-resize;
+                        pointer-event(e) => { if (e.kind == PointerEventKind.up) { root.preview-changed(); } }
+                        moved => { if (self.pressed) { root.preview-width = clamp(root.preview-width - (self.mouse-x - self.pressed-x) / 1px, 180, 700); } }
+                    }
+                }
+                preview := PreviewPanel {
+                    visible: root.preview-visible;
+                    width: root.preview-visible ? root.preview-width * 1px : 0px;
+                    min-height: 0px; clip: true;
+                    picture: root.preview-image; icon: Icons.types[root.preview-kind];
+                    text: root.preview-text; info: root.preview-info;
+                    close => { root.run(Command.close-preview-panel); }
+                    key(e) => { return root.dispatch(0, e); }
+                }
             }
             // Status line
             Rectangle { height: 1px; background: Theme.line; }
@@ -5850,6 +5887,10 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: @tr("View");
+            MenuItem { title: @tr("Preview panel"); shortcut: root.menu-keys.preview-panel; enabled: root.can-run(Command.preview-panel); activated => { root.run(Command.preview-panel); } }
+            MenuItem { title: @tr("Focus preview"); shortcut: root.menu-keys.focus-preview; enabled: root.can-run(Command.focus-preview); activated => { root.run(Command.focus-preview); } }
+            MenuItem { title: @tr("Close preview panel"); shortcut: root.menu-keys.close-preview-panel; enabled: root.can-run(Command.close-preview-panel); activated => { root.run(Command.close-preview-panel); } }
+
             MenuItem {
                 // Checked while the panel is shown; activating flips the flag.
                 title: @tr("Folders panel"); shortcut: root.menu-keys.folders-panel;

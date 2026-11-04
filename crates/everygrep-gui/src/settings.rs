@@ -418,6 +418,8 @@ pub struct Settings {
     /// program's menu.
     pub menu_bar: bool,
     pub folders_visible: bool,
+    pub preview_visible: bool,
+    pub preview_width: f32,
     pub folders_width: f32,
     pub folders_recursive: bool,
     /// Whether folders that hold none of the current results are grey.
@@ -500,6 +502,8 @@ impl Default for Settings {
             status_details: true,
             menu_bar: true,
             folders_visible: false,
+            preview_visible: false,
+            preview_width: 300.0,
             folders_width: 220.0,
             folders_recursive: true,
             folders_dim_empty: true,
@@ -835,6 +839,10 @@ impl Settings {
                 .is_some(),
             "size-units" => SizeStandard::from_id(value)
                 .map(|s| self.size_standard = s)
+                .is_some(),
+            "preview-visible" => put_flag(&mut self.preview_visible),
+            "preview-width" => width(value)
+                .map(|v| self.preview_width = v.clamp(180.0, 700.0))
                 .is_some(),
             "folders-visible" => put_flag(&mut self.folders_visible),
             "folders-subfolders" => put_flag(&mut self.folders_recursive),
@@ -1427,6 +1435,15 @@ impl Settings {
             self.ask_reload,
             d.ask_reload,
         );
+        flag(
+            &mut out,
+            "preview-visible",
+            self.preview_visible,
+            d.preview_visible,
+        );
+        if all || self.preview_width != d.preview_width {
+            line(&mut out, "preview-width", &self.preview_width.to_string());
+        }
         self.fileops.write(&mut out, all);
         self.content.write(&mut out, all);
         self.properties.write(&mut out, all);
@@ -1863,6 +1880,8 @@ impl Settings {
                 self.language = d.language;
             }
             Page::Window => {
+                self.preview_visible = d.preview_visible;
+                self.preview_width = d.preview_width;
                 self.folders_visible = d.folders_visible;
                 self.folders_width = d.folders_width;
                 self.folders_recursive = d.folders_recursive;

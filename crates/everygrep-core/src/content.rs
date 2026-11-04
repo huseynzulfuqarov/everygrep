@@ -136,7 +136,7 @@ impl CodePage {
         Self::ALL.into_iter().find(|c| c.id() == id)
     }
 
-    fn encoding(self) -> &'static encoding_rs::Encoding {
+    pub(crate) fn encoding(self) -> &'static encoding_rs::Encoding {
         match self {
             Self::Windows1250 => encoding_rs::WINDOWS_1250,
             Self::Windows1251 => encoding_rs::WINDOWS_1251,

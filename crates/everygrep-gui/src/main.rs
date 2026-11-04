@@ -39,6 +39,7 @@ mod menus;
 mod open;
 mod portal;
 mod prefs;
+mod preview;
 mod properties;
 mod property_settings;
 mod results;
@@ -55,6 +56,7 @@ mod sort_dialog;
 mod stalled;
 mod tabs;
 mod tabs_ui;
+mod thumbnailer;
 mod transfer;
 mod typing;
 mod x11clip;
@@ -372,6 +374,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let pause = Rc::new(Timer::default());
     folders::connect(&window, &engine, window_args.clone());
+    preview::connect(&window, &engine);
     tabs_ui::connect(&window, &engine, &model, &prefs, &pause, session_start);
     let query_edit = |manual: bool| {
         let (engine, weak, pause, prefs) =
