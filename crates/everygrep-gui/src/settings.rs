@@ -350,6 +350,9 @@ pub struct Settings {
     /// Whether the result list stays empty while the search field is
     /// empty; off lists every indexed entry (with the chosen filter).
     pub hide_results_when_empty: bool,
+    /// Whether the search scope selector is shown next to the search field;
+    /// hidden, every search lists all locations.
+    pub scope_selector: bool,
     /// Milliseconds a search as you type waits for the next key; 0 runs it
     /// at once.
     pub search_delay_ms: u32,
@@ -486,6 +489,7 @@ impl Default for Settings {
             select_search_on_click: true,
             clear_selection_on_search: true,
             hide_results_when_empty: false,
+            scope_selector: true,
             search_delay_ms: 0,
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
@@ -789,6 +793,7 @@ impl Settings {
             "select-search-on-click" => put_flag(&mut self.select_search_on_click),
             "deselect-on-new-search" => put_flag(&mut self.clear_selection_on_search),
             "hide-results-when-empty" => put_flag(&mut self.hide_results_when_empty),
+            "show-search-scope" => put_flag(&mut self.scope_selector),
             "search-delay" => value
                 .parse::<u32>()
                 .ok()
@@ -1490,6 +1495,12 @@ impl Settings {
             self.hide_results_when_empty,
             d.hide_results_when_empty,
         );
+        flag(
+            &mut out,
+            "show-search-scope",
+            self.scope_selector,
+            d.scope_selector,
+        );
         if all || self.search_delay_ms != d.search_delay_ms {
             line(&mut out, "search-delay", &self.search_delay_ms.to_string());
         }
@@ -1991,6 +2002,7 @@ impl Settings {
                 self.select_search_on_click = d.select_search_on_click;
                 self.clear_selection_on_search = d.clear_selection_on_search;
                 self.hide_results_when_empty = d.hide_results_when_empty;
+                self.scope_selector = d.scope_selector;
                 self.search_delay_ms = d.search_delay_ms;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
@@ -2832,6 +2844,7 @@ pub(crate) mod tests {
             select_search_on_click: false,
             clear_selection_on_search: false,
             hide_results_when_empty: true,
+            scope_selector: false,
             search_delay_ms: 250,
             history_size: 0,
             history_on_disk: true,
@@ -2931,6 +2944,7 @@ pub(crate) mod tests {
         assert!(text.contains("select-search-on-click = false\n"));
         assert!(text.contains("deselect-on-new-search = false\n"));
         assert!(text.contains("hide-results-when-empty = true\n"));
+        assert!(text.contains("show-search-scope = false\n"));
         assert!(text.contains("search-delay = 250\n"));
         assert_eq!(
             Settings::parse("search-delay = 5001\n").problems.len(),

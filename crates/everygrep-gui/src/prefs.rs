@@ -2299,6 +2299,7 @@ impl Prefs {
         w.set_select_search_on_click(s.select_search_on_click);
         w.set_clear_selection_on_search(s.clear_selection_on_search);
         w.set_hide_results_when_empty(s.hide_results_when_empty);
+        w.set_scope_selector(s.scope_selector);
         w.set_search_delay(s.search_delay_ms as i32);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
@@ -3183,6 +3184,7 @@ impl Prefs {
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
         let hide_empty = w.get_hide_results_when_empty();
+        let scope_selector = w.get_scope_selector();
         let delay = u32::try_from(w.get_search_delay())
             .unwrap_or(0)
             .min(crate::settings::MAX_SEARCH_DELAY);
@@ -3203,6 +3205,7 @@ impl Prefs {
             s.select_search_on_click = select_on_click;
             s.clear_selection_on_search = clear_selection;
             s.hide_results_when_empty = hide_empty;
+            s.scope_selector = scope_selector;
             s.search_delay_ms = delay;
             crate::history_sync::apply_choices(s, &history_before, &history_wanted);
         });
@@ -3298,6 +3301,7 @@ impl Prefs {
         m.set_filter_wrap(s.filter_wrap);
         m.set_select_search_on_click(s.select_search_on_click);
         self.engine.set_hide_when_empty(s.hide_results_when_empty);
+        crate::scope_ui::set_shown(&m, s.scope_selector);
         crate::with_model(&m, |model| model.apply_behaviour(&s));
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);

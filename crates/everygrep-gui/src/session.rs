@@ -3,6 +3,7 @@ use crate::saved_searches::{self, NamedFilter};
 use crate::settings::{self, Columns};
 use crate::tabs::{CLOSED_LIMIT, SearchState, Tab, Tabs, tab_options};
 use std::io::{self, Read, Write};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -133,7 +134,7 @@ impl Session {
                     ));
                 }
                 "query" | "options" | "match-options" | "filter" | "filter-snapshot" | "sort"
-                | "columns" | "widths" => {
+                | "columns" | "widths" | "within" => {
                     let search = &mut current
                         .as_mut()
                         .ok_or_else(|| invalid("tab field without tab"))?
@@ -186,6 +187,12 @@ impl Session {
                                 .filter(|c| crate::is_sort_column(*c))
                                 .ok_or_else(|| invalid("invalid sort column"))?;
                             search.descending = boolean(descending)?;
+                        }
+                        "within" => {
+                            let path = settings::unescape(value)
+                                .filter(|p| p.starts_with(b"/"))
+                                .ok_or_else(|| invalid("invalid search scope"))?;
+                            search.within = Some(std::ffi::OsString::from_vec(path).into());
                         }
                         "columns" => shown_columns(value, &mut search.columns),
                         "widths" => column_widths(value, &mut search.columns)?,
@@ -254,6 +261,12 @@ impl Session {
                 ));
             } else {
                 text.push_str("filter = none\n");
+            }
+            if let Some(within) = &search.within {
+                text.push_str(&format!(
+                    "within = {}\n",
+                    settings::escape(within.as_os_str().as_bytes())
+                ));
             }
             let c = &search.columns;
             let shown: Vec<&str> = column_flags(c)
@@ -847,6 +860,7 @@ mod tests {
                         size: Some(96.0),
                         ..Default::default()
                     },
+                    within: None,
                 })
                 .collect(),
         }
@@ -874,6 +888,21 @@ mod tests {
             tab_options(tabs.open[1].search.options)
         );
     }
+    #[test]
+    fn the_search_scope_of_a_tab_survives_the_session() {
+        let mut s = sample(2);
+        let odd = std::ffi::OsString::from_vec(
+            [b"/home/me/".as_slice(), "Şəkil".as_bytes(), b" \xff\nx"].concat(),
+        );
+        s.open[0].within = Some(odd.clone().into());
+        let back = Session::parse(&s.text()).unwrap();
+        assert_eq!(back.open[0].within, Some(odd.into()));
+        assert_eq!(back.open[1].within, None);
+        // A relative path is not a scope.
+        let text = "EveryGrep session 2\nscope = a\ntab = open\nquery = q\nwithin = rel/x\n";
+        assert!(Session::parse(text).is_err());
+    }
+
     #[test]
     fn every_sort_column_and_every_column_survive_the_session() {
         let sortable: Vec<i32> = (-1..crate::columns::COLUMNS as i32 + 4)

@@ -208,6 +208,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> select-search-on-click;
     in-out property <bool> clear-selection-on-search;
     in-out property <bool> hide-results-when-empty;
+    in-out property <bool> scope-selector;
     in-out property <int> search-delay;
     in-out property <int> history-size;
     in-out property <int> history-entries;
@@ -889,6 +890,12 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.search-changed(); }
                             }
                             Note { text: @tr("Off: an empty search lists every indexed file and folder that the filter lets through."); }
+                            CheckBox {
+                                text: @tr("Show the search scope next to the search field");
+                                checked <=> root.scope-selector;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("Lists only what is in the chosen place: all locations, the home folder or one indexed folder or drive. Each tab keeps its own. Hidden, every search lists all locations."); }
                             HorizontalLayout {
                                 spacing: Theme.s3;
                                 Text { text: @tr("Search delay (ms)"); color: Theme.text; vertical-alignment: center; }

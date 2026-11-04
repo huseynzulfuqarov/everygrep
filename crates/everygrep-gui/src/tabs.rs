@@ -31,6 +31,8 @@ pub struct SearchState {
     pub sort_column: i32,
     pub descending: bool,
     pub columns: Columns,
+    /// The search scope: only entries below this folder are listed.
+    pub within: Option<std::path::PathBuf>,
 }
 
 impl SearchState {
@@ -56,6 +58,8 @@ impl SearchState {
         self.filter_snapshot = true;
         self.sort_column = b.sort_column;
         self.descending = b.descending;
+        // A bookmark does not keep a scope: it lists all locations.
+        self.within = None;
         match b.sort_column {
             4 => self.columns.show_type = true,
             5 => self.columns.show_ext = true,
@@ -76,6 +80,8 @@ impl SearchState {
     ) -> Self {
         self.query = query.into();
         self.options = tab_options(options);
+        // The search names its own folder, if any.
+        self.within = None;
         if !keep_filter {
             self.filter = None;
             self.filter_snapshot = false;
@@ -324,6 +330,28 @@ mod tests {
         assert!(!s.columns.show_type);
     }
 
+    #[test]
+    fn a_tab_opened_from_a_saved_search_lists_all_locations() {
+        let scoped = SearchState {
+            within: Some("/home/me".into()),
+            ..Default::default()
+        };
+        let b = crate::saved_searches::Bookmark {
+            id: 1,
+            name: String::new(),
+            search: "x".into(),
+            options: QueryOptions::default(),
+            filter: crate::saved_searches::NamedFilter {
+                id: 1,
+                name: String::new(),
+                search: String::new(),
+                options: QueryOptions::default(),
+            },
+            sort_column: 0,
+            descending: false,
+        };
+        assert_eq!(scoped.of_bookmark(&b).within, None);
+    }
     fn filled(n: usize) -> Tabs {
         Tabs {
             open: (0..n)

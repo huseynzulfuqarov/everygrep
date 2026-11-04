@@ -51,6 +51,7 @@ mod results;
 mod saved_searches;
 mod saved_ui;
 mod schedule;
+mod scope_ui;
 mod search_errors;
 mod search_history;
 mod selection;
@@ -218,6 +219,8 @@ fn main() -> Result<(), slint::PlatformError> {
                     if let Some(w) = weak.upgrade() {
                         with_model(&w, |m| m.set_state(state, indexed));
                         refresh_status(&w);
+                        // Roots and drives may have come or gone.
+                        scope_ui::refresh(&w);
                     }
                     prefs::with(|p| p.set_state(state, indexed));
                 });
@@ -328,6 +331,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     saved_ui::connect(&window, &engine);
+    scope_ui::connect(&window, &engine, settings.scope_selector);
     advanced::connect(&window);
     set_filter_names(&window);
     set_options(&window, start_options);

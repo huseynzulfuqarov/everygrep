@@ -283,6 +283,7 @@ fn read(w: &AppWindow) -> SearchState {
         sort_column: w.get_sort_column(),
         descending: w.get_sort_descending(),
         columns: read_columns(w),
+        within: crate::scope_ui::current(),
     }
 }
 
@@ -689,6 +690,8 @@ impl State {
         crate::folders::restore(&tab.folders);
         let search = &tab.search;
         w.set_query(search.query.as_str().into());
+        // The search below asks with the tab's scope.
+        crate::scope_ui::set(w, search.within.clone(), false);
         let policy = self.prefs.search_policy();
         // Clear the previous tab's extra slot before selecting this tab's built-in.
         crate::saved_ui::tab_filter(w, None, false);

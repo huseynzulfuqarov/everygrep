@@ -590,12 +590,26 @@ struct QueryState {
     hide_offline: bool,
     /// List nothing while the search text is empty.
     hide_when_empty: bool,
+    /// List only the entries below this folder (the search scope).
+    within: Option<PathBuf>,
 }
 
 impl QueryState {
     /// Whether this request lists nothing because its search text is empty.
     fn hidden_empty(&self) -> bool {
         self.hide_when_empty && self.text.trim().is_empty()
+    }
+
+    /// Leaves out of `ids` what the request does not list whatever the
+    /// query: entries of offline roots when they are hidden, and those
+    /// outside the search scope.
+    fn narrow(&self, index: &Index, ids: &mut Vec<NodeId>) {
+        if self.hide_offline {
+            without_offline(index, ids);
+        }
+        if let Some(folder) = &self.within {
+            within_folder(index, ids, folder);
+        }
     }
 }
 
@@ -1249,9 +1263,9 @@ impl Engine {
         filter: Option<(String, QueryOptions)>,
         sort: Sort,
     ) -> Option<u64> {
-        let (hide_offline, hide_when_empty) = {
+        let (hide_offline, hide_when_empty, within) = {
             let q = self.query.lock().expect("lock");
-            (q.hide_offline, q.hide_when_empty)
+            (q.hide_offline, q.hide_when_empty, q.within.clone())
         };
         let state = QueryState {
             text: text.to_owned(),
@@ -1260,6 +1274,7 @@ impl Engine {
             sort,
             hide_offline,
             hide_when_empty,
+            within,
         };
         if state != settled.state
             || self.epoch() != settled.epoch
@@ -1299,9 +1314,9 @@ impl Engine {
         filter: Option<(String, QueryOptions)>,
         sort: Sort,
     ) -> Option<u64> {
-        let (hide_offline, hide_when_empty) = {
+        let (hide_offline, hide_when_empty, within) = {
             let q = self.query.lock().expect("lock");
-            (q.hide_offline, q.hide_when_empty)
+            (q.hide_offline, q.hide_when_empty, q.within.clone())
         };
         let state = QueryState {
             text: text.to_owned(),
@@ -1310,6 +1325,7 @@ impl Engine {
             sort,
             hide_offline,
             hide_when_empty,
+            within,
         };
         if state != stopped.0 {
             return None;
@@ -1337,6 +1353,37 @@ impl Engine {
         q.hide_offline = hide;
         self.content_state.lock().expect("lock").stopped = false;
         self.request_search()
+    }
+
+    /// The search scope: only entries below `folder` are listed (`None`
+    /// for all). A change searches again.
+    pub fn set_within(&self, folder: Option<PathBuf>) -> u64 {
+        let mut q = self.query.lock().expect("lock");
+        if q.within == folder {
+            return self.generation.load(Ordering::SeqCst);
+        }
+        q.within = folder;
+        self.content_state.lock().expect("lock").stopped = false;
+        self.request_search()
+    }
+
+    /// Sets the search scope like [`set_within`](Self::set_within) without
+    /// searching, for a request that follows at once.
+    pub fn put_within(&self, folder: Option<PathBuf>) {
+        self.query.lock().expect("lock").within = folder;
+    }
+
+    /// The paths of the indexed roots (folders, drives and file lists), in
+    /// name order.
+    pub fn root_paths(&self) -> Vec<PathBuf> {
+        let Ok(index) = self.index.read() else {
+            return Vec::new();
+        };
+        index
+            .roots()
+            .into_iter()
+            .map(|r| path_of(index.store().name(r)))
+            .collect()
     }
 
     /// Whether an empty search text lists nothing; a change searches again.
@@ -1546,9 +1593,7 @@ impl Engine {
                     let found = match search_with_progress(&index, &query, threads, task.progress())
                     {
                         Ok(mut ids) if self.is_current(generation) => {
-                            if state.hide_offline {
-                                without_offline(&index, &mut ids);
-                            }
+                            state.narrow(&index, &mut ids);
                             task.set_kind(TaskKind::Sorting);
                             task.progress().restart(None);
                             self.media_for_sort(
@@ -1701,9 +1746,7 @@ impl Engine {
             return Ok(None);
         };
         let mut ids = staged.results(&decisions);
-        if state.hide_offline {
-            without_offline(&index, &mut ids);
-        }
+        state.narrow(&index, &mut ids);
         let dupes = match query.dupes() {
             None => None,
             Some(spec) => {
@@ -1828,9 +1871,7 @@ impl Engine {
             return false;
         }
         let mut ids = staged.results(decisions);
-        if state.hide_offline {
-            without_offline(&index, &mut ids);
-        }
+        state.narrow(&index, &mut ids);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let Ok((index, media)) =
             self.media_for_sort(index, &ids, state.sort, epoch, progress, false)
@@ -3447,6 +3488,47 @@ fn root_id(index: &Index, name: &Path) -> Option<NodeId> {
     index.find_child(None, name.as_os_str().as_bytes())
 }
 
+/// The node of the folder at `path` (absolute), found from the root that
+/// holds it; `None` when it is not indexed.
+fn folder_id(index: &Index, path: &Path) -> Option<NodeId> {
+    let store = index.store();
+    let (root, rest) = index
+        .roots()
+        .into_iter()
+        .filter_map(|r| {
+            let name = path_of(store.name(r));
+            path.strip_prefix(&name)
+                .ok()
+                .map(|rest| (r, rest.to_path_buf()))
+        })
+        .min_by_key(|(_, rest)| rest.components().count())?;
+    let mut node = root;
+    for part in rest.components() {
+        node = index.find_child(Some(node), part.as_os_str().as_bytes())?;
+    }
+    store.is_dir(node).then_some(node)
+}
+
+/// Keeps in `ids` only the entries below the folder at `path`; none when
+/// that folder is not indexed.
+fn within_folder(index: &Index, ids: &mut Vec<NodeId>, path: &Path) {
+    let Some(folder) = folder_id(index, path) else {
+        ids.clear();
+        return;
+    };
+    let store = index.store();
+    ids.retain(|&id| {
+        let mut up = store.parent(id);
+        while let Some(p) = up {
+            if p == folder {
+                return true;
+            }
+            up = store.parent(p);
+        }
+        false
+    });
+}
+
 /// Leaves out of `ids` the entries of offline roots.
 fn without_offline(index: &Index, ids: &mut Vec<NodeId>) {
     if !index.offline_roots().is_empty() {
@@ -3918,6 +4000,40 @@ mod tests {
         assert_eq!(probe.names("alpha"), ["alpha.txt"]);
         probe.engine.set_hide_when_empty(false);
         assert!(probe.names("").contains(&"beta.txt".to_owned()));
+    }
+
+    #[test]
+    fn the_search_scope_lists_only_entries_below_its_folder() {
+        let dir = Scratch::new("within");
+        let root = dir.0.join("files");
+        fs::create_dir_all(root.join("docs/deep")).unwrap();
+        fs::create_dir_all(root.join("music")).unwrap();
+        fs::write(root.join("docs/a.txt"), "a").unwrap();
+        fs::write(root.join("docs/deep/b.txt"), "b").unwrap();
+        fs::write(root.join("music/c.txt"), "c").unwrap();
+        fs::write(root.join("d.txt"), "d").unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert_eq!(probe.engine.root_paths(), std::slice::from_ref(&root));
+        assert_eq!(probe.names(".txt"), ["a.txt", "b.txt", "c.txt", "d.txt"]);
+        probe.engine.set_within(Some(root.join("docs")));
+        assert_eq!(probe.names(".txt"), ["a.txt", "b.txt"]);
+        // The folder itself is not listed, what is below it is.
+        assert_eq!(probe.names("deep"), ["deep"]);
+        assert!(probe.names("docs").is_empty());
+        // The root as the scope lists all of its entries.
+        probe.engine.set_within(Some(root.clone()));
+        assert_eq!(probe.names(".txt").len(), 4);
+        // A folder that is not indexed (or a file) lists nothing.
+        probe.engine.set_within(Some(root.join("missing")));
+        assert!(probe.names(".txt").is_empty());
+        probe.engine.set_within(Some(root.join("d.txt")));
+        assert!(probe.names(".txt").is_empty());
+        probe.engine.set_within(Some(dir.0.join("elsewhere")));
+        assert!(probe.names(".txt").is_empty());
+        probe.engine.set_within(None);
+        assert_eq!(probe.names(".txt").len(), 4);
     }
 
     #[test]
@@ -6742,6 +6858,7 @@ mod tests {
             filter_query: None,
             hide_offline: false,
             hide_when_empty: false,
+            within: None,
             sort: Sort {
                 key: everygrep_core::sort::SortKey::Size,
                 descending: true,

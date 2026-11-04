@@ -4759,3 +4759,18 @@ msgstr "Sonuç listesi yakınlaştırması (%)"
 
 msgid "The size of the text, icons and rows in the result list. Ctrl+= and Ctrl+- change it, Ctrl+Shift+0 sets it back to 100 %; the status line shows it when it is not 100 %."
 msgstr "Sonuç listesindeki metnin, simgelerin ve satırların boyutu. Ctrl+= ve Ctrl+- değiştirir, Ctrl+Shift+0 yeniden %100 yapar; %100 değilken durum satırında görünür."
+
+msgid "All locations"
+msgstr "Tüm konumlar"
+
+msgid "Home ({})"
+msgstr "Ev ({})"
+
+msgid "Search in"
+msgstr "Nerede aransın"
+
+msgid "Show the search scope next to the search field"
+msgstr "Arama alanının yanında arama konumunu göster"
+
+msgid "Lists only what is in the chosen place: all locations, the home folder or one indexed folder or drive. Each tab keeps its own. Hidden, every search lists all locations."
+msgstr "Yalnızca seçilen konumdakileri listeler: tüm konumlar, ev klasörü ya da dizinlenmiş bir klasör veya sürücü. Her sekme kendi seçimini korur. Gizliyken her arama tüm konumları listeler."

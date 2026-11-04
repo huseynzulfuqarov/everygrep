@@ -1948,6 +1948,12 @@ export component AppWindow inherits Window {
     // change.
     in-out property <bool> show-menu-bar: true;
     in-out property <bool> show-status-bar: true;
+    // The search scope selector: its entries, the chosen one, and whether
+    // it is shown (see src/scope_ui.rs).
+    in property <bool> show-scope: true;
+    in property <[string]> scope-names;
+    in-out property <int> scope-index;
+    callback scope-chosen(int);
     // The zoom in the status line, empty at 100 %.
     in property <string> zoom-text;
     // Zoom in (1), out (-1) or back to 100 % (0).
@@ -4338,6 +4344,14 @@ export component AppWindow inherits Window {
                             root.query = "";
                             root.query-edited("");
                         }
+                    }
+                    if root.show-scope: ComboBox {
+                        width: 170px;
+                        horizontal-stretch: 0;
+                        accessible-label: @tr("Search in");
+                        model: root.scope-names;
+                        current-index <=> root.scope-index;
+                        selected => { root.scope-chosen(self.current-index); }
                     }
                     ComboBox {
                         width: 160px;
