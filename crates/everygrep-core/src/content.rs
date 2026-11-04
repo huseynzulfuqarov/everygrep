@@ -175,9 +175,10 @@ impl Default for ContentOptions {
 /// A text looked for in the contents of files.
 #[derive(Clone)]
 pub struct ContentTerm {
-    /// The matcher line by line; `None` for an expression that names a line
-    /// break, which no line holds.
-    matcher: Option<RegexMatcher>,
+    /// The matcher line by line. For an expression that names a line break
+    /// (which no line holds) it is the one for matches over line ends, run
+    /// on each line without its end, so its other parts still match there.
+    matcher: RegexMatcher,
     /// The matcher for matches over line ends, when the term can match a
     /// line break there.
     multi_line: Option<RegexMatcher>,
@@ -227,12 +228,13 @@ impl ContentTerm {
         // anywhere.
         let (matcher, multi_line) = if regex {
             let multi_line = build(&pattern, None)?;
-            (build(&pattern, Some(b'\n')).ok(), Some(multi_line))
+            let line = build(&pattern, Some(b'\n')).unwrap_or_else(|_| multi_line.clone());
+            (line, Some(multi_line))
         } else if text.contains(char::is_whitespace) {
             let multi_line = build(&spaces_over_lines(text), None)?;
-            (Some(build(&pattern, Some(b'\n'))?), Some(multi_line))
+            (build(&pattern, Some(b'\n'))?, Some(multi_line))
         } else {
-            (Some(build(&pattern, Some(b'\n'))?), None)
+            (build(&pattern, Some(b'\n'))?, None)
         };
         Ok(Self {
             matcher,
@@ -257,18 +259,17 @@ impl ContentTerm {
         self.encoding
     }
 
-    /// The matcher to search a file of `size` bytes with; `None` when the
-    /// file cannot match.
-    fn matcher(&self, options: &ContentOptions, size: u64) -> Option<Matcher<'_>> {
+    /// The matcher to search a file of `size` bytes with.
+    fn matcher(&self, options: &ContentOptions, size: u64) -> Matcher<'_> {
         match &self.multi_line {
-            Some(m) if options.multi_line && size <= MULTI_LINE_MAX => Some(Matcher {
+            Some(m) if options.multi_line && size <= MULTI_LINE_MAX => Matcher {
                 regex: m,
                 multi_line: true,
-            }),
-            _ => self.matcher.as_ref().map(|regex| Matcher {
-                regex,
+            },
+            _ => Matcher {
+                regex: &self.matcher,
                 multi_line: false,
-            }),
+            },
         }
     }
 }
@@ -346,9 +347,7 @@ pub fn search_file(
     if options.max_size != 0 && size > options.max_size {
         return Ok(Outcome::TooLarge);
     }
-    let Some(matcher) = term.matcher(options, size) else {
-        return Ok(Outcome::NoMatch);
-    };
+    let matcher = term.matcher(options, size);
     if options.pdf && is_pdf_name(path) {
         return search_pdf(path, matcher, progress);
     }
@@ -1067,6 +1066,12 @@ mod tests {
         // `^`/`$` stay per line.
         assert_eq!(both(&regex(r"line\s+the")), (Match, NoMatch));
         assert_eq!(both(&regex(r"fox\nlast")), (Match, NoMatch));
+        // Line by line, the parts of an expression without a line break
+        // still match; the ones with it cannot.
+        assert_eq!(both(&regex(r"brown|fox\nlast")), (Match, Match));
+        assert_eq!(both(&regex(r"nothing|fox\nlast")), (Match, NoMatch));
+        assert_eq!(both(&regex(r"fox(\nx)?")), (Match, Match));
+        assert_eq!(both(&regex(r"last\n?$")), (Match, Match));
         assert_eq!(both(&regex("fox.last")), (NoMatch, NoMatch));
         assert_eq!(both(&regex("^last$")), (Match, Match));
         assert_eq!(both(&regex(r"^\s*the quick")), (Match, Match));
@@ -1076,6 +1081,11 @@ mod tests {
         let mut big = vec![b'x'; usize::try_from(MULTI_LINE_MAX).unwrap()];
         big.extend_from_slice(b"\nalpha\nbeta\n");
         let big = dir.file("big.txt", &big);
+        let either = regex(r"alpha|alpha\nbeta");
+        assert_eq!(
+            search_file(&big, &either, &ContentOptions::default(), &Progress::new()).unwrap(),
+            Match
+        );
         let t = term("alpha beta");
         let read_big = |o: &ContentOptions| search_file(&big, &t, o, &Progress::new()).unwrap();
         assert_eq!(read_big(&ContentOptions::default()), NoMatch);
@@ -1207,7 +1217,7 @@ mod tests {
         }
         let mut endless = Endless(&progress, 0);
         let needle = term("needle");
-        let matcher = needle.matcher(&ContentOptions::default(), 0).unwrap();
+        let matcher = needle.matcher(&ContentOptions::default(), 0);
         let result = search_reader(&mut endless, matcher, None, &progress);
         assert_eq!(result.map(|(o, _)| o), Err(Cancelled));
         assert_eq!(endless.1, 3);
