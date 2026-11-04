@@ -100,6 +100,10 @@ enum Kind {
     Rename,
     Move,
     Copy,
+    /// A folder made by New folder: `from` and `to` are its path.
+    NewFolder,
+    /// A file sent to the trash: `from` and `to` are where it was.
+    Trash,
 }
 impl Kind {
     fn label(self) -> &'static str {
@@ -107,6 +111,18 @@ impl Kind {
             Self::Rename => tr("Rename"),
             Self::Move => tr("Move"),
             Self::Copy => tr("Copy"),
+            Self::NewFolder => tr("New folder"),
+            Self::Trash => tr("Move to trash"),
+        }
+    }
+    /// The fixed English word in exported history.
+    fn word(self) -> &'static str {
+        match self {
+            Self::Rename => "Rename",
+            Self::Move => "Move",
+            Self::Copy => "Copy",
+            Self::NewFolder => "New folder",
+            Self::Trash => "Trash",
         }
     }
 }
@@ -490,7 +506,36 @@ impl Entry {
         if progress.is_cancelled() {
             return Err(tr("Operation cancelled.").into());
         }
-        if self.kind == Kind::Copy {
+        if self.kind == Kind::NewFolder {
+            if redo {
+                ensure_absent(&self.to)?;
+                fs::create_dir(&self.to).map_err(|e| e.to_string())?;
+                self.expected = Snapshot::read(&self.to).map_err(|e| e.to_string())?;
+            } else {
+                // Unchanged means still empty: anything put in it since
+                // changed the folder's modification time. `remove_dir`
+                // removes empty folders only.
+                self.expected.check(&self.to)?;
+                fs::remove_dir(&self.to).map_err(|e| e.to_string())?;
+            }
+        } else if self.kind == Kind::Trash {
+            if redo {
+                self.expected.check(&self.from)?;
+                trash(&self.from)?;
+            } else {
+                let stamp = self.expected.0[0].1;
+                crate::trashbin::restore(
+                    &self.from,
+                    crate::trashbin::Identity {
+                        dev: stamp.dev,
+                        ino: stamp.ino,
+                        len: stamp.len,
+                        mtime: stamp.mtime,
+                    },
+                )?;
+                self.expected = Snapshot::read(&self.from).map_err(|e| e.to_string())?;
+            }
+        } else if self.kind == Kind::Copy {
             if redo {
                 self.source
                     .as_ref()
@@ -606,6 +651,72 @@ pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameE
         }
     }
     Ok(note)
+}
+
+/// Makes the folder `name` in `parent`, and records it when undo is on.
+/// Never takes an existing name: the caller offers a free one. The answer
+/// has a notice for the user when undo history could not follow.
+pub fn new_folder(
+    parent: &Path,
+    name: &str,
+) -> Result<(PathBuf, Option<String>), actions::RenameError> {
+    let _files = try_file_guard().ok_or_else(|| {
+        actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
+    })?;
+    actions::validate_name(name)?;
+    if !fs::metadata(parent).is_ok_and(|m| m.is_dir()) {
+        return Err(actions::RenameError::Io(io::Error::other(tr(
+            "The folder no longer exists.",
+        ))));
+    }
+    let c = config();
+    let target = parent.join(name);
+    fs::create_dir(&target).map_err(|e| {
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            actions::RenameError::Exists(name.to_owned())
+        } else if e.raw_os_error() == Some(36) {
+            actions::RenameError::TooLong
+        } else {
+            actions::RenameError::Io(e)
+        }
+    })?;
+    let note = record_one(Kind::NewFolder, &target, &target, c);
+    Ok((target, note))
+}
+
+/// Records one applied item as one step when undo is on. The answer is a
+/// notice for the user when it could not be recorded.
+fn record_one(kind: Kind, from: &Path, to: &Path, c: Config) -> Option<String> {
+    if !c.enabled {
+        return None;
+    }
+    let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    match Snapshot::read(to) {
+        Ok(expected) => {
+            let _ = journal.push_group(
+                vec![Entry {
+                    id: 0,
+                    kind,
+                    from: from.into(),
+                    to: to.into(),
+                    expected,
+                    source: None,
+                    applied: true,
+                    skipped: None,
+                }],
+                c,
+            );
+            None
+        }
+        Err(_) => {
+            let what = tr("The operation could not be recorded for undo.");
+            Some(if journal.forget(c) {
+                format!("{what} {}", tr("Earlier undo steps were removed."))
+            } else {
+                what.into()
+            })
+        }
+    }
 }
 
 pub fn paste(
@@ -806,11 +917,7 @@ fn view_in(filter: i32, localized: bool) -> View {
                         (if localized {
                             e.kind.label()
                         } else {
-                            match e.kind {
-                                Kind::Rename => "Rename",
-                                Kind::Move => "Move",
-                                Kind::Copy => "Copy",
-                            }
+                            e.kind.word()
                         })
                         .into(),
                         path(&e.from),
@@ -1715,5 +1822,202 @@ mod case_tests {
         assert_eq!(fs::read(&upper).unwrap(), b"keep");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
         fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod new_item_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Temp(PathBuf);
+    impl Temp {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "everygrep-undo-new-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(path.join("work")).unwrap();
+            crate::trashbin::set_test_home(Some(path.join("Trash")));
+            Self(path)
+        }
+        fn work(&self, name: &str) -> PathBuf {
+            self.0.join("work").join(name)
+        }
+    }
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            crate::trashbin::set_test_home(None);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Runs `f` with undo on and a fresh session journal.
+    fn with_undo(f: impl FnOnce()) {
+        let _test = super::tests::TEST_JOURNAL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let before = config();
+        *CONFIG.lock().unwrap() = Config {
+            enabled: true,
+            limit: 100,
+            epoch: before.epoch.wrapping_add(1),
+        };
+        JOURNAL.lock().unwrap().sync(config());
+        f();
+        *CONFIG.lock().unwrap() = Config {
+            epoch: before.epoch.wrapping_add(2),
+            ..before
+        };
+        JOURNAL.lock().unwrap().sync(config());
+    }
+
+    fn step(redo: bool) -> StepOutcome {
+        let trash = |p: &Path| crate::trashbin::test_trash(p);
+        JOURNAL
+            .lock()
+            .unwrap()
+            .step(redo, &trash, &Progress::new())
+            .unwrap()
+    }
+
+    #[test]
+    fn new_folder_is_created_once_and_undo_redo_follow_it() {
+        with_undo(|| {
+            let t = Temp::new();
+            let parent = t.0.join("work");
+            let (made, note) = new_folder(&parent, "New Folder").unwrap();
+            assert!(note.is_none());
+            assert!(made.is_dir());
+            assert!(matches!(
+                new_folder(&parent, "New Folder"),
+                Err(actions::RenameError::Exists(_))
+            ));
+            assert!(step(false).skipped.is_empty());
+            assert!(!made.exists());
+            assert!(step(true).skipped.is_empty());
+            assert!(made.is_dir());
+            // Something put in it since: undo leaves it and its contents.
+            fs::write(made.join("kept.txt"), "data").unwrap();
+            assert_eq!(step(false).done, 0);
+            assert_eq!(fs::read(made.join("kept.txt")).unwrap(), b"data");
+        });
+    }
+
+    #[test]
+    fn new_folder_refuses_bad_names_taken_names_and_missing_parents() {
+        with_undo(|| {
+            let t = Temp::new();
+            let parent = t.0.join("work");
+            for bad in ["", "a/b", ".", "..", "a\0b", &"x".repeat(256)] {
+                assert!(new_folder(&parent, bad).is_err(), "{bad:?}");
+            }
+            fs::write(parent.join("file"), "keep").unwrap();
+            std::os::unix::fs::symlink(t.0.join("missing"), parent.join("dangling")).unwrap();
+            for taken in ["file", "dangling"] {
+                assert!(matches!(
+                    new_folder(&parent, taken),
+                    Err(actions::RenameError::Exists(_))
+                ));
+            }
+            assert_eq!(fs::read(parent.join("file")).unwrap(), b"keep");
+            assert!(!t.0.join("missing").exists());
+            assert!(new_folder(&t.0.join("gone"), "x").is_err());
+            assert!(!t.0.join("gone").exists());
+            assert!(new_folder(&parent.join("file"), "x").is_err());
+            assert_eq!(fs::read_dir(&parent).unwrap().count(), 2);
+            assert!(JOURNAL.lock().unwrap().entries.is_empty());
+        });
+    }
+
+    #[test]
+    fn new_folder_redo_never_takes_a_name_used_meanwhile() {
+        with_undo(|| {
+            let t = Temp::new();
+            let (made, _) = new_folder(&t.0.join("work"), "N").unwrap();
+            assert!(step(false).skipped.is_empty());
+            fs::write(&made, "someone else's file").unwrap();
+            assert_eq!(step(true).done, 0);
+            assert_eq!(fs::read(&made).unwrap(), b"someone else's file");
+        });
+    }
+
+    #[test]
+    fn new_folder_waits_for_no_running_operation() {
+        let _test = super::tests::TEST_JOURNAL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let _running = file_guard();
+        assert!(new_folder(&t.0.join("work"), "N").is_err());
+        assert!(!t.work("N").exists());
+    }
+
+    fn trash_entry(path: &Path) -> Entry {
+        Entry {
+            id: 1,
+            kind: Kind::Trash,
+            from: path.into(),
+            to: path.into(),
+            expected: Snapshot::read(path).unwrap(),
+            source: None,
+            applied: true,
+            skipped: None,
+        }
+    }
+
+    #[test]
+    fn trash_steps_restore_from_and_return_to_the_trash() {
+        let t = Temp::new();
+        let file = t.work("dupe.txt");
+        fs::write(&file, "copy").unwrap();
+        let entry = trash_entry(&file);
+        crate::trashbin::test_trash(&file).unwrap();
+        let mut j = Journal {
+            entries: vec![entry],
+            cursor: 1,
+            next_id: 1,
+            ..Journal::default()
+        };
+        let trash = |p: &Path| crate::trashbin::test_trash(p);
+        let p = Progress::new();
+        assert!(j.step(false, &trash, &p).unwrap().skipped.is_empty());
+        assert_eq!(fs::read(&file).unwrap(), b"copy");
+        assert!(j.step(true, &trash, &p).unwrap().skipped.is_empty());
+        assert!(!file.exists());
+        // The name is taken meanwhile: undo refuses and keeps both.
+        fs::write(&file, "other").unwrap();
+        assert_eq!(j.step(false, &trash, &p).unwrap().done, 0);
+        assert_eq!(fs::read(&file).unwrap(), b"other");
+        assert_eq!(fs::read_dir(t.0.join("Trash/files")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn trash_redo_skips_a_file_changed_after_its_restore() {
+        let t = Temp::new();
+        let file = t.work("dupe.txt");
+        fs::write(&file, "copy").unwrap();
+        let entry = trash_entry(&file);
+        crate::trashbin::test_trash(&file).unwrap();
+        let mut j = Journal {
+            entries: vec![entry],
+            cursor: 1,
+            next_id: 1,
+            ..Journal::default()
+        };
+        let trash = |p: &Path| crate::trashbin::test_trash(p);
+        let p = Progress::new();
+        assert!(j.step(false, &trash, &p).unwrap().skipped.is_empty());
+        fs::write(&file, "edited after the restore").unwrap();
+        assert_eq!(j.step(true, &trash, &p).unwrap().done, 0);
+        assert_eq!(fs::read(&file).unwrap(), b"edited after the restore");
+    }
+
+    #[test]
+    fn exported_history_names_the_new_kinds_in_english() {
+        assert_eq!(Kind::NewFolder.word(), "New folder");
+        assert_eq!(Kind::Trash.word(), "Trash");
     }
 }

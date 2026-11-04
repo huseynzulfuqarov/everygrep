@@ -11,6 +11,7 @@ export component FileopsSettings inherits VerticalLayout {
     in-out property <bool> search-new-window;
     in-out property <bool> search-recursive;
     in-out property <bool> search-exact-name;
+    in-out property <bool> new-folder-inside;
     callback changed();
     changed undo-limit => { history-limit.value = root.undo-limit; }
     spacing: Theme.s2;
@@ -37,6 +38,11 @@ export component FileopsSettings inherits VerticalLayout {
             text: @tr("Apply history limit");
             clicked => { root.undo-limit = history-limit.value; root.changed(); }
         }
+    }
+    CheckBox {
+        text: @tr("New folder goes inside a selected folder (off: next to it)");
+        checked <=> root.new-folder-inside;
+        toggled => { root.changed(); }
     }
     Text { text: @tr("Shortcut type"); color: Theme.text; }
     ComboBox {

@@ -1857,6 +1857,10 @@ export component AppWindow inherits Window {
     callback file-undo(bool);
     callback file-undo-history();
     in property <string> fileops-rename-location;
+    in property <string> fileops-rename-title;
+    in property <string> fileops-rename-action;
+    in property <string> fileops-rename-label;
+    callback fileops-new-folder(int);
     in-out property <string> fileops-rename-name;
     in property <int> fileops-rename-stem;
     in property <string> fileops-rename-error;
@@ -3164,7 +3168,7 @@ export component AppWindow inherits Window {
     function needs-online(c: Command) -> bool {
         return c == Command.open || c == Command.open-folder || c == Command.open-with
             || c == Command.cut || c == Command.copy || c == Command.paste
-            || c == Command.rename || c == Command.create-shortcut || c == Command.trash || c == Command.delete-permanently;
+            || c == Command.rename || c == Command.create-shortcut || c == Command.new-folder || c == Command.trash || c == Command.delete-permanently;
     }
 
     // Whether a command can run now; menu items are enabled by it.
@@ -3272,6 +3276,8 @@ export component AppWindow inherits Window {
             root.fileops-search(root.current, c == Command.search-containing-folder);
         } else if (c == Command.create-shortcut) {
             root.fileops-shortcuts(root.current);
+        } else if (c == Command.new-folder) {
+            root.fileops-new-folder(root.current);
         } else if (c == Command.search-property-value) {
             root.fileops-search-value();
         } else if (c == Command.search-filename || c == Command.search-exact-name || c == Command.search-stem || c == Command.search-whole-stem) {
@@ -5028,6 +5034,11 @@ export component AppWindow inherits Window {
                                     activated => { root.run(Command.create-shortcut); }
                                 }
                                 MenuItem {
+                                    title: @tr("New folder…");
+                                    enabled: root.can-run(Command.new-folder);
+                                    activated => { root.run(Command.new-folder); }
+                                }
+                                MenuItem {
                                     title: @tr("Move to trash");
                                     enabled: root.can-run(Command.trash);
                                     activated => { root.run(Command.trash); }
@@ -5525,6 +5536,9 @@ export component AppWindow inherits Window {
     }
 
     if root.fileops-rename-open: FileopsRename {
+        title: root.fileops-rename-title;
+        action: root.fileops-rename-action;
+        label: root.fileops-rename-label;
         location: root.fileops-rename-location;
         name <=> root.fileops-rename-name;
         selection-end: root.fileops-rename-stem;
@@ -5829,6 +5843,12 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.export-results); }
             }
             MenuSeparator { }
+            MenuItem {
+                title: @tr("New folder…");
+                shortcut: root.menu-keys.new-folder;
+                enabled: root.can-run(Command.new-folder);
+                activated => { root.run(Command.new-folder); }
+            }
             MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
             MenuItem {
                 title: @tr("Quit");

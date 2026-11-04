@@ -284,6 +284,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> fileops-search-exact-name;
     in-out property <int> fileops-shortcut-kind;
     in-out property <int> fileops-shortcut-collision;
+    in-out property <bool> fileops-new-folder-inside: true;
     in-out property <bool> path-click-opens-folder;
     in-out property <bool> copy-full-path-quotes;
     in-out property <bool> export-protect-formulas;
@@ -1276,6 +1277,7 @@ export component SettingsWindow inherits Window {
                                 search-exact-name <=> root.fileops-search-exact-name;
                                 shortcut-kind <=> root.fileops-shortcut-kind;
                                 shortcut-collision <=> root.fileops-shortcut-collision;
+                                new-folder-inside <=> root.fileops-new-folder-inside;
                                 changed => { root.window-changed(); }
                             }
                             CheckBox {

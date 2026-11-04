@@ -4138,3 +4138,43 @@ msgstr "PDF, video və digər formatların önizləməsi"
 
 msgid "System helpers stay disabled when sandboxing is off."
 msgstr "Qum qutusu bağlı olduqda sistem köməkçiləri işləmir."
+
+#: src/fileops_rename.rs
+msgid "Created the folder “{0}” in “{1}”."
+msgstr "“{0}” qovluğu “{1}” içində yaradıldı."
+
+#: src/fileops_rename.rs
+msgid "Folder name"
+msgstr "Qovluğun adı"
+
+#: src/fileops_rename.rs
+msgid "New Folder"
+msgstr "Yeni qovluq"
+
+#: ui/fileops-settings.slint
+msgid "New folder goes inside a selected folder (off: next to it)"
+msgstr "Yeni qovluq seçilmiş qovluğun içində yaradılsın (söndürülsə: onun yanında)"
+
+#: src/fileops_undo.rs
+msgid "New folder"
+msgstr "Yeni qovluq"
+
+#: ui/app.slint
+msgid "New folder…"
+msgstr "Yeni qovluq…"
+
+#: src/fileops_undo.rs
+msgid "The folder no longer exists."
+msgstr "Qovluq artıq yoxdur."
+
+#: src/trashbin.rs
+msgid "The item is no longer in the trash."
+msgstr "Element artıq zibil qutusunda deyil."
+
+#: src/fileops_undo.rs
+msgid "The operation could not be recorded for undo."
+msgstr "Əməliyyat geri qaytarma üçün yadda saxlanıla bilmədi."
+
+#: src/trashbin.rs
+msgid "The original folder no longer exists."
+msgstr "Əvvəlki qovluq artıq yoxdur."

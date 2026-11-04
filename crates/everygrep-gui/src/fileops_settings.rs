@@ -12,6 +12,9 @@ pub struct Settings {
     pub search_exact_name: bool,
     pub shortcut_kind: crate::fileops_shortcut::Kind,
     pub shortcut_collision: crate::fileops_shortcut::Collision,
+    /// New folder with a folder selected makes the new folder inside it;
+    /// off, next to it (in the selected item's folder).
+    pub new_folder_inside: bool,
 }
 
 impl Default for Settings {
@@ -26,6 +29,7 @@ impl Default for Settings {
             search_exact_name: false,
             shortcut_kind: Default::default(),
             shortcut_collision: Default::default(),
+            new_folder_inside: true,
         }
     }
 }
@@ -39,6 +43,7 @@ impl Settings {
         w.set_fileops_search_new_window(self.search_new_window);
         w.set_fileops_search_recursive(self.search_recursive);
         w.set_fileops_search_exact_name(self.search_exact_name);
+        w.set_fileops_new_folder_inside(self.new_folder_inside);
         w.set_fileops_shortcut_kind(i32::from(
             self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop,
         ));
@@ -56,6 +61,7 @@ impl Settings {
             search_new_window: w.get_fileops_search_new_window(),
             search_recursive: w.get_fileops_search_recursive(),
             search_exact_name: w.get_fileops_search_exact_name(),
+            new_folder_inside: w.get_fileops_new_folder_inside(),
             shortcut_kind: if w.get_fileops_shortcut_kind() == 1 {
                 crate::fileops_shortcut::Kind::Desktop
             } else {
@@ -98,6 +104,12 @@ impl Settings {
             }
             ("file-conflicts-ask", "true" | "yes" | "on" | "1") => self.conflict_ask = true,
             ("file-conflicts-ask", "false" | "no" | "off" | "0") => self.conflict_ask = false,
+            ("new-folder-inside-selected-folder", "true" | "yes" | "on" | "1") => {
+                self.new_folder_inside = true
+            }
+            ("new-folder-inside-selected-folder", "false" | "no" | "off" | "0") => {
+                self.new_folder_inside = false
+            }
             ("rename-in-dialog", "true" | "yes" | "on" | "1") => self.rename_dialog = true,
             ("rename-in-dialog", "false" | "no" | "off" | "0") => self.rename_dialog = false,
             ("shortcut-kind", "symlink") => {
@@ -152,6 +164,11 @@ impl Settings {
                 self.undo_enabled,
                 defaults.undo_enabled,
             ),
+            (
+                "new-folder-inside-selected-folder",
+                self.new_folder_inside,
+                defaults.new_folder_inside,
+            ),
         ] {
             if on != default || all {
                 out.push_str(&format!("{key} = {on}\n"));
@@ -195,6 +212,22 @@ mod tests {
             .problems
             .len(),
             3
+        );
+    }
+
+    #[test]
+    fn new_folder_place_defaults_to_inside_and_roundtrips() {
+        assert!(Settings::default().fileops.new_folder_inside);
+        let mut s = Settings::parse("new-folder-inside-selected-folder = false");
+        assert!(!s.fileops.new_folder_inside);
+        assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
+        s.reset(Page::Window);
+        assert!(s.fileops.new_folder_inside);
+        assert_eq!(
+            Settings::parse("new-folder-inside-selected-folder = maybe")
+                .problems
+                .len(),
+            1
         );
     }
 

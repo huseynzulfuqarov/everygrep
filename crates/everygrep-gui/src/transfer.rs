@@ -980,6 +980,11 @@ fn tree_size(path: &Path, progress: &Progress) -> u64 {
         .sum()
 }
 
+/// [`free_name`] from the first number on, for a new item's name.
+pub(crate) fn first_free(dir: &Path, name: &OsStr, is_dir: bool) -> io::Result<PathBuf> {
+    free_name(dir, name, is_dir, &mut 2)
+}
+
 /// `dir/name` when nothing has that name, else the first free
 /// `stem (N)ext`, trying N from `*from` (at least 2) on; `*from` becomes
 /// the number after the one used. Folders have no extension. A dangling

@@ -39,7 +39,7 @@ export component FileUndoWindow inherits Window {
             Text { text: @tr("Session history only. Trash, permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."); color: Theme.text-muted; wrap: word-wrap; }
             ComboBox {
                 enabled: !root.busy;
-                model: [@tr("All actions"), @tr("Rename"), @tr("Move"), @tr("Copy")];
+                model: [@tr("All actions"), @tr("Rename"), @tr("Move"), @tr("Copy"), @tr("New folder"), @tr("Move to trash")];
                 current-index <=> root.action-filter;
                 selected => { root.filter-changed(); }
             }

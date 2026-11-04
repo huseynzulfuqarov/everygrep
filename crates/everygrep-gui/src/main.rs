@@ -59,6 +59,7 @@ mod tabs;
 mod tabs_ui;
 mod thumbnailer;
 mod transfer;
+mod trashbin;
 mod typing;
 mod x11clip;
 
@@ -1137,6 +1138,27 @@ enum Pending {
 /// Open, copy, rename, trash and delete.
 fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     let rename_dialog = fileops_rename::Dialog::connect(window);
+    window.on_fileops_new_folder({
+        let (weak, model, dialog) = (window.as_weak(), model.clone(), rename_dialog.clone());
+        move |r| {
+            let (Some(w), Some(r)) = (weak.upgrade(), usize::try_from(r).ok()) else {
+                return;
+            };
+            if model.targets_offline(Some(r)) {
+                info(&w, labels::offline_refused().into());
+                return;
+            }
+            let (Some(path), Some((_, is_dir))) = (model.path(r), model.name(r)) else {
+                return;
+            };
+            let mut inside = true;
+            prefs::with(|p| inside = p.fileops_settings().new_folder_inside);
+            let Some(folder) = fileops_rename::new_folder_place(&path, is_dir, inside) else {
+                return;
+            };
+            dialog.start_new_folder(&w, folder);
+        }
+    });
     fileops_conflict::connect(window);
     fileops_shortcut::connect(window, model);
     let pending: Rc<RefCell<Option<Pending>>> = Rc::default();

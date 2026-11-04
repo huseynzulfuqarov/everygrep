@@ -4138,3 +4138,43 @@ msgstr "PDF, video ve diğer biçimleri önizle"
 
 msgid "System helpers stay disabled when sandboxing is off."
 msgstr "Korumalı alan kapalıyken sistem yardımcıları devre dışı kalır."
+
+#: src/fileops_rename.rs
+msgid "Created the folder “{0}” in “{1}”."
+msgstr "“{0}” klasörü “{1}” içinde oluşturuldu."
+
+#: src/fileops_rename.rs
+msgid "Folder name"
+msgstr "Klasör adı"
+
+#: src/fileops_rename.rs
+msgid "New Folder"
+msgstr "Yeni Klasör"
+
+#: ui/fileops-settings.slint
+msgid "New folder goes inside a selected folder (off: next to it)"
+msgstr "Yeni klasör seçili klasörün içinde oluşturulsun (kapalıysa: yanında)"
+
+#: src/fileops_undo.rs
+msgid "New folder"
+msgstr "Yeni klasör"
+
+#: ui/app.slint
+msgid "New folder…"
+msgstr "Yeni klasör…"
+
+#: src/fileops_undo.rs
+msgid "The folder no longer exists."
+msgstr "Klasör artık yok."
+
+#: src/trashbin.rs
+msgid "The item is no longer in the trash."
+msgstr "Öğe artık çöp kutusunda değil."
+
+#: src/fileops_undo.rs
+msgid "The operation could not be recorded for undo."
+msgstr "İşlem geri alma için kaydedilemedi."
+
+#: src/trashbin.rs
+msgid "The original folder no longer exists."
+msgstr "Özgün klasör artık yok."

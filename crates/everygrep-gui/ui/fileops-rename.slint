@@ -4,6 +4,9 @@ import { Theme } from "theme.slint";
 // Modal within the main window: location, editable name and local errors.
 // Like the confirmation dialog, a dimmed backdrop takes all clicks.
 export component FileopsRename inherits Rectangle {
+    in property <string> title: @tr("Rename");
+    in property <string> action: @tr("Rename");
+    in property <string> label: @tr("New name");
     in property <string> location;
     in-out property <string> name;
     in property <int> selection-end;
@@ -38,7 +41,7 @@ export component FileopsRename inherits Rectangle {
             layout := VerticalLayout {
                 padding: Theme.dialog-padding;
                 spacing: Theme.s3;
-                Text { text: @tr("Rename"); color: Theme.text; font-size: Theme.body + 2px; font-weight: 600; }
+                Text { text: root.title; color: Theme.text; font-size: Theme.body + 2px; font-weight: 600; }
                 Text { text: @tr("Location"); color: Theme.text-muted; }
                 // A long location shows its first lines only.
                 Text {
@@ -48,7 +51,7 @@ export component FileopsRename inherits Rectangle {
                     overflow: elide;
                     max-height: 3 * (Theme.body + 4px);
                 }
-                Text { text: @tr("New name"); color: Theme.text-muted; }
+                Text { text: root.label; color: Theme.text-muted; }
                 Rectangle {
                     height: Theme.field-height;
                     background: Theme.field;
@@ -65,7 +68,7 @@ export component FileopsRename inherits Rectangle {
                         vertical-alignment: center;
                         single-line: true;
                         enabled: !root.busy;
-                        accessible-label: @tr("New name");
+                        accessible-label: root.label;
                         selection-background-color: Theme.selection;
                         selection-foreground-color: Theme.selection-text;
                         init => { self.focus(); self.set-selection-offsets(0, root.selection-end); }
@@ -79,7 +82,7 @@ export component FileopsRename inherits Rectangle {
                     spacing: Theme.s2;
                     Button { text: @tr("Cancel"); enabled: !root.busy; clicked => { root.cancel(); } }
                     Button {
-                        text: @tr("Rename");
+                        text: root.action;
                         primary: true;
                         enabled: root.error == "" && !root.busy;
                         clicked => { root.submit(); }

@@ -771,6 +771,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[(List, "Ctrl+Alt+L")],
     },
     Spec {
+        cmd: Command::NewFolder,
+        id: "file.new-folder",
+        category: Category::File,
+        label: || tr("New folder…"),
+        defaults: &[(List, "Ctrl+Shift+N")],
+    },
+    Spec {
         cmd: Command::SearchInProgram,
         id: "file.search-in-program",
         category: Category::File,
@@ -1909,6 +1916,7 @@ impl Keymap {
             file_undo_history => FileUndoHistory,
             rename => Rename,
             create_shortcut => CreateShortcut,
+            new_folder => NewFolder,
             search_in_program => SearchInProgram,
             search_containing_folder => SearchContainingFolder,
             search_property_value => SearchPropertyValue,
