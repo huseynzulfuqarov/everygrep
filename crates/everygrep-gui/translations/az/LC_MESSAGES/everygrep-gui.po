@@ -5336,3 +5336,7 @@ msgstr "Zibil qutusuna köçürüldü: {}"
 #: src/main.rs
 msgid "Kept {}: {}"
 msgstr "Saxlanıldı {}: {}"
+
+#: src/transfer.rs
+msgid "Hard-linked files cannot be moved across filesystems safely. Use Copy; the source was kept."
+msgstr "Sərt keçidli faylları fayl sistemləri arasında təhlükəsiz daşımaq mümkün deyil. Kopyala seçin; mənbə saxlanıldı."

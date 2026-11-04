@@ -968,6 +968,14 @@ impl Copier<'_> {
     }
 
     fn file(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<Option<io::Error>, Stop> {
+        // Copying then unlinking aliases changes their shared ctime and
+        // breaks the original hard-link relationship. Until that relationship
+        // can be moved as one verified group, refuse before deleting anything.
+        if self.sync && meta.nlink() > 1 {
+            return Err(io::Error::new(io::ErrorKind::Unsupported, tr(
+                "Hard-linked files cannot be moved across filesystems safely. Use Copy; the source was kept.",
+            )).into());
+        }
         let mut from = File::open(src)?;
         let mut to = OpenOptions::new().write(true).create_new(true).open(dst)?;
         self.made = true;
@@ -2346,6 +2354,70 @@ mod tests {
             fs::read_link(dest.join("link")).unwrap(),
             Path::new("missing-target")
         );
+    }
+
+    #[test]
+    fn a_cross_device_tree_with_hard_links_keeps_every_source_entry() {
+        let t = TempDir::new("hardlink-move");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("a"), "same inode");
+        fs::hard_link(src.join("a"), src.join("b")).unwrap();
+        write(&src.join("plain"), "independent");
+        fs::create_dir(&dest).unwrap();
+        FORCE_EXDEV.with(|v| v.set(true));
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        FORCE_EXDEV.with(|v| v.set(false));
+        assert!(out.done.is_empty());
+        assert_eq!(out.failed.len(), 1);
+        assert!(out.failed[0].1.to_string().contains("source was kept"));
+        assert_eq!(names(&src), ["a", "b", "plain"]);
+        assert_eq!(
+            fs::metadata(src.join("a")).unwrap().ino(),
+            fs::metadata(src.join("b")).unwrap().ino()
+        );
+        assert_eq!(read(&src.join("a")), "same inode");
+        assert_eq!(read(&src.join("plain")), "independent");
+        assert!(names(&dest).is_empty());
+        // The ordinary Copy choice remains available.
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(read(&dest.join("tree/a")), "same inode");
+        assert_eq!(read(&dest.join("tree/b")), "same inode");
+    }
+
+    #[test]
+    fn same_filesystem_hard_link_moves_keep_the_relationship() {
+        let t = TempDir::new("hardlink-same-fs");
+        let src = t.path("src/a");
+        let alias = t.path("src/b");
+        let dest = t.path("dest");
+        write(&src, "shared");
+        fs::hard_link(&src, &alias).unwrap();
+        fs::create_dir(&dest).unwrap();
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!src.exists());
+        assert_eq!(
+            fs::metadata(dest.join("a")).unwrap().ino(),
+            fs::metadata(&alias).unwrap().ino()
+        );
+        assert_eq!(read(&alias), "shared");
     }
 
     #[test]

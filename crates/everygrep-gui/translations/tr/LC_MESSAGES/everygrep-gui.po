@@ -5336,3 +5336,7 @@ msgstr "Çöp kutusuna taşındı: {}"
 #: src/main.rs
 msgid "Kept {}: {}"
 msgstr "Korundu {}: {}"
+
+#: src/transfer.rs
+msgid "Hard-linked files cannot be moved across filesystems safely. Use Copy; the source was kept."
+msgstr "Sabit bağlantılı dosyalar dosya sistemleri arasında güvenle taşınamıyor. Kopyala seçin; kaynak korundu."
