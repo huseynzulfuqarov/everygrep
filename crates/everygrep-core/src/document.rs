@@ -11,8 +11,9 @@ use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use quick_xml::Reader;
+use quick_xml::NsReader;
 use quick_xml::events::Event;
+use quick_xml::name::ResolveResult;
 use rawzip::{CompressionMethod, ReaderAt, ZipLocator};
 
 use crate::progress::Progress;
@@ -369,6 +370,51 @@ fn block(name: &str) -> bool {
     )
 }
 
+/// Only an external XHTML declaration or HTML5's bare declaration is accepted.
+/// Its identifiers are never opened; internal subsets and entity declarations fail.
+fn safe_html_doctype(text: &str) -> bool {
+    let space = |c: char| matches!(c, ' ' | '\t' | '\r' | '\n');
+    fn quoted(text: &str) -> Option<&str> {
+        let quote = text.chars().next()?;
+        if quote != '\'' && quote != '"' {
+            return None;
+        }
+        let end = text[1..].find(quote)? + 1;
+        Some(&text[end + 1..])
+    }
+    if text.contains(['[', ']', '<', '>']) || !valid_xml_chars(text) {
+        return false;
+    }
+    let Some(rest) = text.trim_matches(space).strip_prefix("html") else {
+        return false;
+    };
+    if !rest.is_empty() && !rest.starts_with(space) {
+        return false;
+    }
+    let rest = rest.trim_start_matches(space);
+    if rest.is_empty() {
+        return true;
+    }
+    let rest = if let Some(rest) = rest.strip_prefix("SYSTEM").filter(|s| s.starts_with(space)) {
+        rest.trim_start_matches(space)
+    } else if let Some(rest) = rest.strip_prefix("PUBLIC").filter(|s| s.starts_with(space)) {
+        let Some(rest) = quoted(rest.trim_start_matches(space)) else {
+            return false;
+        };
+        if !rest.starts_with(space) {
+            return false;
+        }
+        rest.trim_start_matches(space)
+    } else {
+        return false;
+    };
+    quoted(rest).is_some_and(|rest| rest.trim_matches(space).is_empty())
+}
+
+fn valid_xml_chars(text: &str) -> bool {
+    !text.chars().any(|c| matches!(c, '\0'..='\u{8}' | '\u{b}' | '\u{c}' | '\u{e}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}'))
+}
+
 fn parse_xml(
     bytes: &[u8],
     mode: Mode,
@@ -377,24 +423,35 @@ fn parse_xml(
     budget: &Budget<'_>,
 ) -> Result<(), Error> {
     let text = xml_text(bytes)?;
-    let mut reader = Reader::from_str(&text);
+    let mut reader = NsReader::from_str(&text);
     reader.config_mut().check_comments = true;
     reader.config_mut().expand_empty_elements = true;
     let mut stack: Vec<String> = Vec::new();
     let mut roots = 0;
     let mut declaration = false;
+    let mut doctype = false;
     let mut cell_type = String::new();
     let mut cell = String::new();
     let mut shared_bytes = shared.iter().map(String::len).sum::<usize>();
     loop {
         budget.check()?;
-        match reader.read_event().map_err(|_| Error::Invalid)? {
+        let (namespace, event) = reader.read_resolved_event().map_err(|_| Error::Invalid)?;
+        if matches!(namespace, ResolveResult::Unknown(_)) {
+            return Err(Error::Invalid);
+        }
+        match event {
             Event::Start(start) | Event::Empty(start) => {
                 // The reader expands empty elements into a start and an end.
                 let name = start.local_name().as_ref().to_owned();
+                if !valid_xml_chars(start.name().as_ref()) {
+                    return Err(Error::Invalid);
+                }
                 if stack.is_empty() {
                     roots += 1;
-                    if roots != 1 {
+                    if roots != 1
+                        || (mode == Mode::Html
+                            && (name != "html" || (doctype && start.name().as_ref() != "html")))
+                    {
                         return Err(Error::Invalid);
                     }
                 }
@@ -405,9 +462,23 @@ fn parse_xml(
                 let mut spaces = 1;
                 for attr in start.attributes() {
                     let attr = attr.map_err(|_| Error::Invalid)?;
+                    if matches!(
+                        reader.resolver().resolve_attribute(attr.key).0,
+                        ResolveResult::Unknown(_)
+                    ) {
+                        return Err(Error::Invalid);
+                    }
+                    let resolver = if mode == Mode::Html {
+                        quick_xml::escape::resolve_html5_entity
+                    } else {
+                        quick_xml::escape::resolve_xml_entity
+                    };
                     let value = attr
-                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .normalized_value_with(quick_xml::XmlVersion::Implicit1_0, 1, resolver)
                         .map_err(|_| Error::Invalid)?;
+                    if !valid_xml_chars(&value) || !valid_xml_chars(attr.key.as_ref()) {
+                        return Err(Error::Invalid);
+                    }
                     if mode == Mode::Cells && name == "c" && attr.key.local_name().as_ref() == "t" {
                         cell_type = value.into_owned();
                     } else if mode == Mode::Paragraphs
@@ -477,21 +548,28 @@ fn parse_xml(
                 let value = if let Some(c) = r.resolve_char_ref().map_err(|_| Error::Invalid)? {
                     c.to_string()
                 } else {
-                    match r.as_ref() {
-                        "amp" => "&",
-                        "lt" => "<",
-                        "gt" => ">",
-                        "apos" => "'",
-                        "quot" => "\"",
-                        _ => return Err(Error::Invalid),
-                    }
-                    .to_owned()
+                    let resolver = if mode == Mode::Html {
+                        quick_xml::escape::resolve_html5_entity
+                    } else {
+                        quick_xml::escape::resolve_xml_entity
+                    };
+                    resolver(r.as_ref()).ok_or(Error::Invalid)?.to_owned()
                 };
                 append_text(&value, mode, &stack, out, &mut cell, budget)?;
             }
-            Event::DocType(_) => return Err(Error::Invalid),
+            Event::DocType(d) => {
+                if mode != Mode::Html
+                    || doctype
+                    || roots != 0
+                    || !stack.is_empty()
+                    || !safe_html_doctype(d.as_ref())
+                {
+                    return Err(Error::Invalid);
+                }
+                doctype = true;
+            }
             Event::Decl(d) => {
-                if !stack.is_empty() || roots != 0 || declaration {
+                if !stack.is_empty() || roots != 0 || declaration || doctype {
                     return Err(Error::Invalid);
                 }
                 declaration = true;
@@ -528,7 +606,9 @@ fn append_text(
     if stack.is_empty() && !text.trim().is_empty() {
         return Err(Error::Invalid);
     }
-    if text.chars().any(|c| matches!(c, '\0'..='\u{8}' | '\u{b}' | '\u{c}' | '\u{e}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}')) { return Err(Error::Invalid); }
+    if !valid_xml_chars(text) {
+        return Err(Error::Invalid);
+    }
     let has = |name: &str| stack.iter().any(|n| n == name);
     let selected = match mode {
         Mode::Validate => false,
@@ -1023,6 +1103,100 @@ mod tests {
         let mut unknown = bytes;
         unknown[offsets[0] + 10..offsets[0] + 12].copy_from_slice(&99u16.to_le_bytes());
         let path = dir.write("unsupported.docx", &unknown);
+        assert_eq!(extracted(&path), Err(Error::Invalid));
+    }
+
+    #[test]
+    fn epub_doctypes_and_static_html_entities_work_without_loading_external_resources() {
+        let dir = Dir::new();
+        for declaration in [
+            "<!DOCTYPE html>",
+            "<!DOCTYPE html SYSTEM 'file:///no-such-dtd'>",
+            "<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'https://invalid.invalid/xhtml.dtd'>",
+        ] {
+            let chapter = format!(
+                "<?xml version=\"1.0\"?>{declaration}<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p title=\"A&nbsp;B\">needle&nbsp;&mdash;&copy; &amp;</p></body></html>"
+            );
+            let path = dir.write(
+                "doctype.epub",
+                &zip(
+                    &[
+                        ("mimetype", b"application/epub+zip"),
+                        ("chapter.xhtml", chapter.as_bytes()),
+                    ],
+                    true,
+                ),
+            );
+            assert!(extracted(&path).unwrap().contains("needle\u{a0}—© &"));
+            assert!(found(&path, "needle", &ContentOptions::default()));
+        }
+        for declaration in [
+            "<!DOCTYPE html [<!ENTITY x SYSTEM 'file:///no-such-file'>]>",
+            "<!DOCTYPE html [<!ENTITY a 'many'>]>",
+            "<!DOCTYPE html PUBLIC 'id'>",
+            "<!DOCTYPE html SYSTEM 'id' extra>",
+            "<!DOCTYPE nothtml>",
+        ] {
+            let chapter = format!("{declaration}<html><body><p>needle</p></body></html>");
+            let path = dir.write(
+                "bad-dtd.epub",
+                &zip(&[("chapter.xhtml", chapter.as_bytes())], false),
+            );
+            assert_eq!(extracted(&path), Err(Error::Invalid), "{declaration}");
+        }
+        // Enabling HTML entities must not broaden XML entities in Office parts.
+        let path = dir.write(
+            "office.docx",
+            &zip(
+                &[(
+                    "word/document.xml",
+                    b"<document a='&nbsp;'><t>needle</t></document>",
+                )],
+                false,
+            ),
+        );
+        assert_eq!(extracted(&path), Err(Error::Invalid));
+    }
+
+    #[test]
+    fn illegal_xml_control_characters_are_rejected_in_text_names_and_attributes() {
+        let dir = Dir::new();
+        for xml in [
+            b"<document a='bad\0'><t>needle</t></document>".as_slice(),
+            b"<document><t>needle\0</t></document>",
+            b"<document><t><![CDATA[needle\0]]></t></document>",
+            b"<doc\0ument><t>needle</t></doc\0ument>",
+            b"<document a='&#0;'><t>needle</t></document>",
+        ] {
+            let path = dir.write(
+                "bad-control.docx",
+                &zip(&[("word/document.xml", xml)], false),
+            );
+            assert_eq!(extracted(&path), Err(Error::Invalid));
+        }
+    }
+
+    #[test]
+    fn undefined_xml_prefixes_and_excessive_namespace_bindings_are_refused() {
+        let dir = Dir::new();
+        for xml in [
+            "<w:document><w:t>needle</w:t></w:document>",
+            "<document missing:attribute='value'><t>needle</t></document>",
+        ] {
+            let path = dir.write(
+                "undefined.docx",
+                &zip(&[("word/document.xml", xml.as_bytes())], false),
+            );
+            assert_eq!(extracted(&path), Err(Error::Invalid));
+        }
+        let namespaces = (0..129)
+            .map(|i| format!(" xmlns:n{i}='urn:n{i}'"))
+            .collect::<String>();
+        let xml = format!("<document{namespaces}><t>needle</t></document>");
+        let path = dir.write(
+            "namespaces.docx",
+            &zip(&[("word/document.xml", xml.as_bytes())], false),
+        );
         assert_eq!(extracted(&path), Err(Error::Invalid));
     }
 

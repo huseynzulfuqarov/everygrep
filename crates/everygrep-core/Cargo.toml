@@ -31,7 +31,7 @@ md-5 = { version = "0.11.0", default-features = false }
 # add no crates that were not in Cargo.lock already.
 regex = "1.13.1"
 rawzip = { version = "=0.5.2", default-features = false, features = ["std"] }
-quick-xml = { version = "=0.42.0", default-features = false }
+quick-xml = { version = "=0.42.0", default-features = false, features = ["escape-html"] }
 # Folders are opened relative to their parent tree without following
 # symbolic links (`openat2`, `O_NOFOLLOW`), and read from that descriptor.
 # The locked version is already used by other crates of the workspace and
