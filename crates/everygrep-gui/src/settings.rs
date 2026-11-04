@@ -273,11 +273,13 @@ pub struct Columns {
     pub show_sha384: bool,
     pub show_sha512: bool,
     pub show_xxhash: bool,
+    pub show_dupe_group: bool,
     pub gps_long: Option<f32>,
     pub sha1: Option<f32>,
     pub sha384: Option<f32>,
     pub sha512: Option<f32>,
     pub xxhash: Option<f32>,
+    pub dupe_group: Option<f32>,
     pub name: Option<f32>,
     /// Folder's own width, kept only while the columns are wider than the
     /// window (Folder otherwise takes the room the others leave).
@@ -1124,6 +1126,7 @@ impl Settings {
             "show-sha384-column" => put_flag(&mut self.columns.show_sha384),
             "show-sha512-column" => put_flag(&mut self.columns.show_sha512),
             "show-xxhash-column" => put_flag(&mut self.columns.show_xxhash),
+            "show-dupe-group-column" => put_flag(&mut self.columns.show_dupe_group),
             "gps-long-width" => {
                 let Some(w) = width(value) else { return false };
                 self.columns.gps_long = Some(w);
@@ -1147,6 +1150,11 @@ impl Settings {
             "xxhash-width" => {
                 let Some(w) = width(value) else { return false };
                 self.columns.xxhash = Some(w);
+                true
+            }
+            "dupe-group-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.dupe_group = Some(w);
                 true
             }
             "name-width"
@@ -1751,6 +1759,7 @@ impl Settings {
         flag(&mut out, "show-sha384-column", c.show_sha384, false);
         flag(&mut out, "show-sha512-column", c.show_sha512, false);
         flag(&mut out, "show-xxhash-column", c.show_xxhash, false);
+        flag(&mut out, "show-dupe-group-column", c.show_dupe_group, false);
         let widths = [
             ("width-width", c.width),
             ("height-width", c.height),
@@ -1776,6 +1785,7 @@ impl Settings {
             ("sha384-width", c.sha384),
             ("sha512-width", c.sha512),
             ("xxhash-width", c.xxhash),
+            ("dupe-group-width", c.dupe_group),
             ("full-path-width", c.full_path),
             ("parent-path-width", c.parent_path),
             ("stem-width", c.stem),

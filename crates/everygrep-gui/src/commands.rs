@@ -1248,6 +1248,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::DupeGroupColumn,
+        id: "view.dupe-group-column",
+        category: Category::View,
+        label: || tr("Duplicate group column"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::SelectionDetails,
         id: "view.selection-details",
         category: Category::View,
@@ -2041,6 +2048,7 @@ impl Keymap {
             sha384_column => Sha384Column,
             sha512_column => Sha512Column,
             xxhash_column => XxhashColumn,
+            dupe_group_column => DupeGroupColumn,
             selection_details => SelectionDetails,
             menu_bar => MenuBar,
             fit_columns => FitColumns,

@@ -60,6 +60,7 @@ export struct ResultRow {
     sha384: string,
     sha512: string,
     xxhash: string,
+    dupe-group: string,
 
     name-freq: string,
     ext-freq: string,
@@ -739,6 +740,7 @@ component Row inherits Rectangle {
     in property <length> sha384-width;
     in property <length> sha512-width;
     in property <length> xxhash-width;
+    in property <length> dupe-group-width;
 
     // The name is being edited in place.
     in property <bool> editing;
@@ -1506,6 +1508,18 @@ component Row inherits Rectangle {
         width: root.xxhash-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.xxhash;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> dupe-group-x: root.xxhash-x + root.xxhash-width;
+    if root.dupe-group-width > 0: Text {
+        x: root.dupe-group-x + Theme.s2;
+        width: root.dupe-group-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.dupe-group;
+        horizontal-alignment: right;
         color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
@@ -2293,6 +2307,11 @@ export component AppWindow inherits Window {
     out property <length> xxhash-min: 60px;
     property <length> xxhash-width: self.show-xxhash ? max(self.xxhash-min, self.xxhash-want) : 0px;
     changed show-xxhash => { root.detail-columns-changed(); }
+    in-out property <bool> show-dupe-group: false;
+    in-out property <length> dupe-group-want: 120px;
+    out property <length> dupe-group-min: 60px;
+    property <length> dupe-group-width: self.show-dupe-group ? max(self.dupe-group-min, self.dupe-group-want) : 0px;
+    changed show-dupe-group => { root.detail-columns-changed(); }
     // Created, Accessed, Attributes, a hash or a frequency column was shown
     // or hidden: their values are read (or counted) only while shown.
     callback detail-columns-changed();
@@ -2384,7 +2403,8 @@ export component AppWindow inherits Window {
         + self.sha1-width
         + self.sha384-width
         + self.sha512-width
-        + self.xxhash-width;
+        + self.xxhash-width
+        + self.dupe-group-width;
     property <length> name-width: max(self.name-min, self.name-want);
     property <length> folder-width: max(self.folder-min, max(self.folder-want,
         list.visible-width - self.name-width - self.fixed-width));
@@ -2457,6 +2477,7 @@ export component AppWindow inherits Window {
     property <length> sha384-x: self.sha1-x + self.sha1-width;
     property <length> sha512-x: self.sha384-x + self.sha384-width;
     property <length> xxhash-x: self.sha512-x + self.sha512-width;
+    property <length> dupe-group-x: self.xxhash-x + self.xxhash-width;
     // Width, minimum width and wanted width of column 3 (Modified) to 14
     // (Same size), numbered as sort-column.
     function col-width(c: int) -> length {
@@ -2501,6 +2522,7 @@ export component AppWindow inherits Window {
         if (c == 53) { return root.sha384-width; }
         if (c == 54) { return root.sha512-width; }
         if (c == 55) { return root.xxhash-width; }
+        if (c == 56) { return root.dupe-group-width; }
         return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
             : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : c == 11 ? root.crc32-width : c == 12 ? root.name-freq-width : c == 13 ? root.ext-freq-width : root.size-freq-width;
     }
@@ -2546,6 +2568,7 @@ export component AppWindow inherits Window {
         if (c == 53) { return root.sha384-min; }
         if (c == 54) { return root.sha512-min; }
         if (c == 55) { return root.xxhash-min; }
+        if (c == 56) { return root.dupe-group-min; }
         return c == 3 ? root.date-min : c == 4 ? root.type-min : c == 5 ? root.ext-min
             : c == 6 ? root.created-min : c == 7 ? root.accessed-min : c == 8 ? root.attr-min : c == 9 ? root.md5-min : c == 10 ? root.sha256-min : c == 11 ? root.crc32-min : c == 12 ? root.name-freq-min : c == 13 ? root.ext-freq-min : root.size-freq-min;
     }
@@ -2591,6 +2614,7 @@ export component AppWindow inherits Window {
         if (c == 53) { root.sha384-want = w; return; }
         if (c == 54) { root.sha512-want = w; return; }
         if (c == 55) { root.xxhash-want = w; return; }
+        if (c == 56) { root.dupe-group-want = w; return; }
         if (c == 3) {
             root.date-want = w;
         } else if (c == 4) {
@@ -2660,6 +2684,7 @@ export component AppWindow inherits Window {
         if (c == 53) { return @tr("SHA-384"); }
         if (c == 54) { return @tr("SHA-512"); }
         if (c == 55) { return @tr("xxHash (XXH3-128)"); }
+        if (c == 56) { return @tr("Duplicate group"); }
         return c == 0 ? @tr("Name") : c == 1 ? @tr("Folder") : c == 2 ? @tr("Size")
             : c == 3 ? @tr("Modified") : c == 4 ? @tr("Type") : c == 5 ? @tr("Extension")
             : c == 6 ? @tr("Created") : c == 7 ? @tr("Accessed") : c == 8 ? @tr("Attributes") : c == 9 ? @tr("MD5") : c == 10 ? @tr("SHA-256") : c == 11 ? @tr("CRC-32") : c == 12 ? @tr("Same name") : c == 13 ? @tr("Same extension") : @tr("Same size");
@@ -2718,7 +2743,8 @@ export component AppWindow inherits Window {
             || (c == 52 && root.show-sha1)
             || (c == 53 && root.show-sha384)
             || (c == 54 && root.show-sha512)
-            || (c == 55 && root.show-xxhash);
+            || (c == 55 && root.show-xxhash)
+            || (c == 56 && root.show-dupe-group);
     }
 
     // Texts measured to size a column to fit: the widest-looking cells of
@@ -2835,6 +2861,7 @@ export component AppWindow inherits Window {
         if (root.show-sha384) { root.fit-column(53); }
         if (root.show-sha512) { root.fit-column(54); }
         if (root.show-xxhash) { root.fit-column(55); }
+        if (root.show-dupe-group) { root.fit-column(56); }
         root.fit-column(0);
     }
 
@@ -2897,13 +2924,14 @@ export component AppWindow inherits Window {
         let w53 = root.fit-width(53);
         let w54 = root.fit-width(54);
         let w55 = root.fit-width(55);
+        let w56 = root.fit-width(56);
         let total = w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7 + w8
             + w9
             + w10
             + w11
             + w12
             + w13
-            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31 + w32 + w33 + w34 + w35 + w36 + w37 + w38 + w39 + w40 + w41 + w42 + w43 + w44 + w45 + w46 + w47 + w48 + w49 + w50 + w51 + w52 + w53 + w54 + w55;
+            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31 + w32 + w33 + w34 + w35 + w36 + w37 + w38 + w39 + w40 + w41 + w42 + w43 + w44 + w45 + w46 + w47 + w48 + w49 + w50 + w51 + w52 + w53 + w54 + w55 + w56;
         if (total <= 0px) {
             return;
         }
@@ -2964,11 +2992,13 @@ export component AppWindow inherits Window {
         if (root.show-sha384) { root.sha384-want = max(root.sha384-min, w53 * f); }
         if (root.show-sha512) { root.sha512-want = max(root.sha512-min, w54 * f); }
         if (root.show-xxhash) { root.xxhash-want = max(root.xxhash-min, w55 * f); }
+        if (root.show-dupe-group) { root.dupe-group-want = max(root.dupe-group-min, w56 * f); }
         root.name-set = true;
     }
 
     // The shown column left of optional column c; Modified (3) is always shown.
     function left-of(c: int) -> int {
+        if (c > 56 && root.show-dupe-group) { return 56; }
         if (c > 55 && root.show-xxhash) { return 55; }
         if (c > 54 && root.show-sha512) { return 54; }
         if (c > 53 && root.show-sha384) { return 53; }
@@ -3023,6 +3053,7 @@ export component AppWindow inherits Window {
 
     // The last shown column.
     function last-shown() -> int {
+        if (root.show-dupe-group) { return 56; }
         if (root.show-xxhash) { return 55; }
         if (root.show-sha512) { return 54; }
         if (root.show-sha384) { return 53; }
@@ -3092,7 +3123,7 @@ export component AppWindow inherits Window {
                 root.crc32-width,
                 root.name-freq-width,
                 root.ext-freq-width,
-                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width, root.width-width, root.height-width, root.dimensions-width, root.length-width, root.bit-rate-width, root.title-width, root.artist-width, root.album-width, root.year-width, root.track-width, root.genre-width, root.rating-width, root.tags-width, root.page-count-width, root.word-count-width, root.camera-maker-width, root.camera-model-width, root.date-taken-width, root.gps-lat-width, root.gps-long-width, root.sha1-width, root.sha384-width, root.sha512-width, root.xxhash-width],
+                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width, root.width-width, root.height-width, root.dimensions-width, root.length-width, root.bit-rate-width, root.title-width, root.artist-width, root.album-width, root.year-width, root.track-width, root.genre-width, root.rating-width, root.tags-width, root.page-count-width, root.word-count-width, root.camera-maker-width, root.camera-model-width, root.date-taken-width, root.gps-lat-width, root.gps-long-width, root.sha1-width, root.sha384-width, root.sha512-width, root.xxhash-width, root.dupe-group-width],
             mins: [root.name-min, root.folder-min, root.size-min, root.date-min, root.type-min,
                 root.ext-min, root.created-min, root.accessed-min, root.attr-min,
                 root.md5-min,
@@ -3100,7 +3131,7 @@ export component AppWindow inherits Window {
                 root.crc32-min,
                 root.name-freq-min,
                 root.ext-freq-min,
-                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min, root.width-min, root.height-min, root.dimensions-min, root.length-min, root.bit-rate-min, root.title-min, root.artist-min, root.album-min, root.year-min, root.track-min, root.genre-min, root.rating-min, root.tags-min, root.page-count-min, root.word-count-min, root.camera-maker-min, root.camera-model-min, root.date-taken-min, root.gps-lat-min, root.gps-long-min, root.sha1-min, root.sha384-min, root.sha512-min, root.xxhash-min],
+                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min, root.width-min, root.height-min, root.dimensions-min, root.length-min, root.bit-rate-min, root.title-min, root.artist-min, root.album-min, root.year-min, root.track-min, root.genre-min, root.rating-min, root.tags-min, root.page-count-min, root.word-count-min, root.camera-maker-min, root.camera-model-min, root.date-taken-min, root.gps-lat-min, root.gps-long-min, root.sha1-min, root.sha384-min, root.sha512-min, root.xxhash-min, root.dupe-group-min],
             window: list.visible-width,
             folder-want: root.folder-want,
         }, left, right, delta);
@@ -3222,6 +3253,7 @@ export component AppWindow inherits Window {
         { title: @tr("SHA-384"), column: 53, checked: root.show-sha384, enabled: true },
         { title: @tr("SHA-512"), column: 54, checked: root.show-sha512, enabled: true },
         { title: @tr("xxHash (XXH3-128)"), column: 55, checked: root.show-xxhash, enabled: true },
+        { title: @tr("Duplicate group"), column: 56, checked: root.show-dupe-group, enabled: true },
     ];
 
     // Shows or hides optional column c (4 to 14).
@@ -3267,6 +3299,7 @@ export component AppWindow inherits Window {
         if (c == 53) { root.show-sha384 = on; root.column-shown(c, on); return; }
         if (c == 54) { root.show-sha512 = on; root.column-shown(c, on); return; }
         if (c == 55) { root.show-xxhash = on; root.column-shown(c, on); return; }
+        if (c == 56) { root.show-dupe-group = on; root.column-shown(c, on); return; }
         if (c == 4) { root.show-type = on; }
         else if (c == 5) { root.show-ext = on; }
         else if (c == 6) { root.show-created = on; }
@@ -3354,6 +3387,7 @@ export component AppWindow inherits Window {
         root.show-sha384 = false; root.sha384-want = 430px;
         root.show-sha512 = false; root.sha512-want = 570px;
         root.show-xxhash = false; root.xxhash-want = 270px;
+        root.show-dupe-group = false; root.dupe-group-want = 120px;
         root.size-want = 96px;
         root.date-want = 120px;
         root.type-want = 130px;
@@ -3660,6 +3694,8 @@ export component AppWindow inherits Window {
             root.set-column-shown(54, !root.col-shown(54));
         } else if (c == Command.xxhash-column) {
             root.set-column-shown(55, !root.col-shown(55));
+        } else if (c == Command.dupe-group-column) {
+            root.set-column-shown(56, !root.col-shown(56));
         } else if (c == Command.selection-details) {
             root.status-details = !root.status-details;
             root.toggled(c);
@@ -3917,6 +3953,7 @@ export component AppWindow inherits Window {
         { title: @tr("SHA-384"), column: 53, checked: root.sort-column == 53, enabled: root.show-sha384 },
         { title: @tr("SHA-512"), column: 54, checked: root.sort-column == 54, enabled: root.show-sha512 },
         { title: @tr("xxHash (XXH3-128)"), column: 55, checked: root.sort-column == 55, enabled: root.show-xxhash },
+        { title: @tr("Duplicate group"), column: 56, checked: root.sort-column == 56, enabled: root.show-dupe-group },
     ];
     property <[MenuChoice]> sort-order-items: [
         { title: @tr("Ascending"), checked: !root.sort-descending },
@@ -4862,6 +4899,13 @@ export component AppWindow inherits Window {
                                     clicked => { root.sort-by(55); }
                                     right-pressed(x, y) => { root.menu-column = 55; header-menu.show({ x: self.x + x, y: y }); }
                                 }
+                                if root.show-dupe-group: HeaderCell {
+                                    x: root.dupe-group-x; width: root.dupe-group-width; height: parent.height;
+                                    label: @tr("Duplicate group");
+                                    sorted: root.sort-column == 56; descending: root.sort-descending;
+                                    clicked => { root.sort-by(56); }
+                                    right-pressed(x, y) => { root.menu-column = 56; header-menu.show({ x: self.x + x, y: y }); }
+                                }
                             }
                             // Boundary grips, on top of the cells.
                             // A double-click on a grip sizes the column on its left to fit.
@@ -5154,6 +5198,11 @@ export component AppWindow inherits Window {
                                 x: root.xxhash-x - self.width / 2; height: parent.height;
                                 dragged(d) => { root.drag-boundary(55, d); }
                                 fit => { root.fit-column(root.left-of(55)); }
+                            }
+                            if root.show-dupe-group: ColumnGrip {
+                                x: root.dupe-group-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(56, d); }
+                                fit => { root.fit-column(root.left-of(56)); }
                             }
                             // The right edge of the last column: dragged to the right, the
                             // columns get wider than the window.
@@ -5519,6 +5568,7 @@ export component AppWindow inherits Window {
                                 sha384-width: root.sha384-width;
                                 sha512-width: root.sha512-width;
                                 xxhash-width: root.xxhash-width;
+                                dupe-group-width: root.dupe-group-width;
                                 pressed(mods) => {
                                     root.jump-reset();
                                     root.current = i;

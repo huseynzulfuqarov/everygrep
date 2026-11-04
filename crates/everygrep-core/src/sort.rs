@@ -69,6 +69,8 @@ pub enum SortKey {
     NameFrequency,
     /// Digest bytes, ordered as the hexadecimal column text.
     Hash(crate::hash::Algorithm),
+    /// Stable duplicate group number, supplied with the result context.
+    DuplicateGroup,
     /// Optional filesystem or media property.
     Property(crate::property::Property),
     /// How many files of the index share the extension.
@@ -173,6 +175,7 @@ pub type MediaValues = HashMap<NodeId, Vec<(crate::property::Property, crate::pr
 pub struct FileValues {
     pub media: MediaValues,
     pub hashes: HashMap<NodeId, crate::hashcache::Cached>,
+    pub groups: HashMap<NodeId, u32>,
 }
 
 /// Lists shorter than this are sorted on the calling thread.
@@ -230,6 +233,7 @@ pub struct DetailCache {
     /// See [`set_media`](Self::set_media).
     media: Option<MediaValues>,
     hashes: Option<HashMap<NodeId, crate::hashcache::Cached>>,
+    groups: Option<HashMap<NodeId, u32>>,
     /// [`Index::stamp`] of the index the ids belong to.
     stamp: u64,
     /// [`Index::change_seq`] the cache has followed up to.
@@ -260,6 +264,11 @@ impl DetailCache {
     /// Hashes read beforehand; absent files sort as empty without another read.
     pub fn set_hashes(&mut self, values: Option<HashMap<NodeId, crate::hashcache::Cached>>) {
         self.hashes = values;
+    }
+
+    /// Stable numbers from the duplicate search, kept only for this sort.
+    pub fn set_groups(&mut self, groups: Option<HashMap<NodeId, u32>>) {
+        self.groups = groups;
     }
 
     /// Forgets every value when `generation` is not the one given last.
@@ -491,6 +500,13 @@ fn sort_ordered(
     let store = index.store();
     let desc = sort.descending;
     match sort.key {
+        SortKey::DuplicateGroup => {
+            let groups = cache.as_ref().and_then(|c| c.groups.as_ref());
+            let keys = keys_of(ids, progress, |_, id| {
+                groups.and_then(|m| m.get(&id)).copied().unwrap_or(0)
+            })?;
+            sort_directed(ids, threads, desc, keys, progress)?;
+        }
         SortKey::Hash(algorithm) => {
             let mut keys = Vec::with_capacity(ids.len());
             for &id in ids.iter() {
@@ -1082,6 +1098,42 @@ mod tests {
         s.add(Some(a), b".bashrc", false, meta(10, 20));
         s.add(Some(ac), b"Beta.Pdf", false, meta(10, 50));
         Index::new(s)
+    }
+
+    #[test]
+    fn group_numbers_sort_numerically_and_cancel_without_reordering() {
+        let index = tree();
+        let original = search(
+            &index,
+            &Query::parse("file:", QueryOptions::default()).unwrap(),
+            1,
+        );
+        let groups: HashMap<_, _> = original.iter().copied().zip([10, 2, 2, 10, 1]).collect();
+        let mut cache = DetailCache::new();
+        cache.set_groups(Some(groups.clone()));
+        for descending in [false, true] {
+            let mut ids = original.clone();
+            let order = Sort {
+                key: SortKey::DuplicateGroup,
+                descending,
+                ..Sort::default()
+            };
+            sort_cached(&index, &mut ids, order, 2, &Progress::new(), &mut cache).unwrap();
+            let found: Vec<_> = ids.iter().map(|id| groups[id]).collect();
+            assert_eq!(
+                found,
+                if descending {
+                    vec![10, 10, 2, 2, 1]
+                } else {
+                    vec![1, 2, 2, 10, 10]
+                }
+            );
+            let cancelled = Progress::new();
+            cancelled.cancel();
+            let mut ids = original.clone();
+            assert!(sort_cached(&index, &mut ids, order, 2, &cancelled, &mut cache).is_err());
+            assert_eq!(ids, original);
+        }
     }
 
     fn sorted(index: &Index, key: SortKey, descending: bool, threads: usize) -> Vec<String> {

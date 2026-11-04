@@ -74,7 +74,7 @@ pub enum IndexState {
 /// What a content or duplicate search found: the sorted results, their
 /// duplicate group numbers, the epoch of their ids and the version of the
 /// index they were found in.
-type Found = (Vec<NodeId>, Vec<u32>, u64, u64);
+type Found = (Vec<NodeId>, Vec<u32>, Vec<u32>, u64, u64);
 
 /// The finished result of one search.
 pub struct SearchResult {
@@ -84,6 +84,8 @@ pub struct SearchResult {
     /// For a duplicate search listing whole groups, the number of the group
     /// of each row (see [`dupe::Dupes::group_numbers`]); empty otherwise.
     pub groups: Arc<Vec<u32>>,
+    /// Stable duplicate group ids, for display and numeric sorting.
+    pub group_ids: Arc<Vec<u32>>,
     /// Text terms of the query, for highlighting matches in names.
     pub terms: Arc<Vec<HighlightTerm>>,
     pub took: Duration,
@@ -1442,7 +1444,7 @@ impl Engine {
                     let terms = Arc::new(std::mem::take(&mut terms));
                     let found = self.search_contents(generation, &state, &query, started, &terms);
                     match found {
-                        Ok(Some((ids, groups, at, searched))) => {
+                        Ok(Some((ids, groups, group_ids, at, searched))) => {
                             epoch = at;
                             let mut q = self.content_state.lock().expect("lock");
                             q.stopped = false;
@@ -1459,6 +1461,7 @@ impl Engine {
                                     }),
                                     ids: Arc::new(ids),
                                     groups: Arc::new(groups),
+                                    group_ids: Arc::new(group_ids),
                                     terms,
                                     took: started.elapsed(),
                                     error: None,
@@ -1559,6 +1562,7 @@ impl Engine {
                     }),
                     ids: Arc::new(ids),
                     groups: Arc::default(),
+                    group_ids: Arc::default(),
                     terms: Arc::new(terms),
                     took: started.elapsed(),
                     error,
@@ -1691,10 +1695,23 @@ impl Engine {
         if self.is_current(generation) {
             task.set_kind(TaskKind::Sorting);
             task.progress().restart(None);
-            let (again, media) = self
+            let (again, mut media) = self
                 .media_for_sort(index, &ids, state.sort, epoch, task.progress(), true)
                 .map_err(|_| self.why_stopped(generation, shown))?;
             index = again;
+            if let Some(dupes) = &dupes
+                && state
+                    .sort
+                    .keys()
+                    .iter()
+                    .any(|(key, _)| *key == SortKey::DuplicateGroup)
+            {
+                media.get_or_insert_with(FileValues::default).groups = ids
+                    .iter()
+                    .copied()
+                    .zip(dupes.stable_group_numbers(&ids))
+                    .collect();
+            }
             self.sort(
                 &index,
                 &mut ids,
@@ -1709,8 +1726,11 @@ impl Engine {
             }
             query.apply_limit(&mut ids);
         }
-        let groups = dupes.map_or_else(Vec::new, |d| d.group_numbers(&ids));
-        Ok(Some((ids, groups, epoch, version)))
+        let groups = dupes
+            .as_ref()
+            .map_or_else(Vec::new, |d| d.group_numbers(&ids));
+        let group_ids = dupes.map_or_else(Vec::new, |d| d.stable_group_numbers(&ids));
+        Ok(Some((ids, groups, group_ids, epoch, version)))
     }
 
     /// The index again after files were read without it: `None` when
@@ -1791,6 +1811,7 @@ impl Engine {
             settled: None,
             ids: Arc::new(ids),
             groups: Arc::default(),
+            group_ids: Arc::default(),
             terms: Arc::clone(terms),
             took: started.elapsed(),
             error: None,
@@ -1851,15 +1872,17 @@ impl Engine {
         } else {
             details.clear();
         }
-        let (media, hashes) = match media {
-            Some(values) => (Some(values.media), Some(values.hashes)),
-            None => (None, None),
+        let (media, hashes, groups) = match media {
+            Some(values) => (Some(values.media), Some(values.hashes), Some(values.groups)),
+            None => (None, None, None),
         };
         details.set_media(media);
         details.set_hashes(hashes);
+        details.set_groups(groups);
         let sorted = sort_cached(index, ids, sort, threads, progress, &mut details);
         details.set_media(None);
         details.set_hashes(None);
+        details.set_groups(None);
         sorted
     }
 
@@ -3873,6 +3896,7 @@ mod tests {
             settled: None,
             ids: Arc::new(vec![root_id]),
             groups: Arc::default(),
+            group_ids: Arc::default(),
             terms: Arc::new(Vec::new()),
             took: Duration::ZERO,
             error: None,
@@ -5532,6 +5556,7 @@ mod tests {
             settled: None,
             ids: Arc::new(vec![NodeId(len + 100)]),
             groups: Arc::default(),
+            group_ids: Arc::default(),
             terms: Arc::new(Vec::new()),
             took: Duration::ZERO,
             error: None,
@@ -5677,6 +5702,7 @@ mod tests {
                 settled: None,
                 ids: Arc::new((0..1_000_000).map(NodeId).collect()),
                 groups: Arc::default(),
+                group_ids: Arc::default(),
                 terms: Arc::default(),
                 took: Duration::ZERO,
                 error: None,
@@ -5748,6 +5774,7 @@ mod tests {
                 settled: None,
                 ids: ids.clone(),
                 groups: Arc::default(),
+                group_ids: Arc::default(),
                 terms: Arc::default(),
                 took: Duration::ZERO,
                 error: None,
@@ -6349,6 +6376,59 @@ mod tests {
         assert!(!probe.engine.content_state.lock().unwrap().running);
         probe.engine.shutdown();
         assert!(dir.0.join("hashes.bin").exists());
+    }
+
+    #[test]
+    fn duplicate_group_column_keeps_ids_when_sorted_and_limited() {
+        let dir = Scratch::new("dupe-group-sort");
+        let root = dir.0.join("files");
+        for folder in ["a", "b"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+            for name in ["alpha", "beta"] {
+                fs::write(root.join(folder).join(name), name).unwrap();
+            }
+        }
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let run = |descending, query: &str| {
+            while probe.results.try_recv().is_ok() {}
+            probe.engine.set_sort(Sort {
+                key: SortKey::DuplicateGroup,
+                descending,
+                ..Sort::default()
+            });
+            probe.engine.set_query(query, QueryOptions::default());
+            loop {
+                let result = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+                if result.query != query {
+                    continue;
+                }
+                let index = probe.engine.index.read().unwrap();
+                let names: Vec<_> = result
+                    .ids
+                    .iter()
+                    .map(|&id| String::from_utf8_lossy(index.store().name(id)).into_owned())
+                    .collect();
+                return (names, result.group_ids.to_vec(), result.groups.to_vec());
+            }
+        };
+        let asc = run(false, "duplicates:name");
+        assert_eq!(asc.0, ["alpha", "alpha", "beta", "beta"]);
+        assert_eq!(asc.1, [1, 1, 2, 2]);
+        let desc = run(true, "duplicates:name");
+        assert_eq!(desc.0, ["beta", "beta", "alpha", "alpha"]);
+        assert_eq!(desc.1, [2, 2, 1, 1]);
+        assert_eq!(
+            desc.2,
+            [1, 1, 2, 2],
+            "bands still alternate in display order"
+        );
+        let limited = run(true, "duplicates:name limit:1");
+        assert_eq!(limited.1, [2]);
+        assert!(run(false, "unique:name").1.is_empty());
+        assert!(run(false, "distinct:name").1.is_empty());
+        assert!(run(false, "alpha").1.is_empty());
+        probe.engine.shutdown();
     }
 
     #[test]
@@ -7185,7 +7265,7 @@ mod tests {
         let query = Query::parse(&state.text, state.options).unwrap();
         let generation = e.generation.load(Ordering::SeqCst);
         let terms = Arc::new(Vec::new());
-        let (ids, _, epoch, _) = e
+        let (ids, _, _, epoch, _) = e
             .search_contents(generation, &state, &query, Instant::now(), &terms)
             .unwrap()
             .unwrap();
@@ -7231,7 +7311,7 @@ mod tests {
             ..state
         };
         let query = Query::parse(&state.text, state.options).unwrap();
-        let (ids, _, _, _) = e
+        let (ids, _, _, _, _) = e
             .search_contents(generation, &state, &query, Instant::now(), &terms)
             .unwrap()
             .unwrap();

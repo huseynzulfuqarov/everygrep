@@ -316,7 +316,7 @@ fn options(s: &str) -> io::Result<everygrep_core::query::QueryOptions> {
     saved_searches::decode_options(p[0], p[1], p[2])
 }
 /// The optional columns a tab can show, by their name in the file.
-fn column_flags(c: &Columns) -> [(&'static str, bool); 52] {
+fn column_flags(c: &Columns) -> [(&'static str, bool); 53] {
     [
         ("type", c.show_type),
         ("ext", c.show_ext),
@@ -370,6 +370,7 @@ fn column_flags(c: &Columns) -> [(&'static str, bool); 52] {
         ("sha384", c.show_sha384),
         ("sha512", c.show_sha512),
         ("xxhash", c.show_xxhash),
+        ("dupe-group", c.show_dupe_group),
     ]
 }
 
@@ -427,12 +428,13 @@ fn column_flag<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut bool> {
         "sha384" => &mut c.show_sha384,
         "sha512" => &mut c.show_sha512,
         "xxhash" => &mut c.show_xxhash,
+        "dupe-group" => &mut c.show_dupe_group,
         _ => return None,
     })
 }
 
 /// The column widths of a tab, by their name in the file.
-fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 56] {
+fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 57] {
     [
         ("name", c.name),
         ("folder", c.folder),
@@ -490,6 +492,7 @@ fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 56] {
         ("sha384", c.sha384),
         ("sha512", c.sha512),
         ("xxhash", c.xxhash),
+        ("dupe-group", c.dupe_group),
     ]
 }
 
@@ -551,6 +554,7 @@ fn column_width<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut Option<f32
         "sha384" => &mut c.sha384,
         "sha512" => &mut c.sha512,
         "xxhash" => &mut c.xxhash,
+        "dupe-group" => &mut c.dupe_group,
         _ => return None,
     })
 }

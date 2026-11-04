@@ -2361,6 +2361,7 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         12 => SortKey::NameFrequency,
         13 => SortKey::ExtensionFrequency,
         14 => SortKey::SizeFrequency,
+        56 => SortKey::DuplicateGroup,
         c if everygrep_core::hash::Algorithm::from_column(c).is_some() => {
             SortKey::Hash(everygrep_core::hash::Algorithm::from_column(c).expect("hash column"))
         }
@@ -2401,6 +2402,7 @@ fn column_of(key: SortKey) -> i32 {
         SortKey::SizeFrequency => 14,
         SortKey::Property(p) => p.column(),
         SortKey::Hash(a) => a.column(),
+        SortKey::DuplicateGroup => 56,
     }
 }
 

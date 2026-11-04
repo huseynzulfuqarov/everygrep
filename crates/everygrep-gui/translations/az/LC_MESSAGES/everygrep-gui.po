@@ -4544,3 +4544,9 @@ msgstr "DOCX, XLSX, PPTX, ODT, ODS, ODP və EPUB. Limit bütün açılmış giri
 
 msgid "PDF files are read with pdftotext in a separate process."
 msgstr "PDF faylları ayrıca prosesdə pdftotext ilə oxunur."
+
+msgid "Duplicate group"
+msgstr "Dublikat qrupu"
+
+msgid "Duplicate group column"
+msgstr "Dublikat qrupu sütunu"

@@ -237,6 +237,18 @@ impl Dupes {
             .collect()
     }
 
+    /// Stable numbers for the group column, independent of display order.
+    /// Unique and distinct lists have no repeated groups to label.
+    pub fn stable_group_numbers(&self, shown: &[NodeId]) -> Vec<u32> {
+        if matches!(self.mode, DupeMode::Distinct | DupeMode::Unique) {
+            return Vec::new();
+        }
+        shown
+            .iter()
+            .map(|id| self.group_of.get(id).map_or(0, |g| g.saturating_add(1)))
+            .collect()
+    }
+
     /// The entries the mode may list, in the order of the results given
     /// (name order for a search), to be sorted and then given to
     /// [`arrange`](Self::arrange).
@@ -1197,6 +1209,26 @@ mod tests {
         let mut ids = search(&tree.index, &query, 2);
         query.apply_limit(&mut ids);
         assert_eq!(tree.show(&ids), ["y/x/keep", "Read.me"]);
+    }
+
+    #[test]
+    fn stable_group_ids_survive_reordering_while_bands_follow_the_display() {
+        let groups = vec![
+            vec![NodeId(1), NodeId(4)],
+            vec![NodeId(2), NodeId(3), NodeId(5)],
+        ];
+        let ids = (0..6).map(NodeId).collect();
+        let mut dupes = Dupes::new(DupeMode::All, ids, &groups);
+        let reordered = [5, 3, 2, 4, 1].map(NodeId);
+        assert_eq!(dupes.stable_group_numbers(&reordered), [2, 2, 2, 1, 1]);
+        assert_eq!(dupes.group_numbers(&reordered), [1, 1, 1, 2, 2]);
+        assert_eq!(dupes.stable_group_numbers(&[NodeId(0)]), [0]);
+        dupes.mode = DupeMode::Extra;
+        assert_eq!(dupes.stable_group_numbers(&[NodeId(3), NodeId(1)]), [2, 1]);
+        for mode in [DupeMode::Unique, DupeMode::Distinct] {
+            dupes.mode = mode;
+            assert!(dupes.stable_group_numbers(&reordered).is_empty());
+        }
     }
 
     #[test]

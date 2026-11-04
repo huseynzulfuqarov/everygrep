@@ -42,6 +42,7 @@ pub struct ResultsModel {
     /// The duplicate group number of each row, empty when the rows are not
     /// in groups (see [`SearchResult::groups`]).
     groups: RefCell<Arc<Vec<u32>>>,
+    group_ids: RefCell<Arc<Vec<u32>>>,
     /// Engine epoch of `ids`; when the engine moves on, the ids are stale.
     epoch: Cell<u64>,
     /// Query text of `ids`; a new query starts with an empty selection,
@@ -180,6 +181,7 @@ pub struct ResultSnapshot {
     pub settled: Option<SettledSearch>,
     ids: Arc<Vec<NodeId>>,
     groups: Arc<Vec<u32>>,
+    group_ids: Arc<Vec<u32>>,
     epoch: u64,
     query: String,
     selection: Selection,
@@ -251,6 +253,7 @@ impl ResultsModel {
             engine,
             ids: RefCell::new(Arc::new(Vec::new())),
             groups: RefCell::new(Arc::new(Vec::new())),
+            group_ids: RefCell::new(Arc::new(Vec::new())),
             epoch: Cell::new(u64::MAX),
             query: RefCell::new(String::new()),
             clear_on_search: Cell::new(true),
@@ -289,6 +292,7 @@ impl ResultsModel {
             generation: self.generation.get(),
             ids: self.ids.borrow().clone(),
             groups: self.groups.borrow().clone(),
+            group_ids: self.group_ids.borrow().clone(),
             epoch: self.epoch.get(),
             query: self.query.borrow().clone(),
             selection: self.selection.borrow().clone(),
@@ -305,6 +309,7 @@ impl ResultsModel {
         self.generation.set(snapshot.map_or(0, |s| s.generation));
         *self.ids.borrow_mut() = snapshot.map(|s| s.ids.clone()).unwrap_or_default();
         *self.groups.borrow_mut() = snapshot.map(|s| s.groups.clone()).unwrap_or_default();
+        *self.group_ids.borrow_mut() = snapshot.map(|s| s.group_ids.clone()).unwrap_or_default();
         self.epoch.set(snapshot.map_or(u64::MAX, |s| s.epoch));
         *self.query.borrow_mut() = snapshot.map(|s| s.query.clone()).unwrap_or_default();
         *self.selection.borrow_mut() = snapshot.map(|s| s.selection.clone()).unwrap_or_default();
@@ -436,6 +441,7 @@ impl ResultsModel {
         self.epoch.set(result.epoch);
         *self.ids.borrow_mut() = Arc::clone(&result.ids);
         *self.groups.borrow_mut() = Arc::clone(&result.groups);
+        *self.group_ids.borrow_mut() = Arc::clone(&result.group_ids);
         // A new result also follows file changes, so read the details again.
         self.forget_details();
         self.notify.reset();
@@ -1023,6 +1029,7 @@ impl ResultsModel {
                 53 => d.sha384.into(),
                 54 => d.sha512.into(),
                 55 => d.xxhash.into(),
+                56 => d.dupe_group.into(),
 
                 c => d
                     .properties
@@ -1286,6 +1293,13 @@ impl Model for ResultsModel {
                 hash_columns.xxhash,
                 hashes.full.map(u128::to_be_bytes).as_ref().map(|h| &h[..]),
             ),
+            dupe_group: self
+                .group_ids
+                .borrow()
+                .get(row)
+                .filter(|&&g| g > 0)
+                .map(|&g| format::count(g as usize).into())
+                .unwrap_or_default(),
             name_freq: count(shown.name, freq.as_ref().map(|f| f.name(id))),
             ext_freq: count(shown.extension, freq.as_ref().map(|f| f.extension(id))),
             size_freq: count(shown.size, freq.as_ref().map(|f| f.size(id))),
