@@ -35,6 +35,7 @@ mod history;
 mod history_csv;
 mod history_sync;
 mod i18n;
+mod insert;
 mod instance;
 mod jump;
 mod labels;
@@ -432,6 +433,22 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     window.on_query_edited(query_edit(true));
+    window.on_insert_search_part(|text, anchor, cursor, menu, index| {
+        let offset = |o: i32| usize::try_from(o).unwrap_or(0);
+        match insert::part(menu, index) {
+            Some(part) => {
+                let (text, caret) = insert::insert(&text, offset(anchor), offset(cursor), part);
+                SearchInsert {
+                    text: text.into(),
+                    caret: i32::try_from(caret).unwrap_or(i32::MAX),
+                }
+            }
+            None => SearchInsert {
+                caret: cursor,
+                text,
+            },
+        }
+    });
     window.on_split_location(|text| {
         let Some(found) = fileops_search::location(&text) else {
             return LocationSplit {

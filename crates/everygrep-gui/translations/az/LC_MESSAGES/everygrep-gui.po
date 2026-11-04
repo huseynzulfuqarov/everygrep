@@ -4636,3 +4636,108 @@ msgid "Copied the properties of 1 item."
 msgid_plural "Copied the properties of {} items."
 msgstr[0] "1 elementin xüsusiyyətləri kopyalandı."
 msgstr[1] "{} elementin xüsusiyyətləri kopyalandı."
+
+msgid "Undo"
+msgstr "Geri al"
+
+msgid "Redo"
+msgstr "Təkrarla"
+
+msgid "Paste"
+msgstr "Yapışdır"
+
+msgid "Combine"
+msgstr "Operator əlavə et"
+
+msgid "Match options"
+msgstr "Modifikator əlavə et"
+
+msgid "Conditions"
+msgstr "Funksiya əlavə et"
+
+msgid "Both (space)"
+msgstr "VƏ (boşluq)"
+
+msgid "Either  |"
+msgstr "VƏ YA  |"
+
+msgid "Without  !"
+msgstr "DEYİL  !"
+
+msgid "Group  < >"
+msgstr "Qrup  < >"
+
+msgid "Exact text  \" \""
+msgstr "Dırnaq  \" \""
+
+msgid "match case"
+msgstr "hərf registrini nəzərə al"
+
+msgid "ignore case"
+msgstr "hərf registrinə baxma"
+
+msgid "whole words"
+msgstr "tam sözlər"
+
+msgid "match diacritics"
+msgstr "diakritik işarələri nəzərə al"
+
+msgid "match the full path"
+msgstr "tam yolda axtar"
+
+msgid "the name starts with"
+msgstr "ad bununla başlayır"
+
+msgid "the name ends with"
+msgstr "ad bununla bitir"
+
+msgid "whole file name"
+msgstr "tam fayl adı"
+
+msgid "ignore punctuation"
+msgstr "durğu işarələrinə baxma"
+
+msgid "ignore spaces"
+msgstr "boşluqlara baxma"
+
+msgid "regular expression"
+msgstr "requlyar ifadə"
+
+msgid "files only"
+msgstr "yalnız fayllar"
+
+msgid "folders only"
+msgstr "yalnız qovluqlar"
+
+msgid "extensions"
+msgstr "genişlənmələr"
+
+msgid "larger than"
+msgstr "bundan böyük"
+
+msgid "smaller than"
+msgstr "bundan kiçik"
+
+msgid "modified before"
+msgstr "bundan əvvəl dəyişdirilib"
+
+msgid "modified within"
+msgstr "bu müddətdə dəyişdirilib"
+
+msgid "modified today"
+msgstr "bu gün dəyişdirilib"
+
+msgid "created"
+msgstr "yaradılıb"
+
+msgid "accessed"
+msgstr "açılıb"
+
+msgid "file contents"
+msgstr "fayl məzmunu"
+
+msgid "first results only"
+msgstr "yalnız ilk nəticələr"
+
+msgid "duplicates"
+msgstr "dublikatlar"
