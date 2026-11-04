@@ -74,6 +74,7 @@ mod tabs;
 mod tabs_ui;
 mod thumbnailer;
 mod transfer;
+mod transfer_metadata;
 mod trashbin;
 mod typing;
 mod x11clip;

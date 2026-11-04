@@ -5312,3 +5312,15 @@ msgstr "{} öğe çöp kutusuna taşındı (toplam {}). Taşınmadı: {}, örne�
 #: src/transfer.rs
 msgid "This filesystem cannot rename without replacement. Both items were kept."
 msgstr "Bu dosya sistemi üzerine yazmadan yeniden adlandıramıyor. Her iki öğe korundu."
+
+#: src/transfer_metadata.rs
+msgid "Cannot preserve metadata for “{}”: {}. Source kept."
+msgstr "“{}” için meta veriler korunamadı: {}. Kaynak korundu."
+
+#: src/transfer_metadata.rs
+msgid "Extended attributes could not be preserved exactly."
+msgstr "Genişletilmiş öznitelikler tam olarak korunamadı."
+
+#: src/transfer_metadata.rs
+msgid "Ownership, permissions or timestamps could not be preserved exactly."
+msgstr "Sahiplik, izinler veya zaman damgaları tam olarak korunamadı."

@@ -5312,3 +5312,15 @@ msgstr "{} element zibil qutusuna köçürüldü (cəmi {}). Köçürülmədi: {
 #: src/transfer.rs
 msgid "This filesystem cannot rename without replacement. Both items were kept."
 msgstr "Bu fayl sistemi əvəzləmədən ad dəyişə bilmir. Hər iki element saxlanıldı."
+
+#: src/transfer_metadata.rs
+msgid "Cannot preserve metadata for “{}”: {}. Source kept."
+msgstr "“{}” üçün metadata saxlanılmadı: {}. Mənbə saxlanıldı."
+
+#: src/transfer_metadata.rs
+msgid "Extended attributes could not be preserved exactly."
+msgstr "Genişləndirilmiş atributlar tam saxlanılmadı."
+
+#: src/transfer_metadata.rs
+msgid "Ownership, permissions or timestamps could not be preserved exactly."
+msgstr "Sahiblik, icazələr və ya vaxtlar tam saxlanılmadı."

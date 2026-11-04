@@ -655,6 +655,7 @@ fn move_rename(src: &Path, target: &Path) -> io::Result<()> {
 struct Copied {
     path: PathBuf,
     is_dir: bool,
+    metadata_error: Option<io::Error>,
     dev: u64,
     ino: u64,
     len: u64,
@@ -667,6 +668,7 @@ impl Copied {
         Self {
             path: path.to_owned(),
             is_dir: meta.is_dir(),
+            metadata_error: None,
             dev: meta.dev(),
             ino: meta.ino(),
             len: meta.len(),
@@ -694,6 +696,14 @@ impl Copied {
 /// stays, and so does an entry that was changed or replaced after it was
 /// read for the copy. Returns the first error.
 fn remove_copied(copied: &[Copied]) -> Option<io::Error> {
+    // Metadata is part of a move. Never remove even the first source entry
+    // if any part of the copy could not preserve it.
+    if let Some(c) = copied.iter().find(|c| c.metadata_error.is_some()) {
+        return Some(io::Error::other(fill(
+            tr("Cannot preserve metadata for “{}”: {}. Source kept."),
+            &[&c.path.display(), c.metadata_error.as_ref().unwrap()],
+        )));
+    }
     let mut first_error = None;
     for c in copied.iter().rev() {
         let removed = match fs::symlink_metadata(&c.path) {
@@ -919,13 +929,19 @@ impl Copier<'_> {
         if kind.is_symlink() {
             std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
             self.made = true;
-            self.copied.push(Copied::new(src, meta));
+            let mut entry = Copied::new(src, meta);
+            if self.sync {
+                entry.metadata_error = crate::transfer_metadata::link(src, dst, meta).err();
+            }
+            self.copied.push(entry);
         } else if kind.is_file() {
-            self.file(src, meta, dst)?;
-            self.copied.push(Copied::new(src, meta));
+            let mut entry = Copied::new(src, meta);
+            entry.metadata_error = self.file(src, meta, dst)?;
+            self.copied.push(entry);
         } else if kind.is_dir() {
             fs::create_dir(dst)?;
             self.made = true;
+            let index = self.copied.len();
             self.copied.push(Copied::new(src, meta));
             for entry in fs::read_dir(src)? {
                 let entry = entry?;
@@ -934,9 +950,16 @@ impl Copier<'_> {
                 self.tree(&entry.path(), &m, &dst.join(entry.file_name()))?;
             }
             // Last, so a read-only folder can still be filled.
-            fs::set_permissions(dst, fs::Permissions::from_mode(mode(meta)))?;
-            if let Ok(t) = meta.modified() {
-                let _ = File::open(dst).and_then(|d| d.set_modified(t));
+            if self.sync {
+                self.copied[index].metadata_error = (|| {
+                    crate::transfer_metadata::file(&File::open(src)?, &File::open(dst)?, meta)
+                })()
+                .err();
+            } else {
+                fs::set_permissions(dst, fs::Permissions::from_mode(mode(meta)))?;
+                if let Ok(t) = meta.modified() {
+                    let _ = File::open(dst).and_then(|d| d.set_modified(t));
+                }
             }
         } else {
             *self.special += 1;
@@ -944,7 +967,7 @@ impl Copier<'_> {
         Ok(())
     }
 
-    fn file(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
+    fn file(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<Option<io::Error>, Stop> {
         let mut from = File::open(src)?;
         let mut to = OpenOptions::new().write(true).create_new(true).open(dst)?;
         self.made = true;
@@ -961,14 +984,19 @@ impl Copier<'_> {
             to.write_all(&self.buf[..n])?;
             self.progress.add(n as u64);
         }
-        to.set_permissions(fs::Permissions::from_mode(mode(meta)))?;
-        if let Ok(t) = meta.modified() {
-            to.set_modified(t)?;
-        }
+        let metadata_error = if self.sync {
+            crate::transfer_metadata::file(&from, &to, meta).err()
+        } else {
+            to.set_permissions(fs::Permissions::from_mode(mode(meta)))?;
+            if let Ok(t) = meta.modified() {
+                to.set_modified(t)?;
+            }
+            None
+        };
         if self.sync {
             to.sync_all()?;
         }
-        Ok(())
+        Ok(metadata_error)
     }
 }
 
@@ -2138,6 +2166,186 @@ mod tests {
         assert_eq!(read(&dest.join("tree/f")), "v1");
         // The unchanged file still goes.
         assert_eq!(names(&src), ["f"]);
+    }
+
+    #[test]
+    fn cross_device_move_preserves_xattrs_permissions_and_times() {
+        let t = TempDir::new("move-metadata");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        let file = src.join("secret");
+        write(&file, "payload");
+        fs::create_dir(&dest).unwrap();
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o2770)).unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o4700)).unwrap();
+        crate::transfer_metadata::set_test_attr(&file, "user.audit-data", b"irreplaceable tag");
+        crate::transfer_metadata::set_test_attr(&src, "user.folder-data", b"folder tag");
+        let times = fs::FileTimes::new()
+            .set_accessed(std::time::UNIX_EPOCH + std::time::Duration::new(1234567890, 123456789))
+            .set_modified(std::time::UNIX_EPOCH + std::time::Duration::new(1234567891, 987654321));
+        File::open(&file).unwrap().set_times(times).unwrap();
+        let expected = fs::metadata(&file).unwrap();
+        FORCE_EXDEV.with(|v| v.set(true));
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        FORCE_EXDEV.with(|v| v.set(false));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!src.exists());
+        let target = dest.join("tree/secret");
+        let now = fs::metadata(&target).unwrap();
+        assert_eq!(now.mode() & 0o7777, 0o4700);
+        assert_eq!(
+            fs::metadata(dest.join("tree")).unwrap().mode() & 0o7777,
+            0o2770
+        );
+        assert_eq!(
+            (now.mtime(), now.mtime_nsec(), now.atime(), now.atime_nsec()),
+            (
+                expected.mtime(),
+                expected.mtime_nsec(),
+                expected.atime(),
+                expected.atime_nsec()
+            )
+        );
+        assert_eq!(
+            crate::transfer_metadata::test_attrs(&target)[b"user.audit-data".as_slice()],
+            b"irreplaceable tag"
+        );
+        assert_eq!(
+            crate::transfer_metadata::test_attrs(&dest.join("tree"))
+                [b"user.folder-data".as_slice()],
+            b"folder tag"
+        );
+        assert_eq!(read(&target), "payload");
+    }
+
+    #[test]
+    fn cross_device_move_preserves_access_and_default_acls() {
+        let t = TempDir::new("move-acl");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("file"), "payload");
+        fs::create_dir(&dest).unwrap();
+        // Linux POSIX ACL xattr format: version, then tag/permissions/id.
+        let mut acl = 2u32.to_le_bytes().to_vec();
+        let named_uid = fs::metadata(&src).unwrap().uid();
+        for (tag, perm, id) in [
+            (1u16, 7u16, u32::MAX),
+            (2, 4, named_uid),
+            (4, 5, u32::MAX),
+            (16, 5, u32::MAX),
+            (32, 0, u32::MAX),
+        ] {
+            acl.extend(tag.to_le_bytes());
+            acl.extend(perm.to_le_bytes());
+            acl.extend(id.to_le_bytes());
+        }
+        for (path, name) in [
+            (&src, "system.posix_acl_access"),
+            (&src, "system.posix_acl_default"),
+            (&src.join("file"), "system.posix_acl_access"),
+        ] {
+            crate::transfer_metadata::set_test_attr(path, name, &acl);
+        }
+        FORCE_EXDEV.with(|v| v.set(true));
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        FORCE_EXDEV.with(|v| v.set(false));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!src.exists());
+        for (path, name) in [
+            (dest.join("tree"), "system.posix_acl_access"),
+            (dest.join("tree"), "system.posix_acl_default"),
+            (dest.join("tree/file"), "system.posix_acl_access"),
+        ] {
+            assert_eq!(
+                crate::transfer_metadata::test_attrs(&path)[name.as_bytes()],
+                acl
+            );
+        }
+    }
+
+    #[test]
+    fn metadata_failure_keeps_the_entire_move_source() {
+        let t = TempDir::new("move-metadata-unsupported");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("a"), "first");
+        write(&src.join("b"), "second");
+        crate::transfer_metadata::set_test_attr(&src.join("b"), "user.required", b"tag");
+        fs::create_dir(&dest).unwrap();
+        FORCE_EXDEV.with(|v| v.set(true));
+        crate::transfer_metadata::FAIL_SET.with(|v| v.set(true));
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        crate::transfer_metadata::FAIL_SET.with(|v| v.set(false));
+        FORCE_EXDEV.with(|v| v.set(false));
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::NotRemoved(_))]
+        ));
+        assert!(out.failed[0].1.to_string().contains("Source kept"));
+        assert_eq!(read(&src.join("a")), "first");
+        assert_eq!(read(&src.join("b")), "second");
+        assert_eq!(read(&dest.join("tree/a")), "first");
+        assert_eq!(read(&dest.join("tree/b")), "second");
+    }
+
+    #[test]
+    fn cross_device_move_preserves_symlink_metadata_without_following_it() {
+        let t = TempDir::new("move-link-metadata");
+        let src = t.path("src/link");
+        let dest = t.path("dest");
+        fs::create_dir_all(src.parent().unwrap()).unwrap();
+        fs::create_dir(&dest).unwrap();
+        symlink("missing-target", &src).unwrap();
+        crate::transfer_metadata::age_test_link(&src);
+        let before = fs::symlink_metadata(&src).unwrap();
+        FORCE_EXDEV.with(|v| v.set(true));
+        let out = paste(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        FORCE_EXDEV.with(|v| v.set(false));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let now = fs::symlink_metadata(dest.join("link")).unwrap();
+        assert_eq!(
+            (
+                now.uid(),
+                now.gid(),
+                now.mtime(),
+                now.mtime_nsec(),
+                now.atime(),
+                now.atime_nsec()
+            ),
+            (
+                before.uid(),
+                before.gid(),
+                before.mtime(),
+                before.mtime_nsec(),
+                before.atime(),
+                before.atime_nsec()
+            )
+        );
+        assert!(fs::symlink_metadata(&src).is_err());
+        assert_eq!(
+            fs::read_link(dest.join("link")).unwrap(),
+            Path::new("missing-target")
+        );
     }
 
     #[test]
