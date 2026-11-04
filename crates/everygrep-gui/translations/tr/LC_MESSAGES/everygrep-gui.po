@@ -1999,8 +1999,6 @@ msgid "Windows-1257 (Baltic)"
 msgstr "Windows-1257 (Baltık)"
 
 #: src/content_settings.rs
-msgid "PDF files are read with pdftotext in a separate process. Office documents are not searched yet."
-msgstr "PDF dosyaları ayrı bir süreçte pdftotext ile okunur. Office belgelerinde henüz aranmıyor."
 
 #: src/content_settings.rs
 msgid "pdftotext was not found. Install the poppler package (it provides pdftotext) to search inside PDF files."
@@ -4534,3 +4532,15 @@ msgstr "xxHash (XXH3-128) sütunu"
 
 msgid "Copy hash value"
 msgstr "Özet değerini kopyala"
+
+msgid "Search inside Office/EPUB documents"
+msgstr "Office/EPUB belgelerinin içinde ara"
+
+msgid "Expanded document limit (MiB)"
+msgstr "Açılmış belge sınırı (MiB)"
+
+msgid "DOCX, XLSX, PPTX, ODT, ODS, ODP and EPUB. The limit includes all expanded entries and extracted text. Documents that exceed safety limits or contain damaged data are skipped."
+msgstr "DOCX, XLSX, PPTX, ODT, ODS, ODP ve EPUB. Sınır, açılmış tüm girdileri ve çıkarılan metni kapsar. Güvenlik sınırlarını aşan veya bozuk veri içeren belgeler atlanır."
+
+msgid "PDF files are read with pdftotext in a separate process."
+msgstr "PDF dosyaları ayrı bir süreçte pdftotext ile okunur."

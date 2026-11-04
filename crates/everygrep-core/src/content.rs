@@ -157,6 +157,10 @@ pub struct ContentOptions {
     pub code_page: CodePage,
     /// Read the text of PDF files with [`PDF_READER`].
     pub pdf: bool,
+    /// Extract text from ZIP-based Office and EPUB documents.
+    pub documents: bool,
+    /// Expanded archive and extracted text limit, capped by the extractor.
+    pub document_max_bytes: u64,
     /// A match may run over line ends (in files up to [`MULTI_LINE_MAX`]).
     pub multi_line: bool,
 }
@@ -167,6 +171,8 @@ impl Default for ContentOptions {
             max_size: DEFAULT_MAX_SIZE,
             code_page: CodePage::default(),
             pdf: false,
+            documents: true,
+            document_max_bytes: crate::document::DEFAULT_MAX_BYTES,
             multi_line: true,
         }
     }
@@ -347,6 +353,23 @@ pub fn search_file(
     };
     if options.max_size != 0 && size > options.max_size {
         return Ok(Outcome::TooLarge);
+    }
+    if let Some(kind) = crate::document::Kind::of(path) {
+        if !options.documents {
+            return Ok(Outcome::NoMatch);
+        }
+        return match crate::document::extract(file, kind, options.document_max_bytes, progress) {
+            Ok(text) => search_reader(
+                text.as_bytes(),
+                term.matcher(options, text.len() as u64),
+                Some(encoding_rs::UTF_8),
+                progress,
+            )
+            .map(|(outcome, _)| outcome),
+            Err(crate::document::Error::Cancelled) => Err(Cancelled),
+            Err(crate::document::Error::Limit) => Ok(Outcome::TooLarge),
+            Err(crate::document::Error::Invalid) => Ok(Outcome::Unreadable),
+        };
     }
     let matcher = term.matcher(options, size);
     if options.pdf && is_pdf_name(path) {

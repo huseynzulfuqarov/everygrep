@@ -4,6 +4,7 @@ pub mod bulkname;
 pub mod collate;
 pub mod content;
 pub mod details;
+pub mod document;
 pub mod drives;
 pub mod dupe;
 pub mod filelist;

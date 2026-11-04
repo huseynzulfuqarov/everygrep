@@ -8,6 +8,9 @@ export component ContentSettings inherits VerticalLayout {
     in property <[string]> code-page-names;
     in-out property <int> code-page;
     in-out property <bool> pdf;
+    in-out property <bool> documents;
+    in-out property <int> document-max;
+    in property <int> document-max-max;
     in property <string> pdf-note;
     in-out property <bool> on-enter;
     in-out property <bool> multi-line;
@@ -85,6 +88,27 @@ export component ContentSettings inherits VerticalLayout {
         color: Theme.text-muted;
         wrap: word-wrap;
         min-height: self.preferred-height;
+    }
+    CheckBox {
+        text: @tr("Search inside Office/EPUB documents");
+        checked <=> root.documents;
+        toggled => { root.changed(); }
+    }
+    HorizontalLayout {
+        spacing: Theme.s2;
+        Text { text: @tr("Expanded document limit (MiB)"); color: Theme.text; vertical-alignment: center; }
+        SpinBox {
+            width: 140px; horizontal-stretch: 0;
+            accessible-label: @tr("Expanded document limit (MiB)");
+            minimum: 1; maximum: root.document-max-max;
+            value <=> root.document-max;
+            edited => { root.changed(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    Text {
+        text: @tr("DOCX, XLSX, PPTX, ODT, ODS, ODP and EPUB. The limit includes all expanded entries and extracted text. Documents that exceed safety limits or contain damaged data are skipped.");
+        font-size: Theme.small; color: Theme.text-muted; wrap: word-wrap; min-height: self.preferred-height;
     }
     CheckBox {
         text: @tr("Search inside PDF files");

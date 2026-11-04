@@ -1176,6 +1176,7 @@ version = "0.1.0"
 dependencies = [
  "crc32fast",
  "encoding_rs",
+ "flate2",
  "grep-regex",
  "grep-searcher",
  "kamadak-exif",

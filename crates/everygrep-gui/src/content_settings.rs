@@ -19,6 +19,8 @@ pub struct Settings {
     pub code_page: CodePage,
     /// Read PDF files through pdftotext.
     pub pdf: bool,
+    pub documents: bool,
+    pub document_max_mb: u64,
     /// Largest size of the hash cache, in MiB; 0 keeps no hashes.
     pub hash_cache_mb: u64,
     /// While searching as you type, a search that reads files waits for
@@ -38,6 +40,8 @@ impl Default for Settings {
             max_size_mb: content::DEFAULT_MAX_SIZE / (1024 * 1024),
             code_page: CodePage::default(),
             pdf: false,
+            documents: true,
+            document_max_mb: everygrep_core::document::DEFAULT_MAX_BYTES / (1024 * 1024),
             hash_cache_mb: hashcache::DEFAULT_MAX_BYTES / (1024 * 1024),
             on_enter: true,
             multi_line: true,
@@ -54,6 +58,8 @@ impl Settings {
             max_size: self.max_size_mb * 1024 * 1024,
             code_page: self.code_page,
             pdf: self.pdf,
+            documents: self.documents,
+            document_max_bytes: self.document_max_mb * 1024 * 1024,
             multi_line: self.multi_line,
         }
     }
@@ -87,6 +93,11 @@ impl Settings {
                 .unwrap_or(0) as i32,
         );
         w.set_content_pdf(self.pdf);
+        w.set_content_documents(self.documents);
+        w.set_content_document_max(self.document_max_mb as i32);
+        w.set_content_document_max_max(
+            (everygrep_core::document::HARD_MAX_BYTES / (1024 * 1024)) as i32,
+        );
         w.set_content_on_enter(self.on_enter);
         w.set_content_multi_line(self.multi_line);
         w.set_dupe_empty_files(self.empty_files);
@@ -106,6 +117,10 @@ impl Settings {
                 .and_then(|i| CodePage::ALL.get(i).copied())
                 .unwrap_or_default(),
             pdf: w.get_content_pdf(),
+            documents: w.get_content_documents(),
+            document_max_mb: u64::try_from(w.get_content_document_max())
+                .unwrap_or(1)
+                .clamp(1, everygrep_core::document::HARD_MAX_BYTES / (1024 * 1024)),
             on_enter: w.get_content_on_enter(),
             multi_line: w.get_content_multi_line(),
             empty_files: w.get_dupe_empty_files(),
@@ -134,6 +149,15 @@ impl Settings {
                 .map(|c| self.code_page = c)
                 .is_some(),
             "content-pdf" => flag(value).map(|on| self.pdf = on).is_some(),
+            "content-documents" => flag(value).map(|on| self.documents = on).is_some(),
+            "content-document-max-mb" => value
+                .parse::<u64>()
+                .ok()
+                .filter(|n| {
+                    (1..=everygrep_core::document::HARD_MAX_BYTES / (1024 * 1024)).contains(n)
+                })
+                .map(|n| self.document_max_mb = n)
+                .is_some(),
             "content-on-enter" => flag(value).map(|on| self.on_enter = on).is_some(),
             "content-multi-line" => flag(value).map(|on| self.multi_line = on).is_some(),
             "dupe-empty-files" => flag(value).map(|on| self.empty_files = on).is_some(),
@@ -154,6 +178,15 @@ impl Settings {
         }
         if all || self.pdf != d.pdf {
             out.push_str(&format!("content-pdf = {}\n", self.pdf));
+        }
+        if all || self.documents != d.documents {
+            out.push_str(&format!("content-documents = {}\n", self.documents));
+        }
+        if all || self.document_max_mb != d.document_max_mb {
+            out.push_str(&format!(
+                "content-document-max-mb = {}\n",
+                self.document_max_mb
+            ));
         }
         if all || self.hash_cache_mb != d.hash_cache_mb {
             out.push_str(&format!("hash-cache-max-mb = {}\n", self.hash_cache_mb));
@@ -202,9 +235,7 @@ pub fn hash_cache_used(bytes: u64) -> String {
 /// The note under "Search inside PDF files": what it uses, or how to get it.
 pub fn pdf_note(available: bool) -> &'static str {
     if available {
-        tr(
-            "PDF files are read with pdftotext in a separate process. Office documents are not searched yet.",
-        )
+        tr("PDF files are read with pdftotext in a separate process.")
     } else {
         tr(
             "pdftotext was not found. Install the poppler package (it provides pdftotext) to search inside PDF files.",
@@ -272,6 +303,31 @@ mod tests {
         );
         assert_eq!(bad.problems.len(), 9);
         assert_eq!(bad.content, super::Settings::default());
+    }
+
+    #[test]
+    fn document_options_default_on_persist_reset_and_reject_unbounded_limits() {
+        let defaults = super::Settings::default();
+        assert!(defaults.documents && defaults.options().documents);
+        assert_eq!(defaults.document_max_mb, 64);
+        let mut settings =
+            Settings::parse("content-documents = off\ncontent-document-max-mb = 12\n");
+        assert!(!settings.content.documents);
+        assert_eq!(
+            settings.content.options().document_max_bytes,
+            12 * 1024 * 1024
+        );
+        assert_eq!(
+            Settings::parse(&settings.to_text()).content,
+            settings.content
+        );
+        settings.reset(Page::Search);
+        assert_eq!(settings.content, defaults);
+        for value in ["0", "129", "-1", "99999999999999999999", "unlimited"] {
+            let invalid = Settings::parse(&format!("content-document-max-mb = {value}\n"));
+            assert_eq!(invalid.problems.len(), 1);
+            assert_eq!(invalid.content, defaults);
+        }
     }
 
     #[test]

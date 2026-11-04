@@ -21,6 +21,7 @@ crc32fast = "1.5.3"
 # encoding_rs for the legacy code pages. 0.8.35 is the newest encoding_rs
 # for Rust 1.85.
 encoding_rs = "0.8.35"
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
 kamadak-exif = { version = "=0.6.1", default-features = false }
