@@ -4742,6 +4742,12 @@ msgstr "yalnız ilk nəticələr"
 msgid "duplicates"
 msgstr "dublikatlar"
 
+msgid "file type"
+msgstr "fayl növü"
+
+msgid "attributes"
+msgstr "atributlar"
+
 msgid "Zoom in"
 msgstr "Böyüt"
 
