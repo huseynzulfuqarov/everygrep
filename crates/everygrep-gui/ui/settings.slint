@@ -4,6 +4,7 @@ import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, Sta
 import { PropertySettings } from "property-settings.slint";
 import { Theme } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
+import { PreviewSettings } from "preview-settings.slint";
 import { ContentSettings, DuplicateSettings, HashCacheSettings } from "content-settings.slint";
 
 // A command for a keyboard shortcut, on the Keyboard shortcut page.
@@ -258,6 +259,13 @@ export component SettingsWindow inherits Window {
     callback appearance-changed();
 
     // Window
+    in-out property <bool> preview-visible;
+    in-out property <bool> preview-cache;
+    in-out property <bool> preview-images;
+    in-out property <bool> preview-thumbnailers;
+    in-out property <bool> preview-sandbox;
+    in-out property <bool> preview-text;
+    callback preview-changed();
     in property <[string]> close-names;
     in-out property <int> on-close;
     in property <string> on-close-note;
@@ -1142,6 +1150,12 @@ export component SettingsWindow inherits Window {
                             spacing: Theme.s3;
                             alignment: start;
                             vertical-stretch: 1;
+                            Heading { text: @tr("Preview"); }
+                            PreviewSettings {
+                                shown <=> root.preview-visible; cache <=> root.preview-cache; images <=> root.preview-images;
+                                thumbnailers <=> root.preview-thumbnailers; sandbox <=> root.preview-sandbox; text-files <=> root.preview-text;
+                                changed => { root.preview-changed(); }
+                            }
                             Heading { text: @tr("Tabs and session"); }
                             CheckBox {
                                 text: @tr("Open searches in tabs instead of new windows");

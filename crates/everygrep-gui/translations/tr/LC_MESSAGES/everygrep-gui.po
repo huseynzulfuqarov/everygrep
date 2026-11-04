@@ -4117,3 +4117,24 @@ msgstr "Üst veri değişikliği"
 
 msgid "Reading file details…"
 msgstr "Dosya bilgileri okunuyor…"
+
+msgid "Show preview panel"
+msgstr "Önizleme panelini göster"
+
+msgid "Read shared thumbnail cache"
+msgstr "Paylaşılan küçük resim önbelleğini oku"
+
+msgid "Preview PNG and JPEG images"
+msgstr "PNG ve JPEG görüntülerini önizle"
+
+msgid "Preview text files"
+msgstr "Metin dosyalarını önizle"
+
+msgid "Sandbox thumbnail helpers"
+msgstr "Küçük resim yardımcılarını korumalı alanda çalıştır"
+
+msgid "Preview PDF, video and other formats"
+msgstr "PDF, video ve diğer biçimleri önizle"
+
+msgid "System helpers stay disabled when sandboxing is off."
+msgstr "Korumalı alan kapalıyken sistem yardımcıları devre dışı kalır."

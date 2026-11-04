@@ -4117,3 +4117,24 @@ msgstr "Metadata dəyişikliyi"
 
 msgid "Reading file details…"
 msgstr "Fayl məlumatları oxunur…"
+
+msgid "Show preview panel"
+msgstr "Önizləmə panelini göstər"
+
+msgid "Read shared thumbnail cache"
+msgstr "Ortaq miniatür keşini oxu"
+
+msgid "Preview PNG and JPEG images"
+msgstr "PNG və JPEG şəkillərinin önizləməsi"
+
+msgid "Preview text files"
+msgstr "Mətn fayllarının önizləməsi"
+
+msgid "Sandbox thumbnail helpers"
+msgstr "Miniatür köməkçilərini qum qutusunda işlət"
+
+msgid "Preview PDF, video and other formats"
+msgstr "PDF, video və digər formatların önizləməsi"
+
+msgid "System helpers stay disabled when sandboxing is off."
+msgstr "Qum qutusu bağlı olduqda sistem köməkçiləri işləmir."

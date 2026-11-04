@@ -27,6 +27,56 @@ impl Default for Options {
         }
     }
 }
+impl Options {
+    pub fn allows_thumbnailers(self) -> bool {
+        self.thumbnailers && self.sandbox
+    }
+    pub fn set(&mut self, key: &str, value: &str) -> bool {
+        let field = match key {
+            "preview-cache" => &mut self.cache,
+            "preview-images" => &mut self.images,
+            "preview-thumbnailers" => &mut self.thumbnailers,
+            "preview-sandbox" => &mut self.sandbox,
+            "preview-text" => &mut self.text,
+            _ => return false,
+        };
+        *field = match value {
+            "true" | "yes" | "on" | "1" => true,
+            "false" | "no" | "off" | "0" => false,
+            _ => return false,
+        };
+        true
+    }
+    pub fn write(self, out: &mut String, all: bool) {
+        for (key, value) in [
+            ("preview-cache", self.cache),
+            ("preview-images", self.images),
+            ("preview-thumbnailers", self.thumbnailers),
+            ("preview-sandbox", self.sandbox),
+            ("preview-text", self.text),
+        ] {
+            if all || !value {
+                out.push_str(&format!("{key} = {value}\n"));
+            }
+        }
+    }
+    pub fn fill(self, w: &crate::SettingsWindow) {
+        w.set_preview_cache(self.cache);
+        w.set_preview_images(self.images);
+        w.set_preview_thumbnailers(self.thumbnailers);
+        w.set_preview_sandbox(self.sandbox);
+        w.set_preview_text(self.text);
+    }
+    pub fn edited(w: &crate::SettingsWindow) -> Self {
+        Self {
+            cache: w.get_preview_cache(),
+            images: w.get_preview_images(),
+            thumbnailers: w.get_preview_thumbnailers(),
+            sandbox: w.get_preview_sandbox(),
+            text: w.get_preview_text(),
+        }
+    }
+}
 struct Ask {
     serial: u64,
     id: NodeId,
@@ -167,11 +217,7 @@ fn load(engine: &Engine, ask: &Ask) -> Option<Answer> {
         answer.text = data::text(&bytes, ask.page).unwrap_or_default();
     }
     let mut failed = false;
-    if answer.image.is_none()
-        && answer.text.is_empty()
-        && ask.options.thumbnailers
-        && ask.options.sandbox
-    {
+    if answer.image.is_none() && answer.text.is_empty() && ask.options.allows_thumbnailers() {
         // Failure records are private to this application and expire with the
         // source mtime/size; never poison another application's failure cache.
         let cached_failure = cache
@@ -290,11 +336,15 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
                 }
             });
         }
-        let key = (id, epoch, serial.get());
+        let (mut options, mut page) = (Options::default(), CodePage::default());
+        crate::prefs::with(|p| {
+            (options, page) = p.preview_options();
+        });
+        let key = (id, epoch, serial.get(), options, page);
         if previous != Some(key) {
             progress.borrow().cancel();
             serial.set(serial.get().wrapping_add(1));
-            previous = Some((id, key.1, serial.get()));
+            previous = Some((id, key.1, serial.get(), options, page));
             w.set_preview_image(Default::default());
             w.set_preview_text("".into());
             w.set_preview_info("".into());
@@ -307,8 +357,8 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
                     id,
                     epoch: key.1,
                     progress: current,
-                    options: Options::default(),
-                    page: CodePage::default(),
+                    options,
+                    page,
                 });
             }
         }
@@ -334,6 +384,49 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preview_policy_round_trips_and_rejects_invalid_flags() {
+        let mut s = crate::settings::Settings::parse(
+            "preview-visible = true\npreview-width = 450\npreview-cache = false\npreview-images = false\npreview-thumbnailers = false\npreview-sandbox = false\npreview-text = false\ncontent-code-page = windows-1254\n",
+        );
+        assert!(s.problems.is_empty());
+        let round = crate::settings::Settings::parse(&s.to_text());
+        assert_eq!(round.preview, s.preview);
+        assert!(round.preview_visible);
+        assert_eq!(round.preview_width, 450.);
+        assert_eq!(round.content.code_page, CodePage::Windows1254);
+        assert_eq!(
+            s.preview,
+            Options {
+                cache: false,
+                images: false,
+                thumbnailers: false,
+                sandbox: false,
+                text: false
+            }
+        );
+        let invalid = crate::settings::Settings::parse(
+            "preview-cache = maybe\npreview-sandbox = later\npreview-width = NaN\n",
+        );
+        assert_eq!(invalid.problems.len(), 3);
+        assert_eq!(invalid.preview, Options::default());
+        assert!(!crate::settings::Settings::default().preview_visible);
+        s.reset(crate::settings::Page::Window);
+        assert_eq!(s.preview, Options::default());
+        assert!(!s.preview_visible);
+        assert_eq!(s.content.code_page, CodePage::Windows1254);
+    }
+    #[test]
+    fn disabling_sandbox_always_disables_system_thumbnailers() {
+        assert!(Options::default().allows_thumbnailers());
+        let mut options = Options::default();
+        assert!(options.set("preview-sandbox", "off"));
+        assert!(options.thumbnailers);
+        assert!(!options.allows_thumbnailers());
+        options.set("preview-sandbox", "on");
+        options.set("preview-thumbnailers", "off");
+        assert!(!options.allows_thumbnailers());
+    }
     #[test]
     fn selection_changes_cancel_work_and_debounce_to_the_last_request() {
         assert_eq!(selection(Some(NodeId(1)), 7, 8), None);

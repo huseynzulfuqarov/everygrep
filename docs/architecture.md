@@ -45,6 +45,11 @@ time is limited to five seconds, output files to 4 MiB, CPU time to five
 seconds and address space to 2 GiB. Missing sandbox support skips this tier.
 Failures are recorded under `fail/everygrep` only when a helper exits by
 itself; timeouts and cancellations are retried later.
+`preview-visible` and `preview-width` persist the panel like the folders sidebar.
+`preview-cache`, `preview-images`, `preview-text`, `preview-thumbnailers` and
+`preview-sandbox` select sources independently through the normal settings
+writer. Changing a source or the text code page cancels and reloads the current
+preview. Turning sandboxing off always disables helper execution.
 
 The built-in Properties dialog takes indexed properties on its own worker,
 releases the index lock, then reuses the live property, media and detail readers.

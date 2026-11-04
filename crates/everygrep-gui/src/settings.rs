@@ -372,6 +372,7 @@ pub struct Settings {
     /// How files are read for `content:` terms (Search page).
     pub content: crate::content_settings::Settings,
     pub properties: crate::property_settings::Settings,
+    pub preview: crate::preview::Options,
     /// Whether a double-click on the Folder cell of a row opens the
     /// containing folder instead of the item.
     pub path_click_opens_folder: bool,
@@ -483,6 +484,7 @@ impl Default for Settings {
             fileops: crate::fileops_settings::Settings::default(),
             content: crate::content_settings::Settings::default(),
             properties: crate::property_settings::Settings::default(),
+            preview: crate::preview::Options::default(),
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
             drive_root_labels: true,
@@ -1155,6 +1157,7 @@ impl Settings {
                 self.fileops.set(key, value)
                     || self.content.set(key, value)
                     || self.properties.set(key, value)
+                    || self.preview.set(key, value)
             }
         }
     }
@@ -1447,6 +1450,7 @@ impl Settings {
         self.fileops.write(&mut out, all);
         self.content.write(&mut out, all);
         self.properties.write(&mut out, all);
+        self.preview.write(&mut out, all);
         if all || self.on_close != d.on_close {
             line(&mut out, "on-close", self.on_close.id());
         }
@@ -1880,6 +1884,7 @@ impl Settings {
                 self.language = d.language;
             }
             Page::Window => {
+                self.preview = d.preview;
                 self.preview_visible = d.preview_visible;
                 self.preview_width = d.preview_width;
                 self.folders_visible = d.folders_visible;

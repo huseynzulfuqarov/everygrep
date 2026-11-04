@@ -1132,6 +1132,29 @@ impl Prefs {
             s.preview_visible = visible;
             s.preview_width = width.clamp(180.0, 700.0);
         });
+        self.refresh();
+    }
+
+    pub fn preview_options(&self) -> (crate::preview::Options, everygrep_core::content::CodePage) {
+        let s = self.settings.borrow();
+        (s.preview, s.content.code_page)
+    }
+
+    fn preview_changed(&self) {
+        let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
+            return;
+        };
+        let Some(w) = w.upgrade() else {
+            return;
+        };
+        let options = crate::preview::Options::edited(&w);
+        let visible = w.get_preview_visible();
+        self.change(move |s| {
+            s.preview = options;
+            s.preview_visible = visible;
+        });
+        self.fill_menus();
+        self.refresh();
     }
 
     pub fn set_folders(&self, visible: bool, width: f32, recursive: bool, dim_empty: bool) {
@@ -2207,6 +2230,8 @@ impl Prefs {
         w.set_history_on_disk(s.history_on_disk);
         s.content.fill_window(w);
         s.properties.fill(w);
+        s.preview.fill(w);
+        w.set_preview_visible(s.preview_visible);
         w.set_hash_cache_used(
             crate::content_settings::hash_cache_used(self.engine.hashes.bytes()).into(),
         );
@@ -2818,6 +2843,7 @@ impl Prefs {
                 p.refresh();
             })
         });
+        w.on_preview_changed(on(|p| p.preview_changed()));
         w.on_start_on_login_changed({
             let me = me.clone();
             move |on| {
