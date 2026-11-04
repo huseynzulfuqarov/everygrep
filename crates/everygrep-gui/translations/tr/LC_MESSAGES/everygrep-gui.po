@@ -4589,3 +4589,8 @@ msgstr "Durum satırını göster"
 
 msgid "Without it, progress, the Cancel button and messages appear in a small box at the bottom right while they last."
 msgstr "Kapalıyken ilerleme, İptal düğmesi ve iletiler sürdükleri sürece sağ alttaki küçük bir kutuda görünür."
+
+msgid "(and {} other tab)"
+msgid_plural "(and {} other tabs)"
+msgstr[0] "(ve {} diğer sekme)"
+msgstr[1] "(ve {} diğer sekme)"

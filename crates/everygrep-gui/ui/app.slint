@@ -1643,7 +1643,10 @@ component ColumnGrip inherits TouchArea {
 }
 
 export component AppWindow inherits Window {
-    title: "EveryGrep";
+    // The search of the shown tab and the number of other tabs (see
+    // tabs_ui.rs).
+    in property <string> window-title: "EveryGrep";
+    title: root.window-title;
     // Used on X11; Wayland compositors take the icon from the desktop entry
     // that matches the app id.
     icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");

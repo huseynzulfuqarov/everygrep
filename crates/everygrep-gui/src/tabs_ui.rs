@@ -529,6 +529,29 @@ fn install_columns(w: &AppWindow, c: &Columns) {
         .for_each(|v| w.set_size_freq_want(v));
 }
 
+/// The window's title: the search of the shown tab (none for an empty one),
+/// the program's name, and how many other tabs are open.
+fn window_title(search: &str, other_tabs: usize) -> String {
+    let mut out = if search.trim().is_empty() {
+        "EveryGrep".to_owned()
+    } else {
+        // A title is one line.
+        let line: String = search
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        format!("{line} - EveryGrep")
+    };
+    if other_tabs > 0 {
+        out.push(' ');
+        out.push_str(&fill(
+            crate::i18n::trn("(and {} other tab)", "(and {} other tabs)", other_tabs),
+            &[&other_tabs],
+        ));
+    }
+    out
+}
+
 fn title(tab: &Tab) -> String {
     if tab.search.query.is_empty() {
         tr("New tab").into()
@@ -769,6 +792,12 @@ impl State {
                 })
                 .collect::<Vec<_>>(),
         )));
+        let search = tabs
+            .open
+            .get(tabs.active)
+            .map(|t| crate::fileops_search::readable(&t.search.query))
+            .unwrap_or_default();
+        w.set_window_title(window_title(&search, rows.len().saturating_sub(1)).into());
         w.set_tabs(ModelRc::new(VecModel::from(rows)));
         w.set_active_tab(tabs.active as i32);
         w.set_closed_tab_names(ModelRc::new(VecModel::from(
@@ -883,5 +912,27 @@ impl State {
             Command::ReopenAllTabs => t.reopen_all(),
             _ => {}
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_title;
+
+    #[test]
+    fn the_window_title_names_the_search_and_the_other_tabs() {
+        assert_eq!(window_title("", 0), "EveryGrep");
+        assert_eq!(window_title("  ", 0), "EveryGrep");
+        assert_eq!(window_title("report", 0), "report - EveryGrep");
+        assert_eq!(
+            window_title("report", 1),
+            "report - EveryGrep (and 1 other tab)"
+        );
+        assert_eq!(window_title("", 3), "EveryGrep (and 3 other tabs)");
+        // Line breaks and tabs of a content search stay on one line.
+        assert_eq!(
+            window_title("content:\"a\nb\"\tx", 0),
+            "content:\"a b\" x - EveryGrep"
+        );
     }
 }

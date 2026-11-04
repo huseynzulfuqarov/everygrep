@@ -4589,3 +4589,8 @@ msgstr "Status sətrini göstər"
 
 msgid "Without it, progress, the Cancel button and messages appear in a small box at the bottom right while they last."
 msgstr "Söndürüləndə gediş, İmtina düyməsi və mesajlar davam etdikcə sağ aşağıdakı kiçik qutuda görünür."
+
+msgid "(and {} other tab)"
+msgid_plural "(and {} other tabs)"
+msgstr[0] "(və daha {} tab)"
+msgstr[1] "(və daha {} tab)"
