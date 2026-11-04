@@ -439,6 +439,8 @@ pub struct Settings {
     /// Whether the window shows the status line at its bottom; without it,
     /// progress and messages appear in a small box there while they last.
     pub status_bar: bool,
+    /// The size of the result list's text, icons and rows, in percent.
+    pub zoom: u32,
     pub folders_visible: bool,
     pub preview_visible: bool,
     pub preview_width: f32,
@@ -527,6 +529,7 @@ impl Default for Settings {
             status_details: true,
             menu_bar: true,
             status_bar: true,
+            zoom: crate::zoom::DEFAULT,
             folders_visible: false,
             preview_visible: false,
             preview_width: 300.0,
@@ -885,6 +888,12 @@ impl Settings {
                 .is_some(),
             "menu-bar" => put_flag(&mut self.menu_bar),
             "status-bar" => put_flag(&mut self.status_bar),
+            "zoom" => value
+                .parse::<u32>()
+                .ok()
+                .filter(|z| crate::zoom::valid(*z))
+                .map(|z| self.zoom = z)
+                .is_some(),
             "language" => LanguageChoice::ALL
                 .into_iter()
                 .find(|l| l.id() == value)
@@ -1647,6 +1656,9 @@ impl Settings {
         );
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
         flag(&mut out, "status-bar", self.status_bar, d.status_bar);
+        if all || self.zoom != d.zoom {
+            line(&mut out, "zoom", &self.zoom.to_string());
+        }
         flag(
             &mut out,
             "folders-visible",
@@ -1999,6 +2011,7 @@ impl Settings {
                 self.status_details = d.status_details;
                 self.menu_bar = d.menu_bar;
                 self.status_bar = d.status_bar;
+                self.zoom = d.zoom;
                 self.language = d.language;
             }
             Page::Window => {
@@ -2323,6 +2336,7 @@ fn is_known(key: &str) -> bool {
         "system",
         "compact",
         "1",
+        "100",
         "/",
         "keep",
         "A-1",
@@ -2876,6 +2890,7 @@ pub(crate) mod tests {
             status_details: false,
             menu_bar: false,
             status_bar: false,
+            zoom: 125,
             drives: DriveSettings {
                 auto: false,
                 keep_offline: false,
@@ -2901,6 +2916,9 @@ pub(crate) mod tests {
         assert!(text.contains("status-details = false\n"));
         assert!(text.contains("menu-bar = false\n"));
         assert!(text.contains("status-bar = false\n"));
+        assert!(text.contains("zoom = 125\n"));
+        assert_eq!(Settings::parse("zoom = 20\n").problems.len(), 1);
+        assert_eq!(Settings::parse("zoom = 301\n").problems.len(), 1);
         assert!(text.contains("alternate-row-color = false\n"));
         assert!(text.contains("size-format = mb\n"));
         assert!(text.contains("size-units = iec\n"));

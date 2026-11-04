@@ -66,6 +66,7 @@ mod transfer;
 mod trashbin;
 mod typing;
 mod x11clip;
+mod zoom;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
@@ -909,6 +910,7 @@ fn connect_menus(w: &AppWindow) {
     w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
     w.on_status_bar_changed(|on| prefs::with(|p| p.set_status_bar(on)));
+    w.on_zoom_step(|step| prefs::with(|p| p.zoom_step(step)));
 }
 
 /// Requests from later launches, waiting for the UI thread.

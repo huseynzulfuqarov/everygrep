@@ -52,22 +52,24 @@ export global Theme {
     // Density: compact packs the list, its header, the top bar and the
     // status line tighter (rows 22 px instead of 28 px).
     in-out property <bool> compact: false;
+    // Zoom of the result list (1 = 100 %): its rows, header, text and icons.
+    in-out property <float> zoom: 1;
 
     // Shapes and sizes
     out property <length> radius: 6px;
-    out property <length> row-height: compact ? 22px : 28px;
-    out property <length> header-height: compact ? 24px : 30px;
+    out property <length> row-height: round((compact ? 22px : 28px) * zoom / 1px) * 1px;
+    out property <length> header-height: round((compact ? 24px : 30px) * zoom / 1px) * 1px;
     out property <length> top-bar-height: compact ? 40px : 48px;
     out property <length> field-height: compact ? 30px : 34px;
     out property <length> status-height: compact ? 22px : 26px;
     out property <length> badge-height: compact ? 16px : 18px;
     out property <length> icon: 16px;
     // File-type icons in the rows.
-    out property <length> row-icon: compact ? 14px : 16px;
+    out property <length> row-icon: round((compact ? 14px : 16px) * zoom / 1px) * 1px;
 
     // Type
     out property <length> body: 13px;
     out property <length> small: 12px;
     // Text in the rows.
-    out property <length> list-text: compact ? 12px : 13px;
+    out property <length> list-text: round((compact ? 12px : 13px) * zoom / 1px) * 1px;
 }

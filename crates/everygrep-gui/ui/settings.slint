@@ -261,6 +261,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> status-details;
     in-out property <bool> menu-bar;
     in-out property <bool> status-bar;
+    in-out property <int> zoom;
     in-out property <bool> alternate-rows;
     in property <[string]> size-unit-names;
     in-out property <int> size-unit;
@@ -1129,6 +1130,22 @@ export component SettingsWindow inherits Window {
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Note { text: @tr("Compact shows more rows at once, with smaller icons and text."); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text { text: @tr("Result list zoom (%)"); color: Theme.text; vertical-alignment: center; }
+                                SpinBox {
+                                    width: 140px;
+                                    horizontal-stretch: 0;
+                                    accessible-label: @tr("Result list zoom (%)");
+                                    minimum: 50;
+                                    maximum: 300;
+                                    step-size: 10;
+                                    value <=> root.zoom;
+                                    edited => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("The size of the text, icons and rows in the result list. Ctrl+= and Ctrl+- change it, Ctrl+Shift+0 sets it back to 100 %; the status line shows it when it is not 100 %."); }
                             CheckBox {
                                 text: @tr("Alternate row color");
                                 checked <=> root.alternate-rows;

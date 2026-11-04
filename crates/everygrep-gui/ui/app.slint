@@ -1948,6 +1948,10 @@ export component AppWindow inherits Window {
     // change.
     in-out property <bool> show-menu-bar: true;
     in-out property <bool> show-status-bar: true;
+    // The zoom in the status line, empty at 100 %.
+    in property <string> zoom-text;
+    // Zoom in (1), out (-1) or back to 100 % (0).
+    callback zoom-step(int);
     in-out property <bool> status-details: true;
     // Search → Filter and the Bookmarks menu: part of a long list, and
     // whether some entries are left out (then "More…" opens the organizer).
@@ -3818,6 +3822,12 @@ export component AppWindow inherits Window {
         } else if (c == Command.status-bar) {
             root.show-status-bar = !root.show-status-bar;
             root.toggled(c);
+        } else if (c == Command.zoom-in) {
+            root.zoom-step(1);
+        } else if (c == Command.zoom-out) {
+            root.zoom-step(-1);
+        } else if (c == Command.zoom-reset) {
+            root.zoom-step(0);
         } else if (c == Command.match-case) {
             root.match-case = !root.match-case;
             root.toggled(c);
@@ -4142,6 +4152,11 @@ export component AppWindow inherits Window {
     // Density of the list: compact or comfortable.
     public function set-compact(compact: bool) {
         Theme.compact = compact;
+    }
+
+    // Zoom of the result list (1 = 100 %).
+    public function set-zoom(zoom: float) {
+        Theme.zoom = zoom;
     }
 
     public function focus-search() {
@@ -5889,6 +5904,13 @@ export component AppWindow inherits Window {
                         }
                         notice-hover := TouchArea { }
                     }
+                    if root.zoom-text != "": Text {
+                        text: root.zoom-text;
+                        font-size: Theme.small;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        accessible-label: @tr("Zoom");
+                    }
                     Text {
                         text: root.status-right;
                         font-size: Theme.small;
@@ -6854,6 +6876,12 @@ export component AppWindow inherits Window {
                 checkable: true;
                 checked <=> root.show-status-bar;
                 activated => { root.toggled(Command.status-bar); }
+            }
+            Menu {
+                title: @tr("Zoom");
+                MenuItem { title: @tr("Zoom in"); shortcut: root.menu-keys.zoom-in; activated => { root.run(Command.zoom-in); } }
+                MenuItem { title: @tr("Zoom out"); shortcut: root.menu-keys.zoom-out; activated => { root.run(Command.zoom-out); } }
+                MenuItem { title: @tr("Reset zoom"); shortcut: root.menu-keys.zoom-reset; activated => { root.run(Command.zoom-reset); } }
             }
         }
         Menu {

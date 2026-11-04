@@ -4741,3 +4741,21 @@ msgstr "yalnız ilk nəticələr"
 
 msgid "duplicates"
 msgstr "dublikatlar"
+
+msgid "Zoom in"
+msgstr "Böyüt"
+
+msgid "Zoom out"
+msgstr "Kiçilt"
+
+msgid "Reset zoom"
+msgstr "Miqyası sıfırla"
+
+msgid "Zoom"
+msgstr "Miqyas"
+
+msgid "Result list zoom (%)"
+msgstr "Nəticə siyahısının miqyası (%)"
+
+msgid "The size of the text, icons and rows in the result list. Ctrl+= and Ctrl+- change it, Ctrl+Shift+0 sets it back to 100 %; the status line shows it when it is not 100 %."
+msgstr "Nəticə siyahısında mətnin, ikonların və sətirlərin ölçüsü. Ctrl+= və Ctrl+- onu dəyişir, Ctrl+Shift+0 yenidən 100 % edir; 100 % olmayanda status sətrində görünür."

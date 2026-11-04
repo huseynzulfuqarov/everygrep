@@ -1145,6 +1145,24 @@ impl Prefs {
         }
     }
 
+    /// Sizes the main window's result list as the zoom setting says.
+    pub fn apply_zoom(&self) {
+        let zoom = self.settings.borrow().zoom;
+        if let Some(m) = self.main.upgrade() {
+            m.invoke_set_zoom(zoom as f32 / 100.0);
+            m.set_zoom_text(crate::zoom::status_text(zoom).into());
+        }
+    }
+
+    /// Zooms the result list in (`step` above 0), out (below) or back to
+    /// the default size (0), and keeps the size.
+    pub fn zoom_step(&self, step: i32) {
+        let zoom = crate::zoom::next(self.settings.borrow().zoom, step);
+        self.change(move |s| s.zoom = zoom);
+        self.apply_zoom();
+        self.refresh();
+    }
+
     /// Changes whether the main window has a status line.
     pub fn set_status_bar(&self, on: bool) {
         self.change(move |s| s.status_bar = on);
@@ -2361,6 +2379,7 @@ impl Prefs {
         w.set_status_details(s.status_details);
         w.set_menu_bar(s.menu_bar);
         w.set_status_bar(s.status_bar);
+        w.set_zoom(s.zoom as i32);
         w.set_alternate_rows(s.alternate_rows);
         w.set_size_unit_names(ModelRc::new(VecModel::from(
             SizeUnit::ALL
@@ -3322,6 +3341,10 @@ impl Prefs {
         let details = w.get_status_details();
         let menu_bar = w.get_menu_bar();
         let status_bar = w.get_status_bar();
+        let zoom = u32::try_from(w.get_zoom())
+            .ok()
+            .filter(|z| crate::zoom::valid(*z))
+            .unwrap_or(crate::zoom::DEFAULT);
         let alternate_rows = w.get_alternate_rows();
         let size_unit = usize::try_from(w.get_size_unit())
             .ok()
@@ -3341,6 +3364,7 @@ impl Prefs {
             s.status_details = details;
             s.menu_bar = menu_bar;
             s.status_bar = status_bar;
+            s.zoom = zoom;
             s.alternate_rows = alternate_rows;
             s.size_unit = size_unit;
             s.size_standard = size_standard;
@@ -3359,6 +3383,7 @@ impl Prefs {
         self.apply_language();
         self.apply_theme();
         self.apply_density();
+        self.apply_zoom();
         self.apply_status_details();
         self.apply_menu_bar();
         self.apply_behaviour();
