@@ -101,6 +101,41 @@ pub fn mode_badges(o: &QueryOptions) -> Vec<&'static str> {
     .collect()
 }
 
+/// Matching modes, duplicate mode of the effective query, and update pause.
+/// A filter has its own parsing options, as it does in the search engine.
+pub fn active_badges(
+    o: &QueryOptions,
+    text: &str,
+    filter: Option<&(String, QueryOptions)>,
+    paused: bool,
+) -> Vec<&'static str> {
+    use everygrep_core::dupe::DupeMode;
+    use everygrep_core::query::Query;
+    let duplicate = (|| {
+        let own = Query::text_duplicate_mode(text, *o).ok()?;
+        let filtered = match filter {
+            Some((query, options)) => Query::text_duplicate_mode(query, *options).ok()?,
+            None => None,
+        };
+        match (own, filtered) {
+            (Some(_), Some(_)) => None,
+            (own, filtered) => own.or(filtered),
+        }
+    })();
+    let mut badges = mode_badges(o);
+    if let Some(mode) = duplicate {
+        badges.push(match mode {
+            DupeMode::All | DupeMode::Extra => tr("Duplicates"),
+            DupeMode::Unique => tr("Unique"),
+            DupeMode::Distinct => tr("Distinct"),
+        });
+    }
+    if paused {
+        badges.push(tr("Paused"));
+    }
+    badges
+}
+
 /// `1 result`, `12 results`.
 pub fn results(n: usize) -> String {
     fill(trn("{} result", "{} results", n), &[&format::count(n)])
@@ -1229,6 +1264,43 @@ mod tests {
                 format::count(1500),
                 format::count(1200)
             )
+        );
+    }
+
+    #[test]
+    fn duplicate_and_paused_badges_follow_query_aliases_filters_and_options() {
+        let o = QueryOptions::default();
+        for (query, badge) in [
+            ("duplicates:name", "Duplicates"),
+            ("duplicates:size", "Duplicates"),
+            ("extra-copies:name", "Duplicates"),
+            ("extra-copies:contents", "Duplicates"),
+            ("unique:name", "Unique"),
+            ("distinct:name", "Distinct"),
+        ] {
+            assert_eq!(active_badges(&o, query, None, false), [badge]);
+            assert_eq!(active_badges(&o, query, None, true), [badge, "Paused"]);
+        }
+        assert_eq!(active_badges(&o, "", None, true), ["Paused"]);
+        let filter = ("unique:name".into(), o);
+        assert_eq!(
+            active_badges(&o, "report", Some(&filter), false),
+            ["Unique"]
+        );
+        assert!(active_badges(&o, "duplicates:name", Some(&filter), false).is_empty());
+        assert!(active_badges(&o, "\"duplicates:name\"", None, false).is_empty());
+        assert!(active_badges(&o, "content:unique:name", None, false).is_empty());
+        assert!(active_badges(&o, "unique:invalid-property", None, false).is_empty());
+        assert!(active_badges(&o, "unique:name", Some(&("<".into(), o)), false).is_empty());
+        let regex = QueryOptions { regex: true, ..o };
+        assert_eq!(active_badges(&regex, "unique:name", None, false), ["Regex"]);
+        let case = QueryOptions {
+            case_sensitive: true,
+            ..o
+        };
+        assert_eq!(
+            active_badges(&case, "distinct:name", None, true),
+            ["Case", "Distinct", "Paused"]
         );
     }
 

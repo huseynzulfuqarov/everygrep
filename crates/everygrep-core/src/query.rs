@@ -411,6 +411,30 @@ impl Query {
             && (p.checked_content > 0 || p.dupe.as_ref().is_some_and(DupeSpec::reads_files))
     }
 
+    /// Duplicate mode named by a valid query, checked without building
+    /// content matchers or reading any result file. Quoted text and regular
+    /// expressions for names cannot accidentally enable a duplicate mode.
+    pub fn text_duplicate_mode(
+        text: &str,
+        options: QueryOptions,
+    ) -> Result<Option<DupeMode>, ParseError> {
+        if options.regex {
+            return Ok(None);
+        }
+        let mut parser = Parser::new(
+            lex(text, options.literal_operators)?,
+            options,
+            now_ns(),
+            None,
+        );
+        parser.check_only = true;
+        let _ = parser.parse_expression(false)?;
+        if parser.pos < parser.tokens.len() {
+            return Err(ParseError("unexpected '>'".into()));
+        }
+        Ok(parser.dupe.map(|spec| spec.mode))
+    }
+
     /// Parses `text` at the time `now_ns`. Without a `zone`, the local zone is
     /// loaded once, when the first date term needs it.
     fn parse_with(

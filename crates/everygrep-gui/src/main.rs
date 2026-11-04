@@ -436,6 +436,15 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     window.on_choose_hidden_files(|i| prefs::with(|p| p.choose_hidden_files(i)));
+    window.on_mode_state_changed({
+        let weak = weak.clone();
+        move || {
+            if let Some(w) = weak.upgrade() {
+                update_badges(&w);
+            }
+        }
+    });
+    update_badges(&window);
     window.on_options_changed({
         let (engine, weak) = (engine.clone(), weak.clone());
         move || {
@@ -2454,6 +2463,7 @@ pub fn set_as_you_type(w: &AppWindow, engine: &Engine, on: bool, contents_on_ent
 }
 
 fn run_query(w: &AppWindow, engine: &Engine) {
+    update_badges(w);
     with_model(w, |m| m.forget_properties());
     tabs_ui::submitted(w);
     let filter = saved_ui::selected(w).map(|f| (f.search, f.options));
@@ -2497,12 +2507,22 @@ fn set_options(w: &AppWindow, o: QueryOptions) {
     show_badges(w);
 }
 
-fn show_badges(w: &AppWindow) {
-    let badges: Vec<SharedString> = labels::mode_badges(&options(w))
-        .into_iter()
-        .map(SharedString::from)
-        .collect();
+fn update_badges(w: &AppWindow) {
+    let filter = saved_ui::selected(w).map(|f| (f.search, f.options));
+    let badges: Vec<SharedString> = labels::active_badges(
+        &options(w),
+        &w.get_query(),
+        filter.as_ref(),
+        w.get_index_paused(),
+    )
+    .into_iter()
+    .map(SharedString::from)
+    .collect();
     w.set_badges(ModelRc::new(VecModel::from(badges)));
+}
+
+fn show_badges(w: &AppWindow) {
+    update_badges(w);
     // A new list, so the Filter menu shows a fresh check mark.
     saved_ui::fill_filters(w);
 }

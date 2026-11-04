@@ -4550,3 +4550,12 @@ msgstr "Yinelenen grubu"
 
 msgid "Duplicate group column"
 msgstr "Yinelenen grubu sütunu"
+
+msgid "Unique"
+msgstr "BENZERSİZ"
+
+msgid "Distinct"
+msgstr "FARKLI"
+
+msgid "Paused"
+msgstr "DURAKLATILDI"

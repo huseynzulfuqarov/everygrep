@@ -4550,3 +4550,12 @@ msgstr "Dublikat qrupu"
 
 msgid "Duplicate group column"
 msgstr "Dublikat qrupu sütunu"
+
+msgid "Unique"
+msgstr "UNİKAL"
+
+msgid "Distinct"
+msgstr "FƏRQLİ"
+
+msgid "Paused"
+msgstr "FASİLƏ"

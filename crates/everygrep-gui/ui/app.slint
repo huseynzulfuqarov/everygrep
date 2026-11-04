@@ -1695,12 +1695,12 @@ export component AppWindow inherits Window {
         root.scope-detail = split.detail;
         search.text = split.rest;
     }
-    changed query => { root.sync-scope(); }
+    changed query => { root.sync-scope(); root.mode-state-changed(); }
 
     // Sort column (0 name, 1 folder, 2 size, 3 modified, 4 type, 5 extension,
     // 6 created, 7 accessed, 8 attributes; 9 MD5, 10 SHA-256 and 11 CRC-32,
-    // which are never sorted by; 12 name, 13 extension and 14 size
-    // frequency) and direction.
+    // 12 same name, 13 same extension and 14 same size; 15–51 properties,
+    // 52–55 additional hashes, 56 duplicate group) and direction.
     in-out property <int> sort-column: 0;
     in-out property <bool> sort-descending: false;
     // Secondary and tertiary sort columns (-1: none) and directions, set by
@@ -1744,6 +1744,7 @@ export component AppWindow inherits Window {
     in-out property <int> filter-index: 0;
     // Words for the modes that are on, shown in the status line.
     in property <[string]> badges;
+    callback mode-state-changed();
     in property <bool> show-mode-badges: true;
     in property <bool> and-before-or;
     in property <bool> literal-operators;
@@ -1859,6 +1860,7 @@ export component AppWindow inherits Window {
     // setting, the other way round).
     callback rebuild-index();
     in-out property <bool> index-paused;
+    changed index-paused => { root.mode-state-changed(); }
     callback index-paused-changed(bool);
     // Entries of offline drives and file lists are left out of the results.
     in-out property <bool> hide-offline;
