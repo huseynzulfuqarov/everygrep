@@ -521,8 +521,10 @@ pub fn compare_contents(
         .map(|run| run.iter().map(|r| r.1).collect())
         .collect();
     if options.verify_bytes {
-        let (verified, counted) = verify(runs, threads, progress, &path_of)?;
-        runs = verified;
+        let verified = verify(runs, threads, progress, &path_of)?;
+        runs = verified.groups;
+        dropped.extend(verified.lost.iter().map(&id_of));
+        let counted = verified.counted;
         progress.add(candidates.files() as u64 - counted);
     }
     let groups: Vec<Vec<NodeId>> = runs
@@ -538,39 +540,85 @@ pub fn compare_contents(
     Ok(Dupes::new(dupes.mode, listed, &groups))
 }
 
+/// What comparing a member of a group with its first file gave.
+#[derive(Clone, Copy)]
+enum Compared {
+    Equal,
+    Different,
+    /// They could not be compared: whether the first file and the member
+    /// are gone, changed or unreadable. When neither looks so (a read
+    /// failed), the member counts as such.
+    Lost {
+        first: bool,
+        member: bool,
+    },
+}
+
 /// Splits the groups of equal hashes by comparing their files byte by
 /// byte: each round compares every member with the first of its group, and
-/// the members that differ (or could not be read) form a group of their
-/// own for the next round. Returns the groups of equal files and the
-/// number of files looked at (one progress step each).
+/// the members that differ form a group of their own for the next round.
+/// Finds the groups of equal files, the number of files looked at (one
+/// progress step each) and the files that could not be compared (gone,
+/// changed or unreadable meanwhile), which are no longer results.
 fn verify<'a>(
     mut pending: Vec<Vec<Looked>>,
     threads: usize,
     progress: &Progress,
     path_of: &(impl Fn(&Looked) -> &'a Path + Sync),
-) -> Result<(Vec<Vec<Looked>>, u64), Cancelled> {
+) -> Result<Verified, Cancelled> {
     let mut done = Vec::new();
+    let mut lost = Vec::new();
     let mut counted: HashSet<(usize, usize)> = HashSet::new();
+    let still = |l: &Looked| reopen(path_of(l), &l.key).is_ok();
     while !pending.is_empty() {
         let pairs: Vec<(Looked, Looked)> = pending
             .iter()
             .flat_map(|g| g[1..].iter().map(move |o| (g[0], *o)))
             .collect();
         let same = par_map(&pairs, threads, progress, |(a, b)| {
-            let a = reopen(path_of(a), &a.key)?;
-            let b = reopen(path_of(b), &b.key)?;
-            hash::same_contents(&a, &b, progress)
+            let (x, y) = (reopen(path_of(a), &a.key), reopen(path_of(b), &b.key));
+            let (Ok(x), Ok(y)) = (&x, &y) else {
+                return Ok(Compared::Lost {
+                    first: x.is_err(),
+                    member: y.is_err(),
+                });
+            };
+            match hash::same_contents(x, y, progress) {
+                Ok(true) => Ok(Compared::Equal),
+                Ok(false) => Ok(Compared::Different),
+                Err(HashError::Cancelled) => Err(HashError::Cancelled),
+                Err(_) => {
+                    let first = !still(a);
+                    Ok(Compared::Lost {
+                        first,
+                        member: !first || !still(b),
+                    })
+                }
+            }
         })?;
         let mut same = same.into_iter();
         let mut next = Vec::new();
         for group in pending {
             let mut equal = vec![group[0]];
             let mut other = Vec::new();
+            let mut first_lost = false;
             for &member in &group[1..] {
                 match same.next().flatten() {
-                    Some(true) => equal.push(member),
-                    _ => other.push(member),
+                    Some(Compared::Equal) => equal.push(member),
+                    Some(Compared::Different) => other.push(member),
+                    Some(Compared::Lost { first, member: m }) => {
+                        first_lost |= first;
+                        if m {
+                            lost.push(member);
+                        } else {
+                            other.push(member);
+                        }
+                    }
+                    None => lost.push(member),
                 }
+            }
+            if first_lost {
+                lost.push(equal.remove(0));
             }
             for l in &group {
                 if counted.insert((l.group, l.member)) {
@@ -586,7 +634,18 @@ fn verify<'a>(
         }
         pending = next;
     }
-    Ok((done, counted.len() as u64))
+    Ok(Verified {
+        groups: done,
+        counted: counted.len() as u64,
+        lost,
+    })
+}
+
+/// What [`verify`] found.
+struct Verified {
+    groups: Vec<Vec<Looked>>,
+    counted: u64,
+    lost: Vec<Looked>,
 }
 
 /// The hash `pick` takes from the cache entry of `key`.
@@ -1217,12 +1276,45 @@ mod tests {
         let path_of = |l: &Looked| paths[l.member].as_path();
         let progress = Progress::new();
         progress.restart(Some(6));
-        let (groups, counted) = verify(vec![looked], 2, &progress, &path_of).unwrap();
+        let gone = looked[5];
+        let Verified {
+            groups,
+            counted,
+            lost,
+        } = verify(vec![looked], 2, &progress, &path_of).unwrap();
         let members: Vec<Vec<usize>> = groups
             .iter()
             .map(|g| g.iter().map(|l| l.member).collect())
             .collect();
         assert_eq!(members, [vec![0, 1, 3]]);
+        // The file that is gone is no longer a result; c and e are.
+        assert_eq!(lost.iter().map(|l| l.member).collect::<Vec<_>>(), [5]);
+        // When the first file of a group is gone, the others are still
+        // compared with each other.
+        let first_gone = vec![
+            gone,
+            Looked { member: 0, ..gone },
+            Looked { member: 1, ..gone },
+        ];
+        let first_gone: Vec<Looked> = first_gone
+            .into_iter()
+            .map(|l| Looked {
+                key: if l.member == 5 {
+                    l.key
+                } else {
+                    hash::open(&paths[l.member]).unwrap().key
+                },
+                ..l
+            })
+            .collect();
+        let Verified { groups, lost, .. } =
+            verify(vec![first_gone], 1, &Progress::new(), &path_of).unwrap();
+        let members: Vec<Vec<usize>> = groups
+            .iter()
+            .map(|g| g.iter().map(|l| l.member).collect())
+            .collect();
+        assert_eq!(members, [vec![0, 1]]);
+        assert_eq!(lost.iter().map(|l| l.member).collect::<Vec<_>>(), [5]);
         assert_eq!((counted, progress.done()), (6, 6));
         let cancelled = Progress::new();
         cancelled.cancel();
