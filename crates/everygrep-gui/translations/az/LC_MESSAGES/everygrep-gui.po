@@ -5210,3 +5210,51 @@ msgstr "Sistem növbəsi: {} hadisə (fs.inotify.max_queued_events)."
 
 msgid "{} (without subfolders)"
 msgstr "{} (alt qovluqsuz)"
+
+msgid "Clear"
+msgstr "Təmizlə"
+
+msgid "Deleted"
+msgstr "Silindi"
+
+msgid "Export index changes"
+msgstr "İndeks jurnalını ixrac et"
+
+msgid "Export…"
+msgstr "İxrac et…"
+
+msgid "Folders and files"
+msgstr "Qovluqlar və fayllar"
+
+msgid "Index changes"
+msgstr "İndeks jurnalı"
+
+msgid "Index changes…"
+msgstr "İndeks jurnalı…"
+
+msgid "Keep a list of index changes (in memory, last 10 000)"
+msgstr "İndeks jurnalı saxla (yaddaşda, son 10 000 dəyişiklik)"
+
+msgid "Moved"
+msgstr "Köçürüldü"
+
+msgid "Old path"
+msgstr "Köhnə yol"
+
+msgid "Open path"
+msgstr "Yolu aç"
+
+msgid "Renamed"
+msgstr "Adı dəyişdi"
+
+msgid "The list is never written to disk; only Export saves it. Changes found by a catch-up or a new scan are not listed one by one."
+msgstr "Jurnal heç vaxt diskə yazılmır; yalnız İxrac onu saxlayır. Yoxlama və ya yeni skan zamanı tapılan dəyişikliklər bir-bir göstərilmir."
+
+msgid "This entry is no longer there."
+msgstr "Bu qeyd artıq yoxdur."
+
+msgid "Time"
+msgstr "Vaxt"
+
+msgid "{} of {} changes"
+msgstr "{} / {} dəyişiklik"

@@ -481,6 +481,8 @@ pub struct Settings {
     /// After lost change events (a full kernel queue): build the index
     /// again (true) or only catch up by folder times (false).
     pub rescan_after_lost_events: bool,
+    /// Keep the last changes of the index in memory (Index > Index changes).
+    pub index_journal: bool,
     /// Commands whose keys differ from the defaults: the command's id and
     /// its keys, which replace the defaults (an empty list removes them).
     pub shortcuts: Vec<(String, Vec<(Scope, Chord)>)>,
@@ -573,6 +575,7 @@ impl Default for Settings {
             shallow_roots: Vec::new(),
             event_buffer_kib: DEFAULT_EVENT_BUFFER_KIB,
             rescan_after_lost_events: true,
+            index_journal: false,
             shortcuts: Vec::new(),
             unknown: Vec::new(),
             problems: Vec::new(),
@@ -754,6 +757,7 @@ impl Settings {
             "hide-offline-entries" => put_flag(&mut self.hide_offline),
             "reload-changed-file-lists" => put_flag(&mut self.reload_changed_lists),
             "rescan-after-lost-events" => put_flag(&mut self.rescan_after_lost_events),
+            "index-changes" => put_flag(&mut self.index_journal),
             "event-buffer-kib" => value
                 .parse::<u32>()
                 .ok()
@@ -1483,6 +1487,12 @@ impl Settings {
         );
         flag(
             &mut out,
+            "index-changes",
+            self.index_journal,
+            d.index_journal,
+        );
+        flag(
+            &mut out,
             "open-searches-in-tabs",
             self.open_searches_in_tabs,
             d.open_searches_in_tabs,
@@ -2089,6 +2099,7 @@ impl Settings {
                 self.shallow_roots = d.shallow_roots;
                 self.event_buffer_kib = d.event_buffer_kib;
                 self.rescan_after_lost_events = d.rescan_after_lost_events;
+                self.index_journal = d.index_journal;
             }
             Page::Search => {
                 self.options = d.options;
@@ -3590,6 +3601,7 @@ shortcut = edit.cut list F9
             shallow_roots: vec!["/srv/a b".into()],
             event_buffer_kib: 512,
             rescan_after_lost_events: false,
+            index_journal: true,
             ..Settings::default()
         };
         let text2 = s2.to_text();

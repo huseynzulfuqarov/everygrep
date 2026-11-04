@@ -25,6 +25,7 @@ export { LargestFoldersWindow } from "largest-folders.slint";
 export { StalledDialog } from "stalled.slint";
 export { DebugLogWindow } from "debuglog.slint";
 export { FileListEditor } from "filelist-editor.slint";
+export { JournalWindow } from "journal.slint";
 
 // A text with up to four highlighted runs: plain and bold pieces in turn,
 // p0 b0 p1 b1 ... p4. Without a highlight all of it is in p0; runs after the
@@ -1996,6 +1997,7 @@ export component AppWindow inherits Window {
     callback hide-offline-changed(bool);
     callback create-file-list();
     callback open-file-list-editor();
+    callback open-index-journal();
 
     // Menu bar and the appearance choices in its View menu. The choices
     // are saved as settings; the program sets the lists again after a
@@ -7290,6 +7292,11 @@ export component AppWindow inherits Window {
             MenuItem {
                 title: @tr("File list editor…");
                 activated => { root.open-file-list-editor(); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: @tr("Index changes…");
+                activated => { root.open-index-journal(); }
             }
         }
         Menu {

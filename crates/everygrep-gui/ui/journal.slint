@@ -1,0 +1,84 @@
+// Index → Index changes: the last changes applied to the index from file
+// events, kept in memory only.
+import { Button, CheckBox, ComboBox, Palette, StandardTableView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component JournalWindow inherits Window {
+    title: @tr("Index changes");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 900px;
+    preferred-height: 560px;
+    min-width: 600px;
+    min-height: 320px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+
+    in property <[[StandardListViewItem]]> rows;
+    in-out property <int> current <=> table.current-row;
+    in property <[string]> actions;
+    in-out property <int> action;
+    in property <[string]> kinds;
+    in-out property <int> kind;
+    in-out property <bool> enabled;
+    in property <string> count;
+    in property <string> notice;
+    callback filter-changed();
+    callback enabled-changed(bool);
+    callback open-path(int);
+    callback copy-path(int);
+    callback export();
+    callback clear();
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.close-window(); return accept; }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.margin;
+            spacing: Theme.s2;
+            CheckBox {
+                text: @tr("Keep a list of index changes (in memory, last 10 000)");
+                checked <=> root.enabled;
+                toggled => { root.enabled-changed(self.checked); }
+            }
+            HorizontalLayout {
+                spacing: Theme.gap;
+                Text { text: @tr("Action"); color: Theme.text; vertical-alignment: center; }
+                ComboBox { accessible-label: @tr("Action"); model: root.actions; current-index <=> root.action; selected => { root.filter-changed(); } }
+                Text { text: @tr("Type"); color: Theme.text; vertical-alignment: center; }
+                ComboBox { accessible-label: @tr("Type"); model: root.kinds; current-index <=> root.kind; selected => { root.filter-changed(); } }
+                Text { text: root.count; color: Theme.text-muted; vertical-alignment: center; horizontal-stretch: 1; }
+            }
+            table := StandardTableView {
+                accessible-label: @tr("Index changes");
+                vertical-stretch: 1;
+                rows: root.rows;
+                columns: [
+                    { title: @tr("Time"), width: 150px },
+                    { title: @tr("Action"), width: 110px },
+                    { title: @tr("Type"), width: 80px },
+                    { title: @tr("Path"), width: 360px, horizontal-stretch: 1 },
+                    { title: @tr("Old path"), width: 240px },
+                ];
+            }
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Button { text: @tr("Open path"); enabled: root.current >= 0; clicked => { root.open-path(root.current); } }
+                Button { text: @tr("Copy full path"); enabled: root.current >= 0; clicked => { root.copy-path(root.current); } }
+                Button { text: @tr("Export…"); enabled: root.rows.length > 0; clicked => { root.export(); } }
+                Button { text: @tr("Clear"); enabled: root.rows.length > 0; clicked => { root.clear(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Close"); clicked => { root.close-window(); } }
+            }
+            if root.notice != "": Text { text: root.notice; color: Theme.text-muted; wrap: word-wrap; }
+            Text { text: @tr("The list is never written to disk; only Export saves it. Changes found by a catch-up or a new scan are not listed one by one."); color: Theme.text-muted; wrap: word-wrap; }
+        }
+    }
+}

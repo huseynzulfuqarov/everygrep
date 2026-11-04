@@ -189,6 +189,8 @@ export component SettingsWindow inherits Window {
     in property <[FileListRow]> file-lists;
     in-out property <bool> hide-offline;
     in-out property <bool> reload-changed-lists;
+    in-out property <bool> index-journal;
+    callback index-journal-changed(bool);
     callback reload-changed-lists-changed(bool);
     callback add-file-list();
     callback create-file-list();
@@ -519,6 +521,11 @@ export component SettingsWindow inherits Window {
                                     text: @tr("Index again when change events were lost");
                                     checked <=> root.rescan-after-lost;
                                     toggled => { root.event-options-changed(); }
+                                }
+                                CheckBox {
+                                    text: @tr("Keep a list of index changes (in memory, last 10 000)");
+                                    checked <=> root.index-journal;
+                                    toggled => { root.index-journal-changed(self.checked); }
                                 }
                                 Note { text: root.event-queue-note; }
                             }

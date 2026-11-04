@@ -5210,3 +5210,51 @@ msgstr "Sistem kuyruğu: {} olay (fs.inotify.max_queued_events)."
 
 msgid "{} (without subfolders)"
 msgstr "{} (alt klasörsüz)"
+
+msgid "Clear"
+msgstr "Temizle"
+
+msgid "Deleted"
+msgstr "Silindi"
+
+msgid "Export index changes"
+msgstr "Dizin günlüğünü dışa aktar"
+
+msgid "Export…"
+msgstr "Dışa aktar…"
+
+msgid "Folders and files"
+msgstr "Klasörler ve dosyalar"
+
+msgid "Index changes"
+msgstr "Dizin günlüğü"
+
+msgid "Index changes…"
+msgstr "Dizin günlüğü…"
+
+msgid "Keep a list of index changes (in memory, last 10 000)"
+msgstr "Dizin günlüğü tut (bellekte, son 10 000 değişiklik)"
+
+msgid "Moved"
+msgstr "Taşındı"
+
+msgid "Old path"
+msgstr "Eski yol"
+
+msgid "Open path"
+msgstr "Yolu aç"
+
+msgid "Renamed"
+msgstr "Yeniden adlandırıldı"
+
+msgid "The list is never written to disk; only Export saves it. Changes found by a catch-up or a new scan are not listed one by one."
+msgstr "Günlük asla diske yazılmaz; yalnızca Dışa aktar onu kaydeder. Bir yakalama veya yeni tarama sırasında bulunan değişiklikler tek tek listelenmez."
+
+msgid "This entry is no longer there."
+msgstr "Bu kayıt artık yok."
+
+msgid "Time"
+msgstr "Zaman"
+
+msgid "{} of {} changes"
+msgstr "{} / {} değişiklik"

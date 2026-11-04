@@ -30,6 +30,19 @@ impl Prefs {
         self.refresh();
     }
 
+    pub fn engine(&self) -> &std::sync::Arc<crate::engine::Engine> {
+        &self.engine
+    }
+
+    /// Turns the in-memory index journal on or off (off forgets it).
+    pub fn set_index_journal(&self, on: bool) {
+        self.change(move |s| s.index_journal = on);
+        self.engine.set_journal(on);
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_index_journal(on);
+        }
+    }
+
     /// Whether changed list files are read again.
     pub fn set_reload_changed_lists(&self, on: bool) {
         self.change(move |s| s.reload_changed_lists = on);
@@ -215,6 +228,7 @@ impl Prefs {
         w.set_file_lists(ModelRc::new(VecModel::from(rows)));
         w.set_hide_offline(self.settings.borrow().hide_offline);
         w.set_reload_changed_lists(self.settings.borrow().reload_changed_lists);
+        w.set_index_journal(self.settings.borrow().index_journal);
     }
 
     pub(super) fn connect_file_lists(me: &Rc<Prefs>, w: &SettingsWindow) {
@@ -245,6 +259,12 @@ impl Prefs {
         w.on_reload_file_lists(move || {
             if let Some(p) = weak.upgrade() {
                 p.engine.reload_file_lists();
+            }
+        });
+        let weak = Rc::downgrade(me);
+        w.on_index_journal_changed(move |on| {
+            if let Some(p) = weak.upgrade() {
+                p.set_index_journal(on);
             }
         });
         let weak = Rc::downgrade(me);

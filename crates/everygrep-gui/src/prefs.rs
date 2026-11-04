@@ -1126,6 +1126,7 @@ impl Prefs {
         crate::fileops_undo_ui::apply_scheme(scheme as i32);
         crate::debug_log_ui::apply_scheme(scheme as i32);
         crate::filelist_editor_ui::apply_scheme(scheme as i32);
+        crate::journal_ui::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
         }
@@ -2099,6 +2100,7 @@ impl Prefs {
     pub fn apply_watch_changes(&self) {
         {
             let s = self.settings.borrow();
+            self.engine.set_journal(s.index_journal);
             self.engine.set_event_options(
                 s.event_buffer_kib as usize * 1024,
                 s.rescan_after_lost_events,

@@ -59,6 +59,28 @@ pub struct ApplyStats {
     pub unmounted: usize,
 }
 
+/// What happened to an entry, as the list of index changes shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ChangeKind {
+    Created,
+    Deleted,
+    /// A new name in the same folder.
+    Renamed,
+    /// Into another folder (perhaps with a new name).
+    Moved,
+    Modified,
+}
+
+/// One change applied to the index from a file event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Change {
+    pub kind: ChangeKind,
+    pub is_dir: bool,
+    pub path: std::path::PathBuf,
+    /// Where a renamed or moved entry was before.
+    pub old_path: Option<std::path::PathBuf>,
+}
+
 /// The inotify instance and the mapping between watches and folder nodes.
 struct Watches {
     inotify: Inotify,
@@ -171,9 +193,43 @@ pub struct Watcher {
     /// batch not applied yet. Each is listed again once the index has it at
     /// a path that is a folder; its time is not kept until then.
     moved_away: HashSet<NodeId>,
+    /// The changes applied from events, when the journal is on.
+    journal: Option<Vec<Change>>,
 }
 
 impl Watcher {
+    /// Starts or stops noting each change applied from an event (see
+    /// [`take_changes`](Self::take_changes)). Off by default.
+    pub fn set_journal(&mut self, on: bool) {
+        if on != self.journal.is_some() {
+            self.journal = on.then(Vec::new);
+        }
+    }
+
+    /// The changes noted since the last call.
+    pub fn take_changes(&mut self) -> Vec<Change> {
+        self.journal
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
+    fn note(
+        &mut self,
+        kind: ChangeKind,
+        is_dir: bool,
+        path: std::path::PathBuf,
+        old_path: Option<std::path::PathBuf>,
+    ) {
+        if let Some(j) = self.journal.as_mut() {
+            j.push(Change {
+                kind,
+                is_dir,
+                path,
+                old_path,
+            });
+        }
+    }
     /// Creates a watcher with a watch on every live folder of `index` below
     /// a root that is not offline. Folders that a scan with `options` would
     /// not enter are not watched either, and events apply the same rules as
@@ -192,6 +248,7 @@ impl Watcher {
             recheck_from: 0,
             unmounted: Vec::new(),
             waiting_moves: HashMap::new(),
+            journal: None,
             incomplete: HashSet::new(),
             moved_away: HashSet::new(),
         };
@@ -494,6 +551,8 @@ impl Watcher {
         let mut moved_out: HashMap<MoveKey, NodeId> = HashMap::new();
         // The names moved away in this batch.
         let mut moved_names: HashMap<MoveKey, Vec<u8>> = HashMap::new();
+        // Where the entries moved away in this batch were (for the journal).
+        let mut moved_from: HashMap<MoveKey, std::path::PathBuf> = HashMap::new();
         // Moves left over from the last batch: this one is their last chance.
         let mut last_chance: HashSet<MoveKey> = HashSet::new();
         for (key, (node, _)) in std::mem::take(&mut self.waiting_moves) {
@@ -502,6 +561,9 @@ impl Watcher {
                 continue;
             }
             let parent = index.store().parent(node);
+            if self.journal.is_some() {
+                moved_from.insert(key, index.store().path(node));
+            }
             if index.rename(node, parent, &parked_name(key)).is_ok() {
                 moved_out.insert(key, node);
                 last_chance.insert(key);
@@ -572,6 +634,9 @@ impl Watcher {
                 }
                 if ev.mask.contains(Mask::MOVED_FROM) {
                     if let Some(node) = index.find_child(Some(dir), name) {
+                        if self.journal.is_some() {
+                            moved_from.insert(key, index.store().path(node));
+                        }
                         if index.rename(node, Some(dir), &parked_name(key)).is_ok() {
                             if let Some(previous) = moved_out.insert(key, node) {
                                 stats.removed += index.remove(previous).len();
@@ -589,6 +654,18 @@ impl Watcher {
                                 && index.rename(node, Some(dir), name).is_ok() =>
                         {
                             stats.moved += 1;
+                            if self.journal.is_some() {
+                                let path = index.store().path(node);
+                                let old = moved_from.remove(&key);
+                                let kind = if old.as_ref().and_then(|o| o.parent()) == path.parent()
+                                {
+                                    ChangeKind::Renamed
+                                } else {
+                                    ChangeKind::Moved
+                                };
+                                let is_dir = index.store().is_dir(node);
+                                self.note(kind, is_dir, path, old);
+                            }
                             if self.skip.with_metadata || index.store().is_dir(node) {
                                 self.refresh_meta(index, node, &mut stats, &mut touched);
                             }
@@ -603,6 +680,10 @@ impl Watcher {
                     self.add_or_miss(index, dir, name, &mut stats, &mut missed);
                 } else if ev.mask.contains(Mask::DELETE) {
                     if let Some(node) = index.find_child(Some(dir), name) {
+                        if self.journal.is_some() {
+                            let is_dir = index.store().is_dir(node);
+                            self.note(ChangeKind::Deleted, is_dir, index.store().path(node), None);
+                        }
                         stats.removed += index.remove(node).len();
                     }
                 } else if ev
@@ -612,6 +693,10 @@ impl Watcher {
                     if let Some(node) = index.find_child(Some(dir), name) {
                         if self.skip.with_metadata || index.store().is_dir(node) {
                             self.refresh_meta(index, node, &mut stats, &mut touched);
+                        }
+                        if self.journal.is_some() && !ev.mask.contains(Mask::ATTRIB) {
+                            let is_dir = index.store().is_dir(node);
+                            self.note(ChangeKind::Modified, is_dir, index.store().path(node), None);
                         }
                         if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
                             // A folder's permissions decide what can be read
@@ -641,7 +726,16 @@ impl Watcher {
                 Some(name) => {
                     self.waiting_moves.insert(key, (node, name));
                 }
-                None => stats.removed += index.remove(node).len(),
+                None => {
+                    if self.journal.is_some() && index.store().is_live(node) {
+                        let is_dir = index.store().is_dir(node);
+                        let path = moved_from
+                            .remove(&key)
+                            .unwrap_or_else(|| index.store().path(node));
+                        self.note(ChangeKind::Deleted, is_dir, path, None);
+                    }
+                    stats.removed += index.remove(node).len()
+                }
             }
         }
         // An entry created in a folder that was then renamed was looked for at
@@ -786,7 +880,16 @@ impl Watcher {
         missed: &mut Vec<(NodeId, Vec<u8>)>,
     ) {
         match self.add_from_disk(index, parent, name) {
-            Ok(added) => stats.added += added,
+            Ok(added) => {
+                stats.added += added;
+                if self.journal.is_some()
+                    && added > 0
+                    && let Some(node) = index.find_child(Some(parent), name)
+                {
+                    let is_dir = index.store().is_dir(node);
+                    self.note(ChangeKind::Created, is_dir, index.store().path(node), None);
+                }
+            }
             Err(_) => missed.push((parent, name.to_vec())),
         }
     }
@@ -970,6 +1073,19 @@ mod tests {
             false
         }
 
+        /// Polls until `n` changes were noted or two seconds pass.
+        fn changes(&mut self, n: usize) -> Vec<Change> {
+            let mut all = Vec::new();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline && all.len() < n {
+                self.watcher
+                    .poll(&mut self.index, Some(Duration::from_millis(50)))
+                    .unwrap();
+                all.extend(self.watcher.take_changes());
+            }
+            all
+        }
+
         fn paths(&self) -> Vec<PathBuf> {
             let mut v: Vec<PathBuf> = self
                 .index
@@ -993,6 +1109,80 @@ mod tests {
             .order()
             .iter()
             .any(|id| index.store().path(id) == path)
+    }
+
+    #[test]
+    fn the_journal_notes_each_kind_of_change_only_when_on() {
+        let mut f = Fixture::new("journal");
+        let docs = f.root().join("docs");
+        // Off: nothing is noted.
+        fs::write(docs.join("off.txt"), b"x").unwrap();
+        assert!(f.settle(|i| i.store().is_live(NodeId(0))));
+        assert!(f.changes(1).is_empty());
+        f.watcher.set_journal(true);
+        fs::write(docs.join("new.txt"), b"1").unwrap();
+        fs::create_dir(docs.join("dir")).unwrap();
+        let got = f.changes(2);
+        assert!(
+            got.contains(&Change {
+                kind: ChangeKind::Created,
+                is_dir: false,
+                path: docs.join("new.txt"),
+                old_path: None,
+            }),
+            "{got:?}"
+        );
+        assert!(
+            got.iter()
+                .any(|c| c.kind == ChangeKind::Created && c.is_dir && c.path == docs.join("dir")),
+            "{got:?}"
+        );
+        fs::rename(docs.join("new.txt"), docs.join("renamed.txt")).unwrap();
+        let got = f.changes(1);
+        assert!(
+            got.contains(&Change {
+                kind: ChangeKind::Renamed,
+                is_dir: false,
+                path: docs.join("renamed.txt"),
+                old_path: Some(docs.join("new.txt")),
+            }),
+            "{got:?}"
+        );
+        fs::rename(docs.join("renamed.txt"), docs.join("dir/moved.txt")).unwrap();
+        let got = f.changes(1);
+        assert!(
+            got.iter().any(|c| c.kind == ChangeKind::Moved
+                && c.path == docs.join("dir/moved.txt")
+                && c.old_path.as_deref() == Some(docs.join("renamed.txt").as_path())),
+            "{got:?}"
+        );
+        fs::write(docs.join("a.txt"), b"changed").unwrap();
+        let got = f.changes(1);
+        assert!(
+            got.iter()
+                .any(|c| c.kind == ChangeKind::Modified && c.path == docs.join("a.txt")),
+            "{got:?}"
+        );
+        fs::remove_file(docs.join("dir/moved.txt")).unwrap();
+        let got = f.changes(1);
+        assert!(
+            got.iter().any(|c| c.kind == ChangeKind::Deleted
+                && !c.is_dir
+                && c.path == docs.join("dir/moved.txt")),
+            "{got:?}"
+        );
+        // Moved out of the watched trees: deleted.
+        fs::rename(docs.join("off.txt"), f.base.join("outside/off.txt")).unwrap();
+        let got = f.changes(1);
+        assert!(
+            got.iter()
+                .any(|c| c.kind == ChangeKind::Deleted && c.path == docs.join("off.txt")),
+            "{got:?}"
+        );
+        f.watcher.set_journal(false);
+        fs::write(docs.join("late.txt"), b"x").unwrap();
+        assert!(f.changes(1).is_empty());
+        let _ = fs::remove_dir_all(&f.base);
     }
 
     #[test]

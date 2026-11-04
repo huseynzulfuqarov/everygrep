@@ -432,6 +432,31 @@ struct Scanned {
     options: ScanOptions,
 }
 
+/// How many index changes the list keeps.
+pub const JOURNAL_MAX: usize = 10_000;
+
+/// One index change in the list, with the time (seconds since 1970) it
+/// was applied. Kept in memory only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalRow {
+    pub time: i64,
+    pub change: everygrep_core::watch::Change,
+}
+
+/// Appends `items`, dropping the oldest beyond `cap`.
+fn push_capped<T>(
+    deque: &mut std::collections::VecDeque<T>,
+    items: impl IntoIterator<Item = T>,
+    cap: usize,
+) {
+    for item in items {
+        if deque.len() == cap {
+            deque.pop_front();
+        }
+        deque.push_back(item);
+    }
+}
+
 /// Shared engine state.
 pub struct Engine {
     pub index: RwLock<Index>,
@@ -459,6 +484,9 @@ pub struct Engine {
     reindexed: AtomicU64,
     /// Whether file changes are watched (see [`Engine::set_watching`]).
     watching: AtomicBool,
+    /// The index journal (see [`JournalRow`]): on/off and the last changes.
+    journal_on: AtomicBool,
+    journal: Mutex<std::collections::VecDeque<JournalRow>>,
     /// Size of the watcher's read buffer in bytes (see Settings).
     event_buffer: AtomicUsize,
     /// After lost events: build again (true) or catch up by folder times.
@@ -728,6 +756,8 @@ impl Engine {
             file_details_current: AtomicBool::new(false),
             reindexed: AtomicU64::new(0),
             watching: AtomicBool::new(watch),
+            journal_on: AtomicBool::new(false),
+            journal: Mutex::new(std::collections::VecDeque::new()),
             event_buffer: AtomicUsize::new(64 << 10),
             rescan_after_lost: AtomicBool::new(true),
             index_file: Mutex::new(index_file),
@@ -1195,6 +1225,42 @@ impl Engine {
     /// meanwhile, then watches again.
     pub fn set_watching(&self, on: bool) {
         self.watching.store(on, Ordering::SeqCst);
+    }
+
+    /// Starts or stops the list of index changes; stopping forgets what it held.
+    pub fn set_journal(&self, on: bool) {
+        self.journal_on.store(on, Ordering::SeqCst);
+        if !on {
+            self.clear_journal();
+        }
+    }
+
+    pub fn journal_on(&self) -> bool {
+        self.journal_on.load(Ordering::SeqCst)
+    }
+
+    /// The journal, oldest first.
+    pub fn journal(&self) -> Vec<JournalRow> {
+        self.journal.lock().expect("lock").iter().cloned().collect()
+    }
+
+    pub fn clear_journal(&self) {
+        self.journal.lock().expect("lock").clear();
+    }
+
+    fn record(&self, changes: Vec<everygrep_core::watch::Change>) {
+        if changes.is_empty() || !self.journal_on() {
+            return;
+        }
+        let time = unix_now();
+        let mut journal = self.journal.lock().expect("lock");
+        push_capped(
+            &mut journal,
+            changes
+                .into_iter()
+                .map(|change| JournalRow { time, change }),
+            JOURNAL_MAX,
+        );
     }
 
     /// The event read buffer size and what lost events lead to; taken by
@@ -2615,6 +2681,7 @@ impl Engine {
                     pending_refresh = true;
                 }
             }
+            watcher.set_journal(self.journal_on());
             let buffer = self.event_buffer.load(Ordering::SeqCst);
             if watcher.buffer_size() != buffer {
                 watcher.set_buffer_size(buffer);
@@ -2624,6 +2691,7 @@ impl Engine {
                     let mut index = self.index.write().expect("index lock");
                     #[allow(unused_mut)]
                     let mut stats = watcher.apply(&mut index, &events);
+                    self.record(watcher.take_changes());
                     #[cfg(test)]
                     if tests::take(&tests::OVERFLOWS, self.index_file().as_deref()) {
                         stats.overflow = true;
@@ -7352,6 +7420,17 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn the_journal_keeps_the_newest_up_to_its_cap() {
+        let mut d = std::collections::VecDeque::new();
+        push_capped(&mut d, 0..5, 3);
+        assert_eq!(d, [2, 3, 4]);
+        push_capped(&mut d, [9], 3);
+        assert_eq!(d, [3, 4, 9]);
+        push_capped(&mut d, std::iter::empty(), 3);
+        assert_eq!(d.len(), 3);
     }
 
     #[test]

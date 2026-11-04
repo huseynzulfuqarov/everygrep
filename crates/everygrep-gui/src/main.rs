@@ -40,6 +40,7 @@ mod history_sync;
 mod i18n;
 mod insert;
 mod instance;
+mod journal_ui;
 mod jump;
 mod labels;
 mod largest_folders;
@@ -934,6 +935,12 @@ fn connect_menus(w: &AppWindow) {
     w.on_hide_offline_changed(|hide| prefs::with(|p| p.set_hide_offline(hide)));
     w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
     w.on_open_file_list_editor(filelist_editor_ui::open);
+    w.on_open_index_journal({
+        let weak = w.as_weak();
+        move || {
+            prefs::with(|p| journal_ui::open(weak.clone(), p.engine()));
+        }
+    });
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
     w.on_status_bar_changed(|on| prefs::with(|p| p.set_status_bar(on)));
     w.on_toolbar_changed(|on| prefs::with(|p| p.set_toolbar(on)));
