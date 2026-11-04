@@ -50,7 +50,8 @@ impl SearchState {
 
     /// The search of a bookmark opened in a new tab, from the shown tab's
     /// state (its columns): the bookmark's text, options, filter (frozen as
-    /// saved) and sort; a sort column that is hidden is shown.
+    /// saved), columns (when it keeps them) and sort; a sort column that is
+    /// hidden is shown.
     pub fn of_bookmark(mut self, b: &crate::saved_searches::Bookmark) -> Self {
         self.query = b.search.clone();
         self.options = tab_options(b.options);
@@ -60,6 +61,9 @@ impl SearchState {
         self.descending = b.descending;
         // A bookmark does not keep a scope: it lists all locations.
         self.within = None;
+        if let Some(names) = &b.columns {
+            self.columns = crate::session::with_shown_columns(&self.columns, names);
+        }
         match b.sort_column {
             4 => self.columns.show_type = true,
             5 => self.columns.show_ext = true,
@@ -332,6 +336,28 @@ mod tests {
         assert_eq!((s.sort_column, s.descending), (5, true));
         assert!(s.columns.show_ext, "the sort column is shown");
         assert!(!s.columns.show_type);
+    }
+
+    #[test]
+    fn a_bookmark_opens_in_a_tab_with_its_saved_columns() {
+        let mut b = crate::saved_searches::Bookmark::group(Default::default(), "B", 0);
+        b.search = "x".into();
+        b.sort_column = 5;
+        b.columns = Some(vec!["type".into()]);
+        let base = SearchState {
+            columns: Columns {
+                show_attrs: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let s = base.clone().of_bookmark(&b);
+        assert!(s.columns.show_type);
+        assert!(!s.columns.show_attrs, "only the saved columns are shown");
+        assert!(s.columns.show_ext, "the sort column is shown");
+        // Without saved columns the tab keeps the shown ones.
+        b.columns = None;
+        assert!(base.of_bookmark(&b).columns.show_attrs);
     }
 
     #[test]
