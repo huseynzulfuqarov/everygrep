@@ -318,6 +318,20 @@ fn ask_about(
     !lines.is_empty() && !lines.is_subset(declined)
 }
 
+/// Chooses the settings to apply after a file reload.
+fn reload_candidate(
+    read: Settings,
+    current: &Settings,
+    declined: &std::collections::BTreeSet<String>,
+    preserve_declined: bool,
+) -> Settings {
+    if preserve_declined && !declined.is_empty() {
+        read.keeping_declined(current, declined)
+    } else {
+        read
+    }
+}
+
 /// Runs `f` with the program's settings, once they are set up.
 pub fn with(f: impl FnOnce(&Rc<Prefs>)) {
     if let Some(p) = PREFS.with(|p| p.borrow().clone()) {
@@ -475,9 +489,9 @@ impl Prefs {
                     }
                     return;
                 };
-                let (read, own) = read;
+                let (read, own, local) = read;
                 let _ = slint::invoke_from_event_loop(move || {
-                    with(|p| p.changed_outside(read, own, at));
+                    with(|p| p.changed_outside(read, own, local, at));
                 });
             },
         );
@@ -488,21 +502,28 @@ impl Prefs {
     /// since it was read, it is applied (not saved again). With "Ask
     /// first" on, the main window asks before; a change turned down is
     /// not asked about again, until the file changes in another way.
-    /// `own`: another EveryGrep window or instance saved this version; it
-    /// applies without a question, like the history it shares.
+    /// `own`: an EveryGrep instance saved this version, so it applies without
+    /// a question. A local save preserves this window's declined values;
+    /// another instance's accepted settings can replace them.
     ///
     /// [`look_for_outside_changes`]: Self::look_for_outside_changes
-    fn changed_outside(&self, read: Settings, own: bool, asked: u64) {
+    fn changed_outside(&self, read: Settings, own: bool, local: bool, asked: u64) {
         if self.writer.asked() != asked || !self.settings.borrow().reload_changed {
             // Saves came meanwhile; the next look reads the file again.
             *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = None;
             return;
         }
+        let approved = self.reload_approved.replace(false);
+        let preserve_declined = local && !approved;
+        let read = reload_candidate(
+            read,
+            &self.settings.borrow(),
+            &self.reload_declined.borrow(),
+            preserve_declined,
+        );
         if read.to_text() == self.settings.borrow().to_text() {
-            self.reload_approved.set(false);
             return;
         }
-        let approved = self.reload_approved.replace(false);
         if asks_first(self.settings.borrow().ask_reload, own, approved) {
             if self.reload_asked.get() {
                 // Asked already; agreeing reads the file again.
@@ -523,7 +544,9 @@ impl Prefs {
             crate::ask_reload_settings(&m);
             return;
         }
-        self.reload_declined.borrow_mut().clear();
+        if !preserve_declined {
+            self.reload_declined.borrow_mut().clear();
+        }
         let bad = read.problems.len();
         self.replace_all(read, false);
         if let Some(m) = self.main.upgrade() {
@@ -3824,6 +3847,41 @@ mod tests {
         // Another outside change is asked about again.
         let more = Settings::parse("history-size = 7\nhistory-days = 3\n").differing_lines(&mine);
         assert!(ask_about(&more, &lines));
+    }
+
+    #[test]
+    fn a_cancelled_reload_stays_declined_after_unrelated_local_saves() {
+        let dir = Scratch::new("reload-local-save");
+        let path = dir.0.join("settings");
+        let mut running = Settings::default();
+        let outside = Settings::parse("history-size = 7\n");
+        outside.save(&path).unwrap();
+        let declined = outside.differing_lines(&running);
+        // Cancel the outside change, then save an unrelated local setting.
+        running.menu_bar = false;
+        settings::update(&path, |s| s.menu_bar = false).unwrap();
+        let (read, own, local) = settings::load_marked(&path).unwrap();
+        assert!(own && local);
+        let applied = reload_candidate(read, &running, &declined, local);
+        assert_eq!(applied.history_size, running.history_size);
+        assert!(!applied.menu_bar);
+        // Declined values must survive more than one local save/reload.
+        running.status_details = false;
+        settings::update(&path, |s| s.status_details = false).unwrap();
+        let (read, _, local) = settings::load_marked(&path).unwrap();
+        let applied = reload_candidate(read, &running, &declined, local);
+        assert_eq!(applied.history_size, running.history_size);
+        assert!(!applied.menu_bar && !applied.status_details);
+    }
+
+    #[test]
+    fn a_declined_reload_can_be_accepted_by_another_window_or_explicit_approval() {
+        let running = Settings::default();
+        let read = Settings::parse("history-size = 7\n");
+        let declined = read.differing_lines(&running);
+        // Another instance's save, or a user-approved reload, is not filtered.
+        let applied = reload_candidate(read, &running, &declined, false);
+        assert_eq!(applied.history_size, 7);
     }
 
     #[test]

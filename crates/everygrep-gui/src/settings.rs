@@ -1181,6 +1181,39 @@ impl Settings {
             .collect()
     }
 
+    /// Keeps the running values of keys whose outside changes were declined.
+    /// Full text includes defaults, and repeated list keys are replaced together.
+    pub fn keeping_declined(
+        &self,
+        current: &Settings,
+        declined: &std::collections::BTreeSet<String>,
+    ) -> Settings {
+        let keys: std::collections::BTreeSet<&str> = declined
+            .iter()
+            .filter_map(|line| line.split_once('=').map(|(key, _)| key.trim_ascii()))
+            .collect();
+        let kept_key = |line: &str| {
+            line.split_once('=')
+                .is_some_and(|(key, _)| keys.contains(key.trim_ascii()))
+        };
+        let incoming = self.write(true);
+        let running = current.write(true);
+        let mut text: String = incoming
+            .lines()
+            .filter(|line| !kept_key(line))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        text.extend(
+            running
+                .lines()
+                .filter(|line| kept_key(line))
+                .map(|line| format!("{line}\n")),
+        );
+        let mut settings = Settings::parse(&text);
+        settings.problems.clone_from(&self.problems);
+        settings
+    }
+
     /// The text of a settings file; with `all` every setting is written,
     /// those at their default too (an unset width or folder as an empty
     /// value), for the raw settings table.
@@ -1943,12 +1976,13 @@ pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> io::Result<Set
     let text = s.to_text();
     // Without the mark another window asks about this save as if it came
     // from outside; the settings themselves are saved already.
-    let _ = write_atomic(&own_mark(path), text_hash(text.as_bytes()).as_bytes());
+    let mark = format!("{}{}\n", text_hash(text.as_bytes()), save_origin());
+    let _ = write_atomic(&own_mark(path), mark.as_bytes());
     Ok(s)
 }
 
 /// `<name>.own` next to the settings file: a hash of the text an EveryGrep
-/// window saved there last. Another window or instance that finds the file
+/// window saved there last, followed by its process token. Another instance that finds the file
 /// still matching it applies the change without asking; an edit made
 /// outside EveryGrep no longer matches.
 fn own_mark(path: &Path) -> std::path::PathBuf {
@@ -1965,18 +1999,45 @@ fn text_hash(bytes: &[u8]) -> String {
     format!("{hash:016x}\n")
 }
 
+/// Unique to this running process, whose main window owns its settings.
+fn save_origin() -> &'static str {
+    static ORIGIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ORIGIN.get_or_init(|| {
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        format!("{}-{time}", std::process::id())
+    })
+}
+
 /// Reads the settings file like [`Settings::load`], under its lock, and
-/// tells whether an EveryGrep window or instance wrote this version (see
-/// [`update`]).
-pub fn load_marked(path: &Path) -> io::Result<(Settings, bool)> {
+/// tells whether an EveryGrep window or instance wrote this version, and
+/// whether it was this process (see [`update`]). Older hash-only marks
+/// identify another instance without claiming a local save.
+pub fn load_marked(path: &Path) -> io::Result<(Settings, bool, bool)> {
     let _lock = lock(path)?;
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Settings::default(), false)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Ok((Settings::default(), false, false));
+        }
         Err(e) => return Err(e),
     };
-    let own = fs::read(own_mark(path)).is_ok_and(|mark| mark == text_hash(&bytes).as_bytes());
-    Ok((Settings::parse(&String::from_utf8_lossy(&bytes)), own))
+    let hash = text_hash(&bytes);
+    let (own, local) = fs::read_to_string(own_mark(path))
+        .map(|mark| {
+            let mut lines = mark.lines();
+            let own = lines.next() == Some(hash.trim_end());
+            let local = own && lines.next() == Some(save_origin());
+            (own, local)
+        })
+        .unwrap_or_default();
+    Ok((
+        Settings::parse(&String::from_utf8_lossy(&bytes)),
+        own,
+        local,
+    ))
 }
 
 /// Saves files on a thread of its own, one after the other in the order
@@ -2808,17 +2869,42 @@ pub(crate) mod tests {
         let _ = fs::remove_dir_all(&dir);
         assert!(!load_marked(&path).unwrap().1, "no file, nothing written");
         update(&path, |s| s.history_size = 7).unwrap();
-        let (read, own) = load_marked(&path).unwrap();
-        assert!(own, "another window's save");
+        let (read, own, local) = load_marked(&path).unwrap();
+        assert!(own && local, "this window saved it");
         assert_eq!(read.history_size, 7);
         let text = fs::read_to_string(&path).unwrap();
+        for mark in [
+            text_hash(text.as_bytes()),
+            format!("{}other-process\n", text_hash(text.as_bytes())),
+        ] {
+            write_atomic(&own_mark(&path), mark.as_bytes()).unwrap();
+            let (_, own, local) = load_marked(&path).unwrap();
+            assert!(own && !local, "a different instance's save");
+        }
         write_atomic(&path, format!("{text}history-days = 3\n").as_bytes()).unwrap();
-        let (read, own) = load_marked(&path).unwrap();
-        assert!(!own, "an edit made outside");
+        let (read, own, local) = load_marked(&path).unwrap();
+        assert!(!own && !local, "an edit made outside");
         assert_eq!(read.history_days, 3);
         update(&path, |s| s.history_size = 8).unwrap();
         assert!(load_marked(&path).unwrap().1, "saved again by EveryGrep");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn declined_values_preserve_defaults_and_complete_lists() {
+        let current = Settings::parse("root = /kept\nroot = /also-kept\n");
+        let outside = Settings::parse("history-size = 7\nroot = /declined\n");
+        let declined = outside.differing_lines(&current);
+        let mut saved = outside;
+        saved.menu_bar = false;
+        let applied = saved.keeping_declined(&current, &declined);
+        assert_eq!(applied.history_size, current.history_size);
+        assert_eq!(applied.roots, current.roots);
+        assert!(!applied.menu_bar);
+        // A locally emptied list must stay empty as well.
+        let empty = Settings::default();
+        let declined = saved.differing_lines(&empty);
+        assert!(saved.keeping_declined(&empty, &declined).roots.is_empty());
     }
 
     #[test]
