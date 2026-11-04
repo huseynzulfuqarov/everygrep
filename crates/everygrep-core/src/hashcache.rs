@@ -9,7 +9,7 @@
 //! about the names of the files it describes.
 //!
 //! The cache has a size limit in bytes, counted as the entries take in the
-//! file (a key and the hashes it holds, 41 to 125 bytes); when it is
+//! file (a key and the hashes it holds, 41 to 257 bytes); when it is
 //! exceeded, the entries used longest ago are dropped until a tenth is
 //! free. A limit of 0 keeps nothing.
 //!
@@ -18,7 +18,7 @@
 //! the entries: device, inode, size (u64), modification time (i64), when
 //! last used (u64, a counter), a byte of flags for the hashes present, then
 //! those hashes in this order: the ends hash (16 bytes), the full hash (16),
-//! MD5 (16), SHA-256 (32), CRC-32 (u32). Numbers are little-endian. It is
+//! MD5 (16), SHA-256 (32), CRC-32 (u32), SHA-1 (20), SHA-384 (48), SHA-512 (64). Numbers are little-endian. It is
 //! written to a new file that then replaces the old one. A file that cannot
 //! be read as this format is ignored (and replaced at the next save).
 
@@ -45,6 +45,9 @@ pub struct Cached {
     pub full: Option<u128>,
     pub md5: Option<[u8; 16]>,
     pub sha256: Option<[u8; 32]>,
+    pub sha1: Option<[u8; 20]>,
+    pub sha384: Option<[u8; 48]>,
+    pub sha512: Option<[u8; 64]>,
     pub crc32: Option<u32>,
 }
 
@@ -57,6 +60,9 @@ impl Cached {
             + u64::from(self.md5.is_some()) * 16
             + u64::from(self.sha256.is_some()) * 32
             + u64::from(self.crc32.is_some()) * 4
+            + u64::from(self.sha1.is_some()) * 20
+            + u64::from(self.sha384.is_some()) * 48
+            + u64::from(self.sha512.is_some()) * 64
     }
 
     /// Takes the hashes `other` has.
@@ -66,6 +72,9 @@ impl Cached {
         self.md5 = other.md5.or(self.md5);
         self.sha256 = other.sha256.or(self.sha256);
         self.crc32 = other.crc32.or(self.crc32);
+        self.sha1 = other.sha1.or(self.sha1);
+        self.sha384 = other.sha384.or(self.sha384);
+        self.sha512 = other.sha512.or(self.sha512);
     }
 }
 
@@ -221,7 +230,10 @@ impl HashCache {
                 | u8::from(h.full.is_some()) << 1
                 | u8::from(h.md5.is_some()) << 2
                 | u8::from(h.sha256.is_some()) << 3
-                | u8::from(h.crc32.is_some()) << 4;
+                | u8::from(h.crc32.is_some()) << 4
+                | u8::from(h.sha1.is_some()) << 5
+                | u8::from(h.sha384.is_some()) << 6
+                | u8::from(h.sha512.is_some()) << 7;
             out.push(flags);
             if let Some(v) = h.ends {
                 out.extend_from_slice(&v.to_le_bytes());
@@ -237,6 +249,15 @@ impl HashCache {
             }
             if let Some(v) = h.crc32 {
                 out.extend_from_slice(&v.to_le_bytes());
+            }
+            if let Some(v) = h.sha1 {
+                out.extend_from_slice(&v);
+            }
+            if let Some(v) = h.sha384 {
+                out.extend_from_slice(&v);
+            }
+            if let Some(v) = h.sha512 {
+                out.extend_from_slice(&v);
             }
         }
         out
@@ -263,14 +284,11 @@ impl HashCache {
         }
         let mut cache = Self::new(max_bytes);
         let mut by_use = BTreeSet::new();
-        let mut bytes = [0; 125];
+        let mut bytes = [0; 257];
         for _ in 0..count {
             input.read_exact(&mut bytes[..ENTRY_BASE as usize])?;
             let flags = bytes[ENTRY_BASE as usize - 1];
-            if flags >> 5 != 0 {
-                return Err(bad());
-            }
-            let sizes = [16, 16, 16, 32, 4];
+            let sizes = [16, 16, 16, 32, 4, 20, 48, 64];
             let extra: usize = sizes
                 .iter()
                 .enumerate()
@@ -370,9 +388,6 @@ impl<'a> Reader<'a> {
         };
         let used = self.u64()?;
         let flags = self.take(1)?[0];
-        if flags >> 5 != 0 {
-            return None;
-        }
         let has = |bit: u8| flags >> bit & 1 == 1;
         let mut hashes = Cached::default();
         if has(0) {
@@ -389,6 +404,15 @@ impl<'a> Reader<'a> {
         }
         if has(4) {
             hashes.crc32 = Some(u32::from_le_bytes(self.array()?));
+        }
+        if has(5) {
+            hashes.sha1 = Some(self.array()?);
+        }
+        if has(6) {
+            hashes.sha384 = Some(self.array()?);
+        }
+        if has(7) {
+            hashes.sha512 = Some(self.array()?);
         }
         Some((key, Entry { hashes, used }))
     }
@@ -517,6 +541,7 @@ mod tests {
             md5: Some([0xab; 16]),
             sha256: Some([0x5c; 32]),
             crc32: Some(0xCBF4_3926),
+            ..Cached::default()
         };
         cache.put(key(1), &all);
         cache.put(key(2), &ends(2));
@@ -536,6 +561,32 @@ mod tests {
         let mut small = HashCache::from_bytes(&bytes, 210).unwrap();
         assert_eq!(small.len(), 2);
         assert!(small.get(&key(1)).is_some() && small.get(&key(3)).is_some());
+    }
+
+    #[test]
+    fn extended_hashes_roundtrip_and_count_towards_the_limit() {
+        let mut cache = HashCache::default();
+        let all = Cached {
+            ends: Some(1),
+            full: Some(2),
+            md5: Some([3; 16]),
+            sha256: Some([4; 32]),
+            crc32: Some(5),
+            sha1: Some([6; 20]),
+            sha384: Some([7; 48]),
+            sha512: Some([8; 64]),
+        };
+        cache.put(key(1), &all);
+        assert_eq!(cache.bytes(), 257);
+        let bytes = cache.to_bytes();
+        let mut back = HashCache::from_bytes(&bytes, 257).unwrap();
+        assert_eq!(back.get(&key(1)), Some(all));
+        assert!(HashCache::from_bytes(&bytes, 256).unwrap().is_empty());
+        for cut in 16..bytes.len() {
+            assert!(HashCache::from_bytes(&bytes[..cut], 300).is_err());
+        }
+        back.set_max_bytes(256);
+        assert!(back.is_empty());
     }
 
     #[test]

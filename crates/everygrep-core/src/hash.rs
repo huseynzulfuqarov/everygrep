@@ -1,5 +1,5 @@
 //! Hashes of file contents: the digests the window shows in its hash
-//! columns (MD5, SHA-256, CRC-32) and a fast 128-bit hash (XXH3-128) that
+//! columns (MD5, SHA-1/256/384/512, CRC-32, XXH3-128) and a fast 128-bit hash (XXH3-128) that
 //! tells files with the same contents apart from the rest (see
 //! [`crate::dupe`]).
 //!
@@ -103,6 +103,9 @@ pub fn open(path: &Path) -> Result<OpenFile, HashError> {
 pub struct Wanted {
     pub md5: bool,
     pub sha256: bool,
+    pub sha1: bool,
+    pub sha384: bool,
+    pub sha512: bool,
     pub crc32: bool,
     /// XXH3-128 of the whole file, to compare contents.
     pub full: bool,
@@ -110,7 +113,13 @@ pub struct Wanted {
 
 impl Wanted {
     pub fn any(self) -> bool {
-        self.md5 || self.sha256 || self.crc32 || self.full
+        self.md5
+            || self.sha256
+            || self.sha1
+            || self.sha384
+            || self.sha512
+            || self.crc32
+            || self.full
     }
 }
 
@@ -119,6 +128,9 @@ impl Wanted {
 pub struct Hashes {
     pub md5: Option<[u8; 16]>,
     pub sha256: Option<[u8; 32]>,
+    pub sha1: Option<[u8; 20]>,
+    pub sha384: Option<[u8; 48]>,
+    pub sha512: Option<[u8; 64]>,
     pub crc32: Option<u32>,
     pub full: Option<u128>,
 }
@@ -133,6 +145,9 @@ pub fn hash_file(
 ) -> Result<Hashes, HashError> {
     let mut md5 = wanted.md5.then(md5::Md5::new);
     let mut sha256 = wanted.sha256.then(sha2::Sha256::new);
+    let mut sha1 = wanted.sha1.then(sha1::Sha1::new);
+    let mut sha384 = wanted.sha384.then(sha2::Sha384::new);
+    let mut sha512 = wanted.sha512.then(sha2::Sha512::new);
     let mut crc32 = wanted.crc32.then(crc32fast::Hasher::new);
     let mut full = wanted.full.then(XxHash3_128::new);
     let mut buf = vec![0u8; BUFFER];
@@ -154,6 +169,15 @@ pub fn hash_file(
         if let Some(h) = &mut sha256 {
             h.update(bytes);
         }
+        if let Some(h) = &mut sha1 {
+            h.update(bytes);
+        }
+        if let Some(h) = &mut sha384 {
+            h.update(bytes);
+        }
+        if let Some(h) = &mut sha512 {
+            h.update(bytes);
+        }
         if let Some(h) = &mut crc32 {
             h.update(bytes);
         }
@@ -168,6 +192,9 @@ pub fn hash_file(
     Ok(Hashes {
         md5: md5.map(|h| h.finalize().into()),
         sha256: sha256.map(|h| h.finalize().into()),
+        sha1: sha1.map(|h| h.finalize().into()),
+        sha384: sha384.map(|h| h.finalize().into()),
+        sha512: sha512.map(|h| h.finalize().into()),
         crc32: crc32.map(crc32fast::Hasher::finalize),
         full: full.map(|h| h.finish_128()),
     })
@@ -274,6 +301,114 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// A digest column, with stable column numbers shared by the table and sorts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Algorithm {
+    Md5,
+    Sha1,
+    Sha256,
+    Sha384,
+    Sha512,
+    Crc32,
+    Xxh3,
+}
+
+impl Algorithm {
+    pub const ALL: [Self; 7] = [
+        Self::Md5,
+        Self::Sha1,
+        Self::Sha256,
+        Self::Sha384,
+        Self::Sha512,
+        Self::Crc32,
+        Self::Xxh3,
+    ];
+    pub fn column(self) -> i32 {
+        match self {
+            Self::Md5 => 9,
+            Self::Sha256 => 10,
+            Self::Crc32 => 11,
+            Self::Sha1 => 52,
+            Self::Sha384 => 53,
+            Self::Sha512 => 54,
+            Self::Xxh3 => 55,
+        }
+    }
+    pub fn from_column(column: i32) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.column() == column)
+    }
+    pub fn wanted(self) -> Wanted {
+        let mut w = Wanted::default();
+        match self {
+            Self::Md5 => w.md5 = true,
+            Self::Sha1 => w.sha1 = true,
+            Self::Sha256 => w.sha256 = true,
+            Self::Sha384 => w.sha384 = true,
+            Self::Sha512 => w.sha512 = true,
+            Self::Crc32 => w.crc32 = true,
+            Self::Xxh3 => w.full = true,
+        }
+        w
+    }
+    /// Canonical bytes; lexicographic order is the order of displayed hex digits.
+    pub fn bytes(self, h: &crate::hashcache::Cached) -> Option<Vec<u8>> {
+        match self {
+            Self::Md5 => h.md5.map(|v| v.to_vec()),
+            Self::Sha1 => h.sha1.map(|v| v.to_vec()),
+            Self::Sha256 => h.sha256.map(|v| v.to_vec()),
+            Self::Sha384 => h.sha384.map(|v| v.to_vec()),
+            Self::Sha512 => h.sha512.map(|v| v.to_vec()),
+            Self::Crc32 => h.crc32.map(|v| v.to_be_bytes().to_vec()),
+            Self::Xxh3 => h.full.map(|v| v.to_be_bytes().to_vec()),
+        }
+    }
+}
+
+/// Reads only missing digests, once, and merges them into the shared cache.
+/// A zero-sized cache still returns the computed values.
+pub fn read_cached(
+    path: &Path,
+    wanted: Wanted,
+    cache: Option<&std::sync::Mutex<crate::hashcache::HashCache>>,
+    progress: &Progress,
+) -> Result<crate::hashcache::Cached, HashError> {
+    use crate::hashcache::Cached;
+    if progress.is_cancelled() {
+        return Err(HashError::Cancelled);
+    }
+    let mut file = open(path)?;
+    let known = cache
+        .and_then(|c| c.lock().expect("hash cache").get(&file.key))
+        .unwrap_or_default();
+    let missing = Wanted {
+        md5: wanted.md5 && known.md5.is_none(),
+        sha1: wanted.sha1 && known.sha1.is_none(),
+        sha256: wanted.sha256 && known.sha256.is_none(),
+        sha384: wanted.sha384 && known.sha384.is_none(),
+        sha512: wanted.sha512 && known.sha512.is_none(),
+        crc32: wanted.crc32 && known.crc32.is_none(),
+        full: wanted.full && known.full.is_none(),
+    };
+    if !missing.any() {
+        return Ok(known);
+    }
+    let read = hash_file(&mut file, missing, progress)?;
+    let hashes = Cached {
+        md5: read.md5.or(known.md5),
+        sha1: read.sha1.or(known.sha1),
+        sha256: read.sha256.or(known.sha256),
+        sha384: read.sha384.or(known.sha384),
+        sha512: read.sha512.or(known.sha512),
+        crc32: read.crc32.or(known.crc32),
+        full: read.full.or(known.full),
+        ..known
+    };
+    if let Some(cache) = cache {
+        cache.lock().expect("hash cache").put(file.key, &hashes);
+    }
+    Ok(hashes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +441,9 @@ mod tests {
     const ALL: Wanted = Wanted {
         md5: true,
         sha256: true,
+        sha1: true,
+        sha384: true,
+        sha512: true,
         crc32: true,
         full: true,
     };
@@ -352,6 +490,104 @@ mod tests {
         assert_eq!(all.full, Some(XxHash3_128::oneshot(&big)));
         assert_eq!(all.md5, Some(md5::Md5::digest(&big).into()));
         assert_eq!(all.sha256, Some(sha2::Sha256::digest(&big).into()));
+    }
+
+    #[test]
+    fn additional_digests_match_known_vectors_and_are_optional() {
+        let dir = Dir::new("additional-vectors");
+        let abc = hashes(&dir.file("abc", b"abc"), ALL).unwrap();
+        assert_eq!(
+            hex(&abc.sha1.unwrap()),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(
+            hex(&abc.sha384.unwrap()),
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
+        );
+        assert_eq!(
+            hex(&abc.sha512.unwrap()),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        );
+        assert_eq!(abc.full, Some(0x06b05ab6733a618578af5f94892f3950));
+        let empty = hashes(&dir.file("empty", b""), ALL).unwrap();
+        assert_eq!(
+            hex(&empty.sha1.unwrap()),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
+        assert_eq!(
+            hex(&empty.sha384.unwrap()),
+            "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b"
+        );
+        assert_eq!(
+            hex(&empty.sha512.unwrap()),
+            "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+        );
+        assert_eq!(empty.full, Some(0x99aa06d3014798d86001c324468d497f));
+        let big: Vec<u8> = (0..BUFFER * 2 + 9).map(|i| (i % 251) as u8).collect();
+        let file = dir.file("big", &big);
+        let h = hashes(&file, ALL).unwrap();
+        assert_eq!(h.sha1, Some(sha1::Sha1::digest(&big).into()));
+        assert_eq!(h.sha384, Some(sha2::Sha384::digest(&big).into()));
+        assert_eq!(h.sha512, Some(sha2::Sha512::digest(&big).into()));
+        for a in Algorithm::ALL {
+            assert_eq!(Algorithm::from_column(a.column()), Some(a));
+            let only = read_cached(&file, a.wanted(), None, &Progress::new()).unwrap();
+            assert!(a.bytes(&only).is_some());
+            for other in Algorithm::ALL.into_iter().filter(|other| *other != a) {
+                assert_eq!(other.bytes(&only), None);
+            }
+        }
+    }
+
+    #[test]
+    fn additional_hashes_merge_in_cache_and_cancellation_keeps_it_intact() {
+        let dir = Dir::new("cached-additional");
+        let path = dir.file("abc", b"abc");
+        let cache = std::sync::Mutex::new(crate::hashcache::HashCache::default());
+        let first = read_cached(
+            &path,
+            Algorithm::Sha1.wanted(),
+            Some(&cache),
+            &Progress::new(),
+        )
+        .unwrap();
+        let second = read_cached(
+            &path,
+            Algorithm::Sha512.wanted(),
+            Some(&cache),
+            &Progress::new(),
+        )
+        .unwrap();
+        assert_eq!(first.sha1, second.sha1);
+        assert!(second.sha512.is_some());
+        let p = Progress::new();
+        p.cancel();
+        assert_eq!(
+            read_cached(&path, ALL, Some(&cache), &p),
+            Err(HashError::Cancelled)
+        );
+        assert_eq!(
+            cache.lock().unwrap().get(&open(&path).unwrap().key),
+            Some(second)
+        );
+        std::fs::write(&path, b"changed").unwrap();
+        let changed = read_cached(
+            &path,
+            Algorithm::Sha1.wanted(),
+            Some(&cache),
+            &Progress::new(),
+        )
+        .unwrap();
+        assert_ne!(changed.sha1, first.sha1);
+        assert_eq!(changed.sha512, None);
+        let disabled = std::sync::Mutex::new(crate::hashcache::HashCache::new(0));
+        assert!(
+            read_cached(&path, ALL, Some(&disabled), &Progress::new())
+                .unwrap()
+                .sha384
+                .is_some()
+        );
+        assert!(disabled.lock().unwrap().is_empty());
     }
 
     #[test]

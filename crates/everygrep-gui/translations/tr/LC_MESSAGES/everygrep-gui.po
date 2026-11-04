@@ -4507,3 +4507,30 @@ msgstr "Başka bir kopyayla aynı dosya (sabit bağlantı): olduğu gibi kalıyo
 #: src/fileops_dupes.rs
 msgid "To the trash ({})"
 msgstr "Çöp kutusuna ({})"
+
+msgid "SHA-1"
+msgstr "SHA-1"
+
+msgid "SHA-1 column"
+msgstr "SHA-1 sütunu"
+
+msgid "SHA-384"
+msgstr "SHA-384"
+
+msgid "SHA-384 column"
+msgstr "SHA-384 sütunu"
+
+msgid "SHA-512"
+msgstr "SHA-512"
+
+msgid "SHA-512 column"
+msgstr "SHA-512 sütunu"
+
+msgid "xxHash (XXH3-128)"
+msgstr "xxHash (XXH3-128)"
+
+msgid "xxHash (XXH3-128) column"
+msgstr "xxHash (XXH3-128) sütunu"
+
+msgid "Copy hash value"
+msgstr "Özet değerini kopyala"

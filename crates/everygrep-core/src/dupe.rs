@@ -1659,6 +1659,7 @@ mod tests {
             sha256,
             crc32,
             full,
+            ..Wanted::default()
         };
         let mb = 512.0;
         for (name, wanted) in [
@@ -1850,6 +1851,7 @@ mod tests {
                 md5: Some([1; 16]),
                 sha256: Some([2; 32]),
                 crc32: Some(3),
+                ..Cached::default()
             };
             c.put(key, &all);
         }

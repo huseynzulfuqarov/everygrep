@@ -874,7 +874,7 @@ mod tests {
         b.name = " ".into();
         assert!(l.put_bookmark(None, b.clone()).is_err());
         b.name = "valid".into();
-        b.sort_column = 9;
+        b.sort_column = i32::MAX;
         assert!(l.put_bookmark(None, b.clone()).is_err());
         l.restore_filters();
         assert_eq!(l.bookmarks.len(), 1);
@@ -895,10 +895,7 @@ mod tests {
         let sorts: Vec<i32> = l.bookmarks.iter().map(|b| b.sort_column).collect();
         assert_eq!(
             sorts,
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]
-                .into_iter()
-                .chain(everygrep_core::property::Property::ALL.map(|p| p.column()))
-                .collect::<Vec<_>>()
+            (0..crate::columns::COLUMNS as i32).collect::<Vec<_>>()
         );
         update(&path, |stored| {
             *stored = l.clone();
@@ -906,8 +903,8 @@ mod tests {
         })
         .unwrap();
         assert_eq!(Library::load(&path).unwrap(), l);
-        for column in [9, 10, 11, crate::columns::COLUMNS as i32, -1] {
-            let mut b = bookmark(&l, "hash column");
+        for column in [i32::MAX, crate::columns::COLUMNS as i32, -1] {
+            let mut b = bookmark(&l, "unknown column");
             b.sort_column = column;
             assert!(l.put_bookmark(None, b).is_err(), "{column}");
         }

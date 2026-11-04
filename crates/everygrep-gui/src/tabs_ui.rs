@@ -333,7 +333,15 @@ fn read_columns(w: &AppWindow) -> Columns {
         show_gps_lat: w.get_show_gps_lat(),
         gps_lat: Some(w.get_gps_lat_want()),
         show_gps_long: w.get_show_gps_long(),
+        show_sha1: w.get_show_sha1(),
+        show_sha384: w.get_show_sha384(),
+        show_sha512: w.get_show_sha512(),
+        show_xxhash: w.get_show_xxhash(),
         gps_long: Some(w.get_gps_long_want()),
+        sha1: Some(w.get_sha1_want()),
+        sha384: Some(w.get_sha384_want()),
+        sha512: Some(w.get_sha512_want()),
+        xxhash: Some(w.get_xxhash_want()),
         name: w.get_name_set().then(|| w.get_name_want()),
         // Folder has a width of its own only while the columns are wider
         // than the window; 0 means it takes the room the others leave.
@@ -482,7 +490,15 @@ fn install_columns(w: &AppWindow, c: &Columns) {
     w.set_show_gps_lat(c.show_gps_lat);
     c.gps_lat.into_iter().for_each(|v| w.set_gps_lat_want(v));
     w.set_show_gps_long(c.show_gps_long);
+    w.set_show_sha1(c.show_sha1);
+    w.set_show_sha384(c.show_sha384);
+    w.set_show_sha512(c.show_sha512);
+    w.set_show_xxhash(c.show_xxhash);
     c.gps_long.into_iter().for_each(|v| w.set_gps_long_want(v));
+    c.sha1.into_iter().for_each(|v| w.set_sha1_want(v));
+    c.sha384.into_iter().for_each(|v| w.set_sha384_want(v));
+    c.sha512.into_iter().for_each(|v| w.set_sha512_want(v));
+    c.xxhash.into_iter().for_each(|v| w.set_xxhash_want(v));
     w.set_name_set(c.name.is_some());
     if let Some(v) = c.name {
         w.set_name_want(v);

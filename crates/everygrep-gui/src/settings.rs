@@ -269,7 +269,15 @@ pub struct Columns {
     pub show_gps_lat: bool,
     pub gps_lat: Option<f32>,
     pub show_gps_long: bool,
+    pub show_sha1: bool,
+    pub show_sha384: bool,
+    pub show_sha512: bool,
+    pub show_xxhash: bool,
     pub gps_long: Option<f32>,
+    pub sha1: Option<f32>,
+    pub sha384: Option<f32>,
+    pub sha512: Option<f32>,
+    pub xxhash: Option<f32>,
     pub name: Option<f32>,
     /// Folder's own width, kept only while the columns are wider than the
     /// window (Folder otherwise takes the room the others leave).
@@ -1112,9 +1120,33 @@ impl Settings {
                 true
             }
             "show-gps-long-column" => put_flag(&mut self.columns.show_gps_long),
+            "show-sha1-column" => put_flag(&mut self.columns.show_sha1),
+            "show-sha384-column" => put_flag(&mut self.columns.show_sha384),
+            "show-sha512-column" => put_flag(&mut self.columns.show_sha512),
+            "show-xxhash-column" => put_flag(&mut self.columns.show_xxhash),
             "gps-long-width" => {
                 let Some(w) = width(value) else { return false };
                 self.columns.gps_long = Some(w);
+                true
+            }
+            "sha1-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.sha1 = Some(w);
+                true
+            }
+            "sha384-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.sha384 = Some(w);
+                true
+            }
+            "sha512-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.sha512 = Some(w);
+                true
+            }
+            "xxhash-width" => {
+                let Some(w) = width(value) else { return false };
+                self.columns.xxhash = Some(w);
                 true
             }
             "name-width"
@@ -1715,6 +1747,10 @@ impl Settings {
         flag(&mut out, "show-date-taken-column", c.show_date_taken, false);
         flag(&mut out, "show-gps-lat-column", c.show_gps_lat, false);
         flag(&mut out, "show-gps-long-column", c.show_gps_long, false);
+        flag(&mut out, "show-sha1-column", c.show_sha1, false);
+        flag(&mut out, "show-sha384-column", c.show_sha384, false);
+        flag(&mut out, "show-sha512-column", c.show_sha512, false);
+        flag(&mut out, "show-xxhash-column", c.show_xxhash, false);
         let widths = [
             ("width-width", c.width),
             ("height-width", c.height),
@@ -1736,6 +1772,10 @@ impl Settings {
             ("date-taken-width", c.date_taken),
             ("gps-lat-width", c.gps_lat),
             ("gps-long-width", c.gps_long),
+            ("sha1-width", c.sha1),
+            ("sha384-width", c.sha384),
+            ("sha512-width", c.sha512),
+            ("xxhash-width", c.xxhash),
             ("full-path-width", c.full_path),
             ("parent-path-width", c.parent_path),
             ("stem-width", c.stem),

@@ -214,10 +214,13 @@ mod tests {
             then_keys([(2, true), (-1, false)], FolderSize::Total),
             [Some((SortKey::Size, true)), None]
         );
-        // Hash columns never sort.
+        // Hash columns can be secondary keys too.
         assert_eq!(
             then_keys([(9, false), (3, false)], FolderSize::Total),
-            [None, Some((SortKey::Modified, false))]
+            [
+                Some((SortKey::Hash(everygrep_core::hash::Algorithm::Md5), false)),
+                Some((SortKey::Modified, false))
+            ]
         );
     }
 }

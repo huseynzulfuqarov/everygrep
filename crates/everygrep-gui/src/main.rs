@@ -2361,6 +2361,9 @@ fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
         12 => SortKey::NameFrequency,
         13 => SortKey::ExtensionFrequency,
         14 => SortKey::SizeFrequency,
+        c if everygrep_core::hash::Algorithm::from_column(c).is_some() => {
+            SortKey::Hash(everygrep_core::hash::Algorithm::from_column(c).expect("hash column"))
+        }
         c if everygrep_core::property::Property::from_column(c).is_some() => SortKey::Property(
             everygrep_core::property::Property::from_column(c).expect("property column"),
         ),
@@ -2397,6 +2400,7 @@ fn column_of(key: SortKey) -> i32 {
         SortKey::ExtensionFrequency => 13,
         SortKey::SizeFrequency => 14,
         SortKey::Property(p) => p.column(),
+        SortKey::Hash(a) => a.column(),
     }
 }
 
@@ -2512,6 +2516,10 @@ fn apply_detail_columns(w: &AppWindow) {
         md5: w.get_show_md5(),
         sha256: w.get_show_sha256(),
         crc32: w.get_show_crc32(),
+        sha1: w.get_show_sha1(),
+        sha384: w.get_show_sha384(),
+        sha512: w.get_show_sha512(),
+        xxhash: w.get_show_xxhash(),
     };
     let frequencies = results::FrequencyColumns {
         name: w.get_show_name_freq(),
@@ -3030,7 +3038,7 @@ mod tests {
         );
         assert_eq!(
             sort_for_column(9, false, FolderSize::None).key,
-            SortKey::Name
+            SortKey::Hash(everygrep_core::hash::Algorithm::Md5)
         );
     }
 }

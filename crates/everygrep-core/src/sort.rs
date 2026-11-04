@@ -67,6 +67,8 @@ pub enum SortKey {
     /// How many entries of the index share the name (see
     /// [`crate::frequency`]).
     NameFrequency,
+    /// Digest bytes, ordered as the hexadecimal column text.
+    Hash(crate::hash::Algorithm),
     /// Optional filesystem or media property.
     Property(crate::property::Property),
     /// How many files of the index share the extension.
@@ -166,6 +168,13 @@ impl Sort {
 /// [`DetailCache::set_media`].
 pub type MediaValues = HashMap<NodeId, Vec<(crate::property::Property, crate::property::Value)>>;
 
+/// File-derived sort values prepared with the index lock released.
+#[derive(Default)]
+pub struct FileValues {
+    pub media: MediaValues,
+    pub hashes: HashMap<NodeId, crate::hashcache::Cached>,
+}
+
 /// Lists shorter than this are sorted on the calling thread.
 const PARALLEL_MIN: usize = 64 * 1024;
 
@@ -220,6 +229,7 @@ pub struct DetailCache {
     properties: Option<std::sync::Arc<crate::propertycache::Store>>,
     /// See [`set_media`](Self::set_media).
     media: Option<MediaValues>,
+    hashes: Option<HashMap<NodeId, crate::hashcache::Cached>>,
     /// [`Index::stamp`] of the index the ids belong to.
     stamp: u64,
     /// [`Index::change_seq`] the cache has followed up to.
@@ -245,6 +255,11 @@ impl DetailCache {
     /// (an id without the property sorts as empty) and reads no file.
     pub fn set_media(&mut self, values: Option<MediaValues>) {
         self.media = values;
+    }
+
+    /// Hashes read beforehand; absent files sort as empty without another read.
+    pub fn set_hashes(&mut self, values: Option<HashMap<NodeId, crate::hashcache::Cached>>) {
+        self.hashes = values;
     }
 
     /// Forgets every value when `generation` is not the one given last.
@@ -476,6 +491,26 @@ fn sort_ordered(
     let store = index.store();
     let desc = sort.descending;
     match sort.key {
+        SortKey::Hash(algorithm) => {
+            let mut keys = Vec::with_capacity(ids.len());
+            for &id in ids.iter() {
+                progress.check()?;
+                let hashes = if let Some(prepared) = cache.as_ref().and_then(|c| c.hashes.as_ref())
+                {
+                    prepared.get(&id).copied().unwrap_or_default()
+                } else if index.is_offline(id) || store.is_dir(id) {
+                    crate::hashcache::Cached::default()
+                } else {
+                    crate::hash::read_cached(&store.path(id), algorithm.wanted(), None, progress)
+                        .unwrap_or_default()
+                };
+                progress.check()?;
+                keys.push(algorithm.bytes(&hashes));
+                progress.add(1);
+            }
+            let refs: Vec<_> = keys.iter().collect();
+            sort_directed(ids, threads, desc, refs, progress)?;
+        }
         SortKey::Property(property) => {
             let mut keys = Vec::with_capacity(ids.len());
             let media = cache

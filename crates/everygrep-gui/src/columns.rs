@@ -28,7 +28,7 @@
 //! window again.
 
 /// Number of columns of the result list.
-pub const COLUMNS: usize = 52;
+pub const COLUMNS: usize = 56;
 /// Folder, the column that takes the spare room.
 const FOLDER: usize = 1;
 

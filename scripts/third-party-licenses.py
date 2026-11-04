@@ -102,7 +102,7 @@ def normalized(text):
 
 def title_of(rel, text):
     first = next((l.strip(" #*=") for l in text.strip().splitlines() if l.strip(" #*=-")), "")
-    return f"{os.path.basename(rel)}: {first[:70]}" if first else os.path.basename(rel)
+    return f"{os.path.basename(rel)}: {first[:70].rstrip()}" if first else os.path.basename(rel)
 
 
 def main():

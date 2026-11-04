@@ -10,14 +10,14 @@ The window uses the [Slint](https://slint.dev) toolkit under its
 royalty-free license (`LicenseRef-Slint-Royalty-free-2.0`), whose
 attribution is shown in Help → About EveryGrep.
 
-Crates: 359 (290 linked into the programs). Distinct license texts: 201.
+Crates: 362 (293 linked into the programs). Distinct license texts: 202.
 
 ## License expressions
 
 | Expression | Crates |
 |---|---|
-| MIT OR Apache-2.0 | 154 |
-| MIT | 70 |
+| MIT OR Apache-2.0 | 155 |
+| MIT | 72 |
 | Apache-2.0 OR MIT | 42 |
 | Unicode-3.0 | 25 |
 | Apache-2.0 | 9 |
@@ -271,8 +271,10 @@ procedural macros and their dependencies, which run only while building.
 | quick-error | 2.0.1 | MIT/Apache-2.0 | linked | http://github.com/tailhook/quick-error | [6dc0e068dcf3](#license-6dc0e068dcf3), [cf798811e9a0](#license-cf798811e9a0) |
 | quick-xml | 0.38.4 | MIT | linked | https://github.com/tafia/quick-xml | [12bfa73c9eac](#license-12bfa73c9eac) |
 | quick-xml | 0.41.0 | MIT | compile time | https://github.com/tafia/quick-xml | [12bfa73c9eac](#license-12bfa73c9eac) |
+| quick-xml | 0.42.0 | MIT | linked | https://github.com/tafia/quick-xml | [12bfa73c9eac](#license-12bfa73c9eac) |
 | quote | 1.0.47 | MIT OR Apache-2.0 | linked | https://github.com/dtolnay/quote | [85ad950cce87](#license-85ad950cce87), [30fefc3a7d6a](#license-30fefc3a7d6a) |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | linked | https://github.com/rust-windowing/raw-window-handle | [4bf96504d6e8](#license-4bf96504d6e8), [aa69fda6dd94](#license-aa69fda6dd94), [81976b4834c3](#license-81976b4834c3) |
+| rawzip | 0.5.2 | MIT | linked | https://github.com/nickbabcock/rawzip | [2af4d1369899](#license-2af4d1369899) |
 | rayon | 1.12.0 | MIT OR Apache-2.0 | compile time | https://github.com/rayon-rs/rayon | [954f335b8baf](#license-954f335b8baf), [9e0027807b0c](#license-9e0027807b0c) |
 | rayon-core | 1.13.0 | MIT OR Apache-2.0 | compile time | https://github.com/rayon-rs/rayon | [954f335b8baf](#license-954f335b8baf), [9e0027807b0c](#license-9e0027807b0c) |
 | read-fonts | 0.41.0 | MIT OR Apache-2.0 | linked | https://github.com/googlefonts/fontations | [af2a770a058a](#license-af2a770a058a), [f03893164caa](#license-f03893164caa) |
@@ -297,6 +299,7 @@ procedural macros and their dependencies, which run only while building.
 | serde_derive | 1.0.229 | MIT OR Apache-2.0 | compile time | https://github.com/serde-rs/serde | [85ad950cce87](#license-85ad950cce87), [30fefc3a7d6a](#license-30fefc3a7d6a) |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 | compile time | https://github.com/serde-rs/json | [85ad950cce87](#license-85ad950cce87), [30fefc3a7d6a](#license-30fefc3a7d6a) |
 | serde_repr | 0.1.21 | MIT OR Apache-2.0 | compile time | https://github.com/dtolnay/serde-repr | [85ad950cce87](#license-85ad950cce87), [30fefc3a7d6a](#license-30fefc3a7d6a) |
+| sha1 | 0.11.0 | MIT OR Apache-2.0 | linked | https://github.com/RustCrypto/hashes | [e8541ea93f02](#license-e8541ea93f02), [535a6aa345e8](#license-535a6aa345e8) |
 | sha2 | 0.11.0 | MIT OR Apache-2.0 | linked | https://github.com/RustCrypto/hashes | [e8541ea93f02](#license-e8541ea93f02), [535a6aa345e8](#license-535a6aa345e8) |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | linked | https://github.com/vorner/signal-hook | [954f335b8baf](#license-954f335b8baf), [aaac889d0a4a](#license-aaac889d0a4a) |
 | simd-adler32 | 0.3.10 | MIT | linked | https://github.com/mcountryman/simd-adler32 | [627eff66d6c4](#license-627eff66d6c4) |
@@ -5632,7 +5635,7 @@ limitations under the License.
 <a id="license-e8541ea93f02"></a>
 ### LICENSE-APACHE: Apache License
 
-Used by: block-buffer 0.12.1, cpufeatures 0.3.1, crypto-common 0.2.2, digest 0.11.3, hybrid-array 0.4.15, md-5 0.11.0, sha2 0.11.0
+Used by: block-buffer 0.12.1, cpufeatures 0.3.1, crypto-common 0.2.2, digest 0.11.3, hybrid-array 0.4.15, md-5 0.11.0, sha1 0.11.0, sha2 0.11.0
 
 ```text
 Apache License
@@ -6385,7 +6388,7 @@ SOFTWARE.
 ```
 
 <a id="license-bccaa8b6c09f"></a>
-### LICENSE-MIT.md: Permission is hereby granted, free of charge, to any person obtaining 
+### LICENSE-MIT.md: Permission is hereby granted, free of charge, to any person obtaining
 
 Used by: tinyvec 1.13.3
 
@@ -6400,7 +6403,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 <a id="license-12bfa73c9eac"></a>
 ### LICENSE-MIT.md: The MIT License (MIT)
 
-Used by: quick-xml 0.38.4, quick-xml 0.41.0
+Used by: quick-xml 0.38.4, quick-xml 0.41.0, quick-xml 0.42.0
 
 ```text
 The MIT License (MIT)
@@ -7198,7 +7201,7 @@ DEALINGS IN THE SOFTWARE.
 <a id="license-535a6aa345e8"></a>
 ### LICENSE-MIT: Copyright (c) 2016-2026 The RustCrypto Project Developers
 
-Used by: md-5 0.11.0, sha2 0.11.0
+Used by: md-5 0.11.0, sha1 0.11.0, sha2 0.11.0
 
 ```text
 Copyright (c) 2016-2026 The RustCrypto Project Developers
@@ -8845,6 +8848,31 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+<a id="license-21a2121221d2"></a>
+### LICENSE-MIT: Permission is hereby granted, free of charge, to any person obtaining
+
+Used by: siphasher 1.0.4
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 <a id="license-8793aa4141de"></a>
 ### LICENSE-MIT: Permission is hereby granted, free of charge, to any person obtaining
 
@@ -8869,31 +8897,6 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-<a id="license-21a2121221d2"></a>
-### LICENSE-MIT: Permission is hereby granted, free of charge, to any person obtaining 
-
-Used by: siphasher 1.0.4
-
-```text
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 <a id="license-154c1af2b38e"></a>
@@ -9695,6 +9698,31 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+<a id="license-2af4d1369899"></a>
+### LICENSE.txt: Permission is hereby granted, free of charge, to any person obtaining
+
+Used by: rawzip 0.5.2
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 <a id="license-ce4a94c006fa"></a>

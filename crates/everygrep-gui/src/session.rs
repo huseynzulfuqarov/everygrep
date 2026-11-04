@@ -316,7 +316,7 @@ fn options(s: &str) -> io::Result<everygrep_core::query::QueryOptions> {
     saved_searches::decode_options(p[0], p[1], p[2])
 }
 /// The optional columns a tab can show, by their name in the file.
-fn column_flags(c: &Columns) -> [(&'static str, bool); 48] {
+fn column_flags(c: &Columns) -> [(&'static str, bool); 52] {
     [
         ("type", c.show_type),
         ("ext", c.show_ext),
@@ -366,6 +366,10 @@ fn column_flags(c: &Columns) -> [(&'static str, bool); 48] {
         ("date-taken", c.show_date_taken),
         ("gps-lat", c.show_gps_lat),
         ("gps-long", c.show_gps_long),
+        ("sha1", c.show_sha1),
+        ("sha384", c.show_sha384),
+        ("sha512", c.show_sha512),
+        ("xxhash", c.show_xxhash),
     ]
 }
 
@@ -419,12 +423,16 @@ fn column_flag<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut bool> {
         "date-taken" => &mut c.show_date_taken,
         "gps-lat" => &mut c.show_gps_lat,
         "gps-long" => &mut c.show_gps_long,
+        "sha1" => &mut c.show_sha1,
+        "sha384" => &mut c.show_sha384,
+        "sha512" => &mut c.show_sha512,
+        "xxhash" => &mut c.show_xxhash,
         _ => return None,
     })
 }
 
 /// The column widths of a tab, by their name in the file.
-fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 52] {
+fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 56] {
     [
         ("name", c.name),
         ("folder", c.folder),
@@ -478,6 +486,10 @@ fn column_widths_of(c: &Columns) -> [(&'static str, Option<f32>); 52] {
         ("date-taken", c.date_taken),
         ("gps-lat", c.gps_lat),
         ("gps-long", c.gps_long),
+        ("sha1", c.sha1),
+        ("sha384", c.sha384),
+        ("sha512", c.sha512),
+        ("xxhash", c.xxhash),
     ]
 }
 
@@ -535,6 +547,10 @@ fn column_width<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut Option<f32
         "date-taken" => &mut c.date_taken,
         "gps-lat" => &mut c.gps_lat,
         "gps-long" => &mut c.gps_long,
+        "sha1" => &mut c.sha1,
+        "sha384" => &mut c.sha384,
+        "sha512" => &mut c.sha512,
+        "xxhash" => &mut c.xxhash,
         _ => return None,
     })
 }
@@ -861,10 +877,7 @@ mod tests {
             .collect();
         assert_eq!(
             sortable,
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14]
-                .into_iter()
-                .chain(everygrep_core::property::Property::ALL.map(|p| p.column()))
-                .collect::<Vec<_>>()
+            (0..crate::columns::COLUMNS as i32).collect::<Vec<_>>()
         );
         for column in sortable {
             let mut s = sample(1);
@@ -1055,10 +1068,10 @@ mod tests {
             "EveryGrep session 1\n",
             "EveryGrep session 2\n",
             "EveryGrep session 2\nscope = a\ntab = open\noptions = invalid\n",
-            "EveryGrep session 2\nscope = a\ntab = open\nsort = 9\t1\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nsort = 9999\t1\n",
             "EveryGrep session 2\nscope = a\ntab = open\nwidths = name:NaN\n",
             "EveryGrep session 2\nscope = a\ntab = open\nwidths = name\n",
-            "EveryGrep session 2\nscope = a\ntab = open\nsort = 11\t0\n",
+            "EveryGrep session 2\nscope = a\ntab = open\nsort = 9998\t0\n",
             "EveryGrep session 2\nscope = a\ntab = open\nquery = \\q\n",
         ] {
             std::fs::write(&path, text).unwrap();

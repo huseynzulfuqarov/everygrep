@@ -56,6 +56,11 @@ export struct ResultRow {
     md5: string,
     sha256: string,
     crc32: string,
+    sha1: string,
+    sha384: string,
+    sha512: string,
+    xxhash: string,
+
     name-freq: string,
     ext-freq: string,
     size-freq: string,
@@ -730,6 +735,11 @@ component Row inherits Rectangle {
     in property <length> date-taken-width;
     in property <length> gps-lat-width;
     in property <length> gps-long-width;
+    in property <length> sha1-width;
+    in property <length> sha384-width;
+    in property <length> sha512-width;
+    in property <length> xxhash-width;
+
     // The name is being edited in place.
     in property <bool> editing;
     in-out property <string> edit-text;
@@ -763,6 +773,13 @@ component Row inherits Rectangle {
         if (x < root.name-width + root.folder-width + root.size-width) { return 2; }
         if (x < root.type-x) { return 3; }
         if (x >= root.type-x + root.type-width && x < root.type-x + root.type-width + root.ext-width) { return 5; }
+        if (root.md5-width > 0px && x >= root.md5-x && x < root.md5-x + root.md5-width) { return 9; }
+        if (root.sha256-width > 0px && x >= root.sha256-x && x < root.sha256-x + root.sha256-width) { return 10; }
+        if (root.crc32-width > 0px && x >= root.crc32-x && x < root.crc32-x + root.crc32-width) { return 11; }
+        if (root.sha1-width > 0px && x >= root.sha1-x && x < root.sha1-x + root.sha1-width) { return 52; }
+        if (root.sha384-width > 0px && x >= root.sha384-x && x < root.sha384-x + root.sha384-width) { return 53; }
+        if (root.sha512-width > 0px && x >= root.sha512-x && x < root.sha512-x + root.sha512-width) { return 54; }
+        if (root.xxhash-width > 0px && x >= root.xxhash-x && x < root.xxhash-x + root.xxhash-width) { return 55; }
         return -1;
     }
 
@@ -1445,6 +1462,50 @@ component Row inherits Rectangle {
         width: root.gps-long-width - 2 * Theme.s2;
         height: parent.height;
         text: root.data.properties[36];
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> sha1-x: root.gps-long-x + root.gps-long-width;
+    if root.sha1-width > 0: Text {
+        x: root.sha1-x + Theme.s2;
+        width: root.sha1-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.sha1;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> sha384-x: root.sha1-x + root.sha1-width;
+    if root.sha384-width > 0: Text {
+        x: root.sha384-x + Theme.s2;
+        width: root.sha384-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.sha384;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> sha512-x: root.sha384-x + root.sha384-width;
+    if root.sha512-width > 0: Text {
+        x: root.sha512-x + Theme.s2;
+        width: root.sha512-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.sha512;
+        color: root.other-color;
+        font-size: Theme.list-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    property <length> xxhash-x: root.sha512-x + root.sha512-width;
+    if root.xxhash-width > 0: Text {
+        x: root.xxhash-x + Theme.s2;
+        width: root.xxhash-width - 2 * Theme.s2;
+        height: parent.height;
+        text: root.data.xxhash;
         color: root.other-color;
         font-size: Theme.list-text;
         vertical-alignment: center;
@@ -2212,6 +2273,26 @@ export component AppWindow inherits Window {
     out property <length> gps-long-min: 60px;
     property <length> gps-long-width: self.show-gps-long ? max(self.gps-long-min, self.gps-long-want) : 0px;
     changed show-gps-long => { root.detail-columns-changed(); }
+    in-out property <bool> show-sha1: false;
+    in-out property <length> sha1-want: 220px;
+    out property <length> sha1-min: 60px;
+    property <length> sha1-width: self.show-sha1 ? max(self.sha1-min, self.sha1-want) : 0px;
+    changed show-sha1 => { root.detail-columns-changed(); }
+    in-out property <bool> show-sha384: false;
+    in-out property <length> sha384-want: 430px;
+    out property <length> sha384-min: 60px;
+    property <length> sha384-width: self.show-sha384 ? max(self.sha384-min, self.sha384-want) : 0px;
+    changed show-sha384 => { root.detail-columns-changed(); }
+    in-out property <bool> show-sha512: false;
+    in-out property <length> sha512-want: 570px;
+    out property <length> sha512-min: 60px;
+    property <length> sha512-width: self.show-sha512 ? max(self.sha512-min, self.sha512-want) : 0px;
+    changed show-sha512 => { root.detail-columns-changed(); }
+    in-out property <bool> show-xxhash: false;
+    in-out property <length> xxhash-want: 270px;
+    out property <length> xxhash-min: 60px;
+    property <length> xxhash-width: self.show-xxhash ? max(self.xxhash-min, self.xxhash-want) : 0px;
+    changed show-xxhash => { root.detail-columns-changed(); }
     // Created, Accessed, Attributes, a hash or a frequency column was shown
     // or hidden: their values are read (or counted) only while shown.
     callback detail-columns-changed();
@@ -2299,7 +2380,11 @@ export component AppWindow inherits Window {
         + self.camera-model-width
         + self.date-taken-width
         + self.gps-lat-width
-        + self.gps-long-width;
+        + self.gps-long-width
+        + self.sha1-width
+        + self.sha384-width
+        + self.sha512-width
+        + self.xxhash-width;
     property <length> name-width: max(self.name-min, self.name-want);
     property <length> folder-width: max(self.folder-min, max(self.folder-want,
         list.visible-width - self.name-width - self.fixed-width));
@@ -2368,6 +2453,10 @@ export component AppWindow inherits Window {
     property <length> date-taken-x: self.camera-model-x + self.camera-model-width;
     property <length> gps-lat-x: self.date-taken-x + self.date-taken-width;
     property <length> gps-long-x: self.gps-lat-x + self.gps-lat-width;
+    property <length> sha1-x: self.gps-long-x + self.gps-long-width;
+    property <length> sha384-x: self.sha1-x + self.sha1-width;
+    property <length> sha512-x: self.sha384-x + self.sha384-width;
+    property <length> xxhash-x: self.sha512-x + self.sha512-width;
     // Width, minimum width and wanted width of column 3 (Modified) to 14
     // (Same size), numbered as sort-column.
     function col-width(c: int) -> length {
@@ -2408,6 +2497,10 @@ export component AppWindow inherits Window {
         if (c == 49) { return root.date-taken-width; }
         if (c == 50) { return root.gps-lat-width; }
         if (c == 51) { return root.gps-long-width; }
+        if (c == 52) { return root.sha1-width; }
+        if (c == 53) { return root.sha384-width; }
+        if (c == 54) { return root.sha512-width; }
+        if (c == 55) { return root.xxhash-width; }
         return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
             : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : c == 11 ? root.crc32-width : c == 12 ? root.name-freq-width : c == 13 ? root.ext-freq-width : root.size-freq-width;
     }
@@ -2449,6 +2542,10 @@ export component AppWindow inherits Window {
         if (c == 49) { return root.date-taken-min; }
         if (c == 50) { return root.gps-lat-min; }
         if (c == 51) { return root.gps-long-min; }
+        if (c == 52) { return root.sha1-min; }
+        if (c == 53) { return root.sha384-min; }
+        if (c == 54) { return root.sha512-min; }
+        if (c == 55) { return root.xxhash-min; }
         return c == 3 ? root.date-min : c == 4 ? root.type-min : c == 5 ? root.ext-min
             : c == 6 ? root.created-min : c == 7 ? root.accessed-min : c == 8 ? root.attr-min : c == 9 ? root.md5-min : c == 10 ? root.sha256-min : c == 11 ? root.crc32-min : c == 12 ? root.name-freq-min : c == 13 ? root.ext-freq-min : root.size-freq-min;
     }
@@ -2490,6 +2587,10 @@ export component AppWindow inherits Window {
         if (c == 49) { root.date-taken-want = w; return; }
         if (c == 50) { root.gps-lat-want = w; return; }
         if (c == 51) { root.gps-long-want = w; return; }
+        if (c == 52) { root.sha1-want = w; return; }
+        if (c == 53) { root.sha384-want = w; return; }
+        if (c == 54) { root.sha512-want = w; return; }
+        if (c == 55) { root.xxhash-want = w; return; }
         if (c == 3) {
             root.date-want = w;
         } else if (c == 4) {
@@ -2555,6 +2656,10 @@ export component AppWindow inherits Window {
         if (c == 49) { return @tr("Date taken"); }
         if (c == 50) { return @tr("GPS latitude"); }
         if (c == 51) { return @tr("GPS longitude"); }
+        if (c == 52) { return @tr("SHA-1"); }
+        if (c == 53) { return @tr("SHA-384"); }
+        if (c == 54) { return @tr("SHA-512"); }
+        if (c == 55) { return @tr("xxHash (XXH3-128)"); }
         return c == 0 ? @tr("Name") : c == 1 ? @tr("Folder") : c == 2 ? @tr("Size")
             : c == 3 ? @tr("Modified") : c == 4 ? @tr("Type") : c == 5 ? @tr("Extension")
             : c == 6 ? @tr("Created") : c == 7 ? @tr("Accessed") : c == 8 ? @tr("Attributes") : c == 9 ? @tr("MD5") : c == 10 ? @tr("SHA-256") : c == 11 ? @tr("CRC-32") : c == 12 ? @tr("Same name") : c == 13 ? @tr("Same extension") : @tr("Same size");
@@ -2609,7 +2714,11 @@ export component AppWindow inherits Window {
             || (c == 48 && root.show-camera-model)
             || (c == 49 && root.show-date-taken)
             || (c == 50 && root.show-gps-lat)
-            || (c == 51 && root.show-gps-long);
+            || (c == 51 && root.show-gps-long)
+            || (c == 52 && root.show-sha1)
+            || (c == 53 && root.show-sha384)
+            || (c == 54 && root.show-sha512)
+            || (c == 55 && root.show-xxhash);
     }
 
     // Texts measured to size a column to fit: the widest-looking cells of
@@ -2620,6 +2729,7 @@ export component AppWindow inherits Window {
     property <string> fit-label;
     // The column whose header was right-clicked, for "Size column to fit".
     property <int> menu-column: 0;
+    property <string> hash-value;
 
     // The width column c needs for its cells on screen and its header
     // label; 0 for a hidden column.
@@ -2721,6 +2831,10 @@ export component AppWindow inherits Window {
         if (root.show-date-taken) { root.fit-column(49); }
         if (root.show-gps-lat) { root.fit-column(50); }
         if (root.show-gps-long) { root.fit-column(51); }
+        if (root.show-sha1) { root.fit-column(52); }
+        if (root.show-sha384) { root.fit-column(53); }
+        if (root.show-sha512) { root.fit-column(54); }
+        if (root.show-xxhash) { root.fit-column(55); }
         root.fit-column(0);
     }
 
@@ -2779,13 +2893,17 @@ export component AppWindow inherits Window {
         let w49 = root.fit-width(49);
         let w50 = root.fit-width(50);
         let w51 = root.fit-width(51);
+        let w52 = root.fit-width(52);
+        let w53 = root.fit-width(53);
+        let w54 = root.fit-width(54);
+        let w55 = root.fit-width(55);
         let total = w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7 + w8
             + w9
             + w10
             + w11
             + w12
             + w13
-            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31 + w32 + w33 + w34 + w35 + w36 + w37 + w38 + w39 + w40 + w41 + w42 + w43 + w44 + w45 + w46 + w47 + w48 + w49 + w50 + w51;
+            + w14 + w15 + w16 + w17 + w18 + w19 + w20 + w21 + w22 + w23 + w24 + w25 + w26 + w27 + w28 + w29 + w30 + w31 + w32 + w33 + w34 + w35 + w36 + w37 + w38 + w39 + w40 + w41 + w42 + w43 + w44 + w45 + w46 + w47 + w48 + w49 + w50 + w51 + w52 + w53 + w54 + w55;
         if (total <= 0px) {
             return;
         }
@@ -2842,28 +2960,19 @@ export component AppWindow inherits Window {
         if (root.show-date-taken) { root.date-taken-want = max(root.date-taken-min, w49 * f); }
         if (root.show-gps-lat) { root.gps-lat-want = max(root.gps-lat-min, w50 * f); }
         if (root.show-gps-long) { root.gps-long-want = max(root.gps-long-min, w51 * f); }
+        if (root.show-sha1) { root.sha1-want = max(root.sha1-min, w52 * f); }
+        if (root.show-sha384) { root.sha384-want = max(root.sha384-min, w53 * f); }
+        if (root.show-sha512) { root.sha512-want = max(root.sha512-min, w54 * f); }
+        if (root.show-xxhash) { root.xxhash-want = max(root.xxhash-min, w55 * f); }
         root.name-set = true;
     }
 
     // The shown column left of optional column c; Modified (3) is always shown.
     function left-of(c: int) -> int {
-        if (c > 31 && root.show-owner) { return 31; }
-        if (c > 30 && root.show-shortcut-target) { return 30; }
-        if (c > 29 && root.show-hard-links) { return 29; }
-        if (c > 28 && root.show-folder-depth) { return 28; }
-        if (c > 27 && root.show-desc-folders) { return 27; }
-        if (c > 26 && root.show-desc-files) { return 26; }
-        if (c > 25 && root.show-desc-count) { return 25; }
-        if (c > 24 && root.show-child-folders) { return 24; }
-        if (c > 23 && root.show-child-files) { return 23; }
-        if (c > 22 && root.show-child-count) { return 22; }
-        if (c > 21 && root.show-total-size) { return 21; }
-        if (c > 20 && root.show-disk-size) { return 20; }
-        if (c > 19 && root.show-path-length) { return 19; }
-        if (c > 18 && root.show-name-length) { return 18; }
-        if (c > 17 && root.show-stem) { return 17; }
-        if (c > 16 && root.show-parent-path) { return 16; }
-        if (c > 15 && root.show-full-path) { return 15; }
+        if (c > 55 && root.show-xxhash) { return 55; }
+        if (c > 54 && root.show-sha512) { return 54; }
+        if (c > 53 && root.show-sha384) { return 53; }
+        if (c > 52 && root.show-sha1) { return 52; }
         if (c > 51 && root.show-gps-long) { return 51; }
         if (c > 50 && root.show-gps-lat) { return 50; }
         if (c > 49 && root.show-date-taken) { return 49; }
@@ -2884,7 +2993,25 @@ export component AppWindow inherits Window {
         if (c > 34 && root.show-dimensions) { return 34; }
         if (c > 33 && root.show-height) { return 33; }
         if (c > 32 && root.show-width) { return 32; }
-        return c > 13 && root.show-ext-freq ? 13
+        if (c > 31 && root.show-owner) { return 31; }
+        if (c > 30 && root.show-shortcut-target) { return 30; }
+        if (c > 29 && root.show-hard-links) { return 29; }
+        if (c > 28 && root.show-folder-depth) { return 28; }
+        if (c > 27 && root.show-desc-folders) { return 27; }
+        if (c > 26 && root.show-desc-files) { return 26; }
+        if (c > 25 && root.show-desc-count) { return 25; }
+        if (c > 24 && root.show-child-folders) { return 24; }
+        if (c > 23 && root.show-child-files) { return 23; }
+        if (c > 22 && root.show-child-count) { return 22; }
+        if (c > 21 && root.show-total-size) { return 21; }
+        if (c > 20 && root.show-disk-size) { return 20; }
+        if (c > 19 && root.show-path-length) { return 19; }
+        if (c > 18 && root.show-name-length) { return 18; }
+        if (c > 17 && root.show-stem) { return 17; }
+        if (c > 16 && root.show-parent-path) { return 16; }
+        if (c > 15 && root.show-full-path) { return 15; }
+        return c > 14 && root.show-size-freq ? 14
+            : c > 13 && root.show-ext-freq ? 13
             : c > 12 && root.show-name-freq ? 12
             : c > 11 && root.show-crc32 ? 11
             : c > 10 && root.show-sha256 ? 10
@@ -2896,23 +3023,10 @@ export component AppWindow inherits Window {
 
     // The last shown column.
     function last-shown() -> int {
-        if (root.show-owner) { return 31; }
-        if (root.show-shortcut-target) { return 30; }
-        if (root.show-hard-links) { return 29; }
-        if (root.show-folder-depth) { return 28; }
-        if (root.show-desc-folders) { return 27; }
-        if (root.show-desc-files) { return 26; }
-        if (root.show-desc-count) { return 25; }
-        if (root.show-child-folders) { return 24; }
-        if (root.show-child-files) { return 23; }
-        if (root.show-child-count) { return 22; }
-        if (root.show-total-size) { return 21; }
-        if (root.show-disk-size) { return 20; }
-        if (root.show-path-length) { return 19; }
-        if (root.show-name-length) { return 18; }
-        if (root.show-stem) { return 17; }
-        if (root.show-parent-path) { return 16; }
-        if (root.show-full-path) { return 15; }
+        if (root.show-xxhash) { return 55; }
+        if (root.show-sha512) { return 54; }
+        if (root.show-sha384) { return 53; }
+        if (root.show-sha1) { return 52; }
         if (root.show-gps-long) { return 51; }
         if (root.show-gps-lat) { return 50; }
         if (root.show-date-taken) { return 49; }
@@ -2933,6 +3047,23 @@ export component AppWindow inherits Window {
         if (root.show-dimensions) { return 34; }
         if (root.show-height) { return 33; }
         if (root.show-width) { return 32; }
+        if (root.show-owner) { return 31; }
+        if (root.show-shortcut-target) { return 30; }
+        if (root.show-hard-links) { return 29; }
+        if (root.show-folder-depth) { return 28; }
+        if (root.show-desc-folders) { return 27; }
+        if (root.show-desc-files) { return 26; }
+        if (root.show-desc-count) { return 25; }
+        if (root.show-child-folders) { return 24; }
+        if (root.show-child-files) { return 23; }
+        if (root.show-child-count) { return 22; }
+        if (root.show-total-size) { return 21; }
+        if (root.show-disk-size) { return 20; }
+        if (root.show-path-length) { return 19; }
+        if (root.show-name-length) { return 18; }
+        if (root.show-stem) { return 17; }
+        if (root.show-parent-path) { return 16; }
+        if (root.show-full-path) { return 15; }
         return root.show-size-freq ? 14
             : root.show-ext-freq ? 13
             : root.show-name-freq ? 12
@@ -2961,7 +3092,7 @@ export component AppWindow inherits Window {
                 root.crc32-width,
                 root.name-freq-width,
                 root.ext-freq-width,
-                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width, root.width-width, root.height-width, root.dimensions-width, root.length-width, root.bit-rate-width, root.title-width, root.artist-width, root.album-width, root.year-width, root.track-width, root.genre-width, root.rating-width, root.tags-width, root.page-count-width, root.word-count-width, root.camera-maker-width, root.camera-model-width, root.date-taken-width, root.gps-lat-width, root.gps-long-width],
+                root.size-freq-width, root.full-path-width, root.parent-path-width, root.stem-width, root.name-length-width, root.path-length-width, root.disk-size-width, root.total-size-width, root.child-count-width, root.child-files-width, root.child-folders-width, root.desc-count-width, root.desc-files-width, root.desc-folders-width, root.folder-depth-width, root.hard-links-width, root.shortcut-target-width, root.owner-width, root.width-width, root.height-width, root.dimensions-width, root.length-width, root.bit-rate-width, root.title-width, root.artist-width, root.album-width, root.year-width, root.track-width, root.genre-width, root.rating-width, root.tags-width, root.page-count-width, root.word-count-width, root.camera-maker-width, root.camera-model-width, root.date-taken-width, root.gps-lat-width, root.gps-long-width, root.sha1-width, root.sha384-width, root.sha512-width, root.xxhash-width],
             mins: [root.name-min, root.folder-min, root.size-min, root.date-min, root.type-min,
                 root.ext-min, root.created-min, root.accessed-min, root.attr-min,
                 root.md5-min,
@@ -2969,7 +3100,7 @@ export component AppWindow inherits Window {
                 root.crc32-min,
                 root.name-freq-min,
                 root.ext-freq-min,
-                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min, root.width-min, root.height-min, root.dimensions-min, root.length-min, root.bit-rate-min, root.title-min, root.artist-min, root.album-min, root.year-min, root.track-min, root.genre-min, root.rating-min, root.tags-min, root.page-count-min, root.word-count-min, root.camera-maker-min, root.camera-model-min, root.date-taken-min, root.gps-lat-min, root.gps-long-min],
+                root.size-freq-min, root.full-path-min, root.parent-path-min, root.stem-min, root.name-length-min, root.path-length-min, root.disk-size-min, root.total-size-min, root.child-count-min, root.child-files-min, root.child-folders-min, root.desc-count-min, root.desc-files-min, root.desc-folders-min, root.folder-depth-min, root.hard-links-min, root.shortcut-target-min, root.owner-min, root.width-min, root.height-min, root.dimensions-min, root.length-min, root.bit-rate-min, root.title-min, root.artist-min, root.album-min, root.year-min, root.track-min, root.genre-min, root.rating-min, root.tags-min, root.page-count-min, root.word-count-min, root.camera-maker-min, root.camera-model-min, root.date-taken-min, root.gps-lat-min, root.gps-long-min, root.sha1-min, root.sha384-min, root.sha512-min, root.xxhash-min],
             window: list.visible-width,
             folder-want: root.folder-want,
         }, left, right, delta);
@@ -3087,6 +3218,10 @@ export component AppWindow inherits Window {
         { title: @tr("Date taken"), column: 49, checked: root.show-date-taken, enabled: true },
         { title: @tr("GPS latitude"), column: 50, checked: root.show-gps-lat, enabled: true },
         { title: @tr("GPS longitude"), column: 51, checked: root.show-gps-long, enabled: true },
+        { title: @tr("SHA-1"), column: 52, checked: root.show-sha1, enabled: true },
+        { title: @tr("SHA-384"), column: 53, checked: root.show-sha384, enabled: true },
+        { title: @tr("SHA-512"), column: 54, checked: root.show-sha512, enabled: true },
+        { title: @tr("xxHash (XXH3-128)"), column: 55, checked: root.show-xxhash, enabled: true },
     ];
 
     // Shows or hides optional column c (4 to 14).
@@ -3128,6 +3263,10 @@ export component AppWindow inherits Window {
         if (c == 49) { root.show-date-taken = on; root.column-shown(c, on); return; }
         if (c == 50) { root.show-gps-lat = on; root.column-shown(c, on); return; }
         if (c == 51) { root.show-gps-long = on; root.column-shown(c, on); return; }
+        if (c == 52) { root.show-sha1 = on; root.column-shown(c, on); return; }
+        if (c == 53) { root.show-sha384 = on; root.column-shown(c, on); return; }
+        if (c == 54) { root.show-sha512 = on; root.column-shown(c, on); return; }
+        if (c == 55) { root.show-xxhash = on; root.column-shown(c, on); return; }
         if (c == 4) { root.show-type = on; }
         else if (c == 5) { root.show-ext = on; }
         else if (c == 6) { root.show-created = on; }
@@ -3211,6 +3350,10 @@ export component AppWindow inherits Window {
         root.show-date-taken = false; root.date-taken-want = 160px;
         root.show-gps-lat = false; root.gps-lat-want = 160px;
         root.show-gps-long = false; root.gps-long-want = 160px;
+        root.show-sha1 = false; root.sha1-want = 220px;
+        root.show-sha384 = false; root.sha384-want = 430px;
+        root.show-sha512 = false; root.sha512-want = 570px;
+        root.show-xxhash = false; root.xxhash-want = 270px;
         root.size-want = 96px;
         root.date-want = 120px;
         root.type-want = 130px;
@@ -3509,6 +3652,14 @@ export component AppWindow inherits Window {
             root.set-column-shown(50, !root.col-shown(50));
         } else if (c == Command.gps-long-column) {
             root.set-column-shown(51, !root.col-shown(51));
+        } else if (c == Command.sha1-column) {
+            root.set-column-shown(52, !root.col-shown(52));
+        } else if (c == Command.sha384-column) {
+            root.set-column-shown(53, !root.col-shown(53));
+        } else if (c == Command.sha512-column) {
+            root.set-column-shown(54, !root.col-shown(54));
+        } else if (c == Command.xxhash-column) {
+            root.set-column-shown(55, !root.col-shown(55));
         } else if (c == Command.selection-details) {
             root.status-details = !root.status-details;
             root.toggled(c);
@@ -3722,6 +3873,9 @@ export component AppWindow inherits Window {
         { title: @tr("Same name"), column: 12, checked: root.sort-column == 12, enabled: root.show-name-freq },
         { title: @tr("Same extension"), column: 13, checked: root.sort-column == 13, enabled: root.show-ext-freq },
         { title: @tr("Same size"), column: 14, checked: root.sort-column == 14, enabled: root.show-size-freq },
+        { title: @tr("MD5"), column: 9, checked: root.sort-column == 9, enabled: root.show-md5 },
+        { title: @tr("SHA-256"), column: 10, checked: root.sort-column == 10, enabled: root.show-sha256 },
+        { title: @tr("CRC-32"), column: 11, checked: root.sort-column == 11, enabled: root.show-crc32 },
         { title: @tr("Full path"), column: 15, checked: root.sort-column == 15, enabled: root.show-full-path },
         { title: @tr("Parent path"), column: 16, checked: root.sort-column == 16, enabled: root.show-parent-path },
         { title: @tr("Stem"), column: 17, checked: root.sort-column == 17, enabled: root.show-stem },
@@ -3759,6 +3913,10 @@ export component AppWindow inherits Window {
         { title: @tr("Date taken"), column: 49, checked: root.sort-column == 49, enabled: root.show-date-taken },
         { title: @tr("GPS latitude"), column: 50, checked: root.sort-column == 50, enabled: root.show-gps-lat },
         { title: @tr("GPS longitude"), column: 51, checked: root.sort-column == 51, enabled: root.show-gps-long },
+        { title: @tr("SHA-1"), column: 52, checked: root.sort-column == 52, enabled: root.show-sha1 },
+        { title: @tr("SHA-384"), column: 53, checked: root.sort-column == 53, enabled: root.show-sha384 },
+        { title: @tr("SHA-512"), column: 54, checked: root.sort-column == 54, enabled: root.show-sha512 },
+        { title: @tr("xxHash (XXH3-128)"), column: 55, checked: root.sort-column == 55, enabled: root.show-xxhash },
     ];
     property <[MenuChoice]> sort-order-items: [
         { title: @tr("Ascending"), checked: !root.sort-descending },
@@ -4347,6 +4505,8 @@ export component AppWindow inherits Window {
                                     width: root.md5-width;
                                     height: parent.height;
                                     label: @tr("MD5");
+                                    sorted: root.sort-column == 9; descending: root.sort-descending;
+                                    clicked => { root.sort-by(9); }
                                     right-pressed(x, y) => {
                                         root.menu-column = 9;
                                         header-menu.show({ x: self.x + x, y: y });
@@ -4357,6 +4517,8 @@ export component AppWindow inherits Window {
                                     width: root.sha256-width;
                                     height: parent.height;
                                     label: @tr("SHA-256");
+                                    sorted: root.sort-column == 10; descending: root.sort-descending;
+                                    clicked => { root.sort-by(10); }
                                     right-pressed(x, y) => {
                                         root.menu-column = 10;
                                         header-menu.show({ x: self.x + x, y: y });
@@ -4367,6 +4529,8 @@ export component AppWindow inherits Window {
                                     width: root.crc32-width;
                                     height: parent.height;
                                     label: @tr("CRC-32");
+                                    sorted: root.sort-column == 11; descending: root.sort-descending;
+                                    clicked => { root.sort-by(11); }
                                     right-pressed(x, y) => {
                                         root.menu-column = 11;
                                         header-menu.show({ x: self.x + x, y: y });
@@ -4670,6 +4834,34 @@ export component AppWindow inherits Window {
                                     clicked => { root.sort-by(51); }
                                     right-pressed(x, y) => { root.menu-column = 51; header-menu.show({ x: self.x + x, y: y }); }
                                 }
+                                if root.show-sha1: HeaderCell {
+                                    x: root.sha1-x; width: root.sha1-width; height: parent.height;
+                                    label: @tr("SHA-1");
+                                    sorted: root.sort-column == 52; descending: root.sort-descending;
+                                    clicked => { root.sort-by(52); }
+                                    right-pressed(x, y) => { root.menu-column = 52; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-sha384: HeaderCell {
+                                    x: root.sha384-x; width: root.sha384-width; height: parent.height;
+                                    label: @tr("SHA-384");
+                                    sorted: root.sort-column == 53; descending: root.sort-descending;
+                                    clicked => { root.sort-by(53); }
+                                    right-pressed(x, y) => { root.menu-column = 53; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-sha512: HeaderCell {
+                                    x: root.sha512-x; width: root.sha512-width; height: parent.height;
+                                    label: @tr("SHA-512");
+                                    sorted: root.sort-column == 54; descending: root.sort-descending;
+                                    clicked => { root.sort-by(54); }
+                                    right-pressed(x, y) => { root.menu-column = 54; header-menu.show({ x: self.x + x, y: y }); }
+                                }
+                                if root.show-xxhash: HeaderCell {
+                                    x: root.xxhash-x; width: root.xxhash-width; height: parent.height;
+                                    label: @tr("xxHash (XXH3-128)");
+                                    sorted: root.sort-column == 55; descending: root.sort-descending;
+                                    clicked => { root.sort-by(55); }
+                                    right-pressed(x, y) => { root.menu-column = 55; header-menu.show({ x: self.x + x, y: y }); }
+                                }
                             }
                             // Boundary grips, on top of the cells.
                             // A double-click on a grip sizes the column on its left to fit.
@@ -4943,6 +5135,26 @@ export component AppWindow inherits Window {
                                 dragged(d) => { root.drag-boundary(51, d); }
                                 fit => { root.fit-column(root.left-of(51)); }
                             }
+                            if root.show-sha1: ColumnGrip {
+                                x: root.sha1-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(52, d); }
+                                fit => { root.fit-column(root.left-of(52)); }
+                            }
+                            if root.show-sha384: ColumnGrip {
+                                x: root.sha384-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(53, d); }
+                                fit => { root.fit-column(root.left-of(53)); }
+                            }
+                            if root.show-sha512: ColumnGrip {
+                                x: root.sha512-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(54, d); }
+                                fit => { root.fit-column(root.left-of(54)); }
+                            }
+                            if root.show-xxhash: ColumnGrip {
+                                x: root.xxhash-x - self.width / 2; height: parent.height;
+                                dragged(d) => { root.drag-boundary(55, d); }
+                                fit => { root.fit-column(root.left-of(55)); }
+                            }
                             // The right edge of the last column: dragged to the right, the
                             // columns get wider than the window.
                             ColumnGrip {
@@ -5028,6 +5240,10 @@ export component AppWindow inherits Window {
                             // search and copy variants are grouped so that the
                             // menu fits a laptop screen (popups cannot scroll).
                             Menu {
+                                if root.hash-value != "": MenuItem {
+                                    title: @tr("Copy hash value");
+                                    activated => { root.copy-text(root.hash-value); }
+                                }
                                 if root.value-available: MenuItem {
                                     title: root.value-column == 3 || root.value-column == 6 || root.value-column == 7 ? @tr("Search this day") : @tr("Search this value");
                                     enabled: root.can-run(Command.search-property-value);
@@ -5299,6 +5515,10 @@ export component AppWindow inherits Window {
                                 date-taken-width: root.date-taken-width;
                                 gps-lat-width: root.gps-lat-width;
                                 gps-long-width: root.gps-long-width;
+                                sha1-width: root.sha1-width;
+                                sha384-width: root.sha384-width;
+                                sha512-width: root.sha512-width;
+                                xxhash-width: root.xxhash-width;
                                 pressed(mods) => {
                                     root.jump-reset();
                                     root.current = i;
@@ -5323,6 +5543,7 @@ export component AppWindow inherits Window {
                                 right-pressed(x, y, column) => {
                                     root.jump-reset();
                                     root.current = i;
+                                    root.hash-value = column == 9 ? row.md5 : column == 10 ? row.sha256 : column == 11 ? row.crc32 : column == 52 ? row.sha1 : column == 53 ? row.sha384 : column == 54 ? row.sha512 : column == 55 ? row.xxhash : "";
                                     root.value-column = column;
                                     root.value-available = root.fileops-prepare-value(i, column);
                                     keys.focus();

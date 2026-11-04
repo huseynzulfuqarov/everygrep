@@ -46,7 +46,7 @@ use everygrep_core::scan::{
     ScanOptions, Source, normalize_roots, scan_with_progress, update_with_progress,
 };
 use everygrep_core::search::{Staged, search_staged, search_with_progress};
-use everygrep_core::sort::{DetailCache, MediaValues, Sort, sort_cached};
+use everygrep_core::sort::{DetailCache, FileValues, Sort, SortKey, sort_cached};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::sync::{folders_below, resume_scan};
 use everygrep_core::watch::Watcher;
@@ -1837,7 +1837,7 @@ impl Engine {
         sort: Sort,
         threads: usize,
         progress: &Progress,
-        media: Option<MediaValues>,
+        media: Option<FileValues>,
     ) -> Result<(), progress::Cancelled> {
         if self.frequency_columns.load(Ordering::SeqCst) {
             // The rows read the counts built last; build them while the
@@ -1851,9 +1851,15 @@ impl Engine {
         } else {
             details.clear();
         }
+        let (media, hashes) = match media {
+            Some(values) => (Some(values.media), Some(values.hashes)),
+            None => (None, None),
+        };
         details.set_media(media);
+        details.set_hashes(hashes);
         let sorted = sort_cached(index, ids, sort, threads, progress, &mut details);
         details.set_media(None);
+        details.set_hashes(None);
         sorted
     }
 
@@ -1872,10 +1878,23 @@ impl Engine {
         epoch: u64,
         progress: &Progress,
         counted: bool,
-    ) -> Result<(std::sync::RwLockReadGuard<'a, Index>, Option<MediaValues>), progress::Cancelled>
+    ) -> Result<(std::sync::RwLockReadGuard<'a, Index>, Option<FileValues>), progress::Cancelled>
     {
         let wanted = sort.media_properties();
-        if wanted.is_empty() {
+        let mut hashes = everygrep_core::hash::Wanted::default();
+        for (key, _) in sort.keys() {
+            if let SortKey::Hash(algorithm) = key {
+                let w = algorithm.wanted();
+                hashes.md5 |= w.md5;
+                hashes.sha1 |= w.sha1;
+                hashes.sha256 |= w.sha256;
+                hashes.sha384 |= w.sha384;
+                hashes.sha512 |= w.sha512;
+                hashes.crc32 |= w.crc32;
+                hashes.full |= w.full;
+            }
+        }
+        if wanted.is_empty() && !hashes.any() {
             return Ok((index, None));
         }
         let store = index.store();
@@ -1888,10 +1907,25 @@ impl Engine {
         if counted {
             progress.restart(Some(files.len() as u64));
         }
-        let mut values = MediaValues::with_capacity(files.len());
+        let mut values = FileValues::default();
         for (id, path) in files {
             progress.check()?;
-            values.insert(id, self.properties.read(&path, &wanted, progress));
+            if !wanted.is_empty() {
+                values
+                    .media
+                    .insert(id, self.properties.read(&path, &wanted, progress));
+            }
+            if hashes.any() {
+                let found = everygrep_core::hash::read_cached(
+                    &path,
+                    hashes,
+                    Some(self.hashes.cache()),
+                    progress,
+                )
+                .unwrap_or_default();
+                progress.check()?;
+                values.hashes.insert(id, found);
+            }
             if counted {
                 progress.add(1);
             }
@@ -3908,6 +3942,112 @@ mod tests {
         );
         assert_eq!(progress.total(), None, "no media pass was started");
         assert_eq!(after.then1, -1);
+    }
+
+    #[test]
+    fn hash_sort_uses_shared_cache_prepared_values_and_both_directions() {
+        use everygrep_core::hash::Algorithm;
+        let dir = Scratch::new("hash-sort");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        for (name, bytes) in [("a", b"abc".as_slice()), ("b", b""), ("c", b"abc")] {
+            fs::write(root.join(name), bytes).unwrap();
+        }
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let engine = &probe.engine;
+        let index = engine.index.read().unwrap();
+        let original: Vec<_> = ["a", "b", "c"]
+            .map(|n| find(&index, &root.join(n)).unwrap())
+            .into();
+        drop(index);
+        for algorithm in Algorithm::ALL {
+            let sort = Sort {
+                key: SortKey::Hash(algorithm),
+                ..Sort::default()
+            };
+            let p = Progress::new();
+            let (index, values) = engine
+                .media_for_sort(
+                    engine.index.read().unwrap(),
+                    &original,
+                    sort,
+                    engine.epoch(),
+                    &p,
+                    true,
+                )
+                .unwrap();
+            let values = values.unwrap();
+            assert_eq!(values.hashes.len(), 3);
+            let mut expected = original.clone();
+            expected.sort_by_key(|id| algorithm.bytes(&values.hashes[id]));
+            // Remove the files after preparing keys: sorting itself must read no file.
+            for n in ["a", "b", "c"] {
+                fs::remove_file(root.join(n)).unwrap();
+            }
+            let mut ids = original.clone();
+            engine
+                .sort(&index, &mut ids, sort, 1, &Progress::new(), Some(values))
+                .unwrap();
+            assert_eq!(ids, expected);
+            drop(index);
+            for (n, bytes) in [("a", b"abc".as_slice()), ("b", b""), ("c", b"abc")] {
+                fs::write(root.join(n), bytes).unwrap();
+            }
+            let descending = Sort {
+                descending: true,
+                ..sort
+            };
+            let (index, values) = engine
+                .media_for_sort(
+                    engine.index.read().unwrap(),
+                    &original,
+                    descending,
+                    engine.epoch(),
+                    &Progress::new(),
+                    true,
+                )
+                .unwrap();
+            let mut ids = original.clone();
+            let values = values.unwrap();
+            // Equal digests retain ascending names, even in descending order.
+            expected.sort_by(|a, b| {
+                algorithm
+                    .bytes(&values.hashes[b])
+                    .cmp(&algorithm.bytes(&values.hashes[a]))
+                    .then_with(|| index.store().name(*a).cmp(index.store().name(*b)))
+            });
+            engine
+                .sort(
+                    &index,
+                    &mut ids,
+                    descending,
+                    1,
+                    &Progress::new(),
+                    Some(values),
+                )
+                .unwrap();
+            assert_eq!(ids, expected);
+        }
+        let p = Progress::new();
+        p.cancel();
+        let sort = Sort {
+            key: SortKey::Hash(Algorithm::Sha512),
+            ..Sort::default()
+        };
+        assert!(
+            engine
+                .media_for_sort(
+                    engine.index.read().unwrap(),
+                    &original,
+                    sort,
+                    engine.epoch(),
+                    &p,
+                    true
+                )
+                .is_err()
+        );
+        engine.shutdown();
     }
 
     #[test]

@@ -1019,6 +1019,11 @@ impl ResultsModel {
                 12 => d.name_freq.into(),
                 13 => d.ext_freq.into(),
                 14 => d.size_freq.into(),
+                52 => d.sha1.into(),
+                53 => d.sha384.into(),
+                54 => d.sha512.into(),
+                55 => d.xxhash.into(),
+
                 c => d
                     .properties
                     .row_data((c - 15) as usize)
@@ -1273,6 +1278,13 @@ impl Model for ResultsModel {
             crc32: hex(
                 hash_columns.crc32,
                 hashes.crc32.map(u32::to_be_bytes).as_ref().map(|h| &h[..]),
+            ),
+            sha1: hex(hash_columns.sha1, hashes.sha1.as_ref().map(|h| &h[..])),
+            sha384: hex(hash_columns.sha384, hashes.sha384.as_ref().map(|h| &h[..])),
+            sha512: hex(hash_columns.sha512, hashes.sha512.as_ref().map(|h| &h[..])),
+            xxhash: hex(
+                hash_columns.xxhash,
+                hashes.full.map(u128::to_be_bytes).as_ref().map(|h| &h[..]),
             ),
             name_freq: count(shown.name, freq.as_ref().map(|f| f.name(id))),
             ext_freq: count(shown.extension, freq.as_ref().map(|f| f.extension(id))),

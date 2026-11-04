@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use everygrep_core::hash::{self, HashError, Wanted};
+use everygrep_core::hash::{self, Wanted};
 use everygrep_core::hashcache::Cached;
 use everygrep_core::progress::Progress;
 use everygrep_core::store::NodeId;
@@ -27,12 +27,16 @@ use crate::hashes::HashStore;
 pub struct HashColumns {
     pub md5: bool,
     pub sha256: bool,
+    pub sha1: bool,
+    pub sha384: bool,
+    pub sha512: bool,
+    pub xxhash: bool,
     pub crc32: bool,
 }
 
 impl HashColumns {
     pub fn any(self) -> bool {
-        self.md5 || self.sha256 || self.crc32
+        self.wanted().any()
     }
 
     fn wanted(self) -> Wanted {
@@ -40,15 +44,11 @@ impl HashColumns {
             md5: self.md5,
             sha256: self.sha256,
             crc32: self.crc32,
-            full: false,
+            sha1: self.sha1,
+            sha384: self.sha384,
+            sha512: self.sha512,
+            full: self.xxhash,
         }
-    }
-
-    /// Whether `hashes` has every hash these columns show.
-    pub fn covered_by(self, hashes: &Cached) -> bool {
-        (!self.md5 || hashes.md5.is_some())
-            && (!self.sha256 || hashes.sha256.is_some())
-            && (!self.crc32 || hashes.crc32.is_some())
     }
 }
 
@@ -159,26 +159,7 @@ impl HashReader {
 fn hashes_of(store: &HashStore, r: &HashRequest, progress: &Progress) -> Option<Cached> {
     #[cfg(test)]
     tests::slow_down(&r.path);
-    let mut file = hash::open(&r.path).ok()?;
-    let key = file.key;
-    let known = store.cache().lock().expect("hash cache").get(&key);
-    if let Some(known) = known.filter(|k| r.columns.covered_by(k)) {
-        return Some(known);
-    }
-    let read = match hash::hash_file(&mut file, r.columns.wanted(), progress) {
-        Ok(read) => read,
-        Err(HashError::Cancelled | HashError::NotAFile | HashError::Unreadable) => return None,
-    };
-    let known = known.unwrap_or_default();
-    let hashes = Cached {
-        md5: read.md5.or(known.md5),
-        sha256: read.sha256.or(known.sha256),
-        crc32: read.crc32.or(known.crc32),
-        ..known
-    };
-    let mut cache = store.cache().lock().expect("hash cache");
-    cache.put(key, &hashes);
-    Some(hashes)
+    hash::read_cached(&r.path, r.columns.wanted(), Some(store.cache()), progress).ok()
 }
 
 #[cfg(test)]
@@ -226,6 +207,10 @@ pub(crate) mod tests {
             md5: true,
             sha256: true,
             crc32: true,
+            sha1: true,
+            sha384: true,
+            sha512: true,
+            xxhash: true,
         };
         let found = hashes_of(&store, &request(0, 0, path, 3, columns), &Progress::new())
             .expect("computed values");
@@ -238,6 +223,12 @@ pub(crate) mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(found.crc32, Some(0x3524_41C2));
+        assert_eq!(
+            hash::hex(&found.sha1.unwrap()),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert!(found.sha384.is_some() && found.sha512.is_some());
+        assert_eq!(found.full, Some(0x06b05ab6733a618578af5f94892f3950));
         assert!(store.cache().lock().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -255,9 +246,13 @@ pub(crate) mod tests {
         let (tx, rx) = mpsc::channel();
         let reader = HashReader::start(Arc::clone(&store), move |b| tx.send(b).unwrap());
         let cols = HashColumns {
+            sha256: false,
             md5: true,
             crc32: true,
-            ..HashColumns::default()
+            sha1: true,
+            sha384: true,
+            sha512: true,
+            xxhash: true,
         };
         // Hold the thread on a slow file so both requests queue up.
         let slow = dir.join("slow");
