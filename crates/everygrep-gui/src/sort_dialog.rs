@@ -56,6 +56,23 @@ pub fn reset_columns_sort(mut columns: crate::ColumnSort) -> crate::ColumnSort {
     columns
 }
 
+/// A plain column selection toggles the current primary, or starts a new one.
+pub fn single_column_sort(
+    mut columns: crate::ColumnSort,
+    column: i32,
+    first_descending: bool,
+) -> crate::ColumnSort {
+    if columns.column == column {
+        columns.descending = !columns.descending;
+    } else {
+        columns.column = column;
+        columns.descending = first_descending;
+    }
+    columns.then1 = -1;
+    columns.then2 = -1;
+    columns
+}
+
 /// The keys of secondary and tertiary columns; -1 and columns that do not
 /// sort are none.
 fn then_keys(
@@ -158,6 +175,33 @@ mod tests {
             (after.column, after.descending, after.then1, after.then2),
             (0, false, -1, -1)
         );
+    }
+
+    #[test]
+    fn a_plain_column_selection_clears_tie_breakers_even_for_the_current_primary() {
+        for descending in [false, true] {
+            let before = crate::ColumnSort {
+                column: 2,
+                descending,
+                then1: 3,
+                then1_descending: true,
+                then2: everygrep_core::property::Property::Width.column(),
+                then2_descending: false,
+            };
+            let after = single_column_sort(before.clone(), 2, true);
+            assert_eq!((after.column, after.descending), (2, !descending));
+            assert_eq!((after.then1, after.then2), (-1, -1));
+            assert!(
+                sort_from_columns(&after, FolderSize::default())
+                    .media_properties()
+                    .is_empty()
+            );
+            let other = single_column_sort(before, 3, true);
+            assert_eq!(
+                (other.column, other.descending, other.then1, other.then2),
+                (3, true, -1, -1)
+            );
+        }
     }
 
     #[test]

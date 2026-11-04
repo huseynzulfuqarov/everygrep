@@ -1591,6 +1591,7 @@ export component AppWindow inherits Window {
     in-out property <[bool]> advanced-sort-descending: [false, false, false];
     callback advanced-sort-opening();
     pure callback reset-sort-columns(ColumnSort) -> ColumnSort;
+    pure callback single-column-sort(ColumnSort, int, bool) -> ColumnSort;
 
     // Matching modes and the filter; options-changed() runs the query again.
     in-out property <bool> match-case <=> search.match-case;
@@ -3791,13 +3792,17 @@ export component AppWindow inherits Window {
     // A click on the sorted column flips the direction; another column starts
     // ascending, or descending for dates and sizes when the settings say so.
     function sort-by(column: int) {
-        if (root.sort-column == column) {
-            root.sort-descending = !root.sort-descending;
-        } else {
-            root.clear-then-sort();
-            root.sort-column = column;
-            root.sort-descending = root.first-descending(column);
-        }
+        let next = root.single-column-sort({
+            column: root.sort-column, descending: root.sort-descending,
+            then1: root.sort-then1-column, then1-descending: root.sort-then1-descending,
+            then2: root.sort-then2-column, then2-descending: root.sort-then2-descending,
+        }, column, root.first-descending(column));
+        root.sort-column = next.column;
+        root.sort-descending = next.descending;
+        root.sort-then1-column = next.then1;
+        root.sort-then1-descending = next.then1-descending;
+        root.sort-then2-column = next.then2;
+        root.sort-then2-descending = next.then2-descending;
         root.current = root.results.length > 0 ? 0 : -1;
         list.content-y = 0;
         root.sort-changed(root.sort-column, root.sort-descending);
