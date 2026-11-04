@@ -180,6 +180,8 @@ export component SettingsWindow inherits Window {
     // File lists: entries of disks that are not connected.
     in property <[FileListRow]> file-lists;
     in-out property <bool> hide-offline;
+    in-out property <bool> reload-changed-lists;
+    callback reload-changed-lists-changed(bool);
     callback add-file-list();
     callback create-file-list();
     callback reload-file-lists();
@@ -703,6 +705,11 @@ export component SettingsWindow inherits Window {
                                     text: @tr("Hide entries of drives and file lists that are not connected");
                                     checked <=> root.hide-offline;
                                     toggled => { root.hide-offline-changed(self.checked); }
+                                }
+                                CheckBox {
+                                    text: @tr("Read a file list again when its file changes");
+                                    checked <=> root.reload-changed-lists;
+                                    toggled => { root.reload-changed-lists-changed(self.checked); }
                                 }
                                 for list[i] in root.file-lists: Rectangle {
                                     border-radius: Theme.radius;

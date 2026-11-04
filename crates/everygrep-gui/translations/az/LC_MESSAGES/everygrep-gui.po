@@ -5099,3 +5099,96 @@ msgstr "Boş qovluqlar (0 bayt)"
 
 msgid "Duplicate photos"
 msgstr "Təkrar fotolar"
+
+msgid "All entries of a file list must be in one folder other than /."
+msgstr "Fayl siyahısındakı bütün qeydlər / xaricində bir qovluqda olmalıdır."
+
+msgid "The file list would be too long."
+msgstr "Fayl siyahısı çox uzun olardı."
+
+msgid "The file list is empty."
+msgstr "Fayl siyahısı boşdur."
+
+msgid "The target is a link or not a regular file; choose another name."
+msgstr "Hədəf keçiddir və ya adi fayl deyil; başqa ad seçin."
+
+msgid "Not a folder."
+msgstr "Qovluq deyil."
+
+msgid "New file list"
+msgstr "Yeni fayl siyahısı"
+
+msgid "File list editor"
+msgstr "Fayl siyahısı redaktoru"
+
+msgid "File list editor…"
+msgstr "Fayl siyahısı redaktoru…"
+
+msgid "Add folder…"
+msgstr "Qovluq əlavə et…"
+
+msgid "Add file…"
+msgstr "Fayl əlavə et…"
+
+msgid "Remove duplicates"
+msgstr "Təkrarları sil"
+
+msgid "Calculate folder sizes"
+msgstr "Qovluq ölçülərini hesabla"
+
+msgid "Entries"
+msgstr "Qeydlər"
+
+msgid "Discard changes"
+msgstr "Dəyişiklikləri at"
+
+msgid "Replace"
+msgstr "Əvəz et"
+
+msgid "Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+W work in this window."
+msgstr "Ctrl+N, Ctrl+O, Ctrl+S və Ctrl+W bu pəncərədə işləyir."
+
+msgid "Removed {} entries."
+msgstr "{} qeyd silindi."
+
+msgid "Removed {} duplicate entries."
+msgstr "{} təkrar qeyd silindi."
+
+msgid "Empty list. Add a folder or files."
+msgstr "Siyahı boşdur. Qovluq və ya fayl əlavə edin."
+
+msgid "Folder of the list: {}"
+msgstr "Siyahının qovluğu: {}"
+
+msgid "The list has unsaved changes. Discard them?"
+msgstr "Siyahıda saxlanmamış dəyişikliklər var. Atılsın?"
+
+msgid "Open a file list"
+msgstr "Fayl siyahısını aç"
+
+msgid "Cannot open the file list: {}"
+msgstr "Fayl siyahısını açmaq olmur: {}"
+
+msgid "Add a folder to the file list"
+msgstr "Fayl siyahısına qovluq əlavə et"
+
+msgid "Cannot add {}: {}"
+msgstr "{} əlavə etmək olmur: {}"
+
+msgid "Add a file to the file list"
+msgstr "Fayl siyahısına fayl əlavə et"
+
+msgid "Added {} entries."
+msgstr "{} qeyd əlavə edildi."
+
+msgid "{} changed on disk since it was opened. Replace it with this list?"
+msgstr "{} açıldıqdan sonra diskdə dəyişib. Bu siyahı ilə əvəz edilsin?"
+
+msgid "Read a file list again when its file changes"
+msgstr "Faylı dəyişəndə fayl siyahısını yenidən oxu"
+
+msgid "Open…"
+msgstr "Aç…"
+
+msgid "Save as…"
+msgstr "Fərqli saxla…"

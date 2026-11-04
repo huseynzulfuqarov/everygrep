@@ -7324,6 +7324,45 @@ mod tests {
     }
 
     #[test]
+    fn a_changed_list_file_is_noticed_and_read_again() {
+        let dir = Scratch::new("list-reload-changed");
+        let probe = idle_lists(&dir);
+        let e = &probe.engine;
+        let root = dir.0.join("disk");
+        let path = dir.0.join("a.eglist");
+        write_test_list(&path, &root, "a.txt");
+        e.set_file_lists(&[list_setting(&path, true)]);
+        assert!(e.sync_file_lists());
+        assert!(!e.reload_changed_file_lists());
+        // A different modification time, as an editor's save gives.
+        write_test_list(&path, &root, "b.txt");
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        assert!(e.reload_changed_file_lists());
+        assert!(e.sync_file_lists());
+        let index = e.index.read().unwrap();
+        assert!(find(&index, &root.join("b.txt")).is_some());
+        assert!(find(&index, &root.join("a.txt")).is_none());
+        drop(index);
+        assert!(!e.reload_changed_file_lists());
+        // Turned off lists are not looked at.
+        e.set_file_lists(&[list_setting(&path, false)]);
+        e.sync_file_lists();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(later + std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(!e.reload_changed_file_lists());
+    }
+
+    #[test]
     fn list_priority_changes_remove_later_grafts_before_adding_the_winner() {
         let dir = Scratch::new("list-priority");
         let probe = idle_lists(&dir);

@@ -5099,3 +5099,96 @@ msgstr "Boş klasörler (0 bayt)"
 
 msgid "Duplicate photos"
 msgstr "Yinelenen fotoğraflar"
+
+msgid "All entries of a file list must be in one folder other than /."
+msgstr "Dosya listesindeki tüm kayıtlar / dışında tek bir klasörde olmalı."
+
+msgid "The file list would be too long."
+msgstr "Dosya listesi çok uzun olurdu."
+
+msgid "The file list is empty."
+msgstr "Dosya listesi boş."
+
+msgid "The target is a link or not a regular file; choose another name."
+msgstr "Hedef bir bağlantı veya normal dosya değil; başka bir ad seçin."
+
+msgid "Not a folder."
+msgstr "Klasör değil."
+
+msgid "New file list"
+msgstr "Yeni dosya listesi"
+
+msgid "File list editor"
+msgstr "Dosya listesi düzenleyicisi"
+
+msgid "File list editor…"
+msgstr "Dosya listesi düzenleyicisi…"
+
+msgid "Add folder…"
+msgstr "Klasör ekle…"
+
+msgid "Add file…"
+msgstr "Dosya ekle…"
+
+msgid "Remove duplicates"
+msgstr "Yinelenenleri kaldır"
+
+msgid "Calculate folder sizes"
+msgstr "Klasör boyutlarını hesapla"
+
+msgid "Entries"
+msgstr "Kayıtlar"
+
+msgid "Discard changes"
+msgstr "Değişiklikleri at"
+
+msgid "Replace"
+msgstr "Değiştir"
+
+msgid "Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+W work in this window."
+msgstr "Ctrl+N, Ctrl+O, Ctrl+S ve Ctrl+W bu pencerede çalışır."
+
+msgid "Removed {} entries."
+msgstr "{} kayıt kaldırıldı."
+
+msgid "Removed {} duplicate entries."
+msgstr "{} yinelenen kayıt kaldırıldı."
+
+msgid "Empty list. Add a folder or files."
+msgstr "Liste boş. Klasör veya dosya ekleyin."
+
+msgid "Folder of the list: {}"
+msgstr "Listenin klasörü: {}"
+
+msgid "The list has unsaved changes. Discard them?"
+msgstr "Listede kaydedilmemiş değişiklikler var. Atılsın mı?"
+
+msgid "Open a file list"
+msgstr "Dosya listesi aç"
+
+msgid "Cannot open the file list: {}"
+msgstr "Dosya listesi açılamıyor: {}"
+
+msgid "Add a folder to the file list"
+msgstr "Dosya listesine klasör ekle"
+
+msgid "Cannot add {}: {}"
+msgstr "{} eklenemiyor: {}"
+
+msgid "Add a file to the file list"
+msgstr "Dosya listesine dosya ekle"
+
+msgid "Added {} entries."
+msgstr "{} kayıt eklendi."
+
+msgid "{} changed on disk since it was opened. Replace it with this list?"
+msgstr "{} açıldıktan sonra diskte değişti. Bu listeyle değiştirilsin mi?"
+
+msgid "Read a file list again when its file changes"
+msgstr "Dosyası değişince dosya listesini yeniden oku"
+
+msgid "Open…"
+msgstr "Aç…"
+
+msgid "Save as…"
+msgstr "Farklı kaydet…"

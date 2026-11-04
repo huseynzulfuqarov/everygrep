@@ -15,6 +15,8 @@ mod diagnostics;
 mod engine;
 mod export;
 mod file_properties;
+mod filelist_editor;
+mod filelist_editor_ui;
 mod fileops_bulk;
 mod fileops_conflict;
 mod fileops_drop;
@@ -339,6 +341,12 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     saved_ui::connect(&window, &engine);
     scope_ui::connect(&window, &engine, settings.scope_selector);
+    // A file list whose file changed (an editor saved it) is read again;
+    // only a stat per list, every few seconds (switchable in Settings).
+    let list_timer = Timer::default();
+    list_timer.start(TimerMode::Repeated, LIST_CHECK_EVERY, || {
+        prefs::with(|p| p.check_file_lists());
+    });
     advanced::connect(&window);
     name_list_ui::connect(&window);
     largest_folders::connect(&window, &engine);
@@ -799,6 +807,9 @@ fn main() -> Result<(), slint::PlatformError> {
 }
 
 /// Arguments that open another window over the same index.
+/// How often the files of file lists are looked at for changes.
+const LIST_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
+
 fn new_window_args(roots: &[PathBuf], index_file: Option<&std::path::Path>) -> Vec<OsString> {
     let mut out = vec![OsString::from("--new-instance")];
     for root in roots {
@@ -922,6 +933,7 @@ fn connect_menus(w: &AppWindow) {
     w.on_index_paused_changed(|paused| prefs::with(|p| p.set_watch_changes(!paused)));
     w.on_hide_offline_changed(|hide| prefs::with(|p| p.set_hide_offline(hide)));
     w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
+    w.on_open_file_list_editor(filelist_editor_ui::open);
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
     w.on_status_bar_changed(|on| prefs::with(|p| p.set_status_bar(on)));
     w.on_toolbar_changed(|on| prefs::with(|p| p.set_toolbar(on)));

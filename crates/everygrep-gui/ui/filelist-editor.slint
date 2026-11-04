@@ -1,0 +1,110 @@
+// Index → File list editor: make, open, change and save file lists.
+// Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S and Ctrl+W act in this window only.
+import { Button, Palette, StandardTableView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component FileListEditor inherits Window {
+    title: (root.dirty ? "• " : "") + (root.file-name != "" ? root.file-name : @tr("New file list")) + " – " + @tr("File list editor");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 900px;
+    preferred-height: 600px;
+    min-width: 640px;
+    min-height: 360px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    forward-focus: keys;
+
+    in property <[[StandardListViewItem]]> rows;
+    in-out property <int> current <=> table.current-row;
+    in property <string> file-name;
+    in property <string> root-text;
+    in property <bool> dirty;
+    in property <bool> busy;
+    in property <string> notice;
+    in property <bool> notice-error;
+    // A question waiting for an answer: 0 none, 1 discard changes,
+    // 2 replace a file changed on disk.
+    in property <int> asking;
+    in property <string> question;
+    callback new-list();
+    callback open-list();
+    callback save-list();
+    callback save-as();
+    callback add-folder();
+    callback add-files();
+    callback remove-current();
+    callback remove-duplicates();
+    callback folder-sizes();
+    callback close-window();
+    callback answer(bool);
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
+    keys := FocusScope {
+        capture-key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (root.asking != 0) { root.answer(false); } else { root.close-window(); }
+                return accept;
+            }
+            if (event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta && !root.busy && root.asking == 0) {
+                if (!event.modifiers.shift && (event.text == "n" || event.text == "N")) { root.new-list(); return accept; }
+                if (!event.modifiers.shift && (event.text == "o" || event.text == "O")) { root.open-list(); return accept; }
+                if (event.modifiers.shift && (event.text == "s" || event.text == "S")) { root.save-as(); return accept; }
+                if (event.text == "s" || event.text == "S") { root.save-list(); return accept; }
+                if (!event.modifiers.shift && (event.text == "w" || event.text == "W")) { root.close-window(); return accept; }
+            }
+            if (event.text == Key.Delete && !root.busy && root.asking == 0 && root.current >= 0) {
+                root.remove-current(); return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.margin;
+            spacing: Theme.s2;
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Button { text: @tr("New"); enabled: !root.busy && root.asking == 0; clicked => { root.new-list(); } }
+                Button { text: @tr("Open…"); enabled: !root.busy && root.asking == 0; clicked => { root.open-list(); } }
+                Button { text: @tr("Save"); enabled: !root.busy && root.asking == 0 && root.rows.length > 0; clicked => { root.save-list(); } }
+                Button { text: @tr("Save as…"); enabled: !root.busy && root.asking == 0 && root.rows.length > 0; clicked => { root.save-as(); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            HorizontalLayout {
+                spacing: Theme.s2;
+                Button { text: @tr("Add folder…"); enabled: !root.busy && root.asking == 0; clicked => { root.add-folder(); } }
+                Button { text: @tr("Add file…"); enabled: !root.busy && root.asking == 0; clicked => { root.add-files(); } }
+                Button { text: @tr("Remove"); enabled: !root.busy && root.asking == 0 && root.current >= 0; clicked => { root.remove-current(); } }
+                Button { text: @tr("Remove duplicates"); enabled: !root.busy && root.asking == 0 && root.rows.length > 0; clicked => { root.remove-duplicates(); } }
+                Button { text: @tr("Calculate folder sizes"); enabled: !root.busy && root.rows.length > 0; clicked => { root.folder-sizes(); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text { text: root.root-text; color: Theme.text-muted; overflow: elide; }
+            table := StandardTableView {
+                accessible-label: @tr("Entries");
+                vertical-stretch: 1;
+                rows: root.rows;
+                columns: [
+                    { title: @tr("Path"), width: 480px, horizontal-stretch: 1 },
+                    { title: @tr("Type"), width: 90px },
+                    { title: @tr("Size"), width: 120px },
+                    { title: @tr("Modified"), width: 170px },
+                ];
+            }
+            if root.asking != 0: HorizontalLayout {
+                spacing: Theme.gap;
+                Text { text: root.question; color: Theme.text; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center; }
+                Button { text: root.asking == 1 ? @tr("Discard changes") : @tr("Replace"); clicked => { root.answer(true); } }
+                Button { text: @tr("Cancel"); clicked => { root.answer(false); } }
+            }
+            if root.notice != "": Text { text: root.notice; color: root.notice-error ? Theme.danger : Theme.text-muted; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: Theme.gap;
+                Text { text: @tr("Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+W work in this window."); color: Theme.text-muted; vertical-alignment: center; horizontal-stretch: 1; }
+                Button { text: @tr("Close"); clicked => { root.close-window(); } }
+            }
+        }
+    }
+}

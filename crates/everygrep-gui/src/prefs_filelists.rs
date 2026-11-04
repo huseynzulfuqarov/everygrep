@@ -30,6 +30,18 @@ impl Prefs {
         self.refresh();
     }
 
+    /// Whether changed list files are read again.
+    pub fn set_reload_changed_lists(&self, on: bool) {
+        self.change(move |s| s.reload_changed_lists = on);
+    }
+
+    /// Called now and then: reads changed list files again when wanted.
+    pub fn check_file_lists(&self) {
+        if self.settings.borrow().reload_changed_lists {
+            self.engine.reload_changed_file_lists();
+        }
+    }
+
     fn edit_file_lists(&self, f: impl Fn(&mut Vec<FileListSetting>) + Send + 'static) {
         self.change(move |s| f(&mut s.file_lists));
         self.apply_file_lists();
@@ -202,6 +214,7 @@ impl Prefs {
             .collect();
         w.set_file_lists(ModelRc::new(VecModel::from(rows)));
         w.set_hide_offline(self.settings.borrow().hide_offline);
+        w.set_reload_changed_lists(self.settings.borrow().reload_changed_lists);
     }
 
     pub(super) fn connect_file_lists(me: &Rc<Prefs>, w: &SettingsWindow) {
@@ -232,6 +245,12 @@ impl Prefs {
         w.on_reload_file_lists(move || {
             if let Some(p) = weak.upgrade() {
                 p.engine.reload_file_lists();
+            }
+        });
+        let weak = Rc::downgrade(me);
+        w.on_reload_changed_lists_changed(move |on| {
+            if let Some(p) = weak.upgrade() {
+                p.set_reload_changed_lists(on);
             }
         });
         let weak = Rc::downgrade(me);

@@ -162,6 +162,25 @@ impl Engine {
         self.mounts_changed.store(true, Ordering::SeqCst);
     }
 
+    /// When the file of a shown (or unreadable) list changed since it was
+    /// read, the lists are brought in line again: the changed one is read
+    /// anew, the others are kept. Returns whether one changed. Only a
+    /// `stat` per list; called now and then from the window.
+    pub fn reload_changed_file_lists(&self) -> bool {
+        let lists = self.file_lists.lock().expect("lock");
+        let changed = lists.slots.iter().any(|s| {
+            let modified = std::fs::metadata(&s.path).and_then(|m| m.modified()).ok();
+            s.enabled
+                && (s.grafted || matches!(s.state, ListState::Failed(_)))
+                && modified != s.read_at
+        });
+        drop(lists);
+        if changed {
+            self.mounts_changed.store(true, Ordering::SeqCst);
+        }
+        changed
+    }
+
     /// The file lists and what became of them, in the settings' order.
     pub fn file_lists(&self) -> Vec<FileListStatus> {
         self.file_lists

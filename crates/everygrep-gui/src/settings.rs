@@ -468,6 +468,8 @@ pub struct Settings {
     /// position, whatever the keyboard layout; off by the character it
     /// types.
     pub shortcuts_by_position: bool,
+    /// Read a file list again when its file changes on disk.
+    pub reload_changed_lists: bool,
     /// Commands whose keys differ from the defaults: the command's id and
     /// its keys, which replace the defaults (an empty list removes them).
     pub shortcuts: Vec<(String, Vec<(Scope, Chord)>)>,
@@ -556,6 +558,7 @@ impl Default for Settings {
             file_lists: Vec::new(),
             hide_offline: false,
             shortcuts_by_position: true,
+            reload_changed_lists: true,
             shortcuts: Vec::new(),
             unknown: Vec::new(),
             problems: Vec::new(),
@@ -732,6 +735,7 @@ impl Settings {
                 true
             }
             "hide-offline-entries" => put_flag(&mut self.hide_offline),
+            "reload-changed-file-lists" => put_flag(&mut self.reload_changed_lists),
             "use-exclude-list" => put_flag(&mut self.use_excludes),
             "watch-changes" => put_flag(&mut self.watch_changes),
             "index-folder" => {
@@ -1419,6 +1423,12 @@ impl Settings {
         );
         flag(
             &mut out,
+            "reload-changed-file-lists",
+            self.reload_changed_lists,
+            d.reload_changed_lists,
+        );
+        flag(
+            &mut out,
             "open-searches-in-tabs",
             self.open_searches_in_tabs,
             d.open_searches_in_tabs,
@@ -2021,6 +2031,7 @@ impl Settings {
                 self.drives = d.drives;
                 self.file_lists = d.file_lists;
                 self.hide_offline = d.hide_offline;
+                self.reload_changed_lists = d.reload_changed_lists;
             }
             Page::Search => {
                 self.options = d.options;
@@ -3508,12 +3519,15 @@ shortcut = edit.cut list F9
                 },
             ],
             hide_offline: true,
+            reload_changed_lists: false,
             ..Settings::default()
         };
         let text = s.to_text();
         assert_eq!(Settings::parse(&text), s, "{text}");
         assert!(text.contains("file-list = /l/disk.eglist\n"), "{text}");
         assert!(text.contains("hide-offline-entries = true\n"));
+        assert!(text.contains("reload-changed-file-lists = false\n"));
+        assert!(Settings::default().reload_changed_lists);
         let back = Settings::parse(&text);
         assert_eq!(back.file_lists[0].path, odd);
         // Relative paths and repeats are not taken.

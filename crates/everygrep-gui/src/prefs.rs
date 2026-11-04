@@ -1125,6 +1125,7 @@ impl Prefs {
         crate::largest_folders::apply_scheme(scheme as i32);
         crate::fileops_undo_ui::apply_scheme(scheme as i32);
         crate::debug_log_ui::apply_scheme(scheme as i32);
+        crate::filelist_editor_ui::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {
             m.invoke_set_color_scheme(scheme as i32);
         }
@@ -3630,6 +3631,7 @@ impl Prefs {
                 s.drives = Default::default();
                 s.file_lists.clear();
                 s.hide_offline = false;
+                s.reload_changed_lists = true;
                 s.watch_changes = true;
                 s.index_file_details = true;
                 s.rescan = 0;

@@ -478,6 +478,13 @@ fn open_regular(path: &Path) -> io::Result<std::fs::File> {
     Ok(file)
 }
 
+/// Reads a whole list file: a regular file (not a pipe or device) within
+/// the size limit.
+pub fn read_list(path: &Path) -> io::Result<FileList> {
+    let mut reader = io::BufReader::new(open_regular(path)?);
+    Ok(parse_reader(&mut reader, &|| false)?)
+}
+
 /// The root of a regular list file, read within the header budget.
 pub fn read_root(path: &Path) -> io::Result<Vec<u8>> {
     use std::io::Read;
