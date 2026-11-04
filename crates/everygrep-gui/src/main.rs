@@ -25,6 +25,8 @@ mod fileops_rename;
 mod fileops_search;
 mod fileops_settings;
 mod fileops_shortcut;
+#[cfg(test)]
+mod fileops_test;
 mod fileops_undo;
 mod fileops_undo_ui;
 mod fileops_value;

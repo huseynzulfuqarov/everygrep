@@ -19,7 +19,7 @@ use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -939,8 +939,10 @@ impl Copier<'_> {
             entry.metadata_error = self.file(src, meta, dst)?;
             self.copied.push(entry);
         } else if kind.is_dir() {
-            fs::create_dir(dst)?;
+            fs::DirBuilder::new().mode(0o700).create(dst)?;
             self.made = true;
+            #[cfg(test)]
+            crate::fileops_test::at("copy-created", dst);
             let index = self.copied.len();
             self.copied.push(Copied::new(src, meta));
             for entry in fs::read_dir(src)? {
@@ -977,8 +979,14 @@ impl Copier<'_> {
             )).into());
         }
         let mut from = File::open(src)?;
-        let mut to = OpenOptions::new().write(true).create_new(true).open(dst)?;
+        let mut to = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(dst)?;
         self.made = true;
+        #[cfg(test)]
+        crate::fileops_test::at("copy-created", dst);
         loop {
             if self.progress.is_cancelled() {
                 return Err(Stop::Cancelled);
@@ -2418,6 +2426,97 @@ mod tests {
             fs::metadata(&alias).unwrap().ino()
         );
         assert_eq!(read(&alias), "shared");
+    }
+
+    #[test]
+    fn a_private_copy_is_restricted_before_the_first_byte_is_written() {
+        let t = TempDir::new("private-in-progress");
+        let src = t.path("src/secret");
+        let dest = t.path("dest");
+        write(&src, &"s".repeat(CHUNK * 2));
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-created", |path| {
+            let m = fs::symlink_metadata(path).unwrap();
+            assert!(m.is_file());
+            assert_eq!(m.len(), 0);
+            assert_eq!(
+                m.mode() & 0o077,
+                0,
+                "partial private data must not be readable by others"
+            );
+        });
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(
+            fs::metadata(dest.join("secret")).unwrap().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn staging_directories_start_private_and_get_the_final_mode() {
+        let t = TempDir::new("private-directory");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("child"), "bytes");
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o750)).unwrap();
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-created", |path| {
+            let m = fs::symlink_metadata(path).unwrap();
+            assert!(m.is_dir());
+            assert_eq!(m.mode() & 0o077, 0);
+        });
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(
+            fs::metadata(dest.join("tree")).unwrap().mode() & 0o777,
+            0o750
+        );
+        assert_eq!(read(&dest.join("tree/child")), "bytes");
+    }
+
+    #[test]
+    fn an_inherited_acl_cannot_make_the_partial_copy_readable() {
+        let t = TempDir::new("private-inherited-acl");
+        let src = t.path("src/secret");
+        let dest = t.path("dest");
+        write(&src, "bytes");
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::create_dir(&dest).unwrap();
+        let mut acl = 2u32.to_le_bytes().to_vec();
+        for (tag, perm, id) in [
+            (1u16, 7u16, u32::MAX),
+            (2, 7, fs::metadata(&src).unwrap().uid()),
+            (4, 7, u32::MAX),
+            (16, 7, u32::MAX),
+            (32, 7, u32::MAX),
+        ] {
+            acl.extend(tag.to_le_bytes());
+            acl.extend(perm.to_le_bytes());
+            acl.extend(id.to_le_bytes());
+        }
+        crate::transfer_metadata::set_test_attr(&dest, "system.posix_acl_default", &acl);
+        crate::fileops_test::arm("copy-created", |path| {
+            // For an extended ACL the group mode bits are the effective mask
+            // on every named user/group entry as well.
+            assert_eq!(fs::symlink_metadata(path).unwrap().mode() & 0o077, 0);
+        });
+        let out = paste(Operation::Copy, &[src], &dest, &Progress::new());
+        crate::fileops_test::fired();
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
     }
 
     #[test]
