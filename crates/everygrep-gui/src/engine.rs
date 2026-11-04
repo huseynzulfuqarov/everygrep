@@ -3813,6 +3813,44 @@ mod tests {
     }
 
     #[test]
+    fn reset_columns_removes_hidden_media_reads_from_the_next_query() {
+        use everygrep_core::property::Property;
+        let dir = Scratch::new("reset-sort-media");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("item.png"), b"image bytes").unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let after = crate::sort_dialog::reset_columns_sort(crate::ColumnSort {
+            column: 2,
+            descending: false,
+            then1: Property::Width.column(),
+            then1_descending: false,
+            then2: -1,
+            then2_descending: false,
+        });
+        let sort = crate::sort_dialog::sort_from_columns(
+            &after,
+            everygrep_core::sort::FolderSize::default(),
+        );
+        probe.engine.set_sort(sort);
+        assert_eq!(probe.names("item"), ["item.png"]);
+        let index = probe.engine.index.read().unwrap();
+        let ids = [find(&index, &root.join("item.png")).unwrap()];
+        let progress = Progress::new();
+        let (_index, media) = probe
+            .engine
+            .media_for_sort(index, &ids, sort, probe.engine.epoch(), &progress, true)
+            .unwrap();
+        assert!(
+            media.is_none(),
+            "a hidden Width key still requested file contents"
+        );
+        assert_eq!(progress.total(), None, "no media pass was started");
+        assert_eq!(after.then1, -1);
+    }
+
+    #[test]
     fn a_media_sort_reads_files_with_the_index_released() {
         use everygrep_core::property::Property;
         use everygrep_core::sort::SortKey;

@@ -11,15 +11,49 @@ use slint::{Model, ModelRc, SharedString, VecModel};
 /// The order the window shows: its sort column and direction, then the
 /// secondary and tertiary columns chosen in Advanced sort.
 pub fn window_sort(w: &AppWindow, folders: FolderSize) -> Sort {
-    let mut sort = sort_for_column(w.get_sort_column(), w.get_sort_descending(), folders);
+    sort_from_columns(
+        &crate::ColumnSort {
+            column: w.get_sort_column(),
+            descending: w.get_sort_descending(),
+            then1: w.get_sort_then1_column(),
+            then1_descending: w.get_sort_then1_descending(),
+            then2: w.get_sort_then2_column(),
+            then2_descending: w.get_sort_then2_descending(),
+        },
+        folders,
+    )
+}
+
+pub(crate) fn sort_from_columns(columns: &crate::ColumnSort, folders: FolderSize) -> Sort {
+    let mut sort = sort_for_column(columns.column, columns.descending, folders);
     sort.then = then_keys(
         [
-            (w.get_sort_then1_column(), w.get_sort_then1_descending()),
-            (w.get_sort_then2_column(), w.get_sort_then2_descending()),
+            (columns.then1, columns.then1_descending),
+            (columns.then2, columns.then2_descending),
         ],
         folders,
     );
     sort
+}
+
+/// Reset hides every optional column; its keys cannot remain in the order.
+pub fn reset_columns_sort(mut columns: crate::ColumnSort) -> crate::ColumnSort {
+    if columns.column > 3 {
+        columns.column = 0;
+        columns.descending = false;
+        columns.then1 = -1;
+        columns.then2 = -1;
+        return columns;
+    }
+    let mut visible = [
+        (columns.then1, columns.then1_descending),
+        (columns.then2, columns.then2_descending),
+    ]
+    .into_iter()
+    .filter(|(column, _)| (0..=3).contains(column));
+    (columns.then1, columns.then1_descending) = visible.next().unwrap_or((-1, false));
+    (columns.then2, columns.then2_descending) = visible.next().unwrap_or((-1, false));
+    columns
 }
 
 /// The keys of secondary and tertiary columns; -1 and columns that do not
@@ -88,6 +122,43 @@ fn chosen(columns: &[i32], current: [i32; 3]) -> [i32; 3] {
 mod tests {
     use super::*;
     use everygrep_core::sort::SortKey;
+
+    #[test]
+    fn reset_columns_preserves_visible_keys_and_their_directions() {
+        let width = everygrep_core::property::Property::Width.column();
+        let before = crate::ColumnSort {
+            column: 2,
+            descending: true,
+            then1: width,
+            then1_descending: false,
+            then2: 3,
+            then2_descending: true,
+        };
+        let after = reset_columns_sort(before.clone());
+        assert_eq!((after.column, after.descending), (2, true));
+        assert_eq!(
+            (after.then1, after.then1_descending, after.then2),
+            (3, true, -1)
+        );
+        let after = reset_columns_sort(crate::ColumnSort {
+            then1: 3,
+            then1_descending: true,
+            then2: width,
+            ..before.clone()
+        });
+        assert_eq!(
+            (after.then1, after.then1_descending, after.then2),
+            (3, true, -1)
+        );
+        let after = reset_columns_sort(crate::ColumnSort {
+            column: width,
+            ..before
+        });
+        assert_eq!(
+            (after.column, after.descending, after.then1, after.then2),
+            (0, false, -1, -1)
+        );
+    }
 
     #[test]
     fn choices_map_to_list_positions_and_keys() {

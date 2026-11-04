@@ -104,6 +104,16 @@ struct SortChoice {
     enabled: bool,
 }
 
+// The complete column order shared with the sort policy callbacks.
+export struct ColumnSort {
+    column: int,
+    descending: bool,
+    then1: int,
+    then1-descending: bool,
+    then2: int,
+    then2-descending: bool,
+}
+
 // A column of Organize columns, with its check mark; the columns that are
 // always shown cannot be unchecked.
 export struct ColumnChoice {
@@ -1580,6 +1590,7 @@ export component AppWindow inherits Window {
     in-out property <[int]> advanced-sort-chosen: [0, 0, 0];
     in-out property <[bool]> advanced-sort-descending: [false, false, false];
     callback advanced-sort-opening();
+    pure callback reset-sort-columns(ColumnSort) -> ColumnSort;
 
     // Matching modes and the filter; options-changed() runs the query again.
     in-out property <bool> match-case <=> search.match-case;
@@ -3030,8 +3041,22 @@ export component AppWindow inherits Window {
     // Back to the columns of a first start: only Name, Folder, Size and
     // Modified, at their default widths, Name at its share of the window.
     function reset-columns() {
-        if (root.sort-column > 3) {
-            root.column-shown(root.sort-column, false);
+        let next = root.reset-sort-columns({
+            column: root.sort-column, descending: root.sort-descending,
+            then1: root.sort-then1-column, then1-descending: root.sort-then1-descending,
+            then2: root.sort-then2-column, then2-descending: root.sort-then2-descending,
+        });
+        if (root.sort-column != next.column || root.sort-descending != next.descending
+            || root.sort-then1-column != next.then1 || root.sort-then1-descending != next.then1-descending
+            || root.sort-then2-column != next.then2 || root.sort-then2-descending != next.then2-descending) {
+            root.sort-column = next.column;
+            root.sort-descending = next.descending;
+            root.sort-then1-column = next.then1;
+            root.sort-then1-descending = next.then1-descending;
+            root.sort-then2-column = next.then2;
+            root.sort-then2-descending = next.then2-descending;
+            root.results-replaced();
+            root.sort-changed(root.sort-column, root.sort-descending);
         }
         root.show-type = false;
         root.show-ext = false;

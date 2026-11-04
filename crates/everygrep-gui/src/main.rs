@@ -185,6 +185,7 @@ fn main() -> Result<(), slint::PlatformError> {
         settings.options
     };
     let window = AppWindow::new()?;
+    window.on_reset_sort_columns(sort_dialog::reset_columns_sort);
     // Read when the native window is created on first show, so it must be set
     // before `run()`. Matches the desktop entry, so the shell shows our icon.
     slint::set_xdg_app_id(APP_ID)?;
