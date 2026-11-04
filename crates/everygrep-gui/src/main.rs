@@ -380,13 +380,20 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let pause = Rc::new(Timer::default());
+    // Holds back a search as you type while the search delay runs.
+    let delay = Rc::new(Timer::default());
     folders::connect(&window, &engine, window_args.clone());
     preview::connect(&window, &engine);
     file_properties::connect(&window, &engine);
     tabs_ui::connect(&window, &engine, &model, &prefs, &pause, session_start);
     let query_edit = |manual: bool| {
-        let (engine, weak, pause, prefs) =
-            (engine.clone(), weak.clone(), pause.clone(), prefs.clone());
+        let (engine, weak, pause, prefs, delay) = (
+            engine.clone(),
+            weak.clone(),
+            pause.clone(),
+            prefs.clone(),
+            delay.clone(),
+        );
         move |text: slint::SharedString| {
             let Some(w) = weak.upgrade() else { return };
             pause.stop();
@@ -397,10 +404,23 @@ fn main() -> Result<(), slint::PlatformError> {
             prefs.fill_history();
             let reads = field_reads_files(&w);
             if !typing::with(|t| t.edited(reads)) {
+                delay.stop();
                 wait_for_enter(&w);
                 return;
             }
-            run_query(&w, &engine);
+            match typing::with(|t| t.hold()) {
+                Some(wait) => {
+                    let (weak, engine) = (weak.clone(), engine.clone());
+                    delay.start(TimerMode::SingleShot, wait, move || {
+                        if typing::with(|t| t.due())
+                            && let Some(w) = weak.upgrade()
+                        {
+                            run_query(&w, &engine);
+                        }
+                    });
+                }
+                None => run_query(&w, &engine),
+            }
             info(&w, String::new());
             let epoch = prefs.history_epoch.get();
             let prefs = prefs.clone();

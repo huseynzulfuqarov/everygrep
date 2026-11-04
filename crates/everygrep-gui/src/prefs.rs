@@ -2271,6 +2271,7 @@ impl Prefs {
         w.set_select_search_on_click(s.select_search_on_click);
         w.set_clear_selection_on_search(s.clear_selection_on_search);
         w.set_hide_results_when_empty(s.hide_results_when_empty);
+        w.set_search_delay(s.search_delay_ms as i32);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_entries(s.history_entries as i32);
@@ -3152,6 +3153,9 @@ impl Prefs {
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
         let hide_empty = w.get_hide_results_when_empty();
+        let delay = u32::try_from(w.get_search_delay())
+            .unwrap_or(0)
+            .min(crate::settings::MAX_SEARCH_DELAY);
         let content = crate::content_settings::Settings::from_window(&w);
         let history_before = self.settings.borrow().clone();
         let mut history_wanted = history_before.clone();
@@ -3169,6 +3173,7 @@ impl Prefs {
             s.select_search_on_click = select_on_click;
             s.clear_selection_on_search = clear_selection;
             s.hide_results_when_empty = hide_empty;
+            s.search_delay_ms = delay;
             crate::history_sync::apply_choices(s, &history_before, &history_wanted);
         });
         self.history_storage_changed(was_on_disk);
@@ -3280,10 +3285,11 @@ impl Prefs {
     /// Gives the main window the "search as you type" setting and whether
     /// searches that read files wait for Enter meanwhile.
     pub fn apply_as_you_type(&self) {
-        let (on, contents_on_enter) = {
+        let (on, contents_on_enter, delay) = {
             let s = self.settings.borrow();
-            (s.as_you_type, s.content.on_enter)
+            (s.as_you_type, s.content.on_enter, s.search_delay_ms)
         };
+        crate::typing::with(|t| t.set_delay(delay));
         if let Some(m) = self.main.upgrade() {
             crate::set_as_you_type(&m, &self.engine, on, contents_on_enter);
         }

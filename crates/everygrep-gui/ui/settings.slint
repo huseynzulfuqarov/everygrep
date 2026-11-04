@@ -208,6 +208,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> select-search-on-click;
     in-out property <bool> clear-selection-on-search;
     in-out property <bool> hide-results-when-empty;
+    in-out property <int> search-delay;
     in-out property <int> history-size;
     in-out property <int> history-entries;
     in property <int> history-max;
@@ -886,6 +887,22 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.search-changed(); }
                             }
                             Note { text: @tr("Off: an empty search lists every indexed file and folder that the filter lets through."); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text { text: @tr("Search delay (ms)"); color: Theme.text; vertical-alignment: center; }
+                                SpinBox {
+                                    width: 140px;
+                                    horizontal-stretch: 0;
+                                    accessible-label: @tr("Search delay (ms)");
+                                    minimum: 0;
+                                    maximum: 5000;
+                                    step-size: 50;
+                                    value <=> root.search-delay;
+                                    edited => { root.search-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("While you type, the search waits this long after the last key. 0 searches at once; Enter always searches at once."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("File contents"); }
                             ContentSettings {

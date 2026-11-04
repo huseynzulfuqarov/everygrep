@@ -4574,3 +4574,9 @@ msgstr "Axtarış sahəsi boş olanda nəticələri gizlət"
 
 msgid "Off: an empty search lists every indexed file and folder that the filter lets through."
 msgstr "Söndürüləndə boş axtarış filtrin buraxdığı bütün indekslənmiş faylları və qovluqları göstərir."
+
+msgid "Search delay (ms)"
+msgstr "Axtarış gecikməsi (ms)"
+
+msgid "While you type, the search waits this long after the last key. 0 searches at once; Enter always searches at once."
+msgstr "Yazarkən axtarış son düymədən sonra bu qədər gözləyir. 0 dərhal axtarır; Enter həmişə dərhal axtarır."

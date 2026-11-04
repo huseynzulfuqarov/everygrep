@@ -4,8 +4,13 @@
 //! (`content:`, duplicates by contents) waits for Enter even while
 //! searching as you type, unless that is turned off in Settings, so typing
 //! does not read the disk at every key.
+//!
+//! A search delay (Settings, 0 by default) holds back a search that would
+//! run as you type until no key was pressed for that long; Enter runs it at
+//! once.
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use everygrep_core::query::{Query, QueryOptions};
 
@@ -39,6 +44,11 @@ pub struct Typing {
     /// type.
     contents_on_enter: bool,
     waiting: bool,
+    /// How long a search as you type waits for the next key; zero runs it
+    /// at once.
+    delay: Duration,
+    /// A search held back by the delay.
+    delayed: bool,
 }
 
 impl Default for Typing {
@@ -47,6 +57,8 @@ impl Default for Typing {
             as_you_type: true,
             contents_on_enter: true,
             waiting: false,
+            delay: Duration::ZERO,
+            delayed: false,
         }
     }
 }
@@ -56,6 +68,7 @@ impl Typing {
     /// the new search reads files. Returns whether to search now;
     /// otherwise the search waits for Enter.
     pub fn edited(&mut self, reads_files: bool) -> bool {
+        self.delayed = false;
         let now = !self.waits(reads_files);
         self.waiting = !now;
         now
@@ -69,7 +82,8 @@ impl Typing {
 
     /// Enter was pressed in the search field.
     pub fn enter(&mut self) -> Enter {
-        if std::mem::take(&mut self.waiting) {
+        let delayed = std::mem::take(&mut self.delayed);
+        if std::mem::take(&mut self.waiting) || delayed {
             Enter::Search
         } else {
             Enter::Open
@@ -79,6 +93,29 @@ impl Typing {
     /// A search ran for another reason (Back or Forward in the history).
     pub fn searched(&mut self) {
         self.waiting = false;
+        self.delayed = false;
+    }
+
+    /// Sets the search delay in milliseconds (0 for none).
+    pub fn set_delay(&mut self, ms: u32) {
+        self.delay = Duration::from_millis(u64::from(ms));
+    }
+
+    /// After [`edited`](Self::edited) said to search now: how long to hold
+    /// the search back, `None` to run it at once. A held search is marked,
+    /// so Enter runs it and [`due`](Self::due) knows it is still wanted.
+    pub fn hold(&mut self) -> Option<Duration> {
+        if self.delay.is_zero() {
+            return None;
+        }
+        self.delayed = true;
+        Some(self.delay)
+    }
+
+    /// The delay ran out: whether the held search should run now (it did
+    /// not run meanwhile for another reason).
+    pub fn due(&mut self) -> bool {
+        std::mem::take(&mut self.delayed)
     }
 
     pub fn as_you_type(&self) -> bool {
@@ -178,6 +215,48 @@ mod tests {
         t.set_as_you_type(false, false, true);
         assert!(!t.edited(false));
         assert!(t.waits(false) && t.waits(true));
+    }
+
+    #[test]
+    fn no_delay_searches_at_once() {
+        let mut t = Typing::default();
+        assert!(t.edited(false));
+        assert_eq!(t.hold(), None);
+        assert!(!t.due());
+        assert_eq!(t.enter(), Enter::Open);
+    }
+
+    #[test]
+    fn a_delay_holds_the_search_until_it_runs_out_or_enter() {
+        let mut t = Typing::default();
+        t.set_delay(300);
+        assert!(t.edited(false));
+        assert_eq!(t.hold(), Some(Duration::from_millis(300)));
+        // The next key holds it again; the timer of the first is stale.
+        assert!(t.edited(false));
+        assert_eq!(t.hold(), Some(Duration::from_millis(300)));
+        assert!(t.due(), "the delay ran out: search");
+        assert!(!t.due(), "only once");
+        assert_eq!(t.enter(), Enter::Open, "nothing held: Enter opens");
+        // Enter runs a held search at once; the timer then finds nothing.
+        t.edited(false);
+        t.hold();
+        assert_eq!(t.enter(), Enter::Search);
+        assert!(!t.due());
+        // A search for another reason (history, options) drops the held one.
+        t.edited(false);
+        t.hold();
+        t.searched();
+        assert!(!t.due());
+        // A content search that waits for Enter is not held.
+        t.edited(false);
+        t.hold();
+        assert!(!t.edited(true));
+        assert!(!t.due());
+        assert_eq!(t.enter(), Enter::Search);
+        t.set_delay(0);
+        assert!(t.edited(false));
+        assert_eq!(t.hold(), None);
     }
 
     #[test]
