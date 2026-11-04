@@ -366,6 +366,18 @@ impl Library {
     }
 
     /// The folders, for choosing where a bookmark goes.
+    /// The searches inside the folder at `index` of the list, in their
+    /// order; none when `index` is not a folder.
+    pub fn folder_searches(&self, index: usize) -> Vec<&Bookmark> {
+        let Some(folder) = self.bookmarks.get(index).filter(|b| b.kind == Kind::Folder) else {
+            return Vec::new();
+        };
+        self.bookmarks
+            .iter()
+            .filter(|b| b.is_search() && b.folder == folder.id)
+            .collect()
+    }
+
     pub fn bookmark_folders(&self) -> Vec<&Bookmark> {
         self.bookmarks
             .iter()
@@ -1284,6 +1296,35 @@ mod tests {
         assert_eq!(Library::parse(&l.text()).unwrap(), l);
         let dangling = format!("{HEADER}\n{}\nS\t11\t99\n", l.next_id);
         assert!(Library::parse(&dangling).is_err());
+    }
+
+    #[test]
+    fn a_folder_lists_only_its_own_searches() {
+        let d = Scratch::new("folder-searches");
+        let mut l = Library::default();
+        assert_eq!(l.add_starter_pack(&d.0).unwrap(), 5);
+        let folder = l
+            .bookmarks
+            .iter()
+            .position(|b| b.kind == Kind::Folder)
+            .unwrap();
+        let id = l.bookmarks[folder].id;
+        l.put_bookmark(None, Bookmark::group(Kind::Separator, "", id))
+            .unwrap();
+        let mut outside = Bookmark::group(Kind::Search, "Outside", 0);
+        outside.search = "x".into();
+        l.put_bookmark(None, outside).unwrap();
+        let inside = l.folder_searches(folder);
+        assert_eq!(inside.len(), 5);
+        assert!(inside.iter().all(|b| b.is_search() && b.folder == id));
+        // Not a folder, or past the end: nothing.
+        let search = l
+            .bookmarks
+            .iter()
+            .position(|b| b.name == "Outside")
+            .unwrap();
+        assert!(l.folder_searches(search).is_empty());
+        assert!(l.folder_searches(l.bookmarks.len()).is_empty());
     }
 
     #[test]

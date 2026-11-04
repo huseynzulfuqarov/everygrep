@@ -432,8 +432,9 @@ fn bookmark_menu(l: &Library) -> (Vec<BookmarkFolder>, Vec<MenuEntry>, bool) {
     let folders = l
         .bookmarks
         .iter()
-        .filter(|b| b.kind == Kind::Folder)
-        .map(|f| {
+        .enumerate()
+        .filter(|(_, b)| b.kind == Kind::Folder)
+        .map(|(index, f)| {
             let items: Vec<_> = l
                 .bookmarks
                 .iter()
@@ -442,6 +443,7 @@ fn bookmark_menu(l: &Library) -> (Vec<BookmarkFolder>, Vec<MenuEntry>, bool) {
                 .map(|(i, _)| menu_entry(l, i))
                 .collect();
             BookmarkFolder {
+                index: index as i32,
                 title: f.name.as_str().into(),
                 items: ModelRc::new(VecModel::from(items)),
             }
@@ -1636,6 +1638,22 @@ mod find_tests {
 
 /// The bookmarks whose name or search holds `needle` (all for an empty
 /// one), in their order.
+/// The searches of the bookmark folder at `index`, to open them in tabs.
+pub fn folder_bookmarks(index: i32) -> Vec<Bookmark> {
+    let Ok(index) = usize::try_from(index) else {
+        return Vec::new();
+    };
+    with(|s| {
+        s.library
+            .borrow()
+            .folder_searches(index)
+            .into_iter()
+            .cloned()
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 pub fn bookmarks_matching(needle: &str) -> Vec<Bookmark> {
     with(|s| {
         s.library

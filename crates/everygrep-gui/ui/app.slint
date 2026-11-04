@@ -111,6 +111,8 @@ export struct MenuEntry {
 
 // A bookmark folder in the Bookmarks menu: a submenu of its entries.
 export struct BookmarkFolder {
+    // The folder's place in the whole bookmark list.
+    index: int,
     title: string,
     items: [MenuEntry],
 }
@@ -3621,6 +3623,8 @@ export component AppWindow inherits Window {
     // Opens the bookmarks whose name or search holds the text (all for an
     // empty one) in new tabs, asking first when there are many.
     callback open-all-bookmarks(string);
+    // Opens the searches of the bookmark folder at the index in new tabs.
+    callback open-bookmark-folder(int);
     callback add-starter-bookmarks();
     callback saved-key(string, bool, bool, bool, bool) -> bool;
     callback advanced-search();
@@ -7200,6 +7204,8 @@ export component AppWindow inherits Window {
             if root.bookmark-items.length > 0 || root.bookmark-folders.length > 0: MenuSeparator { }
             for folder in root.bookmark-folders: Menu {
                 title: folder.title;
+                MenuItem { title: @tr("Open all in tabs"); enabled: folder.items.length > 0; activated => { root.open-bookmark-folder(folder.index); } }
+                MenuSeparator { }
                 for item in folder.items: MenuItem {
                     title: item.title;
                     activated => { root.open-bookmark(item.index); }

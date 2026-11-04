@@ -1361,12 +1361,12 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             });
         }
     });
-    window.on_open_all_bookmarks({
+    let open_bookmark_tabs = {
         let (weak, pending) = (weak.clone(), pending.clone());
-        move |needle| {
+        move |bookmarks: Vec<saved_searches::Bookmark>| {
             let Some(w) = weak.upgrade() else { return };
             let base = tabs_ui::shown_search(&w);
-            let searches: Vec<_> = saved_ui::bookmarks_matching(&needle)
+            let searches: Vec<_> = bookmarks
                 .iter()
                 .map(|b| base.clone().of_bookmark(b))
                 .collect();
@@ -1392,6 +1392,13 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             }
             tabs_ui::open_tabs(searches);
         }
+    };
+    window.on_open_all_bookmarks({
+        let open = open_bookmark_tabs.clone();
+        move |needle| open(saved_ui::bookmarks_matching(&needle))
+    });
+    window.on_open_bookmark_folder(move |index| {
+        open_bookmark_tabs(saved_ui::folder_bookmarks(index));
     });
     window.on_open_with({
         let (weak, model) = (weak.clone(), model.clone());
