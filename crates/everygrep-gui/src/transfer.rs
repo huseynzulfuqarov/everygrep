@@ -615,12 +615,21 @@ fn move_in(
     run: &mut Run,
 ) -> Result<Pasted, Stop> {
     loop {
+        let key = (name.to_owned(), meta.is_dir());
+        let counter = run.next.get(&key).copied();
         let target = run.free_name(dest, name, meta.is_dir())?;
-        match rename_noreplace(src, &target) {
+        match move_rename(src, &target) {
             Ok(()) => return Ok(Pasted::New(target)),
             // Taken since we looked: try the next free name.
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) if e.kind() == io::ErrorKind::CrossesDevices => break,
+            Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
+                // The name was not used: the copy below may take it.
+                match counter {
+                    Some(n) => run.next.insert(key, n),
+                    None => run.next.remove(&key),
+                };
+                break;
+            }
             Err(e) => return Err(e.into()),
         }
     }
@@ -630,6 +639,15 @@ fn move_in(
         None => Ok(Pasted::New(target)),
         Some(e) => Ok(Pasted::Failed(Failure::NotRemoved(e))),
     }
+}
+
+/// The rename of a plain move; tests can make it cross file systems.
+fn move_rename(src: &Path, target: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if FORCE_EXDEV.with(std::cell::Cell::get) {
+        return Err(io::Error::from_raw_os_error(EXDEV));
+    }
+    rename_noreplace(src, target)
 }
 
 /// A source entry that was copied, as it was when it was read.
@@ -980,6 +998,23 @@ fn tree_size(path: &Path, progress: &Progress) -> u64 {
         .sum()
 }
 
+/// Why `sources` cannot be copied or moved into `dest` at all: `dest` is
+/// not a folder, or is one of the folders or inside one. `None` when the
+/// transfer can start (each item is still checked again as it goes).
+pub fn refusal(sources: &[PathBuf], dest: &Path) -> Option<&'static str> {
+    let Ok(dest) = fs::canonicalize(dest) else {
+        return Some(tr("The destination folder no longer exists."));
+    };
+    if !dest.is_dir() {
+        return Some(tr("The destination is not a folder."));
+    }
+    let into_itself = sources.iter().any(|s| {
+        fs::symlink_metadata(s).is_ok_and(|m| m.is_dir())
+            && fs::canonicalize(s).is_ok_and(|s| dest.starts_with(s))
+    });
+    into_itself.then(|| tr("A folder cannot be pasted into itself."))
+}
+
 /// [`free_name`] from the first number on, for a new item's name.
 pub(crate) fn first_free(dir: &Path, name: &OsStr, is_dir: bool) -> io::Result<PathBuf> {
     free_name(dir, name, is_dir, &mut 2)
@@ -1158,6 +1193,33 @@ mod tests {
             test_replacement(),
             |_| {},
         )
+    }
+
+    #[test]
+    fn refusal_names_missing_destinations_files_and_folders_into_themselves() {
+        let t = TempDir::new("refusal");
+        let a = t.path("a");
+        let child = t.path("a/child");
+        fs::create_dir_all(&child).unwrap();
+        let file = t.path("file");
+        fs::write(&file, "x").unwrap();
+        let other = t.path("other");
+        fs::create_dir(&other).unwrap();
+        assert!(refusal(std::slice::from_ref(&a), &a).is_some());
+        assert!(refusal(std::slice::from_ref(&a), &child).is_some());
+        assert!(refusal(std::slice::from_ref(&a), &file).is_some());
+        assert!(refusal(std::slice::from_ref(&a), &t.path("missing")).is_some());
+        assert!(refusal(&[a.clone(), file.clone()], &other).is_none());
+        // A link to the folder is the folder: refused through it too.
+        symlink(&child, t.path("to-child")).unwrap();
+        assert!(refusal(std::slice::from_ref(&a), &t.path("to-child")).is_some());
+        // A link to a folder is moved as a link: the folder it points to is
+        // a valid destination.
+        symlink(&other, t.path("link")).unwrap();
+        assert!(refusal(&[t.path("link")], &other).is_none());
+        // A file into its own folder is no refusal (it gets a free name or
+        // stays where it is).
+        assert!(refusal(std::slice::from_ref(&file), &t.0).is_none());
     }
 
     #[test]
@@ -1432,6 +1494,61 @@ mod tests {
             .unwrap();
         assert_eq!(fs::read(&staged).unwrap(), b"original");
         assert!(format!("{:?}", out.failed).contains(&staged.display().to_string()));
+    }
+
+    #[test]
+    fn a_move_across_file_systems_copies_and_then_removes_only_the_source() {
+        let t = TempDir::new("move-exdev");
+        let src = t.path("tree");
+        write(&src.join("a.txt"), "alpha");
+        write(&src.join("sub/b.txt"), "beta");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        write(&dest.join("tree/keep"), "existing");
+        FORCE_EXDEV.with(|f| f.set(true));
+        let out = paste_with(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        FORCE_EXDEV.with(|f| f.set(false));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        // The name was taken: the copy got a free one, the old folder stays.
+        assert_eq!(out.done, [dest.join("tree (2)")]);
+        assert_eq!(read(&dest.join("tree (2)/a.txt")), "alpha");
+        assert_eq!(read(&dest.join("tree (2)/sub/b.txt")), "beta");
+        assert_eq!(read(&dest.join("tree/keep")), "existing");
+        assert!(!src.exists());
+    }
+
+    #[test]
+    fn a_move_across_file_systems_into_an_unwritable_folder_keeps_the_source() {
+        let t = TempDir::new("move-exdev-denied");
+        let src = t.path("file.txt");
+        write(&src, "data");
+        let dest = t.path("locked");
+        fs::create_dir(&dest).unwrap();
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o555)).unwrap();
+        // Root may write anyway; the check is only meaningful otherwise.
+        let writable = fs::write(dest.join("probe"), "").is_ok();
+        FORCE_EXDEV.with(|f| f.set(true));
+        let out = paste_with(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        FORCE_EXDEV.with(|f| f.set(false));
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o755)).unwrap();
+        if !writable {
+            assert_eq!(out.failed.len(), 1);
+            assert!(out.done.is_empty());
+            assert_eq!(read(&src), "data");
+            assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
+        }
     }
 
     #[test]

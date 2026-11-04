@@ -4178,3 +4178,47 @@ msgstr "Əməliyyat geri qaytarma üçün yadda saxlanıla bilmədi."
 #: src/trashbin.rs
 msgid "The original folder no longer exists."
 msgstr "Əvvəlki qovluq artıq yoxdur."
+
+#: src/main.rs
+msgid "Another copy or move is still running."
+msgstr "Başqa bir kopyalama və ya köçürmə hələ davam edir."
+
+#: src/main.rs
+msgid "Cannot show the folder chooser: {}"
+msgstr "Qovluq seçicisi göstərilə bilmir: {}"
+
+#: src/main.rs
+msgid "Copy here"
+msgstr "Bura kopyala"
+
+#: ui/app.slint
+msgid "Copy or move to"
+msgstr "Kopyala və ya köçür"
+
+#: src/main.rs
+msgid "Copy to folder"
+msgstr "Qovluğa kopyala"
+
+#: ui/app.slint
+msgid "Copy to folder…"
+msgstr "Qovluğa kopyala…"
+
+#: src/main.rs
+msgid "Move here"
+msgstr "Bura köçür"
+
+#: src/main.rs
+msgid "Move to folder"
+msgstr "Qovluğa köçür"
+
+#: ui/app.slint
+msgid "Move to folder…"
+msgstr "Qovluğa köçür…"
+
+#: src/transfer.rs
+msgid "The destination folder no longer exists."
+msgstr "Hədəf qovluq artıq yoxdur."
+
+#: src/transfer.rs
+msgid "The destination is not a folder."
+msgstr "Hədəf qovluq deyil."

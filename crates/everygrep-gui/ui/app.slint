@@ -1861,6 +1861,9 @@ export component AppWindow inherits Window {
     in property <string> fileops-rename-action;
     in property <string> fileops-rename-label;
     callback fileops-new-folder(int);
+    // Copy (false) or move (true) the items of a row to a folder chosen
+    // in the desktop's folder chooser.
+    callback fileops-to-folder(int, bool);
     in-out property <string> fileops-rename-name;
     in property <int> fileops-rename-stem;
     in property <string> fileops-rename-error;
@@ -3168,7 +3171,7 @@ export component AppWindow inherits Window {
     function needs-online(c: Command) -> bool {
         return c == Command.open || c == Command.open-folder || c == Command.open-with
             || c == Command.cut || c == Command.copy || c == Command.paste
-            || c == Command.rename || c == Command.create-shortcut || c == Command.new-folder || c == Command.trash || c == Command.delete-permanently;
+            || c == Command.rename || c == Command.create-shortcut || c == Command.new-folder || c == Command.copy-to-folder || c == Command.move-to-folder || c == Command.trash || c == Command.delete-permanently;
     }
 
     // Whether a command can run now; menu items are enabled by it.
@@ -3278,6 +3281,8 @@ export component AppWindow inherits Window {
             root.fileops-shortcuts(root.current);
         } else if (c == Command.new-folder) {
             root.fileops-new-folder(root.current);
+        } else if (c == Command.copy-to-folder || c == Command.move-to-folder) {
+            root.fileops-to-folder(root.current, c == Command.move-to-folder);
         } else if (c == Command.search-property-value) {
             root.fileops-search-value();
         } else if (c == Command.search-filename || c == Command.search-exact-name || c == Command.search-stem || c == Command.search-whole-stem) {
@@ -4994,6 +4999,19 @@ export component AppWindow inherits Window {
                                     enabled: root.can-run(Command.paste);
                                     activated => { root.run(Command.paste); }
                                 }
+                                Menu {
+                                    title: @tr("Copy or move to");
+                                    MenuItem {
+                                        title: @tr("Copy to folder…");
+                                        enabled: root.can-run(Command.copy-to-folder);
+                                        activated => { root.run(Command.copy-to-folder); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Move to folder…");
+                                        enabled: root.can-run(Command.move-to-folder);
+                                        activated => { root.run(Command.move-to-folder); }
+                                    }
+                                }
                                 MenuItem {
                                     title: @tr("Copy full path");
                                     enabled: root.can-run(Command.copy-full-path);
@@ -5889,6 +5907,18 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.paste;
                 enabled: root.can-run(Command.paste);
                 activated => { root.run(Command.paste); }
+            }
+            MenuItem {
+                title: @tr("Copy to folder…");
+                shortcut: root.menu-keys.copy-to-folder;
+                enabled: root.can-run(Command.copy-to-folder);
+                activated => { root.run(Command.copy-to-folder); }
+            }
+            MenuItem {
+                title: @tr("Move to folder…");
+                shortcut: root.menu-keys.move-to-folder;
+                enabled: root.can-run(Command.move-to-folder);
+                activated => { root.run(Command.move-to-folder); }
             }
             MenuSeparator { }
             MenuItem {

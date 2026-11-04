@@ -670,6 +670,7 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_actions(&window, &model);
     fileops_undo_ui::connect(&window, &engine);
     connect_clipboard(&window, &model, &engine);
+    connect_to_folder(&window, &model, &engine);
     connect_export(&window, &model, &engine);
     connect_troubleshooting(&window, &engine);
     let main = window.as_weak();
@@ -1496,8 +1497,6 @@ fn files_to_paste(
 /// on a helper thread, shown in the status line as a job that can be
 /// cancelled.
 fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
-    // One paste at a time.
-    static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     use std::sync::atomic::Ordering::SeqCst;
     let weak = window.as_weak();
     let row = |r: i32| usize::try_from(r).ok();
@@ -1571,100 +1570,182 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             };
             // Taken before the clipboard is asked, so a second paste while
             // another program answers is refused too.
-            if BUSY.swap(true, SeqCst) {
+            if TRANSFER_BUSY.swap(true, SeqCst) {
                 info(&w, tr("Another paste is still running.").into());
                 return;
             }
             info(&w, String::new());
-            let (engine, weak) = (engine.clone(), weak.clone());
+            let engine = engine.clone();
             files_to_paste(&w, move |w, found| {
                 let Some((op, sources)) = found else {
-                    BUSY.store(false, SeqCst);
+                    TRANSFER_BUSY.store(false, SeqCst);
                     info(w, tr("The clipboard holds no files to paste.").into());
                     return;
                 };
-                let folder = dest.file_name().map_or_else(
-                    || dest.display().to_string(),
-                    |n| n.to_string_lossy().into_owned(),
-                );
-                let mut ask = false;
-                prefs::with(|p| ask = p.fileops_settings().conflict_ask);
-                let resolver = ask.then(|| fileops_conflict::resolver(weak.clone()));
-                std::thread::spawn(move || {
-                    let kind = match op {
-                        clipboard::Operation::Copy => engine::TaskKind::Copying,
-                        clipboard::Operation::Cut => engine::TaskKind::Moving,
-                    };
-                    fileops_undo::queue_notice(weak.clone());
-                    let result = fileops_undo::catch_worker(|| {
-                        let job = engine.begin_job(kind);
-                        fileops_undo::paste(op, &sources, &dest, job.progress(), resolver)
-                    });
-                    let queued = weak.upgrade_in_event_loop(move |w| {
-                        w.invoke_fileops_conflict_answer(5);
-                        // Keep the next paste out until this paste's dialog
-                        // answer and clipboard completion have been handled.
-                        BUSY.store(false, SeqCst);
-                        fileops_undo_ui::refresh_open();
-                        let out = match result {
-                            Ok(out) => out,
-                            Err(e) => {
-                                error(&w, e);
-                                return;
+                start_transfer(w, &engine, op, sources.clone(), dest, move |_, out| {
+                    // A cut is pasted once; after a failure or a cancel it
+                    // stays, so pasting again moves what is left.
+                    if op == clipboard::Operation::Cut
+                        && out.failed.is_empty()
+                        && out.skipped == 0
+                        && !out.cancelled
+                    {
+                        let ours = HELD.with(|h| {
+                            let mut h = h.borrow_mut();
+                            let ours = h.as_ref().is_some_and(|h| h.paths == sources);
+                            if ours {
+                                *h = None;
                             }
-                        };
-                        let (text, failed) = labels::pasted(op, &out, &folder);
-                        if failed {
-                            error(&w, text.clone());
-                        } else {
-                            info(&w, text.clone());
-                        }
-                        if out.history_cleared && !failed && !out.cancelled {
-                            w.set_notice(tr("Paste finished; undo history cleared.").into());
-                            w.set_notice_details(format::visible_name(&text).as_ref().into());
-                            w.set_notice_has_details(true);
-                        }
-                        // A cut is pasted once; after a failure or a cancel it
-                        // stays, so pasting again moves what is left.
-                        if op == clipboard::Operation::Cut
-                            && out.failed.is_empty()
-                            && out.skipped == 0
-                            && !out.cancelled
-                        {
-                            let ours = HELD.with(|h| {
-                                let mut h = h.borrow_mut();
-                                let ours = h.as_ref().is_some_and(|h| h.paths == sources);
-                                if ours {
-                                    *h = None;
-                                }
-                                ours
-                            });
-                            with_x11(|x| {
-                                let x = x?;
-                                if ours {
-                                    x.clear();
-                                } else if !x.owns() {
-                                    // Another program's cut: the clipboard
-                                    // thread empties the clipboard if it still
-                                    // holds it, as file managers do after
-                                    // pasting a cut. What this window held is
-                                    // not on the clipboard any more.
-                                    HELD.with(|h| *h.borrow_mut() = None);
-                                    x.empty_if_holding((
-                                        clipboard::Operation::Cut,
-                                        sources.clone(),
-                                    ));
-                                }
-                                Some(())
-                            });
-                            CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
-                        }
-                    });
-                    if queued.is_err() {
-                        BUSY.store(false, SeqCst);
+                            ours
+                        });
+                        with_x11(|x| {
+                            let x = x?;
+                            if ours {
+                                x.clear();
+                            } else if !x.owns() {
+                                // Another program's cut: the clipboard
+                                // thread empties the clipboard if it still
+                                // holds it, as file managers do after
+                                // pasting a cut. What this window held is
+                                // not on the clipboard any more.
+                                HELD.with(|h| *h.borrow_mut() = None);
+                                x.empty_if_holding((clipboard::Operation::Cut, sources.clone()));
+                            }
+                            Some(())
+                        });
+                        CUT_PASTED.with(|c| *c.borrow_mut() = Some(sources));
                     }
                 });
             });
+        }
+    });
+}
+
+/// Copy to folder… and Move to folder…: the desktop's folder chooser, then
+/// the same transfer as Paste.
+fn connect_to_folder(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
+    window.on_fileops_to_folder({
+        let (weak, model, engine) = (window.as_weak(), model.clone(), engine.clone());
+        move |r, moving| {
+            let Some(Targets { paths: sources, .. }) =
+                online_targets(&weak, &model, usize::try_from(r).ok())
+            else {
+                return;
+            };
+            if sources.is_empty() {
+                return;
+            }
+            let op = if moving {
+                clipboard::Operation::Cut
+            } else {
+                clipboard::Operation::Copy
+            };
+            let (weak, engine) = (weak.clone(), engine.clone());
+            // The chooser is the portal's; waiting for it blocks.
+            std::thread::spawn(move || {
+                let (title, accept) = if moving {
+                    (tr("Move to folder"), tr("Move here"))
+                } else {
+                    (tr("Copy to folder"), tr("Copy here"))
+                };
+                let chosen = portal::choose_folder(title, accept);
+                let _ = weak.upgrade_in_event_loop(move |w| match chosen {
+                    Ok(Some(dest)) => start_checked_transfer(&w, &engine, op, sources, dest),
+                    Ok(None) => {}
+                    Err(e) => error(&w, fill(tr("Cannot show the folder chooser: {}"), &[&e])),
+                });
+            });
+        }
+    });
+}
+
+/// [`start_transfer`] after the checks every chosen destination gets: no
+/// other transfer running, a folder that exists and is not one of the
+/// moved folders or inside one.
+fn start_checked_transfer(
+    w: &AppWindow,
+    engine: &Arc<Engine>,
+    op: clipboard::Operation,
+    sources: Vec<PathBuf>,
+    dest: PathBuf,
+) {
+    use std::sync::atomic::Ordering::SeqCst;
+    if let Some(why) = transfer::refusal(&sources, &dest) {
+        error(w, why.into());
+        return;
+    }
+    if TRANSFER_BUSY.swap(true, SeqCst) {
+        info(w, tr("Another copy or move is still running.").into());
+        return;
+    }
+    info(w, String::new());
+    start_transfer(w, engine, op, sources, dest, |_, _| {});
+}
+
+/// One copy or move at a time: Paste, Copy to folder, Move to folder and
+/// drops.
+static TRANSFER_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Copies or moves `sources` into `dest` on a helper thread, with the
+/// conflict questions, undo recording and status line of Paste. The caller
+/// has taken [`TRANSFER_BUSY`]; it is given back when the transfer ends.
+/// `done` runs on the window thread after a transfer that ran.
+fn start_transfer(
+    w: &AppWindow,
+    engine: &Arc<Engine>,
+    op: clipboard::Operation,
+    sources: Vec<PathBuf>,
+    dest: PathBuf,
+    done: impl FnOnce(&AppWindow, &transfer::Outcome) + Send + 'static,
+) {
+    use std::sync::atomic::Ordering::SeqCst;
+    let folder = dest.file_name().map_or_else(
+        || dest.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    let mut ask = false;
+    prefs::with(|p| ask = p.fileops_settings().conflict_ask);
+    let weak = w.as_weak();
+    let resolver = ask.then(|| fileops_conflict::resolver(weak.clone()));
+    let engine = engine.clone();
+    std::thread::spawn(move || {
+        let kind = match op {
+            clipboard::Operation::Copy => engine::TaskKind::Copying,
+            clipboard::Operation::Cut => engine::TaskKind::Moving,
+        };
+        fileops_undo::queue_notice(weak.clone());
+        let result = fileops_undo::catch_worker(|| {
+            let job = engine.begin_job(kind);
+            fileops_undo::paste(op, &sources, &dest, job.progress(), resolver)
+        });
+        let queued = weak.upgrade_in_event_loop(move |w| {
+            w.invoke_fileops_conflict_answer(5);
+            // Keep the next transfer out until this one's dialog answer
+            // and completion have been handled.
+            TRANSFER_BUSY.store(false, SeqCst);
+            fileops_undo_ui::refresh_open();
+            let out = match result {
+                Ok(out) => out,
+                Err(e) => {
+                    error(&w, e);
+                    return;
+                }
+            };
+            let (text, failed) = labels::pasted(op, &out, &folder);
+            if failed {
+                error(&w, text.clone());
+            } else {
+                info(&w, text.clone());
+            }
+            if out.history_cleared && !failed && !out.cancelled {
+                w.set_notice(tr("Paste finished; undo history cleared.").into());
+                w.set_notice_details(format::visible_name(&text).as_ref().into());
+                w.set_notice_has_details(true);
+            }
+            done(&w, &out);
+        });
+        if queued.is_err() {
+            TRANSFER_BUSY.store(false, SeqCst);
         }
     });
 }

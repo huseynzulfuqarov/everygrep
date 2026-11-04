@@ -4178,3 +4178,47 @@ msgstr "İşlem geri alma için kaydedilemedi."
 #: src/trashbin.rs
 msgid "The original folder no longer exists."
 msgstr "Özgün klasör artık yok."
+
+#: src/main.rs
+msgid "Another copy or move is still running."
+msgstr "Başka bir kopyalama veya taşıma hâlâ sürüyor."
+
+#: src/main.rs
+msgid "Cannot show the folder chooser: {}"
+msgstr "Klasör seçici gösterilemiyor: {}"
+
+#: src/main.rs
+msgid "Copy here"
+msgstr "Buraya kopyala"
+
+#: ui/app.slint
+msgid "Copy or move to"
+msgstr "Kopyala veya taşı"
+
+#: src/main.rs
+msgid "Copy to folder"
+msgstr "Klasöre kopyala"
+
+#: ui/app.slint
+msgid "Copy to folder…"
+msgstr "Klasöre kopyala…"
+
+#: src/main.rs
+msgid "Move here"
+msgstr "Buraya taşı"
+
+#: src/main.rs
+msgid "Move to folder"
+msgstr "Klasöre taşı"
+
+#: ui/app.slint
+msgid "Move to folder…"
+msgstr "Klasöre taşı…"
+
+#: src/transfer.rs
+msgid "The destination folder no longer exists."
+msgstr "Hedef klasör artık yok."
+
+#: src/transfer.rs
+msgid "The destination is not a folder."
+msgstr "Hedef bir klasör değil."
