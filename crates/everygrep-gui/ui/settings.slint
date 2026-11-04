@@ -207,6 +207,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> filter-wrap;
     in-out property <bool> select-search-on-click;
     in-out property <bool> clear-selection-on-search;
+    in-out property <bool> hide-results-when-empty;
     in-out property <int> history-size;
     in-out property <int> history-entries;
     in property <int> history-max;
@@ -879,6 +880,12 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.search-changed(); }
                             }
                             Note { text: @tr("Off: the selected items stay selected while the new results list them. Sorting and file changes never clear it."); }
+                            CheckBox {
+                                text: @tr("Hide the results while the search field is empty");
+                                checked <=> root.hide-results-when-empty;
+                                toggled => { root.search-changed(); }
+                            }
+                            Note { text: @tr("Off: an empty search lists every indexed file and folder that the filter lets through."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("File contents"); }
                             ContentSettings {

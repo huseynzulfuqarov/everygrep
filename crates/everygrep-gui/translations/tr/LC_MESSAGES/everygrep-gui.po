@@ -4568,3 +4568,9 @@ msgstr "Tam öznitelikler: R salt okunur, H gizli, D klasör, L bağlantı, X ç
 
 msgid "Exact file digest: MD5, SHA-1/256/384/512, CRC-32 or xxHash. Full files are read on demand, using the shared hash cache."
 msgstr "Tam dosya özeti: MD5, SHA-1/256/384/512, CRC-32 veya xxHash. Ortak özet önbelleği kullanılarak dosyaların tamamı gerektiğinde okunur."
+
+msgid "Hide the results while the search field is empty"
+msgstr "Arama alanı boşken sonuçları gizle"
+
+msgid "Off: an empty search lists every indexed file and folder that the filter lets through."
+msgstr "Kapalıyken boş arama, filtrenin geçirdiği tüm dizinlenmiş dosya ve klasörleri listeler."

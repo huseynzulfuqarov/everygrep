@@ -345,6 +345,9 @@ pub struct Settings {
     /// Whether a new search clears the selection; off keeps the selected
     /// items that the new result lists.
     pub clear_selection_on_search: bool,
+    /// Whether the result list stays empty while the search field is
+    /// empty; off lists every indexed entry (with the chosen filter).
+    pub hide_results_when_empty: bool,
     /// Searches kept for Back and Forward; 0 turns the history off.
     pub history_size: usize,
     /// Whether the search history is saved between sessions.
@@ -472,6 +475,7 @@ impl Default for Settings {
             filter_wrap: true,
             select_search_on_click: true,
             clear_selection_on_search: true,
+            hide_results_when_empty: false,
             history_size: DEFAULT_HISTORY,
             history_on_disk: false,
             reload_changed: true,
@@ -771,6 +775,7 @@ impl Settings {
             "search-as-you-type" => put_flag(&mut self.as_you_type),
             "select-search-on-click" => put_flag(&mut self.select_search_on_click),
             "deselect-on-new-search" => put_flag(&mut self.clear_selection_on_search),
+            "hide-results-when-empty" => put_flag(&mut self.hide_results_when_empty),
             "history-size" => value
                 .parse::<usize>()
                 .ok()
@@ -1455,6 +1460,12 @@ impl Settings {
         );
         flag(
             &mut out,
+            "hide-results-when-empty",
+            self.hide_results_when_empty,
+            d.hide_results_when_empty,
+        );
+        flag(
+            &mut out,
             "history-enabled",
             self.history_enabled,
             d.history_enabled,
@@ -1946,6 +1957,7 @@ impl Settings {
                 self.filter_wrap = d.filter_wrap;
                 self.select_search_on_click = d.select_search_on_click;
                 self.clear_selection_on_search = d.clear_selection_on_search;
+                self.hide_results_when_empty = d.hide_results_when_empty;
                 self.history_size = d.history_size;
                 self.history_on_disk = d.history_on_disk;
                 self.history_enabled = d.history_enabled;
@@ -2782,6 +2794,7 @@ pub(crate) mod tests {
             filter_wrap: false,
             select_search_on_click: false,
             clear_selection_on_search: false,
+            hide_results_when_empty: true,
             history_size: 0,
             history_on_disk: true,
             reload_changed: false,
@@ -2873,6 +2886,7 @@ pub(crate) mod tests {
         assert!(text.contains("search-as-you-type = false\n"));
         assert!(text.contains("select-search-on-click = false\n"));
         assert!(text.contains("deselect-on-new-search = false\n"));
+        assert!(text.contains("hide-results-when-empty = true\n"));
         assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("open-folder-on-path-double-click = false\n"));
         assert!(text.contains("copy-full-path-quotes = true\n"));

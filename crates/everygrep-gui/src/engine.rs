@@ -588,6 +588,15 @@ struct QueryState {
     /// Leave out entries of roots that are offline (drives that are not
     /// connected, file lists).
     hide_offline: bool,
+    /// List nothing while the search text is empty.
+    hide_when_empty: bool,
+}
+
+impl QueryState {
+    /// Whether this request lists nothing because its search text is empty.
+    fn hidden_empty(&self) -> bool {
+        self.hide_when_empty && self.text.trim().is_empty()
+    }
 }
 
 /// A request whose complete results were shown, with the index version and
@@ -1240,12 +1249,17 @@ impl Engine {
         filter: Option<(String, QueryOptions)>,
         sort: Sort,
     ) -> Option<u64> {
+        let (hide_offline, hide_when_empty) = {
+            let q = self.query.lock().expect("lock");
+            (q.hide_offline, q.hide_when_empty)
+        };
         let state = QueryState {
             text: text.to_owned(),
             options,
             filter_query: filter,
             sort,
-            hide_offline: self.query.lock().expect("lock").hide_offline,
+            hide_offline,
+            hide_when_empty,
         };
         if state != settled.state
             || self.epoch() != settled.epoch
@@ -1285,12 +1299,17 @@ impl Engine {
         filter: Option<(String, QueryOptions)>,
         sort: Sort,
     ) -> Option<u64> {
+        let (hide_offline, hide_when_empty) = {
+            let q = self.query.lock().expect("lock");
+            (q.hide_offline, q.hide_when_empty)
+        };
         let state = QueryState {
             text: text.to_owned(),
             options,
             filter_query: filter,
             sort,
-            hide_offline: self.query.lock().expect("lock").hide_offline,
+            hide_offline,
+            hide_when_empty,
         };
         if state != stopped.0 {
             return None;
@@ -1316,6 +1335,17 @@ impl Engine {
             return self.generation.load(Ordering::SeqCst);
         }
         q.hide_offline = hide;
+        self.content_state.lock().expect("lock").stopped = false;
+        self.request_search()
+    }
+
+    /// Whether an empty search text lists nothing; a change searches again.
+    pub fn set_hide_when_empty(&self, hide: bool) -> u64 {
+        let mut q = self.query.lock().expect("lock");
+        if q.hide_when_empty == hide {
+            return self.generation.load(Ordering::SeqCst);
+        }
+        q.hide_when_empty = hide;
         self.content_state.lock().expect("lock").stopped = false;
         self.request_search()
     }
@@ -1433,15 +1463,22 @@ impl Engine {
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
             let mut version = None;
-            let (ids, error) = match Query::parse(&state.text, state.options).and_then(|query| {
-                match &state.filter_query {
-                    Some((text, options)) => {
-                        Query::parse(text, *options).and_then(|filter| query.and(filter))
-                    }
-                    None => Ok(query),
-                }
-            }) {
-                Ok(query) if !query.content_terms().is_empty() || query.dupes().is_some() => {
+            let parsed = if state.hidden_empty() {
+                Ok(None)
+            } else {
+                Query::parse(&state.text, state.options)
+                    .and_then(|query| match &state.filter_query {
+                        Some((text, options)) => {
+                            Query::parse(text, *options).and_then(|filter| query.and(filter))
+                        }
+                        None => Ok(query),
+                    })
+                    .map(Some)
+            };
+            let (ids, error) = match parsed {
+                // Nothing to list for an empty search.
+                Ok(None) => (Vec::new(), None),
+                Ok(Some(query)) if !query.content_terms().is_empty() || query.dupes().is_some() => {
                     terms = query.highlight_terms();
                     let terms = Arc::new(std::mem::take(&mut terms));
                     let found = self.search_contents(generation, &state, &query, started, &terms);
@@ -1490,7 +1527,7 @@ impl Engine {
                         }
                     }
                 }
-                Ok(query) => {
+                Ok(Some(query)) => {
                     terms = query.highlight_terms();
                     let index = self.index.read().expect("index lock");
                     // Quitting began while the index was held.
@@ -3862,6 +3899,25 @@ mod tests {
         probe.engine.shutdown();
         let saved = persist::load(&index_file).unwrap();
         assert_eq!(saved.rules_hash, Some(persist::rules_fingerprint(&plain)));
+    }
+
+    #[test]
+    fn an_empty_search_lists_nothing_when_asked() {
+        let dir = Scratch::new("hide-empty");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("alpha.txt"), "a").unwrap();
+        fs::write(root.join("beta.txt"), "b").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        assert!(probe.names("").contains(&"alpha.txt".to_owned()));
+        probe.engine.set_hide_when_empty(true);
+        assert!(probe.names("").is_empty());
+        // Spaces alone count as empty.
+        assert!(probe.names("  ").is_empty());
+        assert_eq!(probe.names("alpha"), ["alpha.txt"]);
+        probe.engine.set_hide_when_empty(false);
+        assert!(probe.names("").contains(&"beta.txt".to_owned()));
     }
 
     #[test]
@@ -6685,6 +6741,7 @@ mod tests {
             options: QueryOptions::default(),
             filter_query: None,
             hide_offline: false,
+            hide_when_empty: false,
             sort: Sort {
                 key: everygrep_core::sort::SortKey::Size,
                 descending: true,

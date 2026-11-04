@@ -4568,3 +4568,9 @@ msgstr "Dəqiq atributlar: R yalnız oxunan, H gizli, D qovluq, L keçid, X icra
 
 msgid "Exact file digest: MD5, SHA-1/256/384/512, CRC-32 or xxHash. Full files are read on demand, using the shared hash cache."
 msgstr "Dəqiq fayl heşi: MD5, SHA-1/256/384/512, CRC-32 və ya xxHash. Ortaq heş keşi ilə fayllar lazım olduqda tam oxunur."
+
+msgid "Hide the results while the search field is empty"
+msgstr "Axtarış sahəsi boş olanda nəticələri gizlət"
+
+msgid "Off: an empty search lists every indexed file and folder that the filter lets through."
+msgstr "Söndürüləndə boş axtarış filtrin buraxdığı bütün indekslənmiş faylları və qovluqları göstərir."

@@ -2270,6 +2270,7 @@ impl Prefs {
         w.set_filter_wrap(s.filter_wrap);
         w.set_select_search_on_click(s.select_search_on_click);
         w.set_clear_selection_on_search(s.clear_selection_on_search);
+        w.set_hide_results_when_empty(s.hide_results_when_empty);
         w.set_history_max(MAX_HISTORY as i32);
         w.set_history_size(s.history_size as i32);
         w.set_history_entries(s.history_entries as i32);
@@ -3150,6 +3151,7 @@ impl Prefs {
         let show_mode_badges = w.get_show_mode_badges();
         let select_on_click = w.get_select_search_on_click();
         let clear_selection = w.get_clear_selection_on_search();
+        let hide_empty = w.get_hide_results_when_empty();
         let content = crate::content_settings::Settings::from_window(&w);
         let history_before = self.settings.borrow().clone();
         let mut history_wanted = history_before.clone();
@@ -3166,6 +3168,7 @@ impl Prefs {
             s.filter_wrap = filter_wrap;
             s.select_search_on_click = select_on_click;
             s.clear_selection_on_search = clear_selection;
+            s.hide_results_when_empty = hide_empty;
             crate::history_sync::apply_choices(s, &history_before, &history_wanted);
         });
         self.history_storage_changed(was_on_disk);
@@ -3259,6 +3262,7 @@ impl Prefs {
         m.set_show_mode_badges(s.show_mode_badges);
         m.set_filter_wrap(s.filter_wrap);
         m.set_select_search_on_click(s.select_search_on_click);
+        self.engine.set_hide_when_empty(s.hide_results_when_empty);
         crate::with_model(&m, |model| model.apply_behaviour(&s));
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);
