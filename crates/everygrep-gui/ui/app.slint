@@ -733,6 +733,19 @@ component Row inherits Rectangle {
     // extension).
     in property <int> edit-stem;
     callback pressed(KeyboardModifiers);
+    // Dragging rows onto folder rows (see src/fileops_drop.rs).
+    in property <bool> drag-enabled;
+    in property <data-transfer> drag-data;
+    callback drag-started();
+    callback drag-ended();
+    // A press on a selected row without Shift or Ctrl: the row gets the
+    // cursor, and the selection becomes this row only at the release, so
+    // the selected rows can be dragged together.
+    callback focus-pressed();
+    pure callback drop-allowed() -> bool;
+    // Dropped here; with Ctrl (copy) and the position in the row.
+    callback dropped-here(bool, length, length);
+    property <bool> select-at-release;
     callback right-pressed(length, length, int);
     // With the x position of the click in the row.
     callback double-clicked(length);
@@ -760,17 +773,54 @@ component Row inherits Rectangle {
     background: selected ? Theme.selection : touch.has-hover ? Theme.hover
         : root.alternate ? Theme.row-alt : transparent;
 
-    touch := TouchArea {
-        pointer-event(event) => {
-            if (event.kind == PointerEventKind.down) {
-                if (event.button == PointerEventButton.left) {
+    drop := DropArea {
+        enabled: root.drag-enabled && root.data.is-dir && !root.data.offline;
+        can-drop(event) => {
+            if (!root.drop-allowed()) { return DragAction.none; }
+            return event.proposed-action == DragAction.copy ? DragAction.copy : DragAction.move;
+        }
+        dropped(event) => {
+            root.dropped-here(event.proposed-action == DragAction.copy, event.position.x, event.position.y);
+            return event.proposed-action;
+        }
+    }
+    drag := DragArea {
+        enabled: root.drag-enabled && !root.editing;
+        allow-copy: true;
+        allow-move: true;
+        data: root.drag-data;
+        changed dragging => {
+            if (self.dragging) { root.drag-started(); }
+        }
+        drag-finished(action) => { root.drag-ended(); }
+        touch := TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.select-at-release = false;
+                    if (event.button == PointerEventButton.left) {
+                        if (root.drag-enabled && root.selected && !event.modifiers.shift && !event.modifiers.control) {
+                            root.select-at-release = true;
+                            root.focus-pressed();
+                        } else {
+                            root.pressed(event.modifiers);
+                        }
+                    } else if (event.button == PointerEventButton.right) {
+                        root.right-pressed(self.mouse-x, self.mouse-y, root.value-column-at(self.mouse-x));
+                    }
+                } else if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left && root.select-at-release) {
+                    root.select-at-release = false;
                     root.pressed(event.modifiers);
-                } else if (event.button == PointerEventButton.right) {
-                    root.right-pressed(self.mouse-x, self.mouse-y, root.value-column-at(self.mouse-x));
                 }
             }
+            double-clicked => { root.double-clicked(self.mouse-x); }
         }
-        double-clicked => { root.double-clicked(self.mouse-x); }
+    }
+    // The folder a drag would drop into.
+    Rectangle {
+        visible: drop.has-drag;
+        border-width: 2px;
+        border-color: Theme.accent;
+        background: Theme.selection.with-alpha(0.5);
     }
     // Focus ring of the keyboard cursor.
     Rectangle {
@@ -1861,6 +1911,15 @@ export component AppWindow inherits Window {
     in property <string> fileops-rename-action;
     in property <string> fileops-rename-label;
     callback fileops-new-folder(int);
+    in property <bool> drag-to-folders;
+    in property <data-transfer> drag-payload;
+    callback rows-drag-start(int);
+    callback rows-drag-end();
+    pure callback drop-allowed(int) -> bool;
+    // True when the drop waits for the answer of the drop menu.
+    callback drop-on(int, bool) -> bool;
+    // 0 cancel, 1 copy, 2 move.
+    callback drop-answer(int);
     // Copy (false) or move (true) the items of a row to a folder chosen
     // in the desktop's folder chooser.
     callback fileops-to-folder(int, bool);
@@ -5068,6 +5127,17 @@ export component AppWindow inherits Window {
                                 }
                             }
 
+                        // Asked after a drop when the setting says so.
+                        drop-menu := ContextMenuArea {
+                            enabled: false;
+                            Menu {
+                                MenuItem { title: @tr("Copy here"); activated => { root.drop-answer(1); } }
+                                MenuItem { title: @tr("Move here"); activated => { root.drop-answer(2); } }
+                                MenuSeparator { }
+                                MenuItem { title: @tr("Cancel"); activated => { root.drop-answer(0); } }
+                            }
+                        }
+
                         // The menu of the empty area below the rows.
                         blank-menu := ContextMenuArea {
                             enabled: false;
@@ -5182,6 +5252,21 @@ export component AppWindow inherits Window {
                                     root.current = i;
                                     keys.focus();
                                     root.select(i, mods.shift ? 2 : mods.control ? 1 : 0);
+                                }
+                                drag-enabled: root.drag-to-folders;
+                                drag-data: root.drag-payload;
+                                focus-pressed => {
+                                    root.jump-reset();
+                                    root.current = i;
+                                    keys.focus();
+                                }
+                                drag-started => { root.rows-drag-start(i); }
+                                drag-ended => { root.rows-drag-end(); }
+                                drop-allowed => { return root.drop-allowed(i); }
+                                dropped-here(copy, x, y) => {
+                                    if (root.drop-on(i, copy)) {
+                                        drop-menu.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });
+                                    }
                                 }
                                 right-pressed(x, y, column) => {
                                     root.jump-reset();

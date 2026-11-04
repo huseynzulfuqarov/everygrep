@@ -12,6 +12,8 @@ export component FileopsSettings inherits VerticalLayout {
     in-out property <bool> search-recursive;
     in-out property <bool> search-exact-name;
     in-out property <bool> new-folder-inside;
+    in-out property <bool> drag-to-folders;
+    in-out property <int> drop-action;
     callback changed();
     changed undo-limit => { history-limit.value = root.undo-limit; }
     spacing: Theme.s2;
@@ -44,6 +46,19 @@ export component FileopsSettings inherits VerticalLayout {
         checked <=> root.new-folder-inside;
         toggled => { root.changed(); }
     }
+    CheckBox {
+        text: @tr("Drag results onto folders in the list to copy or move them");
+        checked <=> root.drag-to-folders;
+        toggled => { root.changed(); }
+    }
+    Text { text: @tr("Dropping onto a folder"); color: Theme.text; }
+    ComboBox {
+        enabled: root.drag-to-folders;
+        model: [@tr("Move on the same drive, copy to another drive"), @tr("Always copy"), @tr("Always move"), @tr("Ask each time")];
+        current-index <=> root.drop-action;
+        selected => { root.changed(); }
+    }
+    Text { text: @tr("Hold Ctrl while dropping to copy."); color: Theme.text-muted; wrap: word-wrap; }
     Text { text: @tr("Shortcut type"); color: Theme.text; }
     ComboBox {
         model: [@tr("Symbolic link"), @tr("Desktop link")];

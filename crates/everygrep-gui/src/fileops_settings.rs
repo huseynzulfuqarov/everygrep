@@ -15,6 +15,9 @@ pub struct Settings {
     /// New folder with a folder selected makes the new folder inside it;
     /// off, next to it (in the selected item's folder).
     pub new_folder_inside: bool,
+    /// Result rows can be dragged onto folder rows.
+    pub drag_to_folders: bool,
+    pub drop_action: crate::fileops_drop::DropAction,
 }
 
 impl Default for Settings {
@@ -30,6 +33,8 @@ impl Default for Settings {
             shortcut_kind: Default::default(),
             shortcut_collision: Default::default(),
             new_folder_inside: true,
+            drag_to_folders: true,
+            drop_action: Default::default(),
         }
     }
 }
@@ -44,6 +49,8 @@ impl Settings {
         w.set_fileops_search_recursive(self.search_recursive);
         w.set_fileops_search_exact_name(self.search_exact_name);
         w.set_fileops_new_folder_inside(self.new_folder_inside);
+        w.set_fileops_drag_to_folders(self.drag_to_folders);
+        w.set_fileops_drop_action(self.drop_action.index());
         w.set_fileops_shortcut_kind(i32::from(
             self.shortcut_kind == crate::fileops_shortcut::Kind::Desktop,
         ));
@@ -62,6 +69,8 @@ impl Settings {
             search_recursive: w.get_fileops_search_recursive(),
             search_exact_name: w.get_fileops_search_exact_name(),
             new_folder_inside: w.get_fileops_new_folder_inside(),
+            drag_to_folders: w.get_fileops_drag_to_folders(),
+            drop_action: crate::fileops_drop::DropAction::from_index(w.get_fileops_drop_action()),
             shortcut_kind: if w.get_fileops_shortcut_kind() == 1 {
                 crate::fileops_shortcut::Kind::Desktop
             } else {
@@ -109,6 +118,16 @@ impl Settings {
             }
             ("new-folder-inside-selected-folder", "false" | "no" | "off" | "0") => {
                 self.new_folder_inside = false
+            }
+            ("drag-results-to-folders", "true" | "yes" | "on" | "1") => self.drag_to_folders = true,
+            ("drag-results-to-folders", "false" | "no" | "off" | "0") => {
+                self.drag_to_folders = false
+            }
+            ("drop-action", value) => {
+                let Some(action) = crate::fileops_drop::DropAction::from_word(value) else {
+                    return false;
+                };
+                self.drop_action = action;
             }
             ("rename-in-dialog", "true" | "yes" | "on" | "1") => self.rename_dialog = true,
             ("rename-in-dialog", "false" | "no" | "off" | "0") => self.rename_dialog = false,
@@ -169,10 +188,18 @@ impl Settings {
                 self.new_folder_inside,
                 defaults.new_folder_inside,
             ),
+            (
+                "drag-results-to-folders",
+                self.drag_to_folders,
+                defaults.drag_to_folders,
+            ),
         ] {
             if on != default || all {
                 out.push_str(&format!("{key} = {on}\n"));
             }
+        }
+        if self.drop_action != defaults.drop_action || all {
+            out.push_str(&format!("drop-action = {}\n", self.drop_action.word()));
         }
         if self.undo_limit != 100 || all {
             out.push_str(&format!("file-undo-limit = {}\n", self.undo_limit));
@@ -228,6 +255,36 @@ mod tests {
                 .problems
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn drop_choices_default_to_the_file_manager_rule_and_roundtrip() {
+        use crate::fileops_drop::DropAction;
+        let default = Settings::default();
+        assert!(default.fileops.drag_to_folders);
+        assert_eq!(default.fileops.drop_action, DropAction::Auto);
+        for (word, action) in [
+            ("copy", DropAction::Copy),
+            ("move", DropAction::Move),
+            ("ask", DropAction::Ask),
+        ] {
+            let s = Settings::parse(&format!(
+                "drop-action = {word}\ndrag-results-to-folders = false"
+            ));
+            assert_eq!(s.fileops.drop_action, action);
+            assert!(!s.fileops.drag_to_folders);
+            assert_eq!(Settings::parse(&s.to_text()).fileops, s.fileops);
+            assert_eq!(DropAction::from_index(action.index()), action);
+        }
+        let mut s = Settings::parse("drop-action = ask");
+        s.reset(Page::Window);
+        assert_eq!(s.fileops.drop_action, DropAction::Auto);
+        assert_eq!(
+            Settings::parse("drop-action = sometimes\ndrag-results-to-folders = 2")
+                .problems
+                .len(),
+            2
         );
     }
 

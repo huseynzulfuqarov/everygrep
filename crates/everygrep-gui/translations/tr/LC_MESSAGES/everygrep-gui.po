@@ -4222,3 +4222,31 @@ msgstr "Hedef klasör artık yok."
 #: src/transfer.rs
 msgid "The destination is not a folder."
 msgstr "Hedef bir klasör değil."
+
+#: ui/fileops-settings.slint
+msgid "Always copy"
+msgstr "Her zaman kopyala"
+
+#: ui/fileops-settings.slint
+msgid "Always move"
+msgstr "Her zaman taşı"
+
+#: ui/fileops-settings.slint
+msgid "Ask each time"
+msgstr "Her seferinde sor"
+
+#: ui/fileops-settings.slint
+msgid "Drag results onto folders in the list to copy or move them"
+msgstr "Sonuçları listedeki klasörlerin üzerine sürükleyerek kopyala veya taşı"
+
+#: ui/fileops-settings.slint
+msgid "Dropping onto a folder"
+msgstr "Bir klasörün üzerine bırakınca"
+
+#: ui/fileops-settings.slint
+msgid "Hold Ctrl while dropping to copy."
+msgstr "Kopyalamak için bırakırken Ctrl tuşunu basılı tutun."
+
+#: ui/fileops-settings.slint
+msgid "Move on the same drive, copy to another drive"
+msgstr "Aynı sürücüde taşı, başka sürücüye kopyala"

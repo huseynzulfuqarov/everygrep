@@ -1211,6 +1211,7 @@ impl Prefs {
             labels::folder_size,
         ));
         m.set_file_undo_enabled(s.fileops.undo_enabled);
+        m.set_drag_to_folders(s.fileops.drag_to_folders);
         m.set_status_details(s.status_details);
         m.set_show_menu_bar(s.menu_bar);
         m.set_preview_visible(s.preview_visible);

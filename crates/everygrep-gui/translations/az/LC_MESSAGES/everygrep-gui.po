@@ -4222,3 +4222,31 @@ msgstr "Hədəf qovluq artıq yoxdur."
 #: src/transfer.rs
 msgid "The destination is not a folder."
 msgstr "Hədəf qovluq deyil."
+
+#: ui/fileops-settings.slint
+msgid "Always copy"
+msgstr "Həmişə kopyala"
+
+#: ui/fileops-settings.slint
+msgid "Always move"
+msgstr "Həmişə köçür"
+
+#: ui/fileops-settings.slint
+msgid "Ask each time"
+msgstr "Hər dəfə soruş"
+
+#: ui/fileops-settings.slint
+msgid "Drag results onto folders in the list to copy or move them"
+msgstr "Nəticələri siyahıdakı qovluqların üzərinə sürükləyərək kopyala və ya köçür"
+
+#: ui/fileops-settings.slint
+msgid "Dropping onto a folder"
+msgstr "Qovluğun üzərinə buraxanda"
+
+#: ui/fileops-settings.slint
+msgid "Hold Ctrl while dropping to copy."
+msgstr "Kopyalamaq üçün buraxarkən Ctrl düyməsini basılı saxlayın."
+
+#: ui/fileops-settings.slint
+msgid "Move on the same drive, copy to another drive"
+msgstr "Eyni diskdə köçür, başqa diskə kopyala"
