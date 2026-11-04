@@ -289,6 +289,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> preview-images;
     in-out property <bool> preview-thumbnailers;
     in-out property <bool> preview-sandbox;
+    in-out property <bool> preview-nested;
     in-out property <bool> preview-text;
     callback preview-changed();
     in property <[string]> close-names;
@@ -1279,7 +1280,7 @@ export component SettingsWindow inherits Window {
                             Heading { text: @tr("Preview"); }
                             PreviewSettings {
                                 shown <=> root.preview-visible; cache <=> root.preview-cache; images <=> root.preview-images;
-                                thumbnailers <=> root.preview-thumbnailers; sandbox <=> root.preview-sandbox; text-files <=> root.preview-text;
+                                thumbnailers <=> root.preview-thumbnailers; sandbox <=> root.preview-sandbox; text-files <=> root.preview-text; nested <=> root.preview-nested;
                                 changed => { root.preview-changed(); }
                             }
                             Heading { text: @tr("Tabs and session"); }

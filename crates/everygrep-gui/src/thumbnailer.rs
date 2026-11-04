@@ -239,6 +239,36 @@ fn limits() -> std::io::Result<()> {
 /// Native Linux classic BPF in the spirit of the desktop thumbnail sandbox:
 /// validate the ABI, deny kernel administration, mount, tracing and user
 /// namespace creation. Namespace isolation still applies without this filter.
+/// The one helper allowed to make its own nested sandbox (HEIC, JXL, SVG
+/// and other image formats): it runs each image decoder in a `bwrap` of
+/// its own, which needs user namespaces and mounts inside ours.
+const GLYCIN: &str = "/usr/bin/glycin-thumbnailer";
+
+/// Syscalls a nested `bwrap` needs beyond the rest: pivot_root, chroot,
+/// mount, umount2, unshare and setns (and clone with a new user namespace).
+#[cfg(target_arch = "x86_64")]
+const NESTED: &[u32] = &[155, 161, 165, 166, 272, 308];
+#[cfg(target_arch = "aarch64")]
+const NESTED: &[u32] = &[41, 51, 40, 39, 97, 268];
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+const NESTED: &[u32] = &[];
+
+/// Whether `helper` may open its own nested sandbox: only the exact glycin
+/// path, a regular file owned by root that no one else can change (nor its
+/// folder), and only when allowed in Settings.
+fn nested_allowed(helper: &Path, allowed: bool) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let root_only = |p: &Path, dir: bool| {
+        fs::symlink_metadata(p).is_ok_and(|m| {
+            (if dir { m.is_dir() } else { m.is_file() }) && m.uid() == 0 && m.mode() & 0o022 == 0
+        })
+    };
+    allowed
+        && helper == Path::new(GLYCIN)
+        && root_only(helper, false)
+        && helper.parent().is_some_and(|d| root_only(d, true))
+}
+
 #[cfg(target_arch = "x86_64")]
 const SECCOMP: Option<(u32, Blocked)> = Some((
     0xc000003e,
@@ -279,7 +309,10 @@ const RET_EPERM: u32 = 0x0005_0001;
 // ENOSYS makes libc fall back to clone(), whose flags the filter can inspect.
 const RET_ENOSYS: u32 = 0x0005_0026;
 const RET_ALLOW: u32 = 0x7fff_0000;
-fn seccomp() -> Option<Vec<u8>> {
+/// The filter; `nested` lets a helper make its own sandbox (see
+/// [`nested_allowed`]): user namespaces and the [`NESTED`] calls. All
+/// other denials stay.
+fn seccomp(nested: bool) -> Option<Vec<u8>> {
     let (arch, blocked) = SECCOMP?;
     let mut out = Vec::new();
     let mut push = |code: u16, jt: u8, jf: u8, k: u32| {
@@ -298,16 +331,21 @@ fn seccomp() -> Option<Vec<u8>> {
         push(0x06, 0, 0, RET_KILL);
     }
     for nr in blocked.eperm {
+        if nested && NESTED.contains(nr) {
+            continue;
+        }
         push(0x15, 0, 1, *nr);
         push(0x06, 0, 0, RET_EPERM);
     }
     push(0x15, 0, 1, blocked.clone3);
     push(0x06, 0, 0, RET_ENOSYS);
-    // clone(flags, ...): the low word of the first argument holds the flags.
-    push(0x15, 0, 3, blocked.clone);
-    push(0x20, 0, 0, 16);
-    push(0x45, 0, 1, CLONE_NEWUSER);
-    push(0x06, 0, 0, RET_EPERM);
+    if !nested {
+        // clone(flags, ...): the low word of the first argument holds the flags.
+        push(0x15, 0, 3, blocked.clone);
+        push(0x20, 0, 0, 16);
+        push(0x45, 0, 1, CLONE_NEWUSER);
+        push(0x06, 0, 0, RET_EPERM);
+    }
     push(0x06, 0, 0, RET_ALLOW);
     Some(out)
 }
@@ -345,7 +383,14 @@ fn wait(
     }
 }
 
-pub fn generate(path: &Path, progress: &Progress, attempted: &mut bool) -> Option<Vec<u8>> {
+/// `nested`: the Settings switch that lets the glycin helper (only) make
+/// its own nested sandbox.
+pub fn generate(
+    path: &Path,
+    progress: &Progress,
+    attempted: &mut bool,
+    nested: bool,
+) -> Option<Vec<u8>> {
     if !Path::new("/usr/bin/bwrap").is_file() || progress.is_cancelled() {
         return None;
     }
@@ -405,7 +450,8 @@ pub fn generate(path: &Path, progress: &Progress, attempted: &mut bool) -> Optio
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         let mut filter = None;
-        if let Some(bytes) = seccomp() {
+        let nested = nested_allowed(Path::new(&helper[0]), nested);
+        if let Some(bytes) = seccomp(nested) {
             let file = temp.0.join("filter");
             let mut f = File::options()
                 .write(true)
@@ -490,7 +536,7 @@ mod tests {
         let Some((arch, blocked)) = SECCOMP else {
             return;
         };
-        let program = seccomp().unwrap();
+        let program = seccomp(false).unwrap();
         assert_eq!(program.len() % 8, 0);
         let run = |nr, arg0| verdict(&program, arch, nr, arg0);
         assert_eq!(verdict(&program, arch ^ 1, 0, 0), RET_KILL);
@@ -513,6 +559,68 @@ mod tests {
             RET_EPERM
         );
     }
+    #[test]
+    fn nested_filter_allows_only_namespace_and_mount_calls_more() {
+        let Some((arch, blocked)) = SECCOMP else {
+            return;
+        };
+        let strict = seccomp(false).unwrap();
+        let nested = seccomp(true).unwrap();
+        // Every syscall number the strict filter denies stays denied, except
+        // the few a nested bwrap needs.
+        for nr in 0..500 {
+            let a = verdict(&strict, arch, nr, 0);
+            let b = verdict(&nested, arch, nr, 0);
+            if NESTED.contains(&nr) {
+                assert_eq!((a, b), (RET_EPERM, RET_ALLOW), "syscall {nr}");
+            } else {
+                assert_eq!(a, b, "syscall {nr}");
+            }
+        }
+        let newuser = u64::from(CLONE_NEWUSER) | 0x11;
+        assert_eq!(verdict(&strict, arch, blocked.clone, newuser), RET_EPERM);
+        assert_eq!(verdict(&nested, arch, blocked.clone, newuser), RET_ALLOW);
+        assert_eq!(verdict(&nested, arch, blocked.clone3, 0), RET_ENOSYS);
+        assert_eq!(verdict(&nested, arch ^ 1, 0, 0), RET_KILL);
+        // ptrace, kexec, bpf and io_uring stay denied.
+        let denied: &[u32] = if cfg!(target_arch = "x86_64") {
+            &[101, 246, 321, 425]
+        } else {
+            &[117, 104, 280, 425]
+        };
+        for nr in denied {
+            assert_eq!(verdict(&nested, arch, *nr, 0), RET_EPERM, "syscall {nr}");
+        }
+    }
+
+    #[test]
+    fn only_the_exact_root_owned_glycin_helper_may_nest() {
+        assert!(!nested_allowed(Path::new(GLYCIN), false));
+        assert!(!nested_allowed(Path::new("/usr/bin/sh"), true));
+        assert!(!nested_allowed(
+            Path::new("/usr/bin/../bin/glycin-thumbnailer"),
+            true
+        ));
+        assert!(!nested_allowed(
+            Path::new("/usr/local/bin/glycin-thumbnailer"),
+            true
+        ));
+        let d = std::env::temp_dir().join(format!("eg-glycin-{}", std::process::id()));
+        fs::create_dir_all(&d).unwrap();
+        let fake = d.join("glycin-thumbnailer");
+        fs::write(&fake, b"").unwrap();
+        assert!(!nested_allowed(&fake, true));
+        let _ = fs::remove_dir_all(&d);
+        // On a system with the real helper, it is allowed when switched on.
+        let real = Path::new(GLYCIN);
+        if fs::symlink_metadata(real).is_ok_and(|m| {
+            use std::os::unix::fs::MetadataExt;
+            m.is_file() && m.uid() == 0 && m.mode() & 0o022 == 0
+        }) {
+            assert!(nested_allowed(real, true));
+        }
+    }
+
     #[test]
     fn stopped_helpers_are_not_failures() {
         let out = Path::new("/nonexistent/everygrep-output");

@@ -5258,3 +5258,6 @@ msgstr "Zaman"
 
 msgid "{} of {} changes"
 msgstr "{} / {} değişiklik"
+
+msgid "HEIC/JXL/SVG previews (helper uses its own sandbox)"
+msgstr "HEIC/JXL/SVG önizlemeleri (yardımcı kendi korumalı alanını kullanır)"

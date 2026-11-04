@@ -7,6 +7,7 @@ export component PreviewSettings inherits VerticalLayout {
     in-out property <bool> thumbnailers;
     in-out property <bool> sandbox;
     in-out property <bool> text-files;
+    in-out property <bool> nested;
     callback changed();
     spacing: Theme.s2;
     CheckBox { text: @tr("Show preview panel"); checked <=> root.shown; toggled => { root.changed(); } }
@@ -15,5 +16,6 @@ export component PreviewSettings inherits VerticalLayout {
     CheckBox { text: @tr("Preview text files"); checked <=> root.text-files; enabled: root.shown; toggled => { root.changed(); } }
     CheckBox { text: @tr("Sandbox thumbnail helpers"); checked <=> root.sandbox; enabled: root.shown; toggled => { root.changed(); } }
     CheckBox { text: @tr("Preview PDF, video and other formats"); checked <=> root.thumbnailers; enabled: root.shown && root.sandbox; toggled => { root.changed(); } }
+    CheckBox { text: @tr("HEIC/JXL/SVG previews (helper uses its own sandbox)"); checked <=> root.nested; enabled: root.shown && root.sandbox && root.thumbnailers; toggled => { root.changed(); } }
     Text { text: @tr("System helpers stay disabled when sandboxing is off."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; min-height: self.preferred-height; }
 }

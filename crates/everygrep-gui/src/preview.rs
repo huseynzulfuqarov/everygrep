@@ -15,6 +15,8 @@ pub struct Options {
     pub thumbnailers: bool,
     pub sandbox: bool,
     pub text: bool,
+    /// Let the glycin helper (HEIC, JXL, SVG …) make its own nested sandbox.
+    pub nested: bool,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -24,6 +26,7 @@ impl Default for Options {
             thumbnailers: true,
             sandbox: true,
             text: true,
+            nested: true,
         }
     }
 }
@@ -38,6 +41,7 @@ impl Options {
             "preview-thumbnailers" => &mut self.thumbnailers,
             "preview-sandbox" => &mut self.sandbox,
             "preview-text" => &mut self.text,
+            "preview-nested-sandbox" => &mut self.nested,
             _ => return false,
         };
         *field = match value {
@@ -54,6 +58,7 @@ impl Options {
             ("preview-thumbnailers", self.thumbnailers),
             ("preview-sandbox", self.sandbox),
             ("preview-text", self.text),
+            ("preview-nested-sandbox", self.nested),
         ] {
             if all || !value {
                 out.push_str(&format!("{key} = {value}\n"));
@@ -66,6 +71,7 @@ impl Options {
         w.set_preview_thumbnailers(self.thumbnailers);
         w.set_preview_sandbox(self.sandbox);
         w.set_preview_text(self.text);
+        w.set_preview_nested(self.nested);
     }
     pub fn edited(w: &crate::SettingsWindow) -> Self {
         Self {
@@ -74,6 +80,7 @@ impl Options {
             thumbnailers: w.get_preview_thumbnailers(),
             sandbox: w.get_preview_sandbox(),
             text: w.get_preview_text(),
+            nested: w.get_preview_nested(),
         }
     }
 }
@@ -232,8 +239,13 @@ fn load(engine: &Engine, ask: &Ask) -> Option<Answer> {
             .is_some_and(|b| data::valid(&b, &uri, meta.mtime(), meta.len()));
         if !cached_failure {
             let mut attempted = false;
-            answer.image = crate::thumbnailer::generate(&path, &ask.progress, &mut attempted)
-                .and_then(|b| decode(&b, false));
+            answer.image = crate::thumbnailer::generate(
+                &path,
+                &ask.progress,
+                &mut attempted,
+                ask.options.nested,
+            )
+            .and_then(|b| decode(&b, false));
             failed = attempted && answer.image.is_none();
         }
     }
@@ -387,7 +399,7 @@ mod tests {
     #[test]
     fn preview_policy_round_trips_and_rejects_invalid_flags() {
         let mut s = crate::settings::Settings::parse(
-            "preview-visible = true\npreview-width = 450\npreview-cache = false\npreview-images = false\npreview-thumbnailers = false\npreview-sandbox = false\npreview-text = false\ncontent-code-page = windows-1254\n",
+            "preview-visible = true\npreview-width = 450\npreview-cache = false\npreview-images = false\npreview-thumbnailers = false\npreview-sandbox = false\npreview-text = false\npreview-nested-sandbox = false\ncontent-code-page = windows-1254\n",
         );
         assert!(s.problems.is_empty());
         let round = crate::settings::Settings::parse(&s.to_text());
@@ -402,7 +414,8 @@ mod tests {
                 images: false,
                 thumbnailers: false,
                 sandbox: false,
-                text: false
+                text: false,
+                nested: false,
             }
         );
         let invalid = crate::settings::Settings::parse(
