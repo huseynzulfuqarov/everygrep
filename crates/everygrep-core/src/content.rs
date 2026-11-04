@@ -232,7 +232,8 @@ impl ContentTerm {
             (line, Some(multi_line))
         } else if text.contains(char::is_whitespace) {
             let multi_line = build(&spaces_over_lines(text), None)?;
-            (build(&pattern, Some(b'\n'))?, Some(multi_line))
+            let line = build(&pattern, Some(b'\n')).unwrap_or_else(|_| multi_line.clone());
+            (line, Some(multi_line))
         } else {
             (build(&pattern, Some(b'\n'))?, None)
         };
@@ -1140,6 +1141,31 @@ mod tests {
             search_file(&small, &t, &ContentOptions::default(), &Progress::new()).unwrap(),
             Match
         );
+    }
+
+    #[test]
+    fn quoted_literal_line_breaks_match_only_with_multi_line_enabled() {
+        use crate::query::{Query, QueryOptions};
+        let dir = Dir::new("quoted-line-breaks");
+        for (i, line_break) in ["\n", "\r\n"].into_iter().enumerate() {
+            let literal = format!("foo{line_break}bar");
+            let query =
+                Query::parse(&format!("content:\"{literal}\""), QueryOptions::default()).unwrap();
+            let term = &query.content_terms()[0];
+            let path = dir.file(&format!("notes-{i}.txt"), literal.as_bytes());
+            assert_eq!(
+                search_file(&path, term, &ContentOptions::default(), &Progress::new()).unwrap(),
+                Outcome::Match
+            );
+            let lines = ContentOptions {
+                multi_line: false,
+                ..ContentOptions::default()
+            };
+            assert_eq!(
+                search_file(&path, term, &lines, &Progress::new()).unwrap(),
+                Outcome::NoMatch
+            );
+        }
     }
 
     #[test]
