@@ -6,6 +6,9 @@
 //! `--root` or `--index-file` changes its own folders for the session.
 
 use crate::i18n::tr;
+
+#[path = "prefs_filelists.rs"]
+mod filelists;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -1828,6 +1831,7 @@ impl Prefs {
         self.engine.set_watching(new.watch_changes);
         self.apply_watch_changes();
         self.engine.set_drive_settings(new.drives.clone());
+        self.apply_file_lists();
         if self.index.borrow().saved {
             let roots = if new.roots.is_empty() {
                 self.engine.roots()
@@ -2149,6 +2153,9 @@ impl Prefs {
             .collect();
         *self.listed_drives.borrow_mut() = drives.into_iter().map(|d| d.uuid).collect();
         w.set_drives(ModelRc::new(VecModel::from(rows)));
+        drop(s);
+        self.fill_file_lists(w);
+        let s = self.settings.borrow();
         let filters: Vec<SharedString> = Filter::ALL
             .iter()
             .map(|&f| labels::filter(f).into())
@@ -2744,6 +2751,7 @@ impl Prefs {
             }
         });
         w.on_rebuild(on(|p| p.rebuild()));
+        Prefs::connect_file_lists(self, w);
         w.on_drives_changed(on(|p| p.drives_changed()));
         w.on_forget_drive(on_index(|p, i| {
             let uuid = p.listed_drives.borrow().get(i).cloned();
@@ -3464,6 +3472,8 @@ impl Prefs {
         if page == Page::Indexing {
             self.change(move |s| {
                 s.drives = Default::default();
+                s.file_lists.clear();
+                s.hide_offline = false;
                 s.watch_changes = true;
                 s.index_file_details = true;
                 s.rescan = 0;
@@ -3477,6 +3487,7 @@ impl Prefs {
             self.apply_watch_changes();
             self.engine
                 .set_drive_settings(self.settings.borrow().drives.clone());
+            self.apply_file_lists();
             let saved = self.index.borrow().saved;
             if saved {
                 self.set_index(Vec::new(), RuleSpec::default());

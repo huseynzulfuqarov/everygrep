@@ -28,6 +28,18 @@ export struct DriveRow {
     action: string,
 }
 
+// One file list in the File lists of the Indexing page.
+export struct FileListRow {
+    // The file name of the list.
+    title: string,
+    // What became of it and the folder it is of.
+    details: string,
+    // The list's file.
+    file: string,
+    enabled: bool,
+    failed: bool,
+}
+
 component Heading inherits Text {
     font-size: Theme.body;
     font-weight: 600;
@@ -160,6 +172,15 @@ export component SettingsWindow inherits Window {
     callback drives-changed();
     callback forget-drive(int);
     callback toggle-drive(int);
+    // File lists: entries of disks that are not connected.
+    in property <[FileListRow]> file-lists;
+    in-out property <bool> hide-offline;
+    callback add-file-list();
+    callback create-file-list();
+    callback reload-file-lists();
+    callback toggle-file-list(int);
+    callback remove-file-list(int);
+    callback hide-offline-changed(bool);
 
     // Search
     in property <[string]> filter-names;
@@ -641,6 +662,78 @@ export component SettingsWindow inherits Window {
                                                 clicked => { root.toggle-drive(i); }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                spacing: Theme.s2;
+                                Heading { text: @tr("File lists"); }
+                                Note { text: @tr("A file list keeps the entries of a folder, such as a disk, in a file. Its entries are found while the disk is not connected and are shown like a drive that is not connected. When the index has the folder itself, the list is not shown."); }
+                                CheckBox {
+                                    text: @tr("Hide entries of drives and file lists that are not connected");
+                                    checked <=> root.hide-offline;
+                                    toggled => { root.hide-offline-changed(self.checked); }
+                                }
+                                for list[i] in root.file-lists: Rectangle {
+                                    border-radius: Theme.radius;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+                                    background: Theme.field;
+                                    HorizontalLayout {
+                                        padding: Theme.s2;
+                                        padding-left: Theme.s3;
+                                        spacing: Theme.s2;
+                                        CheckBox {
+                                            checked: list.enabled;
+                                            accessible-label: list.title;
+                                            toggled => { root.toggle-file-list(i); }
+                                        }
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            alignment: center;
+                                            Text {
+                                                text: list.title;
+                                                color: list.enabled ? Theme.text : Theme.text-offline;
+                                                font-weight: 600;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: list.details;
+                                                color: list.failed ? Theme.danger : Theme.text-muted;
+                                                font-size: Theme.small;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: list.file;
+                                                color: Theme.text-muted;
+                                                font-size: Theme.small;
+                                                overflow: elide;
+                                            }
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Button {
+                                                text: @tr("Remove");
+                                                clicked => { root.remove-file-list(i); }
+                                            }
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: Theme.s2;
+                                    alignment: start;
+                                    Button {
+                                        text: @tr("Add file list…");
+                                        clicked => { root.add-file-list(); }
+                                    }
+                                    Button {
+                                        text: @tr("Create file list…");
+                                        clicked => { root.create-file-list(); }
+                                    }
+                                    Button {
+                                        text: @tr("Read lists again");
+                                        enabled: root.file-lists.length > 0;
+                                        clicked => { root.reload-file-lists(); }
                                     }
                                 }
                             }

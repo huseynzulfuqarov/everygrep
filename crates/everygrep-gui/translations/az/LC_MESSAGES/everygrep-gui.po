@@ -1108,8 +1108,8 @@ msgid "Offline: the drive is not connected"
 msgstr "Oflayn: disk qoşulmayıb"
 
 #: src/labels.rs
-msgid "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first."
-msgstr "Qoşulmamış diskdəki elementləri açmaq, adını dəyişmək və ya silmək olmur. Əvvəlcə diski qoşun."
+msgid "Items on a drive that is not connected, or from a file list, cannot be opened, renamed or deleted. Connect the drive first."
+msgstr "Qoşulmamış diskdəki və ya fayl siyahısından gələn elementləri açmaq, adını dəyişmək və ya silmək olmur. Əvvəlcə diski qoşun."
 
 #: src/labels.rs
 msgid "Indexing: {}%"
@@ -4020,3 +4020,67 @@ msgstr "Son {} sətir yalnız yaddaşda saxlanılır. Onları fayla da yazmaq ü
 
 msgid "Also write the debug log to ~/.cache/everygrep/debug.log"
 msgstr "Qeyd jurnalını ~/.cache/everygrep/debug.log faylına da yaz"
+
+msgid "File lists"
+msgstr "Fayl siyahıları"
+
+msgid "A file list keeps the entries of a folder, such as a disk, in a file. Its entries are found while the disk is not connected and are shown like a drive that is not connected. When the index has the folder itself, the list is not shown."
+msgstr "Fayl siyahısı bir qovluğun (məsələn, diskin) elementlərini faylda saxlayır. Disk qoşulu olmayanda da onun elementləri tapılır və qoşulmamış disk kimi göstərilir. Qovluğun özü indeksdə olanda siyahı göstərilmir."
+
+msgid "Hide entries of drives and file lists that are not connected"
+msgstr "Qoşulmamış disklərin və fayl siyahılarının elementlərini gizlət"
+
+msgid "Add file list…"
+msgstr "Fayl siyahısı əlavə et…"
+
+msgid "Create file list…"
+msgstr "Fayl siyahısı yarat…"
+
+msgid "Read lists again"
+msgstr "Siyahıları yenidən oxu"
+
+msgid "Hide offline entries"
+msgstr "Qoşulmamış elementləri gizlət"
+
+msgid "Add a file list"
+msgstr "Fayl siyahısı əlavə et"
+
+msgid "Create a file list of a folder"
+msgstr "Qovluğun fayl siyahısını yarat"
+
+msgid "Choose"
+msgstr "Seç"
+
+msgid "Save the file list"
+msgstr "Fayl siyahısını saxla"
+
+msgid "Cannot save the file list: {}"
+msgstr "Fayl siyahısını saxlamaq olmur: {}"
+
+msgid "Saving the file list: {}%"
+msgstr "Fayl siyahısı saxlanılır: {}%"
+
+msgid "Off"
+msgstr "Söndürülüb"
+
+msgid "Not read yet"
+msgstr "Hələ oxunmayıb"
+
+msgid "Not shown: the index has {} itself"
+msgstr "Göstərilmir: {} indeksdə özü var"
+
+msgid "Cannot read it: {}"
+msgstr "Oxumaq olmur: {}"
+
+msgid "Folder: {}"
+msgstr "Qovluq: {}"
+
+msgid "{} entry, shown as not connected"
+msgid_plural "{} entries, shown as not connected"
+msgstr[0] "{} qeyd, qoşulmamış kimi göstərilir"
+msgstr[1] "{} qeyd, qoşulmamış kimi göstərilir"
+
+msgid "Saved the file list of {0} ({1} entry) to {2}."
+msgid_plural "Saved the file list of {0} ({1} entries) to {2}."
+msgstr[0] "{0} qovluğunun fayl siyahısı ({1} qeyd) {2} faylına saxlanıldı."
+msgstr[1] "{0} qovluğunun fayl siyahısı ({1} qeyd) {2} faylına saxlanıldı."

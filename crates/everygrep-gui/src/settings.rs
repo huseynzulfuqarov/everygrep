@@ -53,7 +53,7 @@ use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::sort::FolderSize;
 
 use crate::commands::{self, Chord, Scope};
-use crate::engine::DriveSettings;
+use crate::engine::{DriveSettings, FileListSetting};
 use crate::format::{SizeStandard, SizeUnit};
 use crate::i18n::{self, Lang};
 use crate::schedule::{self, Schedule};
@@ -426,6 +426,10 @@ pub struct Settings {
     /// Removable drives: indexed automatically, kept when removed, and the
     /// drives never indexed.
     pub drives: DriveSettings,
+    /// File lists searched as offline entries, in order.
+    pub file_lists: Vec<FileListSetting>,
+    /// Leave entries of offline drives and file lists out of the results.
+    pub hide_offline: bool,
     /// Commands whose keys differ from the defaults: the command's id and
     /// its keys, which replace the defaults (an empty list removes them).
     pub shortcuts: Vec<(String, Vec<(Scope, Chord)>)>,
@@ -501,6 +505,8 @@ impl Default for Settings {
             folders_dim_empty: true,
             language: LanguageChoice::System,
             drives: DriveSettings::default(),
+            file_lists: Vec::new(),
+            hide_offline: false,
             shortcuts: Vec::new(),
             unknown: Vec::new(),
             problems: Vec::new(),
@@ -511,7 +517,14 @@ impl Default for Settings {
 /// Keys that are written once per value (a folder, a drive, a command's
 /// keys); the raw settings table shows them but edits them only on their
 /// pages.
-pub const LIST_KEYS: [&str; 4] = ["root", "exclude", "ignore-drive", "shortcut"];
+pub const LIST_KEYS: [&str; 6] = [
+    "root",
+    "exclude",
+    "ignore-drive",
+    "file-list",
+    "file-list-off",
+    "shortcut",
+];
 
 /// One line of the raw settings table: a key and its value as the file
 /// writes them, its default (`None` for list keys and unknown keys), and
@@ -656,6 +669,20 @@ impl Settings {
                 list.push(path);
                 true
             }
+            "file-list" | "file-list-off" => {
+                let Some(path) = unescape(value).filter(|p| p.first() == Some(&b'/')) else {
+                    return false;
+                };
+                let path = PathBuf::from(OsString::from_vec(path));
+                if !self.file_lists.iter().any(|l| l.path == path) {
+                    self.file_lists.push(FileListSetting {
+                        path,
+                        enabled: key == "file-list",
+                    });
+                }
+                true
+            }
+            "hide-offline-entries" => put_flag(&mut self.hide_offline),
             "use-exclude-list" => put_flag(&mut self.use_excludes),
             "watch-changes" => put_flag(&mut self.watch_changes),
             "index-folder" => {
@@ -1241,6 +1268,20 @@ impl Settings {
         for uuid in &self.drives.ignored {
             line(&mut out, "ignore-drive", uuid);
         }
+        for list in &self.file_lists {
+            let key = if list.enabled {
+                "file-list"
+            } else {
+                "file-list-off"
+            };
+            line(&mut out, key, &escape(list.path.as_os_str().as_bytes()));
+        }
+        flag(
+            &mut out,
+            "hide-offline-entries",
+            self.hide_offline,
+            d.hide_offline,
+        );
         flag(
             &mut out,
             "open-searches-in-tabs",
@@ -1791,6 +1832,8 @@ impl Settings {
                 self.rescan_hours = d.rescan_hours;
                 self.rescan_time = d.rescan_time;
                 self.drives = d.drives;
+                self.file_lists = d.file_lists;
+                self.hide_offline = d.hide_offline;
             }
             Page::Search => {
                 self.options = d.options;
@@ -3170,6 +3213,36 @@ shortcut = edit.cut list F9
         fs::create_dir(&path).unwrap();
         assert!(update(&path, |s| s.history_size = 1).is_err());
         assert!(path.is_dir());
+    }
+
+    #[test]
+    fn file_lists_keep_their_order_switch_and_odd_paths() {
+        let odd = PathBuf::from(OsString::from_vec(b"/l/a = b\n\xff.eglist".to_vec()));
+        let s = Settings {
+            file_lists: vec![
+                FileListSetting {
+                    path: odd.clone(),
+                    enabled: false,
+                },
+                FileListSetting {
+                    path: "/l/disk.eglist".into(),
+                    enabled: true,
+                },
+            ],
+            hide_offline: true,
+            ..Settings::default()
+        };
+        let text = s.to_text();
+        assert_eq!(Settings::parse(&text), s, "{text}");
+        assert!(text.contains("file-list = /l/disk.eglist\n"), "{text}");
+        assert!(text.contains("hide-offline-entries = true\n"));
+        let back = Settings::parse(&text);
+        assert_eq!(back.file_lists[0].path, odd);
+        // Relative paths and repeats are not taken.
+        let t = Settings::parse("file-list = x.eglist\nfile-list = /a\nfile-list-off = /a\n");
+        assert_eq!(t.file_lists.len(), 1);
+        assert!(t.file_lists[0].enabled);
+        assert!(!Settings::default().hide_offline);
     }
 
     #[test]

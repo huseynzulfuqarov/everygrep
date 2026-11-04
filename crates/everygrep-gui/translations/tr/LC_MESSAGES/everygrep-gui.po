@@ -1108,8 +1108,8 @@ msgid "Offline: the drive is not connected"
 msgstr "Çevrim dışı: sürücü bağlı değil"
 
 #: src/labels.rs
-msgid "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first."
-msgstr "Bağlı olmayan bir sürücüdeki öğeler açılamaz, yeniden adlandırılamaz veya silinemez. Önce sürücüyü bağlayın."
+msgid "Items on a drive that is not connected, or from a file list, cannot be opened, renamed or deleted. Connect the drive first."
+msgstr "Bağlı olmayan bir sürücüdeki veya bir dosya listesinden gelen öğeler açılamaz, yeniden adlandırılamaz veya silinemez. Önce sürücüyü bağlayın."
 
 #: src/labels.rs
 msgid "Indexing: {}%"
@@ -4020,3 +4020,67 @@ msgstr "Son {} satır yalnızca bellekte tutulur. Bir dosyaya da yazmak için Ev
 
 msgid "Also write the debug log to ~/.cache/everygrep/debug.log"
 msgstr "Hata ayıklama günlüğünü ~/.cache/everygrep/debug.log dosyasına da yaz"
+
+msgid "File lists"
+msgstr "Dosya listeleri"
+
+msgid "A file list keeps the entries of a folder, such as a disk, in a file. Its entries are found while the disk is not connected and are shown like a drive that is not connected. When the index has the folder itself, the list is not shown."
+msgstr "Dosya listesi bir klasörün (örneğin bir diskin) öğelerini bir dosyada tutar. Disk bağlı değilken de öğeleri bulunur ve bağlı olmayan bir sürücü gibi gösterilir. Dizinde klasörün kendisi varsa liste gösterilmez."
+
+msgid "Hide entries of drives and file lists that are not connected"
+msgstr "Bağlı olmayan sürücülerin ve dosya listelerinin öğelerini gizle"
+
+msgid "Add file list…"
+msgstr "Dosya listesi ekle…"
+
+msgid "Create file list…"
+msgstr "Dosya listesi oluştur…"
+
+msgid "Read lists again"
+msgstr "Listeleri yeniden oku"
+
+msgid "Hide offline entries"
+msgstr "Bağlı olmayan öğeleri gizle"
+
+msgid "Add a file list"
+msgstr "Dosya listesi ekle"
+
+msgid "Create a file list of a folder"
+msgstr "Bir klasörün dosya listesini oluştur"
+
+msgid "Choose"
+msgstr "Seç"
+
+msgid "Save the file list"
+msgstr "Dosya listesini kaydet"
+
+msgid "Cannot save the file list: {}"
+msgstr "Dosya listesi kaydedilemiyor: {}"
+
+msgid "Saving the file list: {}%"
+msgstr "Dosya listesi kaydediliyor: {}%"
+
+msgid "Off"
+msgstr "Kapalı"
+
+msgid "Not read yet"
+msgstr "Henüz okunmadı"
+
+msgid "Not shown: the index has {} itself"
+msgstr "Gösterilmiyor: dizinde {} zaten var"
+
+msgid "Cannot read it: {}"
+msgstr "Okunamıyor: {}"
+
+msgid "Folder: {}"
+msgstr "Klasör: {}"
+
+msgid "{} entry, shown as not connected"
+msgid_plural "{} entries, shown as not connected"
+msgstr[0] "{} kayıt, bağlı değil olarak gösteriliyor"
+msgstr[1] "{} kayıt, bağlı değil olarak gösteriliyor"
+
+msgid "Saved the file list of {0} ({1} entry) to {2}."
+msgid_plural "Saved the file list of {0} ({1} entries) to {2}."
+msgstr[0] "{0} klasörünün dosya listesi ({1} kayıt) {2} konumuna kaydedildi."
+msgstr[1] "{0} klasörünün dosya listesi ({1} kayıt) {2} konumuna kaydedildi."

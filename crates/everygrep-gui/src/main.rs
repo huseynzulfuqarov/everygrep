@@ -261,6 +261,9 @@ fn main() -> Result<(), slint::PlatformError> {
         hooks,
     );
     engine.set_content_options(settings.content.options());
+    engine.set_file_lists(&settings.file_lists);
+    engine.set_hide_offline(settings.hide_offline);
+    window.set_hide_offline(settings.hide_offline);
     engine
         .hashes
         .set_max_bytes(settings.content.hash_cache_bytes());
@@ -842,6 +845,8 @@ fn connect_menus(w: &AppWindow) {
     w.on_status_details_changed(|on| prefs::with(|p| p.set_status_details(on)));
     w.on_rebuild_index(|| prefs::with(|p| p.rebuild()));
     w.on_index_paused_changed(|paused| prefs::with(|p| p.set_watch_changes(!paused)));
+    w.on_hide_offline_changed(|hide| prefs::with(|p| p.set_hide_offline(hide)));
+    w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
 }
 

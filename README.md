@@ -28,6 +28,9 @@ Screenshots: to be added to `docs/images/`.
 - **Removable drives.** A USB stick or external disk is indexed when it is
   plugged in; when it is removed, its entries stay searchable, shown dimmed,
   and come back to life when it is plugged in again, wherever it is mounted.
+- **File lists.** Save the entries of a disk to a text file and search them
+  while the disk is not connected; they are shown dimmed like a removed
+  drive, and give way to the live index when the disk is back.
 - **Keyboard first.** Every action has a key; open, open with another
   application, open the containing folder, cut, copy and paste files, copy
   names or paths, rename in place, trash or delete.
@@ -435,6 +438,8 @@ the program behaves as before, except that folders show their total size.
 | | index removable drives automatically | on |
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
+| | file lists: add, create, turn on or off, remove, read again (see [File lists](#file-lists)) | none |
+| | hide entries of drives and file lists that are not connected (also Index → Hide offline entries) | off |
 | | "Rebuild index now" | — |
 | | index file: the folder of `index.bin` (and `hashes.bin` and `last-full-scan` next to it), "Choose folder…" moves it there at once and removes the old file once the new one is written; drive indexes stay in the cache folder; not for a window started with `--root` or `--index-file` | the cache folder |
 | | index details: files, folders, size of the files, folders to index, drives in the index (connected), memory, the index file and its size, the last full scan, folders not watched; counted when the settings open and with "Count again" | — |
@@ -718,6 +723,33 @@ lists the known drives (label, UUID, connected or not, number of entries,
 last seen) with "Forget" (for a drive that is not connected) and "Don't
 index this drive" / "Index this drive". A drive whose mount point lies in
 a folder to index, or holds one, is left to that folder.
+
+### File lists
+
+A file list keeps the entries of one folder, normally a disk, in a text file
+(`.eglist`), so they can be searched when that disk is not connected, also a
+disk that is not indexed as a removable drive (one in `/etc/fstab`, a network
+share, a disk of another computer). Index → Create file list… asks for a
+folder of the index and where to save its list; it is written from the index
+(creation times are read from the disk while it is connected) and added to
+Settings → Indexing → File lists. There lists can be added, turned on and
+off, removed and read again. The entries of a list are drawn like those of a
+drive that is not connected, and opening, renaming, deleting and the other
+file actions are refused for them. A list is not shown while the index has
+its folder itself (a folder to index, or a drive, connected or kept after it
+was removed), so no entry is listed twice; a disk plugged in where a list is
+shown takes its place at once. Index → Hide offline entries (also in
+Settings → Indexing) leaves the entries of drives that are not connected and
+of file lists out of the results, without changing the index.
+
+The format is plain text: a line `EveryGrep file list 1`, a line
+`root <folder>`, then one line per entry with five fields separated by tabs:
+`d` (folder) or `f`, the size in bytes (empty for folders), the modification
+and creation times in nanoseconds since 1970 (empty when unknown), and the
+full path. In paths a backslash, tab, line feed and carriage return are
+written `\\`, `\t`, `\n` and `\r`, other control bytes and bytes that are not
+UTF-8 `\xHH`, so every name comes back byte for byte. Empty lines and lines
+starting with `#` are skipped.
 
 A folder the window cannot watch, because the limit of inotify watches
 (`fs.inotify.max_user_watches`, shared by all programs of the user) is

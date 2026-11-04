@@ -9,7 +9,7 @@ import { ExportOptions } from "export.slint";
 import { FileopsRename } from "fileops-rename.slint";
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
-export { SettingsWindow, DriveRow, ShortcutCommand } from "settings.slint";
+export { SettingsWindow, DriveRow, FileListRow, ShortcutCommand } from "settings.slint";
 export { FileUndoWindow } from "fileops-undo.slint";
 export { HistoryWindow } from "history.slint";
 export { SavedWindow } from "saved.slint";
@@ -1706,6 +1706,10 @@ export component AppWindow inherits Window {
     callback rebuild-index();
     in-out property <bool> index-paused;
     callback index-paused-changed(bool);
+    // Entries of offline drives and file lists are left out of the results.
+    in-out property <bool> hide-offline;
+    callback hide-offline-changed(bool);
+    callback create-file-list();
 
     // Menu bar and the appearance choices in its View menu. The choices
     // are saved as settings; the program sets the lists again after a
@@ -3417,6 +3421,11 @@ export component AppWindow inherits Window {
         } else if (c == Command.pause-index-updates) {
             root.index-paused = !root.index-paused;
             root.toggled(c);
+        } else if (c == Command.hide-offline-entries) {
+            root.hide-offline = !root.hide-offline;
+            root.toggled(c);
+        } else if (c == Command.create-file-list) {
+            root.create-file-list();
         } else if (c == Command.show-history) {
             root.history-full = true;
             root.history-current = -1;
@@ -3523,6 +3532,8 @@ export component AppWindow inherits Window {
             root.menu-bar-changed(root.show-menu-bar);
         } else if (c == Command.pause-index-updates) {
             root.index-paused-changed(root.index-paused);
+        } else if (c == Command.hide-offline-entries) {
+            root.hide-offline-changed(root.hide-offline);
         } else {
             root.options-edited();
         }
@@ -6282,6 +6293,20 @@ export component AppWindow inherits Window {
                 checkable: true;
                 checked <=> root.index-paused;
                 activated => { root.toggled(Command.pause-index-updates); }
+            }
+            MenuSeparator { }
+            MenuItem {
+                title: @tr("Hide offline entries");
+                shortcut: root.menu-keys.hide-offline-entries;
+                checkable: true;
+                checked <=> root.hide-offline;
+                activated => { root.toggled(Command.hide-offline-entries); }
+            }
+            MenuItem {
+                title: @tr("Create file list…");
+                shortcut: root.menu-keys.create-file-list;
+                enabled: root.can-run(Command.create-file-list);
+                activated => { root.run(Command.create-file-list); }
             }
         }
         Menu {

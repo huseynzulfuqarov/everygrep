@@ -56,9 +56,7 @@ use crate::schedule::Schedule;
 
 #[path = "engine_filelists.rs"]
 mod filelists;
-// Used by the window once the settings list file lists.
-#[allow(unused_imports)]
-pub use filelists::{FileListSetting, FileListStatus, ListState};
+pub use filelists::{FileListSetting, ListState};
 
 /// What the index is doing, for the status line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +169,8 @@ pub enum TaskKind {
     /// Pasting files that were copied.
     Copying,
     ReversingFiles,
+    /// Writing a file list (see [`Engine::save_file_list`]).
+    SavingFileList,
     /// Pasting files that were cut.
     Moving,
 }

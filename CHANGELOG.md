@@ -89,6 +89,13 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- File lists: the entries of a folder, normally a disk, saved to a text file
+  (`.eglist`, names kept byte for byte) and searched while it is not
+  connected. Index → Create file list…, and Settings → Indexing → File lists
+  to add, turn on or off, remove and read them again. Their entries are shown
+  as offline and refused for file actions; the live index wins, so nothing
+  is listed twice. Index → Hide offline entries leaves offline entries out
+  of the results.
 - In-memory index of file and folder names in packed columns, with names
   stored once and a case-folded copy for matching.
 - Parallel search over the name-sorted order on all CPU cores. Wildcard

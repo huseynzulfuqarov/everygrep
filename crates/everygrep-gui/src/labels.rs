@@ -196,7 +196,7 @@ pub fn offline_count(n: usize) -> String {
 /// Why a file action was refused.
 pub fn offline_refused() -> &'static str {
     tr(
-        "Items on a drive that is not connected cannot be opened, renamed or deleted. Connect the drive first.",
+        "Items on a drive that is not connected, or from a file list, cannot be opened, renamed or deleted. Connect the drive first.",
     )
 }
 
@@ -246,6 +246,36 @@ pub fn drive_details(
         parts.push(fill(tr("Last seen {}"), &[&when]));
     }
     parts.push(d.path.display().to_string());
+    parts.join(STATUS_GAP)
+}
+
+/// The second line of a file list in the File lists of Indexing settings:
+/// what became of it and the folder it is of.
+pub fn file_list_details(
+    root: Option<&std::path::Path>,
+    state: &crate::engine::ListState,
+) -> String {
+    use crate::engine::ListState;
+    let state = match state {
+        ListState::Off => tr("Off").to_owned(),
+        ListState::Pending => tr("Not read yet").to_owned(),
+        ListState::Shown { entries } => fill(
+            trn(
+                "{} entry, shown as not connected",
+                "{} entries, shown as not connected",
+                *entries as usize,
+            ),
+            &[&format::count(*entries as usize)],
+        ),
+        ListState::Covered { by } => {
+            fill(tr("Not shown: the index has {} itself"), &[&by.display()])
+        }
+        ListState::Failed(e) => fill(tr("Cannot read it: {}"), &[e]),
+    };
+    let mut parts = vec![state];
+    if let Some(root) = root {
+        parts.push(fill(tr("Folder: {}"), &[&root.display()]));
+    }
     parts.join(STATUS_GAP)
 }
 
@@ -518,6 +548,7 @@ pub fn busy(b: &Busy) -> String {
         }
         (TaskKind::ComparingFiles, p) => fill(tr("Comparing files: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
+        (TaskKind::SavingFileList, p) => fill(tr("Saving the file list: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::ReversingFiles, _) => tr("Reversing file operations…").to_owned(),
         (TaskKind::Copying, Some(p)) => fill(tr("Copying: {}%"), &[&p]),
         // Items read for undo history before the copy starts.
