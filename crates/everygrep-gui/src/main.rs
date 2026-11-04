@@ -2346,27 +2346,45 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
     std::thread::spawn(move || {
         fileops_undo::queue_notice(weak.clone());
         let result = fileops_undo::catch_worker(|| {
-            let _files = fileops_undo::file_guard();
-            actions::trash_all(&paths)
+            fileops_undo::trash(&paths, &|p| actions::trash(&[p.to_owned()]))
         });
         let _ = weak.upgrade_in_event_loop(move |w| match result {
-            Err(e) => error(&w, e),
-            Ok(out) => match (out.kept.first(), out.error) {
-                (None, _) => info(&w, fill(tr("Moved {} to the trash."), &[&what])),
-                (Some(first), e) => error(
-                    &w,
-                    fill(
+            Ok(out) => {
+                if out.failed.is_empty() {
+                    let mut text = fill(tr("Moved {} to the trash."), &[&what]);
+                    if let Some(note) = out.note {
+                        text.push_str(&format!(" {note}"));
+                    }
+                    info(&w, text);
+                } else {
+                    let (first, first_error) = &out.failed[0];
+                    let mut lines = vec![fill(
                         tr("Moved {} of {} to the trash. Not moved: {}, for example {}. {}"),
                         &[
-                            &format::count(out.moved),
+                            &format::count(out.trashed.len()),
                             &format::count(paths.len()),
-                            &format::count(out.kept.len()),
+                            &format::count(out.failed.len()),
                             &first.display(),
-                            &e.unwrap_or_default(),
+                            first_error,
                         ],
-                    ),
-                ),
-            },
+                    )];
+                    lines.extend(
+                        out.trashed
+                            .iter()
+                            .map(|p| fill(tr("Moved to trash: {}"), &[&p.display()])),
+                    );
+                    lines.extend(
+                        out.failed
+                            .iter()
+                            .map(|(p, e)| fill(tr("Kept {}: {}"), &[&p.display(), e])),
+                    );
+                    if let Some(note) = out.note {
+                        lines.push(note);
+                    }
+                    error(&w, lines.join("\n"));
+                }
+            }
+            Err(e) => error(&w, e),
         });
     });
 }

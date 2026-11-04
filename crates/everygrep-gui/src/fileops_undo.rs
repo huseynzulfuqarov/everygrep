@@ -899,6 +899,59 @@ pub fn trash_duplicates(
     out
 }
 
+/// Per-item results survive a partial trash failure, including later items.
+#[derive(Debug, Default)]
+pub struct TrashOutcome {
+    pub trashed: Vec<PathBuf>,
+    pub failed: Vec<(PathBuf, String)>,
+    pub note: Option<String>,
+}
+
+/// Plain Trash uses the same identity snapshots and grouped journal as
+/// duplicate cleanup. Individual desktop calls cannot hide partial batches.
+pub fn trash(paths: &[PathBuf], send: &dyn Fn(&Path) -> Result<(), String>) -> TrashOutcome {
+    let _files = file_guard();
+    let c = config();
+    let mut out = TrashOutcome::default();
+    let mut entries = Vec::new();
+    for path in paths {
+        let expected = match Snapshot::read(path) {
+            Ok(expected) => expected,
+            Err(e) => {
+                out.failed.push((path.clone(), e.to_string()));
+                continue;
+            }
+        };
+        if let Err(error) = expected.check(path).and_then(|()| send(path)) {
+            out.failed.push((path.clone(), error));
+            continue;
+        }
+        out.trashed.push(path.clone());
+        entries.push(Entry {
+            id: 0,
+            kind: Kind::Trash,
+            from: path.clone(),
+            to: path.clone(),
+            expected,
+            source: None,
+            applied: true,
+            skipped: None,
+        });
+    }
+    if c.enabled && !entries.is_empty() {
+        let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(Err(dropped)) = journal.push_group(entries, c) {
+            let what = tr("The operation could not be recorded for undo.");
+            out.note = Some(if dropped {
+                format!("{what} {}", tr("Earlier undo steps were removed."))
+            } else {
+                what.into()
+            });
+        }
+    }
+    out
+}
+
 /// Makes the folder `name` in `parent`, and records it when undo is on.
 /// Never takes an existing name: the caller offers a free one. The answer
 /// has a notice for the user when undo history could not follow.
@@ -2238,6 +2291,60 @@ mod new_item_tests {
         let _running = file_guard();
         assert!(new_folder(&t.0.join("work"), "N").is_err());
         assert!(!t.work("N").exists());
+    }
+
+    #[test]
+    fn plain_trash_is_the_next_undo_step_and_restores_every_success() {
+        with_undo(|| {
+            let t = Temp::new();
+            let parent = t.0.join("work");
+            let unrelated = new_folder(&parent, "previous").unwrap().0;
+            let a = t.work("a");
+            let b = t.work("b");
+            fs::write(&a, "first").unwrap();
+            fs::write(&b, "second").unwrap();
+            let out = trash(&[a.clone(), b.clone()], &crate::trashbin::test_trash);
+            assert_eq!(out.trashed, [a.clone(), b.clone()]);
+            assert!(out.failed.is_empty() && out.note.is_none());
+            let undo = step(false);
+            assert_eq!(undo.done, 2);
+            assert!(undo.skipped.is_empty());
+            assert_eq!(fs::read(&a).unwrap(), b"first");
+            assert_eq!(fs::read(&b).unwrap(), b"second");
+            assert!(
+                unrelated.is_dir(),
+                "Ctrl+Z must undo Trash before the earlier operation"
+            );
+            assert_eq!(step(true).done, 2);
+            assert!(!a.exists() && !b.exists());
+        });
+    }
+
+    #[test]
+    fn partial_trash_returns_concrete_results_and_keeps_trying_later_items() {
+        with_undo(|| {
+            let t = Temp::new();
+            let a = t.work("a");
+            let b = t.work("b");
+            let c = t.work("c");
+            for p in [&a, &b, &c] {
+                fs::write(p, p.file_name().unwrap().as_encoded_bytes()).unwrap();
+            }
+            let out = trash(&[a.clone(), b.clone(), c.clone()], &|path| {
+                if path == b {
+                    Err("permission denied for b".into())
+                } else {
+                    crate::trashbin::test_trash(path)
+                }
+            });
+            assert_eq!(out.trashed, [a.clone(), c.clone()]);
+            assert_eq!(out.failed, [(b.clone(), "permission denied for b".into())]);
+            assert!(!a.exists() && !c.exists());
+            assert_eq!(fs::read(&b).unwrap(), b"b");
+            assert_eq!(step(false).done, 2);
+            assert_eq!(fs::read(&a).unwrap(), b"a");
+            assert_eq!(fs::read(&c).unwrap(), b"c");
+        });
     }
 
     fn trash_entry(path: &Path) -> Entry {

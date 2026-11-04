@@ -336,6 +336,7 @@ pub fn trash(paths: &[PathBuf]) -> Result<(), String> {
 }
 
 /// What a move to the trash did.
+#[cfg(test)]
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct TrashOutcome {
     /// Items no longer at their place afterwards.
@@ -346,15 +347,8 @@ pub struct TrashOutcome {
     pub error: Option<String>,
 }
 
-/// Moves `paths` to the trash, reporting each item that stayed. Unlike
-/// [`trash`], all batches run, also after one failed: `gio` goes on after
-/// an item it cannot move, so afterwards each item of a failed batch is
-/// looked at, and the ones still at their place are reported.
-pub fn trash_all(paths: &[PathBuf]) -> TrashOutcome {
-    trash_with(paths, trash)
-}
-
 /// [`trash`] with the command for one batch passed in.
+#[cfg(test)]
 fn trash_with(
     paths: &[PathBuf],
     mut run: impl FnMut(&[PathBuf]) -> Result<(), String>,
