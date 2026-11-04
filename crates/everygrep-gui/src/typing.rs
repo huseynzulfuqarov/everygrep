@@ -11,13 +11,14 @@ use everygrep_core::query::{Query, QueryOptions};
 
 /// Whether the search text with its options, and the named filter chosen
 /// with it, read files when they run. A query that does not parse reads
-/// nothing (it shows its error).
+/// nothing (it shows its error). Found without building the expressions,
+/// which the search does: this runs at every key.
 pub fn reads_files(
     text: &str,
     options: QueryOptions,
     filter: Option<&(String, QueryOptions)>,
 ) -> bool {
-    let reads = |text: &str, options| Query::parse(text, options).is_ok_and(|q| q.reads_files());
+    let reads = |text: &str, options| Query::text_reads_files(text, options);
     reads(text, options) || filter.is_some_and(|(text, options)| reads(text, *options))
 }
 

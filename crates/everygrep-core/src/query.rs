@@ -390,6 +390,27 @@ impl Query {
         Self::parse_with(text, options, now_ns(), None)
     }
 
+    /// Whether the query `text` reads files when it runs (as
+    /// [`Query::reads_files`] of the parsed query), found without building
+    /// its regular expressions or content matchers, so it takes little time
+    /// for any text; false when the text does not parse. An expression that
+    /// is valid but too large to build counts as if it were built.
+    pub fn text_reads_files(text: &str, options: QueryOptions) -> bool {
+        if options.regex {
+            // One expression for the names.
+            return false;
+        }
+        let Ok(tokens) = lex(text, options.literal_operators) else {
+            return false;
+        };
+        let mut p = Parser::new(tokens, options, now_ns(), None);
+        p.check_only = true;
+        let parsed = p.parse_expression(false);
+        parsed.is_ok()
+            && p.pos >= p.tokens.len()
+            && (p.checked_content > 0 || p.dupe.as_ref().is_some_and(DupeSpec::reads_files))
+    }
+
     /// Parses `text` at the time `now_ns`. Without a `zone`, the local zone is
     /// loaded once, when the first date term needs it.
     fn parse_with(
@@ -402,20 +423,7 @@ impl Query {
             return Self::parse_regex(text, options);
         }
         let tokens = lex(text, options.literal_operators)?;
-        let mut p = Parser {
-            tokens,
-            pos: 0,
-            options,
-            uses_path: false,
-            reads_disk: false,
-            limit: None,
-            now_ns,
-            zone,
-            depth: 0,
-            content: Vec::new(),
-            content_scope: None,
-            dupe: None,
-        };
+        let mut p = Parser::new(tokens, options, now_ns, zone);
         let mut root = p.parse_expression(false)?.unwrap_or(Node::All);
         if p.pos < p.tokens.len() {
             return Err(ParseError("unexpected '>'".into()));
@@ -1677,6 +1685,11 @@ struct Parser {
     content_scope: Option<TermMods>,
     /// The duplicate term so far.
     dupe: Option<DupeSpec>,
+    /// Only checked, not built ([`Query::text_reads_files`]): expressions
+    /// are checked for their syntax and content terms are only counted.
+    check_only: bool,
+    /// The content terms counted while only checking.
+    checked_content: usize,
 }
 
 /// Deepest nesting of groups, negations and `file:`/`folder:` terms. Each
@@ -1685,6 +1698,25 @@ struct Parser {
 const MAX_DEPTH: usize = 100;
 
 impl Parser {
+    fn new(tokens: Vec<Token>, options: QueryOptions, now_ns: i64, zone: Option<Zone>) -> Self {
+        Self {
+            tokens,
+            pos: 0,
+            options,
+            uses_path: false,
+            reads_disk: false,
+            limit: None,
+            now_ns,
+            zone,
+            depth: 0,
+            content: Vec::new(),
+            content_scope: None,
+            dupe: None,
+            check_only: false,
+            checked_content: 0,
+        }
+    }
+
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
@@ -1938,6 +1970,10 @@ impl Parser {
         if m.regex {
             // A `/` does not switch a regular expression to the full path.
             self.uses_path |= m.on_path;
+            if self.check_only {
+                check_regex(&text, m.case)?;
+                return Ok(Some(Node::All));
+            }
             return Ok(Some(Node::Leaf(Pred::Regex(RegexPred {
                 re: build_regex(&text, m.case)?,
                 on_path: m.on_path,
@@ -2003,10 +2039,18 @@ impl Parser {
             self.content_scope = None;
             return group;
         }
-        if self.content.len() == MAX_CONTENT_TERMS {
+        if self.content.len() + self.checked_content == MAX_CONTENT_TERMS {
             return Err(ParseError(format!(
                 "a query can have at most {MAX_CONTENT_TERMS} content terms"
             )));
+        }
+        if self.check_only {
+            if m.regex {
+                check_regex(text, m.case)?;
+            }
+            self.checked_content += 1;
+            self.reads_disk = true;
+            return Ok(Some(Node::All));
         }
         if m.regex {
             // The same reasons as for names when it is not valid.
@@ -2177,6 +2221,23 @@ fn build_regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, ParseEr
         .case_insensitive(!case)
         .build()
         .map_err(|e| ParseError(format!("bad regular expression: {}", regex_error(&e))))
+}
+
+/// Checks the syntax of a regular expression without building it: the
+/// build stops at once at a size limit of nothing, after the syntax was
+/// read. Reasons as [`build_regex`] gives them.
+fn check_regex(pattern: &str, case: bool) -> Result<(), ParseError> {
+    match regex::bytes::RegexBuilder::new(pattern)
+        .case_insensitive(!case)
+        .size_limit(0)
+        .build()
+    {
+        Ok(_) | Err(regex::Error::CompiledTooBig(_)) => Ok(()),
+        Err(e) => Err(ParseError(format!(
+            "bad regular expression: {}",
+            regex_error(&e)
+        ))),
+    }
 }
 
 /// The one-line reason of a regular expression error. Syntax errors come as
@@ -3571,6 +3632,47 @@ mod tests {
         assert!(Query::parse("a>", QueryOptions::default()).is_err());
         assert!(Query::parse("size:>lots", QueryOptions::default()).is_err());
         assert!(Query::parse("modified:soon", QueryOptions::default()).is_err());
+    }
+
+    #[test]
+    fn whether_a_text_reads_files_is_found_without_building_it() {
+        let options = QueryOptions::default();
+        let many = ["content:x"; MAX_CONTENT_TERMS + 1].join(" ");
+        for text in [
+            "",
+            "a.txt",
+            "regex:^a+$",
+            "content:needle",
+            "ext:txt content:<a b>",
+            r"regex:content:fo+\d",
+            r"regex:content:(",
+            "regex:(",
+            "content:<",
+            "!content:x | y",
+            "duplicates:",
+            "duplicates:name;size",
+            "unique:content",
+            "extra-copies:size limit:2",
+            "duplicates: duplicates:",
+            &many,
+        ] {
+            let parsed = Query::parse(text, options).is_ok_and(|q| q.reads_files());
+            assert_eq!(Query::text_reads_files(text, options), parsed, "{text}");
+            let regex = QueryOptions {
+                regex: true,
+                ..options
+            };
+            assert!(!Query::text_reads_files(text, regex), "{text}");
+        }
+        // Valid, but larger than an expression may be built: the check
+        // does not build it.
+        let huge = r"content:regex:\w{1000}{1000}";
+        assert!(Query::parse(huge, options).is_err());
+        assert!(Query::text_reads_files(huge, options));
+        assert!(Query::text_reads_files(
+            &format!(r"regex:\w{{1000}}{{1000}} {huge}"),
+            options
+        ));
     }
 
     #[test]
