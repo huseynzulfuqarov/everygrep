@@ -222,6 +222,48 @@ component StatusButton inherits Rectangle {
     }
 }
 
+// A button of the toolbar: a symbol and a word, flat until hovered.
+component ToolButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> checked;
+    callback clicked();
+
+    width: tool-row.preferred-width;
+    height: Theme.field-height - 4px;
+    border-radius: Theme.radius;
+    background: !root.enabled ? transparent : touch.pressed || root.checked ? Theme.selection
+        : touch.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-checked: root.checked;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    tool-row := HorizontalLayout {
+        padding-left: Theme.s2;
+        padding-right: Theme.s2;
+        spacing: Theme.s1;
+        if root.glyph != "": Text {
+            text: root.glyph;
+            font-size: Theme.body;
+            color: root.enabled ? Theme.text : Theme.text-muted;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.text;
+            font-size: Theme.small;
+            color: root.enabled ? Theme.text : Theme.text-muted;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
 component ModeToggle inherits Rectangle {
     in property <string> glyph;
     // Draws a line under the glyph (the whole-words look).
@@ -1948,6 +1990,8 @@ export component AppWindow inherits Window {
     // change.
     in-out property <bool> show-menu-bar: true;
     in-out property <bool> show-status-bar: true;
+    in-out property <bool> show-toolbar: false;
+    callback toolbar-changed(bool);
     // The search scope selector: its entries, the chosen one, and whether
     // it is shown (see src/scope_ui.rs).
     in property <bool> show-scope: true;
@@ -3828,6 +3872,9 @@ export component AppWindow inherits Window {
         } else if (c == Command.status-bar) {
             root.show-status-bar = !root.show-status-bar;
             root.toggled(c);
+        } else if (c == Command.toolbar) {
+            root.show-toolbar = !root.show-toolbar;
+            root.toggled(c);
         } else if (c == Command.zoom-in) {
             root.zoom-step(1);
         } else if (c == Command.zoom-out) {
@@ -4021,6 +4068,8 @@ export component AppWindow inherits Window {
             root.menu-bar-changed(root.show-menu-bar);
         } else if (c == Command.status-bar) {
             root.status-bar-changed(root.show-status-bar);
+        } else if (c == Command.toolbar) {
+            root.toolbar-changed(root.show-toolbar);
         } else if (c == Command.pause-index-updates) {
             root.index-paused-changed(root.index-paused);
         } else if (c == Command.hide-offline-entries) {
@@ -4277,6 +4326,28 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
+            // Toolbar (optional): commands that are in the menus too.
+            if root.show-toolbar: Rectangle {
+                height: Theme.field-height + Theme.s2;
+                background: Theme.surface-alt;
+                HorizontalLayout {
+                    padding-left: Theme.margin - Theme.s2;
+                    padding-right: Theme.margin;
+                    padding-top: Theme.s1;
+                    padding-bottom: Theme.s1;
+                    spacing: Theme.s1;
+                    alignment: start;
+                    ToolButton { glyph: "←"; text: @tr("Back"); enabled: root.can-run(Command.previous-search); clicked => { root.run(Command.previous-search); } }
+                    ToolButton { glyph: "→"; text: @tr("Forward"); enabled: root.can-run(Command.next-search); clicked => { root.run(Command.next-search); } }
+                    Rectangle { width: 1px; background: Theme.line; }
+                    ToolButton { glyph: "+"; text: @tr("New tab"); enabled: root.can-run(Command.new-tab); clicked => { root.run(Command.new-tab); } }
+                    ToolButton { glyph: "⟳"; text: @tr("Rescan"); enabled: root.can-run(Command.rebuild-index); clicked => { root.run(Command.rebuild-index); } }
+                    ToolButton { glyph: "≡"; text: @tr("Filters"); enabled: root.can-run(Command.organize-filters); clicked => { root.run(Command.organize-filters); } }
+                    ToolButton { glyph: "▣"; text: @tr("Preview"); checked: root.preview-visible; enabled: root.can-run(Command.preview-panel); clicked => { root.run(Command.preview-panel); } }
+                    ToolButton { glyph: "⚙"; text: @tr("Settings"); enabled: root.can-run(Command.settings); clicked => { root.run(Command.settings); } }
+                }
+            }
+            if root.show-toolbar: Rectangle { height: 1px; background: Theme.line; }
             if root.tabs.length >= 2: TabStrip {
                 tabs: root.tabs;
                 active: root.active-tab;
@@ -6890,6 +6961,13 @@ export component AppWindow inherits Window {
                 checkable: true;
                 checked <=> root.show-status-bar;
                 activated => { root.toggled(Command.status-bar); }
+            }
+            MenuItem {
+                title: @tr("Toolbar");
+                shortcut: root.menu-keys.toolbar;
+                checkable: true;
+                checked <=> root.show-toolbar;
+                activated => { root.toggled(Command.toolbar); }
             }
             Menu {
                 title: @tr("Zoom");

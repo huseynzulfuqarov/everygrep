@@ -442,6 +442,8 @@ pub struct Settings {
     /// Whether the window shows the status line at its bottom; without it,
     /// progress and messages appear in a small box there while they last.
     pub status_bar: bool,
+    /// Whether the window shows a toolbar below the menu bar.
+    pub toolbar: bool,
     /// The size of the result list's text, icons and rows, in percent.
     pub zoom: u32,
     pub folders_visible: bool,
@@ -533,6 +535,7 @@ impl Default for Settings {
             status_details: true,
             menu_bar: true,
             status_bar: true,
+            toolbar: false,
             zoom: crate::zoom::DEFAULT,
             folders_visible: false,
             preview_visible: false,
@@ -893,6 +896,7 @@ impl Settings {
                 .is_some(),
             "menu-bar" => put_flag(&mut self.menu_bar),
             "status-bar" => put_flag(&mut self.status_bar),
+            "toolbar" => put_flag(&mut self.toolbar),
             "zoom" => value
                 .parse::<u32>()
                 .ok()
@@ -1667,6 +1671,7 @@ impl Settings {
         );
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
         flag(&mut out, "status-bar", self.status_bar, d.status_bar);
+        flag(&mut out, "toolbar", self.toolbar, d.toolbar);
         if all || self.zoom != d.zoom {
             line(&mut out, "zoom", &self.zoom.to_string());
         }
@@ -2023,6 +2028,7 @@ impl Settings {
                 self.status_details = d.status_details;
                 self.menu_bar = d.menu_bar;
                 self.status_bar = d.status_bar;
+                self.toolbar = d.toolbar;
                 self.zoom = d.zoom;
                 self.language = d.language;
             }
@@ -2903,6 +2909,7 @@ pub(crate) mod tests {
             status_details: false,
             menu_bar: false,
             status_bar: false,
+            toolbar: true,
             zoom: 125,
             drives: DriveSettings {
                 auto: false,
@@ -2929,6 +2936,7 @@ pub(crate) mod tests {
         assert!(text.contains("status-details = false\n"));
         assert!(text.contains("menu-bar = false\n"));
         assert!(text.contains("status-bar = false\n"));
+        assert!(text.contains("toolbar = true\n"));
         assert!(text.contains("zoom = 125\n"));
         assert_eq!(Settings::parse("zoom = 20\n").problems.len(), 1);
         assert_eq!(Settings::parse("zoom = 301\n").problems.len(), 1);

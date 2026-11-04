@@ -4774,3 +4774,15 @@ msgstr "Axtarış sahəsinin yanında axtarış yerini göstər"
 
 msgid "Lists only what is in the chosen place: all locations, the home folder or one indexed folder or drive. Each tab keeps its own. Hidden, every search lists all locations."
 msgstr "Yalnız seçilmiş yerdə olanları göstərir: bütün yerlər, ev qovluğu və ya indekslənmiş bir qovluq ya disk. Hər tab öz seçimini saxlayır. Gizlədiləndə hər axtarış bütün yerləri göstərir."
+
+msgid "Toolbar"
+msgstr "Alətlər paneli"
+
+msgid "Show the toolbar"
+msgstr "Alətlər panelini göstər"
+
+msgid "Buttons for Back, Forward, New tab, Rescan, Filters, Preview and Settings above the search field. They do what the same menu entries do."
+msgstr "Axtarış sahəsinin üstündə Geri, İrəli, Yeni tab, Yenidən skan et, Filtrlər, Önizləmə və Ayarlar düymələri. Menyudakı eyni bəndlər nə edirsə, onlar da onu edir."
+
+msgid "Rescan"
+msgstr "Yenidən skan et"

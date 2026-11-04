@@ -262,6 +262,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> status-details;
     in-out property <bool> menu-bar;
     in-out property <bool> status-bar;
+    in-out property <bool> toolbar;
     in-out property <int> zoom;
     in-out property <bool> alternate-rows;
     in property <[string]> size-unit-names;
@@ -1216,6 +1217,14 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.appearance-changed(); }
                             }
                             Note { text: @tr("Without it, the ⋯ button next to the filter holds Settings, Search syntax, Keyboard shortcuts, About and Quit."); }
+                            Rectangle { height: Theme.s2; }
+                            Heading { text: @tr("Toolbar"); }
+                            CheckBox {
+                                text: @tr("Show the toolbar");
+                                checked <=> root.toolbar;
+                                toggled => { root.appearance-changed(); }
+                            }
+                            Note { text: @tr("Buttons for Back, Forward, New tab, Rescan, Filters, Preview and Settings above the search field. They do what the same menu entries do."); }
                         }
 
                         if root.page == 3: VerticalLayout {

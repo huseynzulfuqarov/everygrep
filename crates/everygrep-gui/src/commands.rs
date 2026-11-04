@@ -1290,6 +1290,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::Toolbar,
+        id: "view.toolbar",
+        category: Category::View,
+        label: || tr("Toolbar"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::ZoomIn,
         id: "view.zoom-in",
         category: Category::View,
@@ -2114,6 +2121,7 @@ impl Keymap {
             selection_details => SelectionDetails,
             menu_bar => MenuBar,
             status_bar => StatusBar,
+            toolbar => Toolbar,
             zoom_in => ZoomIn,
             zoom_out => ZoomOut,
             zoom_reset => ZoomReset,

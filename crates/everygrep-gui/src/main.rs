@@ -914,6 +914,7 @@ fn connect_menus(w: &AppWindow) {
     w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
     w.on_menu_bar_changed(|on| prefs::with(|p| p.set_menu_bar(on)));
     w.on_status_bar_changed(|on| prefs::with(|p| p.set_status_bar(on)));
+    w.on_toolbar_changed(|on| prefs::with(|p| p.set_toolbar(on)));
     w.on_zoom_step(|step| prefs::with(|p| p.zoom_step(step)));
 }
 

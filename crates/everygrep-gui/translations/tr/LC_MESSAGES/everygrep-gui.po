@@ -4774,3 +4774,15 @@ msgstr "Arama alanının yanında arama konumunu göster"
 
 msgid "Lists only what is in the chosen place: all locations, the home folder or one indexed folder or drive. Each tab keeps its own. Hidden, every search lists all locations."
 msgstr "Yalnızca seçilen konumdakileri listeler: tüm konumlar, ev klasörü ya da dizinlenmiş bir klasör veya sürücü. Her sekme kendi seçimini korur. Gizliyken her arama tüm konumları listeler."
+
+msgid "Toolbar"
+msgstr "Araç çubuğu"
+
+msgid "Show the toolbar"
+msgstr "Araç çubuğunu göster"
+
+msgid "Buttons for Back, Forward, New tab, Rescan, Filters, Preview and Settings above the search field. They do what the same menu entries do."
+msgstr "Arama alanının üstünde Geri, İleri, Yeni sekme, Yeniden tara, Filtreler, Önizleme ve Ayarlar düğmeleri. Menüdeki aynı öğelerin yaptığını yaparlar."
+
+msgid "Rescan"
+msgstr "Yeniden tara"

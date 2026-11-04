@@ -1142,7 +1142,15 @@ impl Prefs {
             let s = self.settings.borrow();
             m.set_show_menu_bar(s.menu_bar);
             m.set_show_status_bar(s.status_bar);
+            m.set_show_toolbar(s.toolbar);
         }
+    }
+
+    /// Changes whether the main window has a toolbar.
+    pub fn set_toolbar(&self, on: bool) {
+        self.change(move |s| s.toolbar = on);
+        self.apply_menu_bar();
+        self.refresh();
     }
 
     /// Sizes the main window's result list as the zoom setting says.
@@ -1242,6 +1250,7 @@ impl Prefs {
         m.set_status_details(s.status_details);
         m.set_show_menu_bar(s.menu_bar);
         m.set_show_status_bar(s.status_bar);
+        m.set_show_toolbar(s.toolbar);
         m.set_preview_visible(s.preview_visible);
         m.set_preview_width(s.preview_width);
         m.set_folders_visible(s.folders_visible);
@@ -2380,6 +2389,7 @@ impl Prefs {
         w.set_status_details(s.status_details);
         w.set_menu_bar(s.menu_bar);
         w.set_status_bar(s.status_bar);
+        w.set_toolbar(s.toolbar);
         w.set_zoom(s.zoom as i32);
         w.set_alternate_rows(s.alternate_rows);
         w.set_size_unit_names(ModelRc::new(VecModel::from(
@@ -3345,6 +3355,7 @@ impl Prefs {
         let details = w.get_status_details();
         let menu_bar = w.get_menu_bar();
         let status_bar = w.get_status_bar();
+        let toolbar = w.get_toolbar();
         let zoom = u32::try_from(w.get_zoom())
             .ok()
             .filter(|z| crate::zoom::valid(*z))
@@ -3368,6 +3379,7 @@ impl Prefs {
             s.status_details = details;
             s.menu_bar = menu_bar;
             s.status_bar = status_bar;
+            s.toolbar = toolbar;
             s.zoom = zoom;
             s.alternate_rows = alternate_rows;
             s.size_unit = size_unit;
