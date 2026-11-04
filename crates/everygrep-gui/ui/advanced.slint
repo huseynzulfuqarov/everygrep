@@ -16,7 +16,16 @@ export component AdvancedWindow inherits Window {
     in-out property <string> all-words;
     // The form's labels share one column, so its fields line up.
     property <length> label-width: max(m0.preferred-width, m1.preferred-width, m2.preferred-width, m3.preferred-width, m4.preferred-width, m5.preferred-width, m6.preferred-width,
-        m7.preferred-width, m8.preferred-width, m9.preferred-width, m10.preferred-width, m11.preferred-width, m12.preferred-width, m13.preferred-width);
+        m7.preferred-width, m8.preferred-width, m9.preferred-width, m10.preferred-width, m11.preferred-width, m12.preferred-width, m13.preferred-width, m14.preferred-width, m15.preferred-width, m16.preferred-width, m17.preferred-width, m18.preferred-width);
+    in-out property <string> name-regex;
+    in-out property <string> min-length;
+    in-out property <string> max-length;
+    in-out property <string> min-depth;
+    in-out property <string> max-depth;
+    in-out property <string> child-name;
+    in-out property <int> child-count-kind;
+    in-out property <string> min-children;
+    in-out property <string> max-children;
     in-out property <string> phrase;
     in-out property <string> any-words;
     in-out property <string> none-words;
@@ -96,6 +105,37 @@ export component AdvancedWindow inherits Window {
                 CheckBox { text: @tr("Whole words"); checked <=> root.whole-words; }
                 CheckBox { text: @tr("Match diacritics"); checked <=> root.diacritics; }
             }
+            GridLayout {
+                spacing: Theme.gap;
+                Row {
+                    Text { text: @tr("Name regular expression"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    LineEdit { colspan: 4; accessible-label: @tr("Name regular expression"); text <=> root.name-regex; accepted => { root.use-query(); } }
+                }
+                Row {
+                    Text { text: @tr("Name length from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    LineEdit { accessible-label: @tr("Minimum name length"); text <=> root.min-length; accepted => { root.use-query(); } }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { colspan: 2; accessible-label: @tr("Maximum name length"); text <=> root.max-length; accepted => { root.use-query(); } }
+                }
+                Row {
+                    Text { text: @tr("Folder depth from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    LineEdit { accessible-label: @tr("Minimum folder depth"); text <=> root.min-depth; accepted => { root.use-query(); } }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { colspan: 2; accessible-label: @tr("Maximum folder depth"); text <=> root.max-depth; accepted => { root.use-query(); } }
+                }
+                Row {
+                    Text { text: @tr("Direct child name"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    LineEdit { colspan: 4; accessible-label: @tr("Direct child name"); text <=> root.child-name; accepted => { root.use-query(); } }
+                }
+                Row {
+                    Text { text: @tr("Direct child count from"); color: Theme.text; vertical-alignment: center; width: root.label-width; }
+                    LineEdit { accessible-label: @tr("Minimum child count"); text <=> root.min-children; accepted => { root.use-query(); } }
+                    Text { text: @tr("to"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Maximum child count"); text <=> root.max-children; accepted => { root.use-query(); } }
+                    ComboBox { accessible-label: @tr("Child count type"); model: [@tr("Files and folders"), @tr("Files"), @tr("Folders")]; current-index <=> root.child-count-kind; }
+                }
+            }
+            Text { text: @tr("Depth counts absolute path levels: / is 0, /home is 1. Child conditions return folders and use direct indexed children only. Name length counts Unicode characters."); color: Theme.text-muted; wrap: word-wrap; }
             Text { text: @tr("File contents"); color: Theme.text; font-weight: 600; }
             GridLayout {
                 spacing: Theme.gap;
@@ -223,4 +263,10 @@ export component AdvancedWindow inherits Window {
     m11 := Text { visible: false; text: @tr("Modified from"); }
     m12 := Text { visible: false; text: @tr("Created from"); }
     m13 := Text { visible: false; text: @tr("Accessed from"); }
+    m14 := Text { visible: false; text: @tr("Name regular expression"); }
+    m15 := Text { visible: false; text: @tr("Name length from"); }
+    m16 := Text { visible: false; text: @tr("Folder depth from"); }
+    m17 := Text { visible: false; text: @tr("Direct child name"); }
+    m18 := Text { visible: false; text: @tr("Direct child count from"); }
+
 }

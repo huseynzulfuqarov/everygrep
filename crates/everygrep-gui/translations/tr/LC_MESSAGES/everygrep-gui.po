@@ -4838,3 +4838,48 @@ msgstr "{0}: parent: veya child: içinde kullanılamaz. Dizindeki koşulları ku
 
 msgid "Invalid {0}: {1}. Use a non-negative integer, comparison or min..max."
 msgstr "Geçersiz {0}: {1}. Negatif olmayan tam sayı, karşılaştırma veya min..max kullanın."
+
+msgid "Name regular expression"
+msgstr "Ad için düzenli ifade"
+
+msgid "Name length from"
+msgstr "Ad uzunluğu, en az"
+
+msgid "Minimum name length"
+msgstr "En az ad uzunluğu"
+
+msgid "Maximum name length"
+msgstr "En fazla ad uzunluğu"
+
+msgid "Folder depth from"
+msgstr "Klasör derinliği, en az"
+
+msgid "Minimum folder depth"
+msgstr "En az klasör derinliği"
+
+msgid "Maximum folder depth"
+msgstr "En fazla klasör derinliği"
+
+msgid "Direct child name"
+msgstr "Doğrudan alt öğe adı"
+
+msgid "Direct child count from"
+msgstr "Doğrudan alt öğe sayısı, en az"
+
+msgid "Minimum child count"
+msgstr "En az alt öğe sayısı"
+
+msgid "Maximum child count"
+msgstr "En fazla alt öğe sayısı"
+
+msgid "Child count type"
+msgstr "Alt öğe sayısı türü"
+
+msgid "Depth counts absolute path levels: / is 0, /home is 1. Child conditions return folders and use direct indexed children only. Name length counts Unicode characters."
+msgstr "Derinlik tam yol düzeylerini sayar: / — 0, /home — 1. Alt öğe koşulları yalnızca dizindeki doğrudan alt öğeleri kullanır ve klasörleri döndürür. Ad uzunluğu Unicode karakterlerini sayar."
+
+msgid "Enter non-negative whole numbers for length, depth and child counts."
+msgstr "Uzunluk, derinlik ve alt öğe sayıları için negatif olmayan tam sayılar girin."
+
+msgid "Choose a supported child count type."
+msgstr "Desteklenen bir alt öğe sayısı türü seçin."

@@ -11,6 +11,16 @@ pub struct Fields {
     pub any: String,
     pub none: String,
     pub in_path: bool,
+    pub name_regex: String,
+    pub min_length: String,
+    pub max_length: String,
+    pub min_depth: String,
+    pub max_depth: String,
+    pub child_name: String,
+    /// 0 all children, 1 files, 2 folders.
+    pub child_count_kind: i32,
+    pub min_children: String,
+    pub max_children: String,
     pub location: String,
     pub recursive: bool,
     // 0 all, 1 files, 2 folders, 3 files without an extension.
@@ -143,6 +153,36 @@ fn size(text: &str, unit: i32) -> Option<u64> {
     u64::try_from(mantissa.checked_mul(unit)?.div_ceil(scale)).ok()
 }
 
+/// Optional inclusive bounds, emitted as query functions rather than filters
+/// applied after a search. Reject invalid or reversed input before applying.
+fn integer_range(parts: &mut Vec<String>, field: &str, min: &str, max: &str) -> Result<(), String> {
+    let parse = |value: &str| -> Result<Option<u64>, String> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        if !value.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(
+                tr("Enter non-negative whole numbers for length, depth and child counts.").into(),
+            );
+        }
+        value.parse().map(Some).map_err(|_| {
+            tr("Enter non-negative whole numbers for length, depth and child counts.").into()
+        })
+    };
+    let (min, max) = (parse(min)?, parse(max)?);
+    if min.zip(max).is_some_and(|(a, b)| a > b) {
+        return Err(tr("The minimum must not exceed the maximum.").into());
+    }
+    if let Some(n) = min {
+        parts.push(format!("{field}:>={n}"));
+    }
+    if let Some(n) = max {
+        parts.push(format!("{field}:<={n}"));
+    }
+    Ok(())
+}
+
 fn valid_date(text: &str) -> bool {
     let b = text.as_bytes();
     if b.len() != 10
@@ -223,6 +263,8 @@ impl Fields {
             &self.none,
             &self.location,
             &self.content,
+            &self.name_regex,
+            &self.child_name,
         ]
         .iter()
         .any(|s| s.contains('\0'))
@@ -250,6 +292,24 @@ impl Fields {
                 .split_whitespace()
                 .map(|s| format!("!{}", term(s, self.in_path, true))),
         );
+        if !self.name_regex.is_empty() {
+            parts.push(format!(
+                "nopath:regex:\"{}\"",
+                quotable_regex(&self.name_regex)
+            ));
+        }
+        integer_range(&mut parts, "len", &self.min_length, &self.max_length)?;
+        integer_range(&mut parts, "depth", &self.min_depth, &self.max_depth)?;
+        if !self.child_name.is_empty() {
+            parts.push(format!("child:{}", term(&self.child_name, false, true)));
+        }
+        let count = match self.child_count_kind {
+            0 => "children",
+            1 => "childfiles",
+            2 => "childfolders",
+            _ => return Err(tr("Choose a supported child count type.").into()),
+        };
+        integer_range(&mut parts, count, &self.min_children, &self.max_children)?;
         if !self.location.trim().is_empty() {
             let path = Path::new(self.location.trim());
             if !path.is_absolute() {
@@ -974,5 +1034,163 @@ mod tests {
         let joined = query().and(filter(5)).unwrap();
         assert_eq!(joined.content_terms().len(), 6);
         assert!(query().and(filter(6)).is_err());
+    }
+    #[test]
+    fn extra_conditions_generate_index_queries_and_match_together() {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/missing", true, Meta::default());
+        let hit = s.add(Some(root), "Rəport".as_bytes(), true, Meta::default());
+        let wrong_name = s.add(Some(root), b"notes", true, Meta::default());
+        let empty = s.add(Some(root), b"ReportEmpty", true, Meta::default());
+        for parent in [hit, wrong_name] {
+            s.add(Some(parent), b"Final.txt", false, Meta::default());
+            s.add(Some(parent), b"sub", true, Meta::default());
+        }
+        let f = Fields {
+            name_regex: "^R.*".into(),
+            min_length: "6".into(),
+            max_length: "11".into(),
+            min_depth: "2".into(),
+            max_depth: "2".into(),
+            child_name: "*.txt".into(),
+            child_count_kind: 1,
+            min_children: "1".into(),
+            max_children: "1".into(),
+            ..Fields::default()
+        };
+        for and_before_or in [false, true] {
+            let options = QueryOptions {
+                and_before_or,
+                case_sensitive: true,
+                literal_operators: true,
+                ..QueryOptions::default()
+            };
+            let text = f.build(options).unwrap();
+            assert!(
+                text.contains("len:>=6 len:<=11 depth:>=2 depth:<=2 child:"),
+                "{text}"
+            );
+            assert!(text.contains("childfiles:>=1 childfiles:<=1"), "{text}");
+            let q = Query::parse(&text, options).unwrap();
+            assert!(q.matches(&s, hit, &mut EvalScratch::default()));
+            for id in [root, wrong_name, empty] {
+                assert!(!q.matches(&s, id, &mut EvalScratch::default()));
+            }
+            assert!(q.content_terms().is_empty());
+        }
+        for (kind, expected) in [(0, "children"), (1, "childfiles"), (2, "childfolders")] {
+            let text = Fields {
+                child_count_kind: kind,
+                max_children: "0".into(),
+                ..Fields::default()
+            }
+            .build(QueryOptions::default())
+            .unwrap();
+            assert_eq!(text, format!("{expected}:<=0"));
+            assert!(
+                Query::parse(&text, QueryOptions::default())
+                    .unwrap()
+                    .matches(&s, empty, &mut EvalScratch::default())
+            );
+        }
+    }
+
+    #[test]
+    fn extra_conditions_validate_bounds_and_keep_literals_inside_their_field() {
+        for bad in [
+            "-1",
+            "1.2",
+            "1|folder:",
+            "18446744073709551616",
+            "<3",
+            "1..3",
+        ] {
+            for field in 0..3 {
+                let mut f = Fields::default();
+                match field {
+                    0 => f.min_length = bad.into(),
+                    1 => f.max_depth = bad.into(),
+                    _ => f.min_children = bad.into(),
+                }
+                assert!(f.build(QueryOptions::default()).is_err(), "{bad}");
+            }
+        }
+        for (min, max) in [("2", "1"), ("18446744073709551615", "0")] {
+            for f in [
+                Fields {
+                    min_length: min.into(),
+                    max_length: max.into(),
+                    ..Fields::default()
+                },
+                Fields {
+                    min_depth: min.into(),
+                    max_depth: max.into(),
+                    ..Fields::default()
+                },
+                Fields {
+                    min_children: min.into(),
+                    max_children: max.into(),
+                    ..Fields::default()
+                },
+            ] {
+                assert!(f.build(QueryOptions::default()).is_err());
+            }
+        }
+        assert!(
+            Fields {
+                name_regex: "(".into(),
+                ..Fields::default()
+            }
+            .build(QueryOptions::default())
+            .is_err()
+        );
+        assert!(
+            Fields {
+                child_count_kind: 3,
+                ..Fields::default()
+            }
+            .build(QueryOptions::default())
+            .is_err()
+        );
+        for name in ["a|b", "!x <y>", "file:", "a \"quote\"", "a*b?", "Şəki"] {
+            let mut s = NodeStore::new();
+            let root = s.add(None, b"/missing", true, Meta::default());
+            let hit = s.add(Some(root), b"hit", true, Meta::default());
+            let miss = s.add(Some(root), b"miss", true, Meta::default());
+            s.add(Some(hit), name.as_bytes(), false, Meta::default());
+            let text = Fields {
+                child_name: name.into(),
+                ..Fields::default()
+            }
+            .build(QueryOptions::default())
+            .unwrap();
+            let q = Query::parse(&text, QueryOptions::default()).unwrap();
+            assert!(
+                q.matches(&s, hit, &mut EvalScratch::default()),
+                "{name}: {text}"
+            );
+            assert!(
+                !q.matches(&s, miss, &mut EvalScratch::default()),
+                "{name}: {text}"
+            );
+        }
+        let f = Fields {
+            name_regex: "^a\"b$".into(),
+            ..Fields::default()
+        };
+        assert!(matches(&f, b"a\"b", false));
+        assert!(!matches(&f, b"a b", false));
+        for f in [
+            Fields {
+                name_regex: "\0".into(),
+                ..Fields::default()
+            },
+            Fields {
+                child_name: "\0".into(),
+                ..Fields::default()
+            },
+        ] {
+            assert!(f.build(QueryOptions::default()).is_err());
+        }
     }
 }

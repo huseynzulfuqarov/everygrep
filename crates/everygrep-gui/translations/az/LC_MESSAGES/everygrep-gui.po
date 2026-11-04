@@ -4838,3 +4838,48 @@ msgstr "{0}: parent: və child: daxilində istifadə edilmir. İndeksdəki şər
 
 msgid "Invalid {0}: {1}. Use a non-negative integer, comparison or min..max."
 msgstr "Yanlış {0}: {1}. Mənfi olmayan tam ədəd, müqayisə və ya min..max istifadə edin."
+
+msgid "Name regular expression"
+msgstr "Ad üçün müntəzəm ifadə"
+
+msgid "Name length from"
+msgstr "Ad uzunluğu, ən az"
+
+msgid "Minimum name length"
+msgstr "Minimum ad uzunluğu"
+
+msgid "Maximum name length"
+msgstr "Maksimum ad uzunluğu"
+
+msgid "Folder depth from"
+msgstr "Qovluq dərinliyi, ən az"
+
+msgid "Minimum folder depth"
+msgstr "Minimum qovluq dərinliyi"
+
+msgid "Maximum folder depth"
+msgstr "Maksimum qovluq dərinliyi"
+
+msgid "Direct child name"
+msgstr "Birbaşa uşağın adı"
+
+msgid "Direct child count from"
+msgstr "Birbaşa uşaq sayı, ən az"
+
+msgid "Minimum child count"
+msgstr "Minimum uşaq sayı"
+
+msgid "Maximum child count"
+msgstr "Maksimum uşaq sayı"
+
+msgid "Child count type"
+msgstr "Uşaq sayının növü"
+
+msgid "Depth counts absolute path levels: / is 0, /home is 1. Child conditions return folders and use direct indexed children only. Name length counts Unicode characters."
+msgstr "Dərinlik tam yol səviyyələrini sayır: / — 0, /home — 1. Uşaq şərtləri yalnız indeksdəki birbaşa uşaqlara baxır və qovluqları qaytarır. Ad uzunluğu Unicode simvollarını sayır."
+
+msgid "Enter non-negative whole numbers for length, depth and child counts."
+msgstr "Uzunluq, dərinlik və uşaq sayı üçün mənfi olmayan tam ədədlər daxil edin."
+
+msgid "Choose a supported child count type."
+msgstr "Dəstəklənən uşaq sayı növü seçin."
