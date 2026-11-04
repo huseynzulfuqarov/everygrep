@@ -385,6 +385,12 @@ impl ResultsModel {
         self.clear_on_search.set(on);
     }
 
+    /// Applies row behaviour shared by local changes and settings reloads.
+    pub fn apply_behaviour(&self, settings: &crate::settings::Settings) {
+        self.set_clear_on_search(settings.clear_selection_on_search);
+        self.set_show_root_labels(settings.drive_root_labels);
+    }
+
     /// Whether `result` answers the newest request. An older one is not
     /// shown: the newer request's result follows.
     pub fn is_current(&self, result: &SearchResult) -> bool {

@@ -3813,6 +3813,66 @@ mod tests {
     }
 
     #[test]
+    fn drive_labels_follow_reloaded_imported_and_reset_window_settings() {
+        use crate::results::ResultsModel;
+        use crate::settings::{Page, Settings};
+        use slint::Model;
+        let dir = Scratch::new("model-label-settings");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        let drive = Drive {
+            uuid: "test-label".into(),
+            label: "Test disk".into(),
+            mount_point: root.clone(),
+        };
+        probe.engine.volumes.lock().unwrap().push(Volume {
+            info: new_info(&drive, 0),
+            root: Some(root.clone()),
+            online: true,
+            options: ScanOptions::default(),
+        });
+        let root_id = probe.engine.index.read().unwrap().roots()[0];
+        let result = SearchResult {
+            settled: None,
+            ids: Arc::new(vec![root_id]),
+            groups: Arc::default(),
+            terms: Arc::new(Vec::new()),
+            took: Duration::ZERO,
+            error: None,
+            query: String::new(),
+            epoch: probe.engine.epoch(),
+            generation: 0,
+        };
+        let model = ResultsModel::new(probe.engine.clone());
+        model.set_result(&result);
+        let name = || model.row_data(0).unwrap().name.p0.to_string();
+        let labelled = format!("Test disk ({})", root.display());
+        let plain = root.display().to_string();
+        assert_eq!(name(), labelled);
+        // Reload applies the same model settings as a local Window-page edit.
+        let reloaded = Settings::parse("drive-root-labels = false\n");
+        model.apply_behaviour(&reloaded);
+        assert_eq!(name(), plain);
+        model.set_result(&result);
+        assert_eq!(
+            name(),
+            plain,
+            "a fresh result must keep the reloaded choice"
+        );
+        // Window reset restores the default, including the displayed label.
+        let mut reset = reloaded;
+        reset.reset(Page::Window);
+        model.apply_behaviour(&reset);
+        assert_eq!(name(), labelled);
+        let imported = Settings::parse("drive-root-labels = false\n");
+        model.apply_behaviour(&imported);
+        assert_eq!(name(), plain);
+    }
+
+    #[test]
     fn reset_columns_removes_hidden_media_reads_from_the_next_query() {
         use everygrep_core::property::Property;
         let dir = Scratch::new("reset-sort-media");

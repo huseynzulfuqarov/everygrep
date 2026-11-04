@@ -3236,9 +3236,7 @@ impl Prefs {
         m.set_show_mode_badges(s.show_mode_badges);
         m.set_filter_wrap(s.filter_wrap);
         m.set_select_search_on_click(s.select_search_on_click);
-        crate::with_model(&m, |model| {
-            model.set_clear_on_search(s.clear_selection_on_search);
-        });
+        crate::with_model(&m, |model| model.apply_behaviour(&s));
         m.set_alternate_rows(s.alternate_rows);
         m.set_path_click_opens_folder(s.path_click_opens_folder);
         m.set_open_searches_in_tabs(s.open_searches_in_tabs);
@@ -3481,9 +3479,6 @@ impl Prefs {
         });
         self.apply_folder_size();
         self.apply_behaviour();
-        if let Some(m) = self.main.upgrade() {
-            crate::with_model(&m, |model| model.set_show_root_labels(root_labels));
-        }
         self.refresh();
     }
 
