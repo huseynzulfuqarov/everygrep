@@ -41,6 +41,7 @@ mod jump;
 mod labels;
 mod look;
 mod menus;
+mod name_list_ui;
 mod open;
 mod physical;
 mod portal;
@@ -336,6 +337,7 @@ fn main() -> Result<(), slint::PlatformError> {
     saved_ui::connect(&window, &engine);
     scope_ui::connect(&window, &engine, settings.scope_selector);
     advanced::connect(&window);
+    name_list_ui::connect(&window);
     set_filter_names(&window);
     set_options(&window, start_options);
     window.set_show_type(args.show_type);

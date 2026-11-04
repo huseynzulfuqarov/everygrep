@@ -4883,3 +4883,60 @@ msgstr "Uzunluq, dərinlik və uşaq sayı üçün mənfi olmayan tam ədədlər
 
 msgid "Choose a supported child count type."
 msgstr "Dəstəklənən uşaq sayı növü seçin."
+
+msgid "Search a list of names"
+msgstr "Ad siyahısında axtarış"
+
+msgid "Search a list of names…"
+msgstr "Ad siyahısında axtarış…"
+
+msgid "Paste one file name per line, or load a UTF-8 text file. Up to 10 000 names and 2 MiB. Blank lines are ignored; spaces are kept."
+msgstr "Hər sətirə bir fayl adı yapışdırın və ya UTF-8 mətn faylı yükləyin. Limit: 10 000 ad və 2 MiB. Boş sətirlər nəzərə alınmır; boşluqlar saxlanılır."
+
+msgid "File names, one per line"
+msgstr "Fayl adları, hər sətirə bir ad"
+
+msgid "Ignore extension"
+msgstr "Uzantını nəzərə alma"
+
+msgid "Contains instead of exact name"
+msgstr "Dəqiq ad əvəzinə ehtiva etsin"
+
+msgid "Names are literal, including * and ?. Files and folders can match. The current search filter also applies."
+msgstr "Adlar, o cümlədən * və ? olduğu kimi axtarılır. Fayl və qovluqlar uyğun gələ bilər. Cari axtarış süzgəci də tətbiq edilir."
+
+msgid "Load text file…"
+msgstr "Mətn faylı yüklə…"
+
+msgid "Choose a regular text file."
+msgstr "Adi mətn faylı seçin."
+
+msgid "Could not load the name list: {}"
+msgstr "Ad siyahısı yüklənmədi: {}"
+
+msgid "The name list must be a UTF-8 text file."
+msgstr "Ad siyahısı UTF-8 mətn faylı olmalıdır."
+
+msgid "Load name list"
+msgstr "Ad siyahısı yüklə"
+
+msgid "Enter at least one file name."
+msgstr "Ən az bir fayl adı daxil edin."
+
+msgid "Use at most 10 000 names. The list was not applied."
+msgstr "Ən çox 10 000 ad istifadə edin. Siyahı tətbiq edilmədi."
+
+msgid "The name list exceeds 2 MiB. The list was not applied."
+msgstr "Ad siyahısı 2 MiB limitini aşır. Siyahı tətbiq edilmədi."
+
+msgid "Use file names without paths or NUL characters, one per line."
+msgstr "Hər sətirə yol və NUL simvolu olmadan bir fayl adı yazın."
+
+msgid "Invalid name list escape. Load the list again with Search a list of names."
+msgstr "Ad siyahısında yanlış qaçış ardıcıllığı var. Ad siyahısında axtarış ilə siyahını yenidən yükləyin."
+
+msgid "Text files"
+msgstr "Mətn faylları"
+
+msgid "All files"
+msgstr "Bütün fayllar"

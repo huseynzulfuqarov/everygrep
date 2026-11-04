@@ -1121,6 +1121,7 @@ impl Prefs {
         self.scheme_set.set(true);
         crate::saved_ui::apply_scheme(scheme as i32);
         crate::advanced::apply_scheme(scheme as i32);
+        crate::name_list_ui::apply_scheme(scheme as i32);
         crate::fileops_undo_ui::apply_scheme(scheme as i32);
         crate::debug_log_ui::apply_scheme(scheme as i32);
         if let Some(m) = self.main.upgrade() {

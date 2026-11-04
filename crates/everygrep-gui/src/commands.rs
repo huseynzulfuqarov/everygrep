@@ -1672,6 +1672,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::SearchNameList,
+        id: "search.name-list",
+        category: Category::Search,
+        label: || tr("Search a list of names…"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::AdvancedSearch,
         id: "search.advanced",
         category: Category::Search,
@@ -2183,6 +2190,7 @@ impl Keymap {
             open_all_bookmarks => OpenAllBookmarks,
             copy_search => CopySearch,
             advanced_search => AdvancedSearch,
+            search_name_list => SearchNameList,
             settings => Settings,
             keyboard_settings => KeyboardSettings,
             open_settings_file => OpenSettingsFile,

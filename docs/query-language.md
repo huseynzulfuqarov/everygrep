@@ -80,6 +80,33 @@ Relative names are not highlighted in the result's own name.
 Tree walks check the search cancellation flag, and cancelled searches
 return no partial results.
 
+## Lists of names
+
+Search → Search a list of names accepts pasted names or a UTF-8 text file,
+with one filename per line. Blank lines are ignored, CRLF and an initial
+UTF-8 BOM are accepted, and surrounding spaces remain part of each name.
+The limit is 10 000 nonempty lines and 2 MiB before escaping. Invalid,
+empty or oversized lists leave the current search unchanged; loading a
+file unsuccessfully also keeps the previous draft.
+
+Exact name matching is the default, with independent Match case, Ignore
+extension and Contains options. Names are literal, including wildcards,
+quotes and operators. Matching does not strip diacritics. Ignore extension
+removes the last dot and suffix from both sides; `.profile` keeps its name,
+while `archive.tar.gz` becomes `archive.tar`. Files and folders can match;
+the currently selected result filter still applies.
+
+The dialog generates one query function: `names:`, `stemnames:`,
+`containsnames:` or `containsstemnames:`, with an explicit `case:` or
+`nocase:` modifier. For example `nocase:names:"report.txt\x0aREADME"`
+means either exact name. In the quoted value, newlines, backslashes, quotes
+and ASCII control bytes use `\xHH` escapes. The query can be combined
+with other conditions, negation, groups, filters and `limit:` as usual.
+Other name matching modifiers do not alter a list's literal semantics.
+Exact matching uses a hash set; Contains uses a shared substring automaton,
+so each indexed name is checked without looping over thousands of lines.
+No files are read during the search itself.
+
 ## Plain text
 
 A term without wildcards matches anywhere in the name, not only at the start

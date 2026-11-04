@@ -19,6 +19,7 @@ pub mod kind;
 mod listing;
 pub mod localtime;
 pub mod media;
+pub mod namelist;
 pub mod order;
 pub mod persist;
 pub mod preview;

@@ -4883,3 +4883,60 @@ msgstr "Uzunluk, derinlik ve alt öğe sayıları için negatif olmayan tam say�
 
 msgid "Choose a supported child count type."
 msgstr "Desteklenen bir alt öğe sayısı türü seçin."
+
+msgid "Search a list of names"
+msgstr "Ad listesinde arama"
+
+msgid "Search a list of names…"
+msgstr "Ad listesinde arama…"
+
+msgid "Paste one file name per line, or load a UTF-8 text file. Up to 10 000 names and 2 MiB. Blank lines are ignored; spaces are kept."
+msgstr "Her satıra bir dosya adı yapıştırın veya UTF-8 metin dosyası yükleyin. Sınır: 10 000 ad ve 2 MiB. Boş satırlar yok sayılır; boşluklar korunur."
+
+msgid "File names, one per line"
+msgstr "Dosya adları, her satıra bir ad"
+
+msgid "Ignore extension"
+msgstr "Uzantıyı yok say"
+
+msgid "Contains instead of exact name"
+msgstr "Tam ad yerine içersin"
+
+msgid "Names are literal, including * and ?. Files and folders can match. The current search filter also applies."
+msgstr "Adlar, * ve ? dahil olduğu gibi aranır. Dosya ve klasörler eşleşebilir. Geçerli arama filtresi de uygulanır."
+
+msgid "Load text file…"
+msgstr "Metin dosyası yükle…"
+
+msgid "Choose a regular text file."
+msgstr "Normal bir metin dosyası seçin."
+
+msgid "Could not load the name list: {}"
+msgstr "Ad listesi yüklenemedi: {}"
+
+msgid "The name list must be a UTF-8 text file."
+msgstr "Ad listesi bir UTF-8 metin dosyası olmalıdır."
+
+msgid "Load name list"
+msgstr "Ad listesi yükle"
+
+msgid "Enter at least one file name."
+msgstr "En az bir dosya adı girin."
+
+msgid "Use at most 10 000 names. The list was not applied."
+msgstr "En fazla 10 000 ad kullanın. Liste uygulanmadı."
+
+msgid "The name list exceeds 2 MiB. The list was not applied."
+msgstr "Ad listesi 2 MiB sınırını aşıyor. Liste uygulanmadı."
+
+msgid "Use file names without paths or NUL characters, one per line."
+msgstr "Her satıra yol ve NUL karakteri olmadan bir dosya adı yazın."
+
+msgid "Invalid name list escape. Load the list again with Search a list of names."
+msgstr "Ad listesinde geçersiz kaçış dizisi var. Ad listesinde arama ile listeyi yeniden yükleyin."
+
+msgid "Text files"
+msgstr "Metin dosyaları"
+
+msgid "All files"
+msgstr "Tüm dosyalar"

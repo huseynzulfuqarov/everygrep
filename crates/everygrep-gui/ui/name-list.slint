@@ -1,0 +1,57 @@
+import { Button, CheckBox, Palette, TextEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component NameListWindow inherits Window {
+    title: @tr("Search a list of names");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 760px;
+    preferred-height: 540px;
+    min-width: 600px;
+    min-height: 360px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    forward-focus: names;
+    in-out property <string> names-text;
+    in-out property <bool> match-case;
+    in-out property <bool> ignore-extension;
+    in-out property <bool> contains;
+    in property <bool> busy;
+    in property <string> notice;
+    callback load-list();
+    callback use-list();
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.close-window(); return accept; }
+            if (event.modifiers.control && event.text == Key.Return && !root.busy) { root.use-list(); return accept; }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.dialog-padding;
+            spacing: Theme.gap;
+            Text { text: @tr("Paste one file name per line, or load a UTF-8 text file. Up to 10 000 names and 2 MiB. Blank lines are ignored; spaces are kept."); color: Theme.text-muted; wrap: word-wrap; }
+            names := TextEdit { accessible-label: @tr("File names, one per line"); text <=> root.names-text; wrap: no-wrap; vertical-stretch: 1; enabled: !root.busy; }
+            HorizontalLayout {
+                spacing: Theme.gap;
+                CheckBox { text: @tr("Match case"); checked <=> root.match-case; }
+                CheckBox { text: @tr("Ignore extension"); checked <=> root.ignore-extension; }
+                CheckBox { text: @tr("Contains instead of exact name"); checked <=> root.contains; }
+            }
+            Text { text: @tr("Names are literal, including * and ?. Files and folders can match. The current search filter also applies."); color: Theme.text-muted; wrap: word-wrap; }
+            if root.notice != "": Text { text: root.notice; color: Theme.danger; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: Theme.gap;
+                Button { text: @tr("Load text file…"); enabled: !root.busy; clicked => { root.load-list(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Search"); primary: true; enabled: !root.busy; clicked => { root.use-list(); } }
+                Button { text: @tr("Cancel"); clicked => { root.close-window(); } }
+            }
+        }
+    }
+}

@@ -197,6 +197,7 @@ enum Node {
 enum Pred {
     Text(TextPred),
     Regex(RegexPred),
+    NameList(Arc<crate::namelist::NameList>),
     IsFile,
     IsDir,
     Hidden(bool),
@@ -772,6 +773,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                     extension_parts(name, parts).is_some_and(|ext| glob_match(g, ext))
                 })
         }
+        Pred::NameList(list) => list.matches(eval_name(store, id, !list.case_sensitive(), true)),
         Pred::Parent(inner) => store
             .parent(id)
             .is_some_and(|parent| eval_relative(inner, store, parent, scratch)),
@@ -2081,6 +2083,26 @@ impl Parser {
                 )));
             }
             match head.as_str() {
+                "names" | "stemnames" | "containsnames" | "containsstemnames" => {
+                    let options = crate::namelist::Options {
+                        case_sensitive: m.case,
+                        ignore_extension: matches!(
+                            head.as_str(),
+                            "stemnames" | "containsstemnames"
+                        ),
+                        contains: matches!(head.as_str(), "containsnames" | "containsstemnames"),
+                    };
+                    let text = crate::namelist::decode(&value)
+                        .map_err(|e| ParseError(format!("name list: {e}")))?;
+                    if self.check_only {
+                        crate::namelist::validate(&text)
+                            .map_err(|e| ParseError(format!("name list: {e}")))?;
+                        return Ok(Some(Node::All));
+                    }
+                    let list = crate::namelist::NameList::new(&text, options)
+                        .map_err(|e| ParseError(format!("name list: {e}")))?;
+                    return Ok(Some(Node::Leaf(Pred::NameList(Arc::new(list)))));
+                }
                 "parent" | "child" => return self.parse_relative(&head, tail, m).map(Some),
                 "depth" | "len" | "children" | "childfiles" | "childfolders" => {
                     let field = match head.as_str() {
@@ -2486,7 +2508,7 @@ fn cost(node: &Node) -> u8 {
     match node {
         Node::All => 0,
         Node::Leaf(Pred::Text(t)) if t.on_path => 3,
-        Node::Leaf(Pred::Text(_)) => 1,
+        Node::Leaf(Pred::Text(_) | Pred::NameList(_)) => 1,
         Node::Leaf(Pred::Regex(r)) if r.on_path => 4,
         Node::Leaf(Pred::Regex(_)) => 3,
         // Executables may be looked up on disk, and these times always are:
@@ -2605,6 +2627,10 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "space",
     "regex",
     "noregex",
+    "names",
+    "stemnames",
+    "containsnames",
+    "containsstemnames",
     "parent",
     "child",
     "depth",

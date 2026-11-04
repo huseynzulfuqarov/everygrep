@@ -10,6 +10,22 @@ fn translated(error: &str, tr: impl Fn(&'static str) -> &'static str) -> String 
         "unexpected '>'" => return tr("Unexpected '>'.").into(),
         "missing '>'" => return tr("Missing '>'.").into(),
         "missing closing quote" => return tr("Missing closing quote.").into(),
+        "name list: enter at least one name" => return tr("Enter at least one file name.").into(),
+        "name list: at most 10000 names are allowed" => {
+            return tr("Use at most 10 000 names. The list was not applied.").into();
+        }
+        "name list: the name list exceeds 2 MiB" => {
+            return tr("The name list exceeds 2 MiB. The list was not applied.").into();
+        }
+        "name list: use file names without paths or NUL characters" => {
+            return tr("Use file names without paths or NUL characters, one per line.").into();
+        }
+        "name list: invalid name list escape; use \\xHH for escaped bytes" => {
+            return tr(
+                "Invalid name list escape. Load the list again with Search a list of names.",
+            )
+            .into();
+        }
         "only one of duplicates:, extra-copies:, distinct: and unique: per query" => {
             return tr(
                 "Use only one of duplicates:, extra-copies:, distinct: and unique: per query.",
@@ -151,6 +167,9 @@ mod tests {
             "content:a content:b content:c content:d content:e content:f content:g",
             "size:invalid",
             "depth:invalid",
+            "names:\"\"",
+            "names:a/b",
+            r"names:\xzz",
             "children:2..1",
             "parent:",
             "child:<> ",
