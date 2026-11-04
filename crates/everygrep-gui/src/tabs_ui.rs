@@ -287,6 +287,18 @@ fn read(w: &AppWindow) -> SearchState {
     }
 }
 
+/// The window's shown optional columns, by name.
+pub(crate) fn shown_columns(w: &AppWindow) -> Vec<String> {
+    crate::session::shown_column_names(&read_columns(w))
+}
+
+/// Shows exactly the named optional columns (a filter's or a bookmark's).
+pub(crate) fn show_columns(w: &AppWindow, names: &[String]) {
+    let columns = crate::session::with_shown_columns(&read_columns(w), names);
+    install_columns(w, &columns);
+    crate::apply_detail_columns(w);
+}
+
 /// The shown columns and their widths in the window, for a tab.
 fn read_columns(w: &AppWindow) -> Columns {
     Columns {

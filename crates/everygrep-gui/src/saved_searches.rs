@@ -9,7 +9,29 @@ use crate::{labels, settings};
 use everygrep_core::filter::Filter;
 use everygrep_core::query::{HiddenFiles, Query, QueryOptions};
 
-const HEADER: &str = "EveryGrep saved searches 1";
+const HEADER: &str = "EveryGrep saved searches 2";
+/// The first format: no layouts, folders or separators. Still read.
+const HEADER_V1: &str = "EveryGrep saved searches 1";
+
+/// How a filter shapes the result list when it is chosen. `None` keeps
+/// what the window shows, so a filter changes nothing unless asked to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Layout {
+    /// The optional columns to show, by name (see `session::column_names`).
+    pub columns: Option<Vec<String>>,
+    /// Sort column and direction.
+    pub sort: Option<(i32, bool)>,
+}
+
+/// What a row of the bookmark list is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kind {
+    #[default]
+    Search,
+    /// A folder groups the bookmarks whose `folder` is its id; one level.
+    Folder,
+    Separator,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamedFilter {
@@ -18,6 +40,7 @@ pub struct NamedFilter {
     pub name: String,
     pub search: String,
     pub options: QueryOptions,
+    pub layout: Layout,
 }
 
 impl NamedFilter {
@@ -48,10 +71,38 @@ pub struct Bookmark {
     pub filter: NamedFilter,
     pub sort_column: i32,
     pub descending: bool,
+    /// Optional columns to show; `None` keeps the window's columns.
+    pub columns: Option<Vec<String>>,
+    pub kind: Kind,
+    /// Id of the folder holding this entry, 0 for the top level.
+    pub folder: u64,
 }
 
 impl Bookmark {
+    /// A folder or separator row; it has no search of its own.
+    pub fn group(kind: Kind, name: &str, folder: u64) -> Self {
+        Self {
+            id: 0,
+            name: name.into(),
+            search: String::new(),
+            options: QueryOptions::default(),
+            filter: defaults().remove(0),
+            sort_column: 0,
+            descending: false,
+            columns: None,
+            kind,
+            folder,
+        }
+    }
+    pub fn is_search(&self) -> bool {
+        self.kind == Kind::Search
+    }
     pub fn manager_title(&self) -> String {
+        match self.kind {
+            Kind::Folder => return fill(tr("{} (folder)"), &[&self.name]),
+            Kind::Separator => return tr("Separator").into(),
+            Kind::Search => {}
+        }
         if Query::parse(&self.search, self.options).is_err()
             || Query::parse(&self.filter.search, self.filter.options).is_err()
         {
@@ -105,6 +156,7 @@ fn defaults() -> Vec<NamedFilter> {
                 filter,
                 ..QueryOptions::default()
             },
+            layout: Layout::default(),
         })
         .collect()
 }
@@ -136,12 +188,14 @@ impl Library {
         name: &str,
         search: &str,
         options: QueryOptions,
+        layout: Layout,
     ) -> io::Result<u64> {
         if name.trim().is_empty() {
             return Err(invalid(tr("Enter a name.")));
         }
         Query::parse(search, options)
             .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
+        check_layout(&layout)?;
         let id = match id {
             Some(id) => {
                 if !self.filters.iter().any(|f| f.id == id) {
@@ -162,6 +216,7 @@ impl Library {
             name: name.trim().into(),
             search: search.into(),
             options,
+            layout,
         };
         if let Some(old) = self.filters.iter_mut().find(|f| f.id == id) {
             *old = entry;
@@ -187,17 +242,38 @@ impl Library {
     }
 
     pub fn put_bookmark(&mut self, id: Option<u64>, mut entry: Bookmark) -> io::Result<u64> {
-        if entry.name.trim().is_empty() || !crate::is_sort_column(entry.sort_column) {
-            return Err(invalid(tr("Invalid bookmark.")));
+        if entry.kind == Kind::Separator {
+            entry.name.clear();
+        } else if entry.name.trim().is_empty() {
+            return Err(invalid(tr("Enter a name.")));
         }
-        Query::parse(&entry.search, entry.options)
-            .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
-        Query::parse(&entry.filter.search, entry.filter.options)
-            .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
+        if entry.kind == Kind::Search {
+            if !crate::is_sort_column(entry.sort_column) {
+                return Err(invalid(tr("Invalid bookmark.")));
+            }
+            Query::parse(&entry.search, entry.options)
+                .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
+            Query::parse(&entry.filter.search, entry.filter.options)
+                .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
+            check_columns(entry.columns.as_deref())?;
+        }
+        // Folders hold one level only.
+        if entry.folder != 0
+            && (entry.kind == Kind::Folder
+                || !self
+                    .bookmarks
+                    .iter()
+                    .any(|b| b.id == entry.folder && b.kind == Kind::Folder))
+        {
+            return Err(invalid(tr("Invalid bookmark folder.")));
+        }
         entry.name = entry.name.trim().into();
         entry.id = if let Some(id) = id {
-            if !self.bookmarks.iter().any(|b| b.id == id) {
+            let Some(old) = self.bookmarks.iter().find(|b| b.id == id) else {
                 return Err(missing());
+            };
+            if old.kind != entry.kind {
+                return Err(invalid(tr("Invalid bookmark.")));
             }
             id
         } else {
@@ -216,6 +292,8 @@ impl Library {
         Ok(id)
     }
 
+    /// Removing a folder keeps its bookmarks: they move to the top level,
+    /// in the folder's place.
     pub fn remove_bookmark(&mut self, id: u64) -> io::Result<()> {
         let i = self
             .bookmarks
@@ -223,12 +301,76 @@ impl Library {
             .position(|b| b.id == id)
             .ok_or_else(missing)?;
         self.shortcuts.retain(|s| s.target != Target::Bookmark(id));
-        self.bookmarks.remove(i);
+        let removed = self.bookmarks.remove(i);
+        if removed.kind == Kind::Folder {
+            let (children, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.bookmarks)
+                .into_iter()
+                .partition(|b| b.folder == id);
+            self.bookmarks = rest;
+            let at = i.min(self.bookmarks.len());
+            self.bookmarks.splice(
+                at..at,
+                children.into_iter().map(|mut b| {
+                    b.folder = 0;
+                    b
+                }),
+            );
+        }
         Ok(())
     }
 
+    /// Moves an entry past its previous or next sibling (same folder).
     pub fn move_bookmark(&mut self, id: u64, step: i32) -> io::Result<()> {
-        move_entry(&mut self.bookmarks, |b| b.id == id, step)
+        let i = self
+            .bookmarks
+            .iter()
+            .position(|b| b.id == id)
+            .ok_or_else(missing)?;
+        let folder = self.bookmarks[i].folder;
+        let sibling = if step == -1 {
+            self.bookmarks[..i].iter().rposition(|b| b.folder == folder)
+        } else if step == 1 {
+            self.bookmarks[i + 1..]
+                .iter()
+                .position(|b| b.folder == folder)
+                .map(|n| i + 1 + n)
+        } else {
+            None
+        };
+        if let Some(j) = sibling {
+            self.bookmarks.swap(i, j);
+        }
+        Ok(())
+    }
+
+    /// The bookmark list as the manager and the menu show it: top-level
+    /// rows in order, each folder followed by its own rows (depth 1).
+    pub fn bookmark_tree(&self) -> Vec<(usize, u8)> {
+        let mut rows = Vec::new();
+        for (i, b) in self.bookmarks.iter().enumerate() {
+            if b.folder != 0 {
+                continue;
+            }
+            rows.push((i, 0));
+            if b.kind == Kind::Folder {
+                rows.extend(
+                    self.bookmarks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| c.folder == b.id)
+                        .map(|(j, _)| (j, 1)),
+                );
+            }
+        }
+        rows
+    }
+
+    /// The folders, for choosing where a bookmark goes.
+    pub fn bookmark_folders(&self) -> Vec<&Bookmark> {
+        self.bookmarks
+            .iter()
+            .filter(|b| b.kind == Kind::Folder)
+            .collect()
     }
 
     pub fn shortcut(&self, target: Target) -> Option<Chord> {
@@ -255,7 +397,7 @@ impl Library {
             Target::Bookmark(id) => self
                 .bookmarks
                 .iter()
-                .find(|b| b.id == id)
+                .find(|b| b.id == id && b.is_search())
                 .map(|b| b.name.clone()),
         }
     }
@@ -313,9 +455,11 @@ impl Library {
 
     pub fn parse(text: &str) -> io::Result<Self> {
         let mut lines = text.lines();
-        if lines.next() != Some(HEADER) {
-            return Err(invalid(tr("Invalid saved searches header.")));
-        }
+        let v2 = match lines.next() {
+            Some(HEADER) => true,
+            Some(HEADER_V1) => false,
+            _ => return Err(invalid(tr("Invalid saved searches header."))),
+        };
         let next_id = lines
             .next()
             .and_then(|s| s.parse::<u64>().ok())
@@ -327,102 +471,152 @@ impl Library {
             shortcuts: Vec::new(),
             next_id,
         };
-        for line in lines {
-            let parts: Vec<_> = line.split('\t').collect();
-            if parts.first() == Some(&"K") {
-                if parts.len() != 4 {
-                    return Err(invalid(tr("Invalid saved shortcut.")));
-                }
-                let id = parts[2]
-                    .parse()
-                    .map_err(|_| invalid(tr("Invalid saved search identity.")))?;
-                let target = match parts[1] {
-                    "F" => Target::Filter(id),
-                    "B" => Target::Bookmark(id),
-                    _ => return Err(invalid(tr("Invalid saved shortcut."))),
-                };
-                let chord =
-                    Chord::parse(parts[3]).ok_or_else(|| invalid(tr("Invalid saved shortcut.")))?;
-                if commands::refusal(Scope::Global, chord).is_some()
-                    || library
-                        .shortcuts
-                        .iter()
-                        .any(|s| s.target == target || s.chord == chord)
-                {
-                    return Err(invalid(tr("Invalid saved shortcut.")));
-                }
-                library.shortcuts.push(Shortcut { target, chord });
-                continue;
-            }
-            if parts.first() == Some(&"B") {
-                if parts.len() != 15 {
-                    return Err(invalid(tr("Invalid saved search record.")));
-                }
-                let id = parts[1]
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|id| *id >= 10 && *id < next_id)
-                    .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
-                if library.bookmarks.iter().any(|b| b.id == id)
-                    || library.filters.iter().any(|f| f.id == id)
-                {
-                    return Err(invalid(tr("Invalid saved search identity.")));
-                }
-                let filter = NamedFilter {
-                    id: parts[9]
-                        .parse()
-                        .map_err(|_| invalid(tr("Invalid saved search identity.")))?,
-                    name: decode(parts[10])?,
-                    search: decode(parts[11])?,
-                    options: decode_options(parts[12], parts[13], parts[14])?,
-                };
-                let entry = Bookmark {
-                    id,
-                    name: decode(parts[2])?,
-                    search: decode(parts[3])?,
-                    options: decode_options(parts[4], parts[5], parts[6])?,
-                    sort_column: parts[7]
-                        .parse()
-                        .map_err(|_| invalid(tr("Invalid saved search sort order.")))?,
-                    descending: match parts[8] {
-                        "0" => false,
-                        "1" => true,
-                        _ => return Err(invalid(tr("Invalid saved search sort order."))),
-                    },
-                    filter,
-                };
-                // Keep structurally sound records editable across parser changes.
-                if entry.name.trim().is_empty() || !crate::is_sort_column(entry.sort_column) {
-                    return Err(invalid(tr("Invalid bookmark.")));
-                }
-                library.bookmarks.push(entry);
-                continue;
-            }
-            if parts.len() != 7 || parts[0] != "F" {
-                return Err(invalid(tr("Invalid saved search record.")));
-            }
-            let id = parts[1]
+        let fresh = |library: &Self, id: &str, min: u64| -> io::Result<u64> {
+            let id = id
                 .parse::<u64>()
                 .ok()
-                .filter(|id| *id > 0 && *id < next_id)
+                .filter(|id| *id >= min && *id < next_id)
                 .ok_or_else(|| invalid(tr("Invalid saved search identity.")))?;
-            if library.filters.iter().any(|f| f.id == id)
-                || library.bookmarks.iter().any(|b| b.id == id)
+            if library.bookmarks.iter().any(|b| b.id == id)
+                || library.filters.iter().any(|f| f.id == id)
             {
                 return Err(invalid(tr("Invalid saved search identity.")));
             }
-            let name = decode(parts[2])?;
-            if name.trim().is_empty() && id > 9 {
-                return Err(invalid(tr("Enter a name.")));
+            Ok(id)
+        };
+        for line in lines {
+            let parts: Vec<_> = line.split('\t').collect();
+            match parts.first().copied() {
+                Some("K") => {
+                    if parts.len() != 4 {
+                        return Err(invalid(tr("Invalid saved shortcut.")));
+                    }
+                    let id = parts[2]
+                        .parse()
+                        .map_err(|_| invalid(tr("Invalid saved search identity.")))?;
+                    let target = match parts[1] {
+                        "F" => Target::Filter(id),
+                        "B" => Target::Bookmark(id),
+                        _ => return Err(invalid(tr("Invalid saved shortcut."))),
+                    };
+                    let chord = Chord::parse(parts[3])
+                        .ok_or_else(|| invalid(tr("Invalid saved shortcut.")))?;
+                    if commands::refusal(Scope::Global, chord).is_some()
+                        || library
+                            .shortcuts
+                            .iter()
+                            .any(|s| s.target == target || s.chord == chord)
+                    {
+                        return Err(invalid(tr("Invalid saved shortcut.")));
+                    }
+                    library.shortcuts.push(Shortcut { target, chord });
+                }
+                Some("G") if v2 => {
+                    if parts.len() != 3 {
+                        return Err(invalid(tr("Invalid saved search record.")));
+                    }
+                    let id = fresh(&library, parts[1], 10)?;
+                    let name = decode(parts[2])?;
+                    if name.trim().is_empty() {
+                        return Err(invalid(tr("Enter a name.")));
+                    }
+                    let mut entry = Bookmark::group(Kind::Folder, &name, 0);
+                    entry.id = id;
+                    library.bookmarks.push(entry);
+                }
+                Some("S") if v2 => {
+                    if parts.len() != 3 {
+                        return Err(invalid(tr("Invalid saved search record.")));
+                    }
+                    let id = fresh(&library, parts[1], 10)?;
+                    let folder = parts[2]
+                        .parse()
+                        .map_err(|_| invalid(tr("Invalid bookmark folder.")))?;
+                    let mut entry = Bookmark::group(Kind::Separator, "", folder);
+                    entry.id = id;
+                    library.bookmarks.push(entry);
+                }
+                Some("B") => {
+                    if parts.len() != if v2 { 17 } else { 15 } {
+                        return Err(invalid(tr("Invalid saved search record.")));
+                    }
+                    let id = fresh(&library, parts[1], 10)?;
+                    let filter = NamedFilter {
+                        id: parts[9]
+                            .parse()
+                            .map_err(|_| invalid(tr("Invalid saved search identity.")))?,
+                        name: decode(parts[10])?,
+                        search: decode(parts[11])?,
+                        options: decode_options(parts[12], parts[13], parts[14])?,
+                        layout: Layout::default(),
+                    };
+                    let (columns, folder) = if v2 {
+                        (
+                            decode_columns(parts[15])?,
+                            parts[16]
+                                .parse()
+                                .map_err(|_| invalid(tr("Invalid bookmark folder.")))?,
+                        )
+                    } else {
+                        (None, 0)
+                    };
+                    let entry = Bookmark {
+                        id,
+                        name: decode(parts[2])?,
+                        search: decode(parts[3])?,
+                        options: decode_options(parts[4], parts[5], parts[6])?,
+                        sort_column: parts[7]
+                            .parse()
+                            .map_err(|_| invalid(tr("Invalid saved search sort order.")))?,
+                        descending: decode_flag(parts[8])?,
+                        filter,
+                        columns,
+                        kind: Kind::Search,
+                        folder,
+                    };
+                    // Keep structurally sound records editable across parser changes.
+                    if entry.name.trim().is_empty() || !crate::is_sort_column(entry.sort_column) {
+                        return Err(invalid(tr("Invalid bookmark.")));
+                    }
+                    library.bookmarks.push(entry);
+                }
+                Some("F") if parts.len() == if v2 { 10 } else { 7 } => {
+                    let id = fresh(&library, parts[1], 1)?;
+                    let name = decode(parts[2])?;
+                    if name.trim().is_empty() && id > 9 {
+                        return Err(invalid(tr("Enter a name.")));
+                    }
+                    let search = decode(parts[3])?;
+                    let options = decode_options(parts[4], parts[5], parts[6])?;
+                    let layout = if v2 {
+                        Layout {
+                            columns: decode_columns(parts[7])?,
+                            sort: decode_sort(parts[8], parts[9])?,
+                        }
+                    } else {
+                        Layout::default()
+                    };
+                    library.filters.push(NamedFilter {
+                        id,
+                        name,
+                        search,
+                        options,
+                        layout,
+                    });
+                }
+                _ => return Err(invalid(tr("Invalid saved search record."))),
             }
-            let search = decode(parts[3])?;
-            let options = decode_options(parts[4], parts[5], parts[6])?;
-            library.filters.push(NamedFilter {
-                id,
-                name,
-                search,
-                options,
-            });
+        }
+        // Folders hold bookmarks and separators, one level deep.
+        if library.bookmarks.iter().any(|b| {
+            b.folder != 0
+                && (b.kind == Kind::Folder
+                    || !library
+                        .bookmarks
+                        .iter()
+                        .any(|f| f.id == b.folder && f.kind == Kind::Folder))
+        }) {
+            return Err(invalid(tr("Invalid bookmark folder.")));
         }
         if library
             .shortcuts
@@ -445,7 +639,10 @@ impl Library {
             Query::parse(&filter.search, filter.options)
                 .map_err(|e| invalid(&crate::search_errors::message(&e.to_string())))?;
             let id = if let Some(same) = merged.filters.iter().find(|f| {
-                f.name == filter.name && f.search == filter.search && f.options == filter.options
+                f.name == filter.name
+                    && f.search == filter.search
+                    && f.options == filter.options
+                    && f.layout == filter.layout
             }) {
                 same.id
             } else if filter.id <= 9 {
@@ -453,24 +650,54 @@ impl Library {
                 merged.filters.push(filter.clone());
                 filter.id
             } else {
-                merged.put_filter(None, &filter.name, &filter.search, filter.options)?
+                merged.put_filter(
+                    None,
+                    &filter.name,
+                    &filter.search,
+                    filter.options,
+                    filter.layout.clone(),
+                )?
             };
             ids.insert(filter.id, id);
         }
+        let mut folders = std::collections::HashMap::new();
         for bookmark in &incoming.bookmarks {
             let mut bookmark = bookmark.clone();
             bookmark.name = bookmark.name.trim().into();
             if let Some(id) = ids.get(&bookmark.filter.id) {
                 bookmark.filter.id = *id;
             }
-            let equivalent = merged.bookmarks.iter().any(|b| {
-                b.name == bookmark.name
-                    && b.search == bookmark.search
-                    && b.options == bookmark.options
-                    && b.filter == bookmark.filter
-                    && b.sort_column == bookmark.sort_column
-                    && b.descending == bookmark.descending
-            });
+            bookmark.folder = if bookmark.folder == 0 {
+                0
+            } else {
+                *folders
+                    .get(&bookmark.folder)
+                    .ok_or_else(|| invalid(tr("Invalid bookmark folder.")))?
+            };
+            if bookmark.kind == Kind::Folder {
+                // Folders of the same name merge, so their bookmarks meet.
+                let id = match merged
+                    .bookmarks
+                    .iter()
+                    .find(|b| b.kind == Kind::Folder && b.name == bookmark.name)
+                {
+                    Some(same) => same.id,
+                    None => merged.put_bookmark(None, bookmark.clone())?,
+                };
+                folders.insert(bookmark.id, id);
+                continue;
+            }
+            let equivalent = bookmark.kind == Kind::Search
+                && merged.bookmarks.iter().any(|b| {
+                    b.kind == Kind::Search
+                        && b.name == bookmark.name
+                        && b.search == bookmark.search
+                        && b.options == bookmark.options
+                        && b.filter == bookmark.filter
+                        && b.sort_column == bookmark.sort_column
+                        && b.descending == bookmark.descending
+                        && b.columns == bookmark.columns
+                });
             if !equivalent {
                 merged.put_bookmark(None, bookmark)?;
             }
@@ -497,18 +724,39 @@ impl Library {
     pub fn text(&self) -> String {
         let mut text = format!("{HEADER}\n{}\n", self.next_id);
         for f in &self.filters {
+            let (sort, descending) = match f.layout.sort {
+                Some((column, descending)) => (column.to_string(), descending),
+                None => ("-".to_string(), false),
+            };
             text.push_str(&format!(
-                "F\t{}\t{}\t{}\t{}\n",
+                "F\t{}\t{}\t{}\t{}\t{}\t{sort}\t{}\n",
                 f.id,
                 settings::escape(f.name.as_bytes()),
                 settings::escape(f.search.as_bytes()),
-                encode_options(f.options)
+                encode_options(f.options),
+                encode_columns(f.layout.columns.as_deref()),
+                u8::from(descending),
             ));
         }
         for b in &self.bookmarks {
+            match b.kind {
+                Kind::Folder => {
+                    text.push_str(&format!(
+                        "G\t{}\t{}\n",
+                        b.id,
+                        settings::escape(b.name.as_bytes())
+                    ));
+                    continue;
+                }
+                Kind::Separator => {
+                    text.push_str(&format!("S\t{}\t{}\n", b.id, b.folder));
+                    continue;
+                }
+                Kind::Search => {}
+            }
             let f = &b.filter;
             text.push_str(&format!(
-                "B\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "B\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 b.id,
                 settings::escape(b.name.as_bytes()),
                 settings::escape(b.search.as_bytes()),
@@ -518,7 +766,9 @@ impl Library {
                 f.id,
                 settings::escape(f.name.as_bytes()),
                 settings::escape(f.search.as_bytes()),
-                encode_options(f.options)
+                encode_options(f.options),
+                encode_columns(b.columns.as_deref()),
+                b.folder,
             ));
         }
         for s in &self.shortcuts {
@@ -530,6 +780,64 @@ impl Library {
         }
         text
     }
+}
+
+/// `-` keeps the window's columns; otherwise the names, comma-separated
+/// (empty for no optional column).
+fn encode_columns(columns: Option<&[String]>) -> String {
+    columns.map_or_else(|| "-".into(), |c| c.join(","))
+}
+
+pub(crate) fn decode_columns(text: &str) -> io::Result<Option<Vec<String>>> {
+    if text == "-" {
+        return Ok(None);
+    }
+    let names: Vec<String> = text
+        .split(',')
+        .filter(|n| !n.is_empty())
+        .map(String::from)
+        .collect();
+    check_columns(Some(&names))?;
+    Ok(Some(names))
+}
+
+pub(crate) fn check_columns(columns: Option<&[String]>) -> io::Result<()> {
+    let known = crate::session::column_names();
+    match columns {
+        Some(names) if names.iter().any(|n| !known.contains(&n.as_str())) => {
+            Err(invalid(tr("Invalid column name.")))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn check_layout(layout: &Layout) -> io::Result<()> {
+    check_columns(layout.columns.as_deref())?;
+    if layout.sort.is_some_and(|(c, _)| !crate::is_sort_column(c)) {
+        return Err(invalid(tr("Invalid saved search sort order.")));
+    }
+    Ok(())
+}
+
+fn decode_flag(text: &str) -> io::Result<bool> {
+    match text {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => Err(invalid(tr("Invalid saved search sort order."))),
+    }
+}
+
+fn decode_sort(column: &str, descending: &str) -> io::Result<Option<(i32, bool)>> {
+    let descending = decode_flag(descending)?;
+    if column == "-" {
+        return Ok(None);
+    }
+    let column = column
+        .parse::<i32>()
+        .ok()
+        .filter(|c| crate::is_sort_column(*c))
+        .ok_or_else(|| invalid(tr("Invalid saved search sort order.")))?;
+    Ok(Some((column, descending)))
 }
 
 fn move_entry<T>(entries: &mut [T], matches: impl Fn(&T) -> bool, step: i32) -> io::Result<()> {
@@ -732,14 +1040,179 @@ mod tests {
             filter: l.filters[3].clone(),
             sort_column: 8,
             descending: true,
+            columns: None,
+            kind: Kind::Search,
+            folder: 0,
         }
+    }
+
+    #[test]
+    fn version_one_files_are_read_and_written_back_as_version_two() {
+        let mut l = Library::default();
+        l.put_bookmark(None, bookmark(&l, "old")).unwrap();
+        let v1 = format!(
+            "{HEADER_V1}\n{}\n{}",
+            l.next_id,
+            l.text()
+                .lines()
+                .skip(2)
+                .map(|line| {
+                    let parts: Vec<_> = line.split('\t').collect();
+                    match parts[0] {
+                        "F" => parts[..7].join("\t"),
+                        "B" => parts[..15].join("\t"),
+                        _ => line.to_string(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let read = Library::parse(&v1).unwrap();
+        assert_eq!(read, l);
+        assert!(read.text().starts_with(HEADER));
+        assert!(Library::parse(&v1.replace(HEADER_V1, "EveryGrep saved searches 3")).is_err());
+        // Version 1 had no folders or separators.
+        assert!(Library::parse(&format!("{HEADER_V1}\n20\nG\t11\tx\n")).is_err());
+    }
+
+    #[test]
+    fn filter_layouts_round_trip_and_are_validated() {
+        let d = Scratch::new("filter-layout");
+        let path = d.0.join("saved-searches");
+        let layout = Layout {
+            columns: Some(vec!["type".into(), "md5".into()]),
+            sort: Some((3, true)),
+        };
+        let (l, id) = update(&path, |l| {
+            l.put_filter(
+                None,
+                "Docs",
+                "ext:pdf",
+                QueryOptions::default(),
+                layout.clone(),
+            )
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        assert_eq!(
+            l.filters.iter().find(|f| f.id == id).unwrap().layout,
+            layout
+        );
+        let empty = Layout {
+            columns: Some(Vec::new()),
+            sort: None,
+        };
+        let (l, _) = update(&path, |l| {
+            l.put_filter(
+                Some(id),
+                "Docs",
+                "ext:pdf",
+                QueryOptions::default(),
+                empty.clone(),
+            )
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        let mut library = l.clone();
+        for bad in [
+            Layout {
+                columns: Some(vec!["nosuch".into()]),
+                sort: None,
+            },
+            Layout {
+                columns: None,
+                sort: Some((10_000, false)),
+            },
+        ] {
+            assert!(
+                library
+                    .put_filter(None, "Bad", "", QueryOptions::default(), bad)
+                    .is_err()
+            );
+        }
+        let text = l.text().replace("\t\t-\t0\n", "\tnosuch\t-\t0\n");
+        assert!(Library::parse(&text).is_err());
+    }
+
+    #[test]
+    fn folders_and_separators_round_trip_move_and_keep_children_on_delete() {
+        let d = Scratch::new("bookmark-folders");
+        let path = d.0.join("saved-searches");
+        let (l, (folder, inner, sep, top)) = update(&path, |l| {
+            let folder = l.put_bookmark(None, Bookmark::group(Kind::Folder, "Work", 0))?;
+            let mut b = bookmark(l, "inner");
+            b.folder = folder;
+            b.columns = Some(vec!["ext".into()]);
+            let inner = l.put_bookmark(None, b)?;
+            let sep = l.put_bookmark(None, Bookmark::group(Kind::Separator, "x", folder))?;
+            let top = l.put_bookmark(None, bookmark(l, "top"))?;
+            Ok((folder, inner, sep, top))
+        })
+        .unwrap();
+        assert_eq!(Library::load(&path).unwrap(), l);
+        let ids = |l: &Library| -> Vec<(u64, u8)> {
+            l.bookmark_tree()
+                .into_iter()
+                .map(|(i, d)| (l.bookmarks[i].id, d))
+                .collect()
+        };
+        assert_eq!(ids(&l), [(folder, 0), (inner, 1), (sep, 1), (top, 0)]);
+        assert!(
+            l.bookmarks
+                .iter()
+                .find(|b| b.id == sep)
+                .unwrap()
+                .name
+                .is_empty()
+        );
+        let mut l = l;
+        // Moving stays among siblings.
+        l.move_bookmark(sep, -1).unwrap();
+        assert_eq!(ids(&l)[1..3], [(sep, 1), (inner, 1)]);
+        l.move_bookmark(sep, -1).unwrap();
+        assert_eq!(ids(&l)[1], (sep, 1));
+        l.move_bookmark(top, -1).unwrap();
+        assert_eq!(ids(&l)[0], (top, 0));
+        // Folders, separators and nesting rules.
+        let mut nested = Bookmark::group(Kind::Folder, "Nested", folder);
+        assert!(l.put_bookmark(None, nested.clone()).is_err());
+        nested.folder = 0;
+        nested.name = " ".into();
+        assert!(l.put_bookmark(None, nested).is_err());
+        let mut lost = bookmark(&l, "lost");
+        lost.folder = inner;
+        assert!(l.put_bookmark(None, lost).is_err());
+        assert!(
+            l.set_shortcut(
+                Target::Bookmark(folder),
+                Chord::parse("Ctrl+Shift+7"),
+                &Keymap::default()
+            )
+            .is_err()
+        );
+        let mut changed = l.bookmarks.iter().find(|b| b.id == inner).unwrap().clone();
+        changed.kind = Kind::Folder;
+        assert!(l.put_bookmark(Some(inner), changed).is_err());
+        // Deleting the folder keeps its bookmarks at the top level.
+        l.remove_bookmark(folder).unwrap();
+        assert!(l.bookmarks.iter().all(|b| b.folder == 0));
+        assert_eq!(l.bookmarks.len(), 3);
+        assert_eq!(Library::parse(&l.text()).unwrap(), l);
+        let dangling = format!("{HEADER}\n{}\nS\t11\t99\n", l.next_id);
+        assert!(Library::parse(&dangling).is_err());
     }
 
     #[test]
     fn filter_validation_keeps_the_translated_parser_reason() {
         let mut library = Library::default();
         let error = library
-            .put_filter(None, "Broken", "regex:(", QueryOptions::default())
+            .put_filter(
+                None,
+                "Broken",
+                "regex:(",
+                QueryOptions::default(),
+                Layout::default(),
+            )
             .unwrap_err();
         assert_eq!(
             error.to_string(),
@@ -769,7 +1242,13 @@ mod tests {
         assert_eq!(l.bookmarks.len(), 1);
         assert_ne!(l.bookmarks[0].manager_title(), l.bookmarks[0].name);
         update(&path, |l| {
-            l.put_filter(Some(1), "All", "", QueryOptions::default())
+            l.put_filter(
+                Some(1),
+                "All",
+                "",
+                QueryOptions::default(),
+                Layout::default(),
+            )
         })
         .unwrap();
         let mut b = Library::load(&path).unwrap().bookmarks.remove(0);
@@ -827,7 +1306,13 @@ mod tests {
         let path = d.0.join("saved-searches");
         let map = Keymap::default();
         let (l, ()) = update(&path, |l| {
-            let id = l.put_filter(None, "custom", "", QueryOptions::default())?;
+            let id = l.put_filter(
+                None,
+                "custom",
+                "",
+                QueryOptions::default(),
+                Layout::default(),
+            )?;
             l.set_shortcut(Target::Filter(1), Chord::parse("Ctrl+Shift+1"), &map)?;
             l.set_shortcut(Target::Filter(id), Chord::parse("Ctrl+Shift+2"), &map)?;
             let id = l.put_bookmark(None, bookmark(l, "saved"))?;
@@ -881,8 +1366,14 @@ mod tests {
         let (mut l, id) =
             update(&path, |l| l.put_bookmark(None, bookmark(l, "Work\t\n\\"))).unwrap();
         let saved = l.bookmarks[0].clone();
-        l.put_filter(Some(4), "Changed", "other", QueryOptions::default())
-            .unwrap();
+        l.put_filter(
+            Some(4),
+            "Changed",
+            "other",
+            QueryOptions::default(),
+            Layout::default(),
+        )
+        .unwrap();
         assert_eq!(l.bookmarks[0], saved);
         l.remove_filter(4).unwrap();
         assert_eq!(l.bookmarks[0], saved);
@@ -971,7 +1462,13 @@ mod tests {
         let dir = Scratch::new("saved-query-recovery");
         let path = dir.0.join("saved-searches");
         update(&path, |l| {
-            l.put_filter(None, "Broken", "ext:md", QueryOptions::default())
+            l.put_filter(
+                None,
+                "Broken",
+                "ext:md",
+                QueryOptions::default(),
+                Layout::default(),
+            )
         })
         .unwrap();
         let text = std::fs::read_to_string(&path)
@@ -983,7 +1480,13 @@ mod tests {
         let broken = &library.filters[9];
         assert!(Query::parse(&broken.search, broken.options).is_err());
         update(&path, |l| {
-            l.put_filter(Some(broken.id), "Repaired", "ext:txt", broken.options)
+            l.put_filter(
+                Some(broken.id),
+                "Repaired",
+                "ext:txt",
+                broken.options,
+                Layout::default(),
+            )
         })
         .unwrap();
         assert_eq!(Library::load(&path).unwrap().filters[9].search, "ext:txt");
@@ -1015,12 +1518,24 @@ mod tests {
     fn filter_edit_move_remove_and_restore_keep_custom_entries() {
         let mut l = Library::default();
         let id = l
-            .put_filter(None, "  Notes  ", "ext:md", QueryOptions::default())
+            .put_filter(
+                None,
+                "  Notes  ",
+                "ext:md",
+                QueryOptions::default(),
+                Layout::default(),
+            )
             .unwrap();
         l.move_filter(id, -1).unwrap();
         assert_eq!(l.filters[8].id, id);
-        l.put_filter(Some(id), "Work", "ext:rs", QueryOptions::default())
-            .unwrap();
+        l.put_filter(
+            Some(id),
+            "Work",
+            "ext:rs",
+            QueryOptions::default(),
+            Layout::default(),
+        )
+        .unwrap();
         assert_eq!(l.filters[8].name, "Work");
         l.remove_filter(1).unwrap();
         l.restore_filters();
@@ -1031,17 +1546,29 @@ mod tests {
         assert_eq!(l.filters[9].id, id);
         l.remove_filter(id).unwrap();
         assert!(
-            l.put_filter(Some(id), "missing", "", QueryOptions::default())
-                .is_err()
+            l.put_filter(
+                Some(id),
+                "missing",
+                "",
+                QueryOptions::default(),
+                Layout::default()
+            )
+            .is_err()
         );
         assert!(l.move_filter(id, -1).is_err());
         assert!(
-            l.put_filter(None, " ", "", QueryOptions::default())
+            l.put_filter(None, " ", "", QueryOptions::default(), Layout::default())
                 .is_err()
         );
         assert!(
-            l.put_filter(None, "bad", "size:invalid", QueryOptions::default())
-                .is_err()
+            l.put_filter(
+                None,
+                "bad",
+                "size:invalid",
+                QueryOptions::default(),
+                Layout::default()
+            )
+            .is_err()
         );
     }
 
@@ -1065,7 +1592,10 @@ mod tests {
             filter: Filter::Code,
             hidden_files: HiddenFiles::Only,
         };
-        let (l, _) = update(&path, |l| l.put_filter(None, "Ad\t\n\\", "foo.*", options)).unwrap();
+        let (l, _) = update(&path, |l| {
+            l.put_filter(None, "Ad\t\n\\", "foo.*", options, Layout::default())
+        })
+        .unwrap();
         assert_eq!(Library::load(&path).unwrap(), l);
         assert_eq!(
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
@@ -1084,7 +1614,13 @@ mod tests {
                 let p = path.clone();
                 std::thread::spawn(move || {
                     update(&p, |l| {
-                        l.put_filter(None, &i.to_string(), "", QueryOptions::default())
+                        l.put_filter(
+                            None,
+                            &i.to_string(),
+                            "",
+                            QueryOptions::default(),
+                            Layout::default(),
+                        )
                     })
                     .unwrap()
                 })

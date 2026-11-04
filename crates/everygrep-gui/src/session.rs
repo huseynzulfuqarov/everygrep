@@ -175,6 +175,7 @@ impl Session {
                                 name: decode(p[1])?,
                                 search: decode(p[2])?,
                                 options: saved_searches::decode_options(p[3], p[4], p[5])?,
+                                layout: Default::default(),
                             });
                         }
                         "sort" => {
@@ -444,6 +445,32 @@ fn column_flag<'a>(c: &'a mut Columns, name: &str) -> Option<&'a mut bool> {
         "dupe-group" => &mut c.show_dupe_group,
         _ => return None,
     })
+}
+
+/// Names of the optional columns, in the order of the View menu; filters and
+/// bookmarks store the columns they show with these names.
+pub(crate) fn column_names() -> Vec<&'static str> {
+    column_flags(&Columns::default())
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect()
+}
+
+/// The shown optional columns of `c`, by name.
+pub(crate) fn shown_column_names(c: &Columns) -> Vec<String> {
+    column_flags(c)
+        .into_iter()
+        .filter(|(_, on)| *on)
+        .map(|(n, _)| n.to_string())
+        .collect()
+}
+
+/// `base` with exactly the named optional columns shown; widths are kept.
+/// Unknown names are skipped.
+pub(crate) fn with_shown_columns(base: &Columns, names: &[String]) -> Columns {
+    let mut c = base.clone();
+    shown_columns(&names.join(" "), &mut c);
+    c
 }
 
 /// The column widths of a tab, by their name in the file.
@@ -849,6 +876,7 @@ mod tests {
                         name: "Şəkillər\tResimler".into(),
                         search: "ext:png;jpg".into(),
                         options: QueryOptions::default(),
+                        layout: Default::default(),
                     }),
                     filter_snapshot: i % 2 == 0,
                     sort_column: 7,

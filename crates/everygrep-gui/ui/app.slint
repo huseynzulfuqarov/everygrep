@@ -107,6 +107,12 @@ export struct MenuEntry {
     index: int,
 }
 
+// A bookmark folder in the Bookmarks menu: a submenu of its entries.
+export struct BookmarkFolder {
+    title: string,
+    items: [MenuEntry],
+}
+
 // A column of the View → Sort by menu, with its check mark; disabled while
 // the column is hidden.
 struct SortChoice {
@@ -3599,6 +3605,7 @@ export component AppWindow inherits Window {
     callback find-bookmark();
     callback find-filter();
     in property <[MenuEntry]> bookmark-items;
+    in property <[BookmarkFolder]> bookmark-folders;
     in property <bool> more-bookmarks;
     callback open-bookmark(int);
     callback append-bookmark(int);
@@ -7164,15 +7171,29 @@ export component AppWindow inherits Window {
             MenuItem { title: @tr("Manage bookmarks…"); shortcut: root.menu-keys.organize-bookmarks; activated => { root.run(Command.organize-bookmarks); } }
             MenuItem { title: @tr("Find Bookmark…"); shortcut: root.menu-keys.find-bookmark; activated => { root.run(Command.find-bookmark); } }
             MenuItem { title: @tr("Copy Search"); shortcut: root.menu-keys.copy-search; activated => { root.run(Command.copy-search); } }
-            MenuItem { title: @tr("Open all bookmarks"); shortcut: root.menu-keys.open-all-bookmarks; enabled: root.bookmark-items.length > 0; activated => { root.run(Command.open-all-bookmarks); } }
-            if root.bookmark-items.length > 0: Menu {
+            MenuItem { title: @tr("Open all bookmarks"); shortcut: root.menu-keys.open-all-bookmarks; enabled: root.bookmark-items.length > 0 || root.bookmark-folders.length > 0; activated => { root.run(Command.open-all-bookmarks); } }
+            if root.bookmark-items.length > 0 || root.bookmark-folders.length > 0: Menu {
                 title: @tr("Append to search");
+                for folder in root.bookmark-folders: Menu {
+                    title: folder.title;
+                    for item in folder.items: MenuItem {
+                        title: item.title;
+                        activated => { root.append-bookmark(item.index); }
+                    }
+                }
                 for item in root.bookmark-items: MenuItem {
                     title: item.title;
                     activated => { root.append-bookmark(item.index); }
                 }
             }
-            if root.bookmark-items.length > 0: MenuSeparator { }
+            if root.bookmark-items.length > 0 || root.bookmark-folders.length > 0: MenuSeparator { }
+            for folder in root.bookmark-folders: Menu {
+                title: folder.title;
+                for item in folder.items: MenuItem {
+                    title: item.title;
+                    activated => { root.open-bookmark(item.index); }
+                }
+            }
             for item in root.bookmark-items: MenuItem {
                 title: item.title;
                 activated => { root.open-bookmark(item.index); }

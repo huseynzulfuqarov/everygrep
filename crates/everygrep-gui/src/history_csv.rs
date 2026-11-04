@@ -27,13 +27,7 @@ pub fn encode(searches: &Searches) -> String {
 }
 
 fn field(out: &mut String, text: &str) {
-    if text.contains([',', '"', '\r', '\n']) {
-        out.push('"');
-        out.push_str(&text.replace('"', "\"\""));
-        out.push('"');
-    } else {
-        out.push_str(text);
-    }
+    crate::csv::field(out, text);
 }
 
 pub fn utc_date(time: u64) -> String {
@@ -138,69 +132,8 @@ fn invalid() -> io::Error {
     )
 }
 
-/// Strict CSV state machine, allowing quoted commas, doubled quotes and
-/// embedded CR/LF, with CRLF or LF record separators and an optional final
-/// separator. Quotes inside an unquoted field and trailing quote junk fail.
 fn rows(text: &str) -> io::Result<Vec<Vec<String>>> {
-    #[derive(Clone, Copy, PartialEq)]
-    enum State {
-        Start,
-        Plain,
-        Quoted,
-        Closed,
-    }
-    let mut state = State::Start;
-    let mut rows = Vec::new();
-    let mut row = Vec::new();
-    let mut value = String::new();
-    let mut chars = text.chars().peekable();
-    let mut pending = false;
-    while let Some(c) = chars.next() {
-        pending = true;
-        if state == State::Quoted {
-            if c == '"' {
-                if chars.peek() == Some(&'"') {
-                    chars.next();
-                    value.push('"');
-                } else {
-                    state = State::Closed;
-                }
-            } else {
-                value.push(c);
-            }
-            continue;
-        }
-        match c {
-            '"' if state == State::Start => state = State::Quoted,
-            '"' => return Err(invalid()),
-            ',' => {
-                row.push(std::mem::take(&mut value));
-                state = State::Start;
-            }
-            '\r' | '\n' => {
-                if c == '\r' && chars.next() != Some('\n') {
-                    return Err(invalid());
-                }
-                row.push(std::mem::take(&mut value));
-                rows.push(std::mem::take(&mut row));
-                state = State::Start;
-                pending = false;
-            }
-            _ if state == State::Closed => return Err(invalid()),
-            _ => {
-                value.push(c);
-                state = State::Plain;
-            }
-        }
-    }
-    if state == State::Quoted {
-        return Err(invalid());
-    }
-    if pending {
-        row.push(value);
-        rows.push(row);
-    }
-    Ok(rows)
+    crate::csv::rows(text).map_err(|_| invalid())
 }
 
 #[cfg(test)]

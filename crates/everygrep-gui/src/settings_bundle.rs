@@ -35,7 +35,13 @@ mod tests {
     fn optional_library_bundle_is_portable_idempotent_and_excludes_private_history() {
         let mut library = Library::default();
         library
-            .put_filter(None, "Images", "ext:png", Default::default())
+            .put_filter(
+                None,
+                "Images",
+                "ext:png",
+                Default::default(),
+                Default::default(),
+            )
             .unwrap();
         let portable = library.portable(true, false);
         let text = format!(
@@ -106,6 +112,9 @@ mod bookmark_tests {
                     filter: filter.clone(),
                     sort_column: 0,
                     descending: false,
+                    columns: None,
+                    kind: Default::default(),
+                    folder: 0,
                 },
             )
             .unwrap();

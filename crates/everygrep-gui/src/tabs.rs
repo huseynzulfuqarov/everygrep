@@ -303,6 +303,7 @@ mod tests {
             name: "Pictures".into(),
             search: "image:".into(),
             options: QueryOptions::default(),
+            layout: Default::default(),
         };
         let b = Bookmark {
             id: 1,
@@ -315,6 +316,9 @@ mod tests {
             filter: filter.clone(),
             sort_column: 5,
             descending: true,
+            columns: None,
+            kind: Default::default(),
+            folder: 0,
         };
         let base = SearchState {
             query: "old".into(),
@@ -346,9 +350,13 @@ mod tests {
                 name: String::new(),
                 search: String::new(),
                 options: QueryOptions::default(),
+                layout: Default::default(),
             },
             sort_column: 0,
             descending: false,
+            columns: None,
+            kind: Default::default(),
+            folder: 0,
         };
         assert_eq!(scoped.of_bookmark(&b).within, None);
     }

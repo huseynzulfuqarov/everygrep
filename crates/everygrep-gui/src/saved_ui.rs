@@ -12,8 +12,8 @@ use slint::{ComponentHandle, ModelRc, StandardListViewItem, VecModel};
 use crate::commands::{self, Chord};
 use crate::engine::Engine;
 use crate::i18n::{fill, tr};
-use crate::saved_searches::{self, Bookmark, Library, NamedFilter, Target};
-use crate::{AppWindow, MenuEntry, SavedWindow, labels, settings};
+use crate::saved_searches::{self, Bookmark, Kind, Layout, Library, NamedFilter, Target};
+use crate::{AppWindow, BookmarkFolder, MenuEntry, SavedWindow, labels, settings};
 
 struct State {
     main: slint::Weak<AppWindow>,
@@ -29,6 +29,62 @@ struct State {
     draft_bookmark: RefCell<Option<Bookmark>>,
     // A frozen bookmark filter, shown in the same selector while in use.
     snapshot: RefCell<Option<NamedFilter>>,
+    // The kind of row being edited (bookmarks), and what the Columns and
+    // Sort choices of the editor stand for.
+    draft_kind: Cell<Kind>,
+    draft_columns: RefCell<ColumnChoices>,
+    draft_sorts: RefCell<Vec<Option<i32>>>,
+    // The filter whose layout was last put into the window, so a layout is
+    // applied when a filter is chosen, not on every option change.
+    applied_filter: Cell<Option<u64>>,
+}
+
+/// The editor's Columns choices: keep the window's, take the window's
+/// current ones, or keep the stored ones (when they differ).
+#[derive(Default)]
+struct ColumnChoices {
+    current: Vec<String>,
+    stored: Option<Vec<String>>,
+}
+
+impl ColumnChoices {
+    fn titles(&self) -> Vec<String> {
+        let mut titles = vec![
+            tr("Keep the window's columns").to_string(),
+            fill(tr("Columns shown now: {}"), &[&column_list(&self.current)]),
+        ];
+        if let Some(stored) = self.stored.as_ref().filter(|s| **s != self.current) {
+            titles.push(fill(tr("Saved columns: {}"), &[&column_list(stored)]));
+        }
+        titles
+    }
+    fn index(&self) -> i32 {
+        match &self.stored {
+            None => 0,
+            Some(s) if *s == self.current => 1,
+            Some(_) => 2,
+        }
+    }
+    fn chosen(&self, index: i32) -> Option<Vec<String>> {
+        match index {
+            1 => Some(self.current.clone()),
+            2 => self.stored.clone(),
+            _ => None,
+        }
+    }
+}
+
+fn column_list(names: &[String]) -> String {
+    if names.is_empty() {
+        tr("standard only").into()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// Puts a stored set of optional columns into the window.
+fn show_columns(w: &AppWindow, names: &[String]) {
+    crate::tabs_ui::show_columns(w, names);
 }
 thread_local! { static STATE: RefCell<Option<Rc<State>>> = const { RefCell::new(None) }; }
 fn with<R>(f: impl FnOnce(&State) -> R) -> Option<R> {
@@ -67,8 +123,14 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
         pending_delete: RefCell::new(None),
         draft_bookmark: RefCell::new(None),
         snapshot: RefCell::new(None),
+        draft_kind: Cell::new(Kind::Search),
+        draft_columns: RefCell::new(ColumnChoices::default()),
+        draft_sorts: RefCell::new(Vec::new()),
+        applied_filter: Cell::new(None),
     });
     STATE.with(|s| *s.borrow_mut() = Some(state));
+    let first = selected(w).map(|f| f.id);
+    with(|s| s.applied_filter.set(first));
     w.on_add_filter(|| {
         with(|s| {
             s.open(false);
@@ -116,7 +178,8 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
         with(|s| {
             let entry = usize::try_from(i)
                 .ok()
-                .and_then(|i| s.library.borrow().bookmarks.get(i).cloned());
+                .and_then(|i| s.library.borrow().bookmarks.get(i).cloned())
+                .filter(Bookmark::is_search);
             if let Some(entry) = entry {
                 s.append(&entry);
             }
@@ -126,7 +189,8 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
         with(|s| {
             let entry = usize::try_from(i)
                 .ok()
-                .and_then(|i| s.library.borrow().bookmarks.get(i).cloned());
+                .and_then(|i| s.library.borrow().bookmarks.get(i).cloned())
+                .filter(Bookmark::is_search);
             if let Some(entry) = entry {
                 s.activate(&entry);
             }
@@ -167,7 +231,7 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
                         .borrow()
                         .bookmarks
                         .iter()
-                        .find(|b| b.id == id)
+                        .find(|b| b.id == id && b.is_search())
                         .cloned();
                     if let Some(b) = b {
                         s.activate(&b);
@@ -239,6 +303,7 @@ pub fn tab_filter(
         resolved
     })
     .flatten();
+    with(|s| s.applied_filter.set(resolved.as_ref().map(|f| f.id)));
     if let Some(filter) = &resolved {
         if frozen {
             select_snapshot(w, filter);
@@ -331,20 +396,121 @@ pub fn fill_filters(w: &AppWindow) {
                 })
                 .collect::<Vec<_>>(),
         )));
-        let shown = crate::menus::window(l.bookmarks.len(), None, crate::menus::SAVED);
-        w.set_more_bookmarks(shown.len() < l.bookmarks.len());
-        w.set_bookmark_items(ModelRc::new(VecModel::from(
-            l.bookmarks[shown.clone()]
-                .iter()
-                .zip(shown)
-                .map(|(b, i)| MenuEntry {
-                    title: item_label(&b.name, l.shortcut(Target::Bookmark(b.id))).into(),
-                    checked: false,
-                    index: i as i32,
-                })
-                .collect::<Vec<_>>(),
-        )));
+        let (folders, top, more) = bookmark_menu(&l);
+        w.set_more_bookmarks(more);
+        w.set_bookmark_items(ModelRc::new(VecModel::from(top)));
+        w.set_bookmark_folders(ModelRc::new(VecModel::from(folders)));
     });
+}
+
+/// The menu's title for a separator row: the menu shows it as a line.
+/// (The toolkit marks its own separators with this title.)
+const MENU_SEPARATOR: &str = "\u{E001}⸺";
+
+fn menu_entry(l: &Library, i: usize) -> MenuEntry {
+    let b = &l.bookmarks[i];
+    MenuEntry {
+        title: if b.kind == Kind::Separator {
+            MENU_SEPARATOR.into()
+        } else {
+            item_label(&b.name, l.shortcut(Target::Bookmark(b.id))).into()
+        },
+        checked: false,
+        index: i as i32,
+    }
+}
+
+/// Folders become submenus (listed first), the other top-level rows follow
+/// in their order; a long list shows its first part.
+fn bookmark_menu(l: &Library) -> (Vec<BookmarkFolder>, Vec<MenuEntry>, bool) {
+    let folders = l
+        .bookmarks
+        .iter()
+        .filter(|b| b.kind == Kind::Folder)
+        .map(|f| {
+            let items: Vec<_> = l
+                .bookmarks
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| b.folder == f.id)
+                .map(|(i, _)| menu_entry(l, i))
+                .collect();
+            BookmarkFolder {
+                title: f.name.as_str().into(),
+                items: ModelRc::new(VecModel::from(items)),
+            }
+        })
+        .collect();
+    let top: Vec<usize> = (0..l.bookmarks.len())
+        .filter(|i| l.bookmarks[*i].folder == 0 && l.bookmarks[*i].kind != Kind::Folder)
+        .collect();
+    let shown = crate::menus::window(top.len(), None, crate::menus::SAVED);
+    let more = shown.len() < top.len();
+    let entries = top[shown].iter().map(|i| menu_entry(l, *i)).collect();
+    (folders, entries, more)
+}
+
+/// Puts the chosen filter's columns and sort into the window when another
+/// filter is chosen (not on every change of the matching options).
+pub fn apply_filter_layout(w: &AppWindow) {
+    let Some(filter) = selected(w) else { return };
+    let changed = with(|s| s.applied_filter.replace(Some(filter.id)) != Some(filter.id));
+    if changed != Some(true) {
+        return;
+    }
+    apply_layout(w, &filter.layout);
+}
+
+fn apply_layout(w: &AppWindow, layout: &Layout) {
+    if let Some(columns) = &layout.columns {
+        show_columns(w, columns);
+    }
+    if let Some((column, descending)) = layout.sort {
+        sort_by(w, column, descending);
+    }
+}
+
+/// Sorts by `column`, showing it first when it is a hidden optional column.
+fn sort_by(w: &AppWindow, column: i32, descending: bool) {
+    match column {
+        4 => w.set_show_type(true),
+        5 => w.set_show_ext(true),
+        6 => w.set_show_created(true),
+        7 => w.set_show_accessed(true),
+        8 => w.set_show_attrs(true),
+        _ => {}
+    }
+    crate::apply_detail_columns(w);
+    w.set_sort_column(column);
+    w.set_sort_descending(descending);
+    crate::sort_dialog::clear_then(w);
+    w.invoke_sort_changed(column, descending);
+}
+
+/// Titles of the first nine sort columns (Name … Attributes).
+fn base_sort_names() -> Vec<String> {
+    [
+        tr("Name"),
+        tr("Folder"),
+        tr("Size"),
+        tr("Modified"),
+        tr("Type"),
+        tr("Extension"),
+        tr("Created"),
+        tr("Accessed"),
+        tr("Attributes"),
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+fn kind_number(kind: Kind) -> i32 {
+    match kind {
+        Kind::Search => 0,
+        Kind::Folder => 1,
+        Kind::Separator => 2,
+    }
 }
 
 fn item_label(name: &str, chord: Option<Chord>) -> String {
@@ -443,6 +609,21 @@ impl State {
             });
             w.on_save_entry(|| {
                 with(State::save);
+            });
+            w.on_new_group(|kind| {
+                with(|s| {
+                    s.new_group(if kind == 1 {
+                        Kind::Folder
+                    } else {
+                        Kind::Separator
+                    })
+                });
+            });
+            w.on_import_csv(|| {
+                with(|s| s.csv(true));
+            });
+            w.on_export_csv(|| {
+                with(|s| s.csv(false));
             });
             w.on_request_remove(|| {
                 with(|s| {
@@ -650,10 +831,22 @@ impl State {
             let l = self.library.borrow();
             let visible = self.ids();
             let values: Vec<_> = if self.bookmarks.get() {
-                l.bookmarks
+                let depth: std::collections::HashMap<u64, u8> = l
+                    .bookmark_tree()
+                    .into_iter()
+                    .map(|(i, d)| (l.bookmarks[i].id, d))
+                    .collect();
+                visible
                     .iter()
-                    .filter(|b| visible.contains(&b.id))
-                    .map(|b| (b.manager_title(), b.search.clone()))
+                    .filter_map(|id| l.bookmarks.iter().find(|b| b.id == *id))
+                    .map(|b| {
+                        let indent = if depth.get(&b.id) == Some(&1) {
+                            "    "
+                        } else {
+                            ""
+                        };
+                        (format!("{indent}{}", b.manager_title()), b.search.clone())
+                    })
                     .collect()
             } else {
                 l.filters
@@ -691,21 +884,29 @@ impl State {
             w.set_kinds(ModelRc::new(VecModel::from(
                 kinds.into_iter().map(Into::into).collect::<Vec<_>>(),
             )));
+            w.set_folder_names(ModelRc::new(VecModel::from(
+                std::iter::once(tr("No folder").to_string())
+                    .chain(l.bookmark_folders().iter().map(|f| f.name.clone()))
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            )));
+            w.set_row_kinds(ModelRc::new(VecModel::from(
+                visible
+                    .iter()
+                    .map(|id| {
+                        l.bookmarks
+                            .iter()
+                            .find(|b| b.id == *id)
+                            .filter(|_| self.bookmarks.get())
+                            .map_or(0, |b| kind_number(b.kind))
+                    })
+                    .collect::<Vec<_>>(),
+            )));
             w.set_sort_names(ModelRc::new(VecModel::from(
-                [
-                    tr("Name"),
-                    tr("Folder"),
-                    tr("Size"),
-                    tr("Modified"),
-                    tr("Type"),
-                    tr("Extension"),
-                    tr("Created"),
-                    tr("Accessed"),
-                    tr("Attributes"),
-                ]
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>(),
+                base_sort_names()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
             )));
         }
     }
@@ -718,11 +919,18 @@ impl State {
             .map(|w| w.get_find_text().to_string())
             .unwrap_or_default();
         if self.bookmarks.get() {
-            l.bookmarks
-                .iter()
-                .filter(|b| bookmark_matches(&b.name, &b.search, &needle))
-                .map(|b| b.id)
-                .collect()
+            if needle.trim().is_empty() {
+                l.bookmark_tree()
+                    .into_iter()
+                    .map(|(i, _)| l.bookmarks[i].id)
+                    .collect()
+            } else {
+                l.bookmarks
+                    .iter()
+                    .filter(|b| b.is_search() && bookmark_matches(&b.name, &b.search, &needle))
+                    .map(|b| b.id)
+                    .collect()
+            }
         } else {
             l.filters
                 .iter()
@@ -746,6 +954,41 @@ impl State {
         }
     }
     fn begin(&self, new: bool) {
+        self.begin_kind(new, Kind::Search);
+    }
+
+    /// The folder new rows go to: the selected folder, or the folder of the
+    /// selected row.
+    fn target_folder(&self) -> u64 {
+        let l = self.library.borrow();
+        self.current_id()
+            .and_then(|id| l.bookmarks.iter().find(|b| b.id == id))
+            .map_or(0, |b| {
+                if b.kind == Kind::Folder {
+                    b.id
+                } else {
+                    b.folder
+                }
+            })
+    }
+
+    fn new_group(&self, kind: Kind) {
+        if kind == Kind::Separator {
+            let folder = self.target_folder();
+            let mut added = None;
+            if self.change(|l| {
+                added = Some(l.put_bookmark(None, Bookmark::group(Kind::Separator, "", folder))?);
+                Ok(())
+            }) && let Some(id) = added
+            {
+                self.select_row(id);
+            }
+        } else {
+            self.begin_kind(true, kind);
+        }
+    }
+
+    fn begin_kind(&self, new: bool, new_kind: Kind) {
         let Some(main) = self.main.upgrade() else {
             return;
         };
@@ -765,17 +1008,49 @@ impl State {
                     .find(|b| b.id == id)
                     .cloned()
             } else {
-                Some(Bookmark {
-                    id: 0,
-                    name: String::new(),
-                    search: main.get_query().to_string(),
-                    options: crate::options(&main),
-                    filter: selected(&main).unwrap_or_else(|| Library::default().filters.remove(0)),
-                    sort_column: main.get_sort_column(),
-                    descending: main.get_sort_descending(),
+                let folder = if new_kind == Kind::Folder {
+                    0
+                } else {
+                    self.target_folder()
+                };
+                Some(if new_kind == Kind::Search {
+                    Bookmark {
+                        id: 0,
+                        name: String::new(),
+                        search: main.get_query().to_string(),
+                        options: crate::options(&main),
+                        filter: selected(&main)
+                            .unwrap_or_else(|| Library::default().filters.remove(0)),
+                        sort_column: main.get_sort_column(),
+                        descending: main.get_sort_descending(),
+                        columns: None,
+                        kind: Kind::Search,
+                        folder,
+                    }
+                } else {
+                    Bookmark::group(new_kind, "", folder)
                 })
             };
             let Some(entry) = entry else { return };
+            if entry.kind == Kind::Separator {
+                return;
+            }
+            self.draft_kind.set(entry.kind);
+            *self.draft_columns.borrow_mut() = ColumnChoices {
+                current: crate::tabs_ui::shown_columns(&main),
+                stored: entry.columns.clone(),
+            };
+            if let Some(w) = self.window.borrow().as_ref() {
+                w.set_entry_kind(kind_number(entry.kind));
+                let folder = self
+                    .library
+                    .borrow()
+                    .bookmark_folders()
+                    .iter()
+                    .position(|f| f.id == entry.folder)
+                    .map_or(0, |i| i as i32 + 1);
+                w.set_folder_choice(folder);
+            }
             let values = (
                 entry.name.clone(),
                 entry.search.clone(),
@@ -805,9 +1080,32 @@ impl State {
                         hidden_files: HiddenFiles::Show,
                         ..crate::options(&main)
                     },
+                    layout: Layout::default(),
                 })
             };
             let Some(entry) = entry else { return };
+            self.draft_kind.set(Kind::Search);
+            *self.draft_columns.borrow_mut() = ColumnChoices {
+                current: crate::tabs_ui::shown_columns(&main),
+                stored: entry.layout.columns.clone(),
+            };
+            let mut sorts: Vec<Option<i32>> =
+                std::iter::once(None).chain((0..9).map(Some)).collect();
+            if let Some((column, _)) = entry.layout.sort
+                && !sorts.contains(&Some(column))
+            {
+                sorts.push(Some(column));
+            }
+            let sort_index = sorts
+                .iter()
+                .position(|c| *c == entry.layout.sort.map(|(c, _)| c))
+                .unwrap_or(0);
+            if let Some(w) = self.window.borrow().as_ref() {
+                w.set_entry_kind(0);
+                w.set_filter_sort(sort_index as i32);
+                w.set_descending(entry.layout.sort.is_some_and(|(_, d)| d));
+            }
+            *self.draft_sorts.borrow_mut() = sorts;
             let name = if new { String::new() } else { entry.title() };
             let kind = Filter::ALL
                 .iter()
@@ -819,6 +1117,32 @@ impl State {
         self.fill();
         let window = self.window.borrow();
         let Some(w) = window.as_ref() else { return };
+        {
+            let choices = self.draft_columns.borrow();
+            w.set_column_choices(ModelRc::new(VecModel::from(
+                choices
+                    .titles()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            )));
+            w.set_column_choice(choices.index());
+            let names = base_sort_names();
+            w.set_filter_sorts(ModelRc::new(VecModel::from(
+                self.draft_sorts
+                    .borrow()
+                    .iter()
+                    .map(|c| match c {
+                        None => tr("Keep the window's sort").to_string(),
+                        Some(c) => names
+                            .get(*c as usize)
+                            .cloned()
+                            .unwrap_or_else(|| fill(tr("Column {}"), &[&(c + 1)])),
+                    })
+                    .map(Into::into)
+                    .collect::<Vec<_>>(),
+            )));
+        }
         let target = id.map(|id| {
             if self.bookmarks.get() {
                 Target::Bookmark(id)
@@ -858,7 +1182,7 @@ impl State {
     }
 
     fn save(&self) {
-        let (name, text, mut o, kind, sort_column, descending) = {
+        let (name, text, mut o, kind, sort_column, descending, columns, folder_choice, sort_choice) = {
             let window = self.window.borrow();
             let Some(w) = window.as_ref() else { return };
             if w.get_entry_name().trim().is_empty() {
@@ -890,8 +1214,21 @@ impl State {
                 w.get_kind(),
                 w.get_sort_column(),
                 w.get_descending(),
+                self.draft_columns.borrow().chosen(w.get_column_choice()),
+                w.get_folder_choice(),
+                w.get_filter_sort(),
             )
         };
+        let folder = usize::try_from(folder_choice - 1)
+            .ok()
+            .and_then(|i| {
+                self.library
+                    .borrow()
+                    .bookmark_folders()
+                    .get(i)
+                    .map(|f| f.id)
+            })
+            .unwrap_or(0);
         let shortcut = self.draft_shortcut.get();
         let id = self.editing.get();
         let mut saved = None;
@@ -899,6 +1236,24 @@ impl State {
             let Some(mut b) = self.draft_bookmark.borrow().clone() else {
                 return;
             };
+            if b.kind != Kind::Search {
+                b.name = name.to_string();
+                b.folder = if b.kind == Kind::Folder { 0 } else { folder };
+                let id = self.editing.get();
+                let mut saved = None;
+                if self.change(|l| {
+                    saved = Some(l.put_bookmark(id, b)?);
+                    Ok(())
+                }) {
+                    if let Some(id) = saved {
+                        self.select_row(id);
+                    }
+                    if let Some(w) = self.window.borrow().as_ref() {
+                        w.set_editing(false);
+                    }
+                }
+                return;
+            }
             if let Some(f) = usize::try_from(kind)
                 .ok()
                 .and_then(|i| self.library.borrow().filters.get(i).cloned())
@@ -911,6 +1266,8 @@ impl State {
             b.options = o;
             b.sort_column = sort_column;
             b.descending = descending;
+            b.columns = columns.clone();
+            b.folder = folder;
             Some(b)
         } else {
             o.filter = Filter::ALL.get(kind as usize).copied().unwrap_or_default();
@@ -920,7 +1277,19 @@ impl State {
             saved = Some(if let Some(b) = bookmark {
                 l.put_bookmark(id, b)?
             } else {
-                l.put_filter(id, &name, &text, o)?
+                l.put_filter(
+                    id,
+                    &name,
+                    &text,
+                    o,
+                    Layout {
+                        columns,
+                        sort: usize::try_from(sort_choice)
+                            .ok()
+                            .and_then(|i| self.draft_sorts.borrow().get(i).copied().flatten())
+                            .map(|c| (c, descending)),
+                    },
+                )?
             });
             let target = if self.bookmarks.get() {
                 Target::Bookmark(saved.expect("saved identity"))
@@ -955,19 +1324,10 @@ impl State {
         select_snapshot(&w, &b.filter);
         w.set_notice("".into());
         crate::show_badges(&w);
-        match b.sort_column {
-            4 => w.set_show_type(true),
-            5 => w.set_show_ext(true),
-            6 => w.set_show_created(true),
-            7 => w.set_show_accessed(true),
-            8 => w.set_show_attrs(true),
-            _ => {}
+        if let Some(columns) = &b.columns {
+            show_columns(&w, columns);
         }
-        crate::apply_detail_columns(&w);
-        w.set_sort_column(b.sort_column);
-        w.set_sort_descending(b.descending);
-        crate::sort_dialog::clear_then(&w);
-        w.invoke_sort_changed(b.sort_column, b.descending);
+        sort_by(&w, b.sort_column, b.descending);
         crate::typing::with(|t| t.searched());
         crate::search_now(&w, &self.engine);
         w.invoke_focus_search();
@@ -975,6 +1335,9 @@ impl State {
     /// Adds the bookmark's search to the search field as one more
     /// condition and searches; the window's options and filter stay.
     fn append(&self, b: &Bookmark) {
+        if !b.is_search() {
+            return;
+        }
         let Some(w) = self.main.upgrade() else { return };
         w.invoke_history_record();
         let text = saved_searches::append_search(&w.get_query(), &b.search, w.get_and_before_or());
@@ -1045,6 +1408,88 @@ impl State {
         }
     }
 
+    /// Imports or exports the shown list (filters or bookmarks) as CSV.
+    /// The file dialog runs off the UI thread; an import is applied under
+    /// the library lock, all or nothing.
+    fn csv(&self, import: bool) {
+        let bookmarks = self.bookmarks.get();
+        let snapshot = if bookmarks {
+            crate::saved_csv::encode_bookmarks(&self.library.borrow())
+        } else {
+            crate::saved_csv::encode_filters(&self.library.borrow())
+        };
+        let title = match (import, bookmarks) {
+            (true, true) => tr("Import bookmarks"),
+            (true, false) => tr("Import filters"),
+            (false, true) => tr("Export bookmarks"),
+            (false, false) => tr("Export filters"),
+        };
+        let accept = if import { tr("Import") } else { tr("Export") };
+        let file_name = if bookmarks {
+            "bookmarks.csv"
+        } else {
+            "filters.csv"
+        };
+        let filter_name = tr("CSV files");
+        if let Some(w) = self.window.borrow().as_ref() {
+            w.set_notice("".into());
+        }
+        std::thread::spawn(move || {
+            let filters = [crate::portal::SaveFilter {
+                name: filter_name,
+                pattern: "*.csv",
+            }];
+            // Some(text) = the file read for an import; None = done/cancelled.
+            let result: Result<Option<String>, String> = (|| {
+                if import {
+                    let Some(path) = crate::portal::open_file(title, accept, &filters)? else {
+                        return Ok(None);
+                    };
+                    std::fs::read_to_string(&path)
+                        .map(Some)
+                        .map_err(|e| e.to_string())
+                } else {
+                    let Some((path, _)) =
+                        crate::portal::save_file(title, accept, file_name, &filters)?
+                    else {
+                        return Ok(None);
+                    };
+                    settings::write_atomic(&path, snapshot.as_bytes())
+                        .map(|()| None)
+                        .map_err(|e| e.to_string())
+                }
+            })();
+            let _ = slint::invoke_from_event_loop(move || {
+                with(|s| match result {
+                    Ok(Some(text)) => s.import_text(&text, bookmarks),
+                    Ok(None) => {}
+                    Err(e) => s.message(
+                        fill(tr("Cannot read or write the CSV file: {}"), &[&e]),
+                        true,
+                    ),
+                });
+            });
+        });
+    }
+
+    fn import_text(&self, text: &str, bookmarks: bool) {
+        let mut report = None;
+        let changed = self.change(|l| {
+            let incoming = if bookmarks {
+                crate::saved_csv::decode_bookmarks(text, l)?
+            } else {
+                crate::saved_csv::decode_filters(text)?
+            };
+            report = Some(commands::with_current(|k| {
+                crate::saved_csv::import(l, incoming, k)
+            })?);
+            Ok(())
+        });
+        if changed && let Some(report) = report {
+            self.message(report.message(), false);
+        }
+    }
+
     fn change(&self, change: impl FnOnce(&mut Library) -> io::Result<()>) -> bool {
         let Some(path) = &self.path else {
             self.message(tr("The configuration folder is unavailable.").into(), true);
@@ -1096,6 +1541,7 @@ mod tab_tests {
             name: "Docs".into(),
             search: "ext:pdf".into(),
             options: QueryOptions::default(),
+            layout: Layout::default(),
         };
         let edited = NamedFilter {
             search: "ext:pdf;odt".into(),
@@ -1157,7 +1603,7 @@ pub fn bookmarks_matching(needle: &str) -> Vec<Bookmark> {
             .borrow()
             .bookmarks
             .iter()
-            .filter(|b| bookmark_matches(&b.name, &b.search, needle))
+            .filter(|b| b.is_search() && bookmark_matches(&b.name, &b.search, needle))
             .cloned()
             .collect()
     })

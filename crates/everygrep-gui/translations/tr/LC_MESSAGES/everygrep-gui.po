@@ -4976,3 +4976,93 @@ msgstr "İptal edildi. Önceki klasör sonuçları korundu."
 
 msgid "Status"
 msgstr "Durum"
+
+msgid "Cannot read or write the CSV file: {}"
+msgstr "CSV dosyası okunamıyor veya yazılamıyor: {}"
+
+msgid "Column {}"
+msgstr "Sütun {}"
+
+msgid "Column “{}” appears twice in the CSV header."
+msgstr "“{}” sütunu CSV başlığında iki kez geçiyor."
+
+msgid "Columns shown now: {}"
+msgstr "Şu an görünen sütunlar: {}"
+
+msgid "Export bookmarks"
+msgstr "Yer imlerini dışa aktar"
+
+msgid "Export filters"
+msgstr "Filtreleri dışa aktar"
+
+msgid "Import bookmarks"
+msgstr "Yer imlerini içe aktar"
+
+msgid "Import filters"
+msgstr "Filtreleri içe aktar"
+
+msgid "Imported {} entries ({} renamed, {} already present)."
+msgstr "{} kayıt içe aktarıldı ({} yeniden adlandırıldı, {} zaten vardı)."
+
+msgid "Invalid bookmark folder."
+msgstr "Geçersiz yer imi klasörü."
+
+msgid "Invalid column name."
+msgstr "Geçersiz sütun adı."
+
+msgid "Invalid keyboard shortcut."
+msgstr "Geçersiz klavye kısayolu."
+
+msgid "Keep the window's columns"
+msgstr "Pencerenin sütunlarını koru"
+
+msgid "Keep the window's sort"
+msgstr "Pencerenin sıralamasını koru"
+
+msgid "Malformed CSV at line {} (check the quotes)."
+msgstr "{}. satırda CSV bozuk (tırnakları kontrol edin)."
+
+msgid "New separator"
+msgstr "Yeni ayırıcı"
+
+msgid "No folder"
+msgstr "Klasörsüz"
+
+msgid "Only the Details view is available."
+msgstr "Yalnızca Ayrıntılar görünümü var."
+
+msgid "Row {} of the CSV file has a different number of fields than the header."
+msgstr "CSV dosyasının {}. satırındaki alan sayısı başlıktakinden farklı."
+
+msgid "Row {}: {}"
+msgstr "Satır {}: {}"
+
+msgid "Saved columns: {}"
+msgstr "Kayıtlı sütunlar: {}"
+
+msgid "The CSV file is empty."
+msgstr "CSV dosyası boş."
+
+msgid "The CSV header has no “{}” column."
+msgstr "CSV başlığında “{}” sütunu yok."
+
+msgid "Unknown hidden files mode."
+msgstr "Bilinmeyen gizli dosya modu."
+
+msgid "Unknown row kind."
+msgstr "Bilinmeyen satır türü."
+
+msgid "Unknown sort column."
+msgstr "Bilinmeyen sıralama sütunu."
+
+msgid "standard only"
+msgstr "yalnızca standart"
+
+msgid "{} (folder)"
+msgstr "{} (klasör)"
+
+msgid "{} keyboard shortcuts were left out because they are taken."
+msgstr "{} klavye kısayolu zaten kullanıldığı için atlandı."
+
+msgid "“{}” must be 0 or 1."
+msgstr "“{}” 0 veya 1 olmalı."

@@ -8,6 +8,7 @@ mod clipboard;
 mod columns;
 mod commands;
 mod content_settings;
+mod csv;
 mod debug_log;
 mod debug_log_ui;
 mod diagnostics;
@@ -51,6 +52,7 @@ mod preview;
 mod properties;
 mod property_settings;
 mod results;
+mod saved_csv;
 mod saved_searches;
 mod saved_ui;
 mod schedule;
@@ -498,6 +500,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let (engine, weak) = (engine.clone(), weak.clone());
         move || {
             if let Some(w) = weak.upgrade() {
+                saved_ui::apply_filter_layout(&w);
                 let reads = field_reads_files(&w);
                 if typing::with(|t| t.edited(reads)) {
                     run_query(&w, &engine);
