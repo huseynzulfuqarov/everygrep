@@ -1458,6 +1458,55 @@ mod tests {
     }
 
     #[test]
+    fn verification_drops_a_file_that_changes_to_different_bytes() {
+        use std::os::unix::fs::FileExt;
+        for (i, q) in ["unique:", "distinct:"].into_iter().enumerate() {
+            let tree = Tree::new(
+                &format!("changed-mismatch-{i}"),
+                &[("a", b"same"), ("b", b"same")],
+            );
+            let ids = search(
+                &tree.index,
+                &Query::parse("", QueryOptions::default()).unwrap(),
+                1,
+            );
+            let grouped = group(&tree.index, &ids, &spec(q));
+            let writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(tree.dir.join("b"))
+                .unwrap();
+            let compare = |a: &hash::OpenFile, b: &hash::OpenFile, progress: &Progress| {
+                let mut reads = 0;
+                hash::same_contents_with_read(a, b, progress, |file, buf, at| {
+                    file.read_exact_at(buf, at)
+                        .map_err(|_| HashError::Unreadable)?;
+                    reads += 1;
+                    if reads == 1 {
+                        writer.write_all_at(b"diff", 0).unwrap();
+                        writer
+                            .set_modified(std::time::SystemTime::UNIX_EPOCH)
+                            .unwrap();
+                    }
+                    Ok(())
+                })
+            };
+            let dupes = compare_contents_with(
+                grouped,
+                None,
+                CompareOptions {
+                    verify_bytes: true,
+                    ..CompareOptions::default()
+                },
+                1,
+                &Progress::new(),
+                &compare,
+            )
+            .unwrap();
+            assert_eq!(tree.show(&dupes.arrange(&dupes.to_sort())), ["a"], "{q}");
+        }
+    }
+
+    #[test]
     fn empty_files_are_duplicates_only_when_asked() {
         let tree = contents_tree("empty");
         let empty = CompareOptions {

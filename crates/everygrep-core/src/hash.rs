@@ -226,13 +226,11 @@ pub(crate) fn same_contents_with_read(
     mut read: impl FnMut(&File, &mut [u8], u64) -> Result<(), HashError>,
 ) -> Result<bool, CompareError> {
     let size = a.key.size;
-    if size != b.key.size {
-        return Ok(false);
-    }
+    let mut equal = size == b.key.size;
     let piece = (BUFFER as u64).min(size) as usize;
     let (mut x, mut y) = (vec![0u8; piece], vec![0u8; piece]);
     let mut at = 0u64;
-    while at < size {
+    while equal && at < size {
         if progress.is_cancelled() {
             return Err(CompareError::Cancelled);
         }
@@ -245,9 +243,7 @@ pub(crate) fn same_contents_with_read(
             first: false,
             second: true,
         })?;
-        if x[..n] != y[..n] {
-            return Ok(false);
-        }
+        equal = x[..n] == y[..n];
         at += n as u64;
     }
     let unchanged = |file: &OpenFile| {
@@ -259,7 +255,7 @@ pub(crate) fn same_contents_with_read(
     if first || second {
         return Err(CompareError::Unreadable { first, second });
     }
-    Ok(true)
+    Ok(equal)
 }
 
 fn read_exact_at(file: &File, buf: &mut [u8], at: u64) -> Result<(), HashError> {
@@ -519,6 +515,38 @@ mod tests {
                 first: false,
                 second: true
             })
+        );
+    }
+
+    #[test]
+    fn a_byte_difference_still_checks_both_file_snapshots() {
+        let dir = Dir::new("changed-difference");
+        let (a, b) = (dir.file("a", b"same"), dir.file("b", b"same"));
+        let (x, y) = (open(&a).unwrap(), open(&b).unwrap());
+        let writer = std::fs::OpenOptions::new().write(true).open(&b).unwrap();
+        let mut reads = 0;
+        let result = same_contents_with_read(&x, &y, &Progress::new(), |file, buf, at| {
+            read_exact_at(file, buf, at)?;
+            reads += 1;
+            if reads == 1 {
+                writer.write_all_at(b"diff", 0).unwrap();
+                writer
+                    .set_modified(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap();
+            }
+            Ok(())
+        });
+        assert_eq!(
+            result,
+            Err(CompareError::Unreadable {
+                first: false,
+                second: true
+            })
+        );
+        // Stable, genuinely different files remain an ordinary mismatch.
+        assert_eq!(
+            same_contents(&open(&a).unwrap(), &open(&b).unwrap(), &Progress::new()),
+            Ok(false)
         );
     }
 
