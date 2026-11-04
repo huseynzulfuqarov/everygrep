@@ -4594,3 +4594,6 @@ msgid "(and {} other tab)"
 msgid_plural "(and {} other tabs)"
 msgstr[0] "(ve {} diğer sekme)"
 msgstr[1] "(ve {} diğer sekme)"
+
+msgid "Find Filter…"
+msgstr "Filtre bul…"

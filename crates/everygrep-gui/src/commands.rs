@@ -1577,6 +1577,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::FindFilter,
+        id: "search.find-filter",
+        category: Category::Search,
+        label: || tr("Find Filter…"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::AddBookmark,
         id: "bookmarks.add",
         category: Category::Bookmarks,
@@ -2102,6 +2109,7 @@ impl Keymap {
             add_filter => AddFilter,
             organize_filters => OrganizeFilters,
             restore_filters => RestoreFilters,
+            find_filter => FindFilter,
             add_bookmark => AddBookmark,
             organize_bookmarks => OrganizeBookmarks,
             find_bookmark => FindBookmark,

@@ -96,6 +96,14 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
     w.on_organize_bookmarks(|| {
         with(|s| s.open(true));
     });
+    w.on_find_filter(|| {
+        with(|s| {
+            s.open(false);
+            if let Some(w) = s.window.borrow().as_ref() {
+                w.invoke_focus_find();
+            }
+        });
+    });
     w.on_find_bookmark(|| {
         with(|s| {
             s.open(true);
@@ -542,6 +550,9 @@ impl State {
         }
         if self.bookmarks.replace(bookmarks) != bookmarks {
             if let Some(w) = self.window.borrow().as_ref() {
+                // The text found among bookmarks is not one to find among
+                // filters.
+                w.set_find_text("".into());
                 w.set_current(-1);
                 w.set_editing(false);
                 w.set_confirming(false);
@@ -603,6 +614,7 @@ impl State {
             } else {
                 l.filters
                     .iter()
+                    .filter(|f| visible.contains(&f.id))
                     .map(|f| (f.manager_title(), f.search.clone()))
                     .collect()
             };
@@ -655,20 +667,24 @@ impl State {
     }
     fn ids(&self) -> Vec<u64> {
         let l = self.library.borrow();
+        let needle = self
+            .window
+            .borrow()
+            .as_ref()
+            .map(|w| w.get_find_text().to_string())
+            .unwrap_or_default();
         if self.bookmarks.get() {
-            let needle = self
-                .window
-                .borrow()
-                .as_ref()
-                .map(|w| w.get_find_text().to_string())
-                .unwrap_or_default();
             l.bookmarks
                 .iter()
                 .filter(|b| bookmark_matches(&b.name, &b.search, &needle))
                 .map(|b| b.id)
                 .collect()
         } else {
-            l.filters.iter().map(|f| f.id).collect()
+            l.filters
+                .iter()
+                .filter(|f| bookmark_matches(&f.title(), &f.search, &needle))
+                .map(|f| f.id)
+                .collect()
         }
     }
     fn current_id(&self) -> Option<u64> {

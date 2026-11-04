@@ -3444,6 +3444,7 @@ export component AppWindow inherits Window {
     callback add-bookmark();
     callback organize-bookmarks();
     callback find-bookmark();
+    callback find-filter();
     in property <[MenuEntry]> bookmark-items;
     in property <bool> more-bookmarks;
     callback open-bookmark(int);
@@ -3806,6 +3807,7 @@ export component AppWindow inherits Window {
         } else if (c == Command.add-bookmark) { root.add-bookmark();
         } else if (c == Command.organize-bookmarks) { root.organize-bookmarks();
         } else if (c == Command.find-bookmark) { root.find-bookmark();
+        } else if (c == Command.find-filter) { root.find-filter();
         } else if (c == Command.copy-search) { root.copy-text(root.query);
         } else if (c == Command.advanced-search) { root.advanced-search();
         } else if (c == Command.settings) {
@@ -6830,6 +6832,7 @@ export component AppWindow inherits Window {
                 title: @tr("Filter");
                 MenuItem { title: @tr("Save as filter…"); shortcut: root.menu-keys.add-filter; activated => { root.run(Command.add-filter); } }
                 MenuItem { title: @tr("Manage filters…"); shortcut: root.menu-keys.organize-filters; activated => { root.run(Command.organize-filters); } }
+                MenuItem { title: @tr("Find Filter…"); shortcut: root.menu-keys.find-filter; activated => { root.run(Command.find-filter); } }
                 MenuItem { title: @tr("Restore default filters"); shortcut: root.menu-keys.restore-filters; activated => { root.run(Command.restore-filters); } }
                 MenuSeparator { }
                 for item in root.filter-items: MenuItem {

@@ -91,10 +91,8 @@ export component SavedWindow inherits Window {
             padding: Theme.margin;
             spacing: Theme.s2;
             finder := LineEdit {
-                visible: root.bookmarks;
-                height: root.bookmarks ? self.preferred-height : 0px;
-                accessible-label: @tr("Find Bookmark…");
-                placeholder-text: @tr("Find Bookmark…");
+                accessible-label: root.bookmarks ? @tr("Find Bookmark…") : @tr("Find Filter…");
+                placeholder-text: root.bookmarks ? @tr("Find Bookmark…") : @tr("Find Filter…");
                 text <=> root.find-text;
                 edited => { root.find-changed(); }
             }
