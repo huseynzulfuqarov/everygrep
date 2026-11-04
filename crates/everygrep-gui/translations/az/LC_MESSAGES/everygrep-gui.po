@@ -5109,8 +5109,8 @@ msgstr "Bu gün dəyişənlər"
 msgid "Downloads of the last 7 days"
 msgstr "Son 7 günün yükləmələri"
 
-msgid "Empty folders (0 bytes)"
-msgstr "Boş qovluqlar (0 bayt)"
+msgid "Empty folders"
+msgstr "Boş qovluqlar"
 
 msgid "Duplicate photos"
 msgstr "Təkrar fotolar"

@@ -880,12 +880,7 @@ pub fn starter_pack(downloads: &Path) -> Vec<Bookmark> {
             true,
         ));
     }
-    entries.push((
-        tr("Empty folders (0 bytes)"),
-        "folder: size:empty".into(),
-        0,
-        false,
-    ));
+    entries.push((tr("Empty folders"), "folder: children:0".into(), 0, false));
     entries.push((tr("Duplicate photos"), "image: duplicates:".into(), 2, true));
     entries
         .into_iter()
@@ -1322,6 +1317,8 @@ mod tests {
                 .search
                 .starts_with("path:\"/home/me/My Downloads/\"")
         );
+        // Empty = no entry inside in the index, not only 0 bytes of files.
+        assert!(pack.iter().any(|b| b.search == "folder: children:0"));
         assert_eq!(starter_pack(Path::new("/home/me/a\"b")).len(), 4);
         let mut l = Library::default();
         assert_eq!(l.add_starter_pack(&dl).unwrap(), 5);
