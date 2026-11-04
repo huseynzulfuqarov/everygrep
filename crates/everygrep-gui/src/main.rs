@@ -13,6 +13,7 @@ mod debug_log_ui;
 mod diagnostics;
 mod engine;
 mod export;
+mod file_properties;
 mod fileops_conflict;
 mod fileops_rename;
 mod fileops_search;
@@ -375,6 +376,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let pause = Rc::new(Timer::default());
     folders::connect(&window, &engine, window_args.clone());
     preview::connect(&window, &engine);
+    file_properties::connect(&window, &engine);
     tabs_ui::connect(&window, &engine, &model, &prefs, &pause, session_start);
     let query_edit = |manual: bool| {
         let (engine, weak, pause, prefs) =

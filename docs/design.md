@@ -172,6 +172,10 @@ screen; when a change conflicts with them, the rules win or are changed first.
   The selected current row is previewed after a short pause. Images fit the
   panel; text is read-only, selectable and limited to its first 256 KiB.
   Other entries show their type icon, full path, size and modification time.
+- **Properties** opens a built-in read-only dialog from File, the result context
+  menu or Alt+Enter in results. Its details can be selected and copied. Indexed
+  information remains available for offline entries; live metadata and cached
+  hashes are added on a worker. Closing the dialog cancels its pending request.
 
 ## Visual system
 

@@ -4096,3 +4096,24 @@ msgstr "Önizlemeye odaklan"
 
 msgid "Close preview panel"
 msgstr "Önizleme panelini kapat"
+
+msgid "Offline"
+msgstr "Bağlı değil"
+
+msgid "File details are unavailable."
+msgstr "Dosya bilgilerine erişilemiyor."
+
+msgid "Permissions"
+msgstr "İzinler"
+
+msgid "Content fingerprint"
+msgstr "İçerik parmak izi"
+
+msgid "Sample fingerprint"
+msgstr "Örnek parmak izi"
+
+msgid "Metadata changed"
+msgstr "Üst veri değişikliği"
+
+msgid "Reading file details…"
+msgstr "Dosya bilgileri okunuyor…"

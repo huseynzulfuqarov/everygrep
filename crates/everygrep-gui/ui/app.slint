@@ -1,6 +1,7 @@
 import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette } from "std-widgets.slint";
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
+import { FilePropertiesDialog } from "file-properties.slint";
 import { PreviewPanel } from "preview.slint";
 import { FoldersPanel, FolderEntry } from "folders.slint";
 export { FolderEntry } from "folders.slint";
@@ -1743,6 +1744,10 @@ export component AppWindow inherits Window {
     in property <[ShortcutRow]> shortcuts;
     in property <string> version;
     in-out property <bool> shortcuts-open;
+    in-out property <bool> properties-open;
+    in property <string> properties-text;
+    callback show-properties(int);
+    callback properties-closed();
     in-out property <bool> about-open;
     // The help window (F1): 0 search syntax, 1 regular expressions,
     // 2 command line options.
@@ -2911,7 +2916,7 @@ export component AppWindow inherits Window {
     // src/columns.rs).
     pure callback filter-columns([ColumnChoice], string) -> [ColumnChoice];
     // Every column for Organize columns, in the order of the list.
-    property <[ColumnChoice]> column-choices: [
+    out property <[ColumnChoice]> column-choices: [
         { title: @tr("Name"), column: 0, checked: true, enabled: false },
         { title: @tr("Folder"), column: 1, checked: true, enabled: false },
         { title: @tr("Size"), column: 2, checked: true, enabled: false },
@@ -3136,9 +3141,10 @@ export component AppWindow inherits Window {
 
     // Whether a command can run now; menu items are enabled by it.
     function can-run(c: Command) -> bool {
-        if (root.export-open || root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
+        if (root.properties-open || root.export-open || root.confirm-open || root.fileops-rename-open || root.fileops-conflict-open) {
             return false;
         }
+        if (c == Command.properties) { return root.current >= 0; }
         if (c == Command.close-preview-panel) { return root.preview-visible; }
         if (c == Command.close-folders-panel) { return root.folders-visible; }
         if (c == Command.undo-file) { return root.file-undo-enabled && root.file-can-undo; }
@@ -3206,6 +3212,8 @@ export component AppWindow inherits Window {
             root.activate(root.current);
         } else if (c == Command.open-folder) {
             root.open-folder(root.current);
+        } else if (c == Command.properties) {
+            root.show-properties(root.current);
         } else if (c == Command.open-with) {
             root.open-with(root.current);
         } else if (c == Command.cut) {
@@ -4886,6 +4894,7 @@ export component AppWindow inherits Window {
                                     enabled: root.can-run(Command.open);
                                     activated => { root.run(Command.open); }
                                 }
+                                MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
                                 MenuItem {
                                     title: @tr("Open with…");
                                     enabled: root.can-run(Command.open-with);
@@ -5495,6 +5504,13 @@ export component AppWindow inherits Window {
     }
 
 
+    if root.properties-open: FilePropertiesDialog {
+        text: root.properties-text;
+        close => { root.properties-open = false; root.properties-closed();
+            if (root.results.length > 0) { root.focus-list(); } else { root.focus-search(); }
+        }
+    }
+
     if root.shortcuts-open: InfoDialog {
         title: @tr("Keyboard shortcuts");
         card-width: 520px;
@@ -5774,6 +5790,7 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.export-results); }
             }
             MenuSeparator { }
+            MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
             MenuItem {
                 title: @tr("Quit");
                 shortcut: root.menu-keys.quit;

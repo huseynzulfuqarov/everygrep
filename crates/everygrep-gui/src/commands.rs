@@ -652,6 +652,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[(List, "Shift+Enter")],
     },
     Spec {
+        cmd: Command::Properties,
+        id: "file.properties",
+        category: Category::File,
+        label: || tr("Properties"),
+        defaults: &[(List, "Alt+Enter")],
+    },
+    Spec {
         cmd: Command::Cut,
         id: "edit.cut",
         category: Category::Edit,
@@ -1885,6 +1892,7 @@ impl Keymap {
             open => Open,
             open_folder => OpenFolder,
             open_with => OpenWith,
+            properties => Properties,
             cut => Cut,
             copy => Copy,
             paste => Paste,

@@ -46,6 +46,12 @@ seconds and address space to 2 GiB. Missing sandbox support skips this tier.
 Failures are recorded under `fail/everygrep` only when a helper exits by
 itself; timeouts and cancellations are retried later.
 
+The built-in Properties dialog takes indexed properties on its own worker,
+releases the index lock, then reuses the live property, media and detail readers.
+It looks up existing hashes by file identity without computing new ones.
+Offline entries use indexed information only. Request serials, index generations
+and cancellation protect the dialog from late answers after closing or reopening.
+
 ### Node store (`store.rs`)
 
 Nodes live in parallel columns indexed by a `NodeId` (u32):

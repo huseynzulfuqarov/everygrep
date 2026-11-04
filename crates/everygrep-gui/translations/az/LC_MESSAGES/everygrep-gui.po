@@ -4096,3 +4096,24 @@ msgstr "Önizləməyə keç"
 
 msgid "Close preview panel"
 msgstr "Önizləmə panelini bağla"
+
+msgid "Offline"
+msgstr "Qoşulu deyil"
+
+msgid "File details are unavailable."
+msgstr "Fayl məlumatları əlçatan deyil."
+
+msgid "Permissions"
+msgstr "İcazələr"
+
+msgid "Content fingerprint"
+msgstr "Məzmun izi"
+
+msgid "Sample fingerprint"
+msgstr "Nümunə izi"
+
+msgid "Metadata changed"
+msgstr "Metadata dəyişikliyi"
+
+msgid "Reading file details…"
+msgstr "Fayl məlumatları oxunur…"
