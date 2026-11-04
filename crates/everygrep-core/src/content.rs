@@ -349,7 +349,7 @@ pub fn search_file(
     }
     let matcher = term.matcher(options, size);
     if options.pdf && is_pdf_name(path) {
-        return search_pdf(path, matcher, progress);
+        return search_pdf(path, term, options, size, progress);
     }
     let forced = match term.encoding {
         ContentEncoding::Auto => None,
@@ -693,44 +693,69 @@ pub fn pdf_reader_available() -> bool {
     })
 }
 
-/// Searches the text `pdftotext` prints for the PDF file at `path`. The
-/// child is killed when the search ends early (a match, a cancel, the
-/// timeout) and always waited for.
+/// Searches the text `pdftotext` prints for the PDF file at `path` of
+/// `size` bytes. Over line ends the whole text is held at once, up to
+/// [`MAX_LINE`] (a small PDF file can print much more): a longer text is
+/// read again line by line, within the same [`PDF_TIMEOUT`].
 fn search_pdf(
     path: &Path,
-    matcher: Matcher<'_>,
+    term: &ContentTerm,
+    options: &ContentOptions,
+    size: u64,
     progress: &Progress,
 ) -> Result<Outcome, Cancelled> {
-    use std::process::{Command, Stdio};
-    let child = Command::new(PDF_READER)
-        .args(["-q", "-enc", "UTF-8"])
-        .arg(path)
-        .arg("-")
+    let deadline = std::time::Instant::now() + PDF_TIMEOUT;
+    let matcher = term.matcher(options, size);
+    match read_pdf(path, matcher, deadline, progress)? {
+        None if matcher.multi_line => {
+            let lines = ContentOptions {
+                multi_line: false,
+                ..*options
+            };
+            let lines = term.matcher(&lines, size);
+            Ok(read_pdf(path, lines, deadline, progress)?.unwrap_or(Outcome::Unreadable))
+        }
+        outcome => Ok(outcome.unwrap_or(Outcome::Unreadable)),
+    }
+}
+
+/// Searches the text `pdftotext` prints for the PDF file at `path` with
+/// `matcher`; `None` when the search failed but the reading did not (the
+/// text was more than the search can hold). The child is killed when the
+/// search ends early (a match, a cancel, the deadline) and always waited
+/// for.
+fn read_pdf(
+    path: &Path,
+    matcher: Matcher<'_>,
+    deadline: std::time::Instant,
+    progress: &Progress,
+) -> Result<Option<Outcome>, Cancelled> {
+    use std::process::Stdio;
+    let child = pdf_reader(path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn();
     let Ok(mut child) = child else {
-        return Ok(Outcome::Unreadable);
+        return Ok(Some(Outcome::Unreadable));
     };
     let Some(stdout) = child.stdout.take() else {
         let _ = child.kill();
         let _ = child.wait();
-        return Ok(Outcome::Unreadable);
+        return Ok(Some(Outcome::Unreadable));
     };
     let nonblocking = rustix::fs::fcntl_getfl(&stdout)
         .and_then(|flags| rustix::fs::fcntl_setfl(&stdout, flags | rustix::fs::OFlags::NONBLOCK));
     let result = if nonblocking.is_ok() {
-        let reader = Piped {
+        let mut reader = Piped {
             inner: stdout,
             progress,
-            deadline: std::time::Instant::now() + PDF_TIMEOUT,
+            deadline,
             timed_out: false,
         };
         let mut sink = Found::default();
-        let mut reader = reader;
         let read = searcher(None, matcher).search_reader(matcher.regex, &mut reader, &mut sink);
-        Some((sink.matched, read.is_ok() && !reader.timed_out))
+        Some((sink.matched, read.is_ok(), reader.timed_out))
     } else {
         None
     };
@@ -738,10 +763,24 @@ fn search_pdf(
     let status = child.wait();
     progress.check()?;
     Ok(match result {
-        Some((true, _)) => Outcome::Match,
-        Some((false, true)) if status.is_ok_and(|s| s.success()) => Outcome::NoMatch,
-        _ => Outcome::Unreadable,
+        Some((true, _, _)) => Some(Outcome::Match),
+        Some((false, true, false)) if status.is_ok_and(|s| s.success()) => Some(Outcome::NoMatch),
+        Some((false, false, false)) => None,
+        _ => Some(Outcome::Unreadable),
     })
+}
+
+/// The command that prints the text of the PDF file at `path`.
+fn pdf_reader(path: &Path) -> std::process::Command {
+    #[cfg(test)]
+    if let Some(script) = tests::FAKE_PDF_READER.with(|f| f.borrow().clone()) {
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg(script);
+        return command;
+    }
+    let mut command = std::process::Command::new(PDF_READER);
+    command.args(["-q", "-enc", "UTF-8"]).arg(path).arg("-");
+    command
 }
 
 /// The output of a child, read without blocking so a cancel or the
@@ -1507,6 +1546,30 @@ mod tests {
             search_file(&pdf, &term("needle"), &with_pdf, &progress),
             Err(Cancelled)
         );
+    }
+
+    thread_local! {
+        /// A shell script run instead of [`PDF_READER`] in this thread.
+        pub(super) static FAKE_PDF_READER: std::cell::RefCell<Option<String>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    #[test]
+    fn a_pdf_text_too_long_to_hold_is_searched_again_line_by_line() {
+        let dir = Dir::new("pdf-long");
+        let pdf = dir.file("small.pdf", b"%PDF-1.4\n");
+        let text = format!(
+            "printf 'needle phrase\\n'; yes filler | head -c {}",
+            MAX_LINE + 4096
+        );
+        FAKE_PDF_READER.with(|f| *f.borrow_mut() = Some(text));
+        let with_pdf = ContentOptions {
+            pdf: true,
+            ..ContentOptions::default()
+        };
+        let read = |t: &str| search_file(&pdf, &term(t), &with_pdf, &Progress::new()).unwrap();
+        assert_eq!(read("needle phrase"), Outcome::Match);
+        FAKE_PDF_READER.with(|f| *f.borrow_mut() = None);
     }
 
     #[test]
