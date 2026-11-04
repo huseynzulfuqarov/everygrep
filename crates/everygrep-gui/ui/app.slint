@@ -1,4 +1,4 @@
-import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView } from "std-widgets.slint";
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
 import { FilePropertiesDialog } from "file-properties.slint";
@@ -5634,20 +5634,26 @@ export component AppWindow inherits Window {
             color: Theme.text-muted;
             wrap: word-wrap;
         }
-        VerticalLayout {
-            // Every choice is a row of fixed height and the list keeps the
-            // height of all of them, so the dialog keeps its size and place
-            // while the search narrows the list.
+        // Every choice is a row of fixed height and the list keeps the
+        // height of all of them, so the dialog keeps its size and place
+        // while the search narrows the list. When the window is too low for
+        // all of them, the list scrolls and the buttons stay in view.
+        choices-view := ScrollView {
             property <length> choice-height: 18px;
-            spacing: Theme.s1;
-            alignment: start;
-            min-height: root.column-choices.length * (self.choice-height + Theme.s1) - Theme.s1;
-            for item in root.filter-columns(root.column-choices, root.organize-filter): CheckBox {
-                height: parent.choice-height;
-                text: item.title;
-                checked: item.checked;
-                enabled: item.enabled;
-                toggled => { root.set-column-shown(item.column, self.checked); }
+            property <length> all-height: root.column-choices.length * (self.choice-height + Theme.s1) - Theme.s1;
+            min-height: min(self.all-height, 120px);
+            preferred-height: self.all-height;
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: Theme.s1;
+                alignment: start;
+                for item in root.filter-columns(root.column-choices, root.organize-filter): CheckBox {
+                    height: choices-view.choice-height;
+                    text: item.title;
+                    checked: item.checked;
+                    enabled: item.enabled;
+                    toggled => { root.set-column-shown(item.column, self.checked); }
+                }
             }
         }
         HorizontalLayout {
