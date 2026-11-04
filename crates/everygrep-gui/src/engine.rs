@@ -8123,6 +8123,55 @@ mod tests {
         e.shutdown();
     }
 
+    #[test]
+    fn not_indexing_a_connected_drive_drops_it_and_stops_watching_it() {
+        let dir = Scratch::new("drives-ignore-online");
+        let fake = FakeDrives::new(&dir.0);
+        let home = dir.0.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let card = dir.0.join("media/CARD");
+        fs::create_dir_all(&card).unwrap();
+        fs::write(card.join("clip.mp4"), "").unwrap();
+        let settings = DriveSettings::default();
+        let probe = Probe::start_with(
+            vec![home],
+            Vec::new(),
+            dir.0.join("index.bin"),
+            Some((fake.env.clone(), settings.clone())),
+        );
+        probe.wait_for(IndexState::Watching);
+        let e = &probe.engine;
+        fake.mount("CARD-1", "sdy1", "CARD");
+        until(e, "the card", |i| find(i, &card.join("clip.mp4")).is_some());
+        // Watched: a new file shows up.
+        fs::write(card.join("watched.mp4"), "").unwrap();
+        until(e, "a watched file", |i| {
+            find(i, &card.join("watched.mp4")).is_some()
+        });
+        // "Don't index this drive" while it is connected: gone at once,
+        // without a restart, and no longer watched.
+        e.set_drive_settings(DriveSettings {
+            ignored: vec!["CARD-1".into()],
+            ..settings.clone()
+        });
+        e.ignore_drive("CARD-1", true);
+        until(e, "the card dropped", |i| {
+            find(i, &card.join("clip.mp4")).is_none()
+        });
+        assert!(e.drives()[0].ignored);
+        fs::write(card.join("late.mp4"), "").unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(probe.names("late").is_empty());
+        assert!(probe.names("clip").is_empty());
+        // "Index this drive" again: read again, including the late file.
+        e.set_drive_settings(settings);
+        e.ignore_drive("CARD-1", false);
+        until(e, "the card again", |i| {
+            find(i, &card.join("late.mp4")).is_some()
+        });
+        e.shutdown();
+    }
+
     /// A drive of `folders` folders with `files` empty files each.
     fn fill_drive(root: &Path, folders: usize, files: usize) -> u64 {
         for d in 0..folders {
