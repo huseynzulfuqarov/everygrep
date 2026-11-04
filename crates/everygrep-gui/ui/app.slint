@@ -1421,6 +1421,8 @@ component HelpTab inherits Rectangle {
 component InfoDialog inherits Rectangle {
     in property <string> title;
     in property <length> card-width: 420px;
+    // Off for a dialog that brings its own buttons.
+    in property <bool> show-close: true;
     callback close();
     // Return: runs before close(), for a dialog with a default button.
     callback accepted();
@@ -1464,7 +1466,7 @@ component InfoDialog inherits Rectangle {
                 wrap: word-wrap;
             }
             @children
-            HorizontalLayout {
+            if root.show-close: HorizontalLayout {
                 alignment: end;
                 padding-top: Theme.s2;
                 Button {
@@ -5664,7 +5666,8 @@ export component AppWindow inherits Window {
     }
     if root.advanced-sort-open: InfoDialog {
         title: @tr("Advanced sort");
-        card-width: 420px;
+        card-width: 520px;
+        show-close: false;
         accepted => { root.apply-advanced-sort(); }
         close => {
             root.advanced-sort-open = false;
