@@ -195,7 +195,9 @@ pub fn ends_hash(file: &OpenFile, progress: &Progress) -> Result<u128, HashError
 
 /// Whether `a` and `b` hold the same bytes, read side by side in pieces of
 /// [`BUFFER`]; files of different sizes do not. A cancel of `progress` is
-/// seen before each piece.
+/// seen before each piece. A file that is no longer the one opened (its
+/// size or modification time changed, by the end of the reading) is
+/// [`HashError::Unreadable`]: equal pieces of it say nothing.
 pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<bool, HashError> {
     let size = a.key.size;
     if size != b.key.size {
@@ -215,6 +217,12 @@ pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<
             return Ok(false);
         }
         at += n as u64;
+    }
+    for file in [a, b] {
+        let meta = file.file.metadata().map_err(|_| HashError::Unreadable)?;
+        if FileKey::of(&meta) != file.key {
+            return Err(HashError::Unreadable);
+        }
     }
     Ok(true)
 }
@@ -411,6 +419,29 @@ mod tests {
             hash_file(&mut file, ALL, &Progress::new()),
             Err(HashError::Unreadable)
         );
+    }
+
+    #[test]
+    fn a_file_that_grows_or_changes_while_compared_is_not_the_same() {
+        let dir = Dir::new("grow");
+        let bytes = vec![5u8; BUFFER + 10];
+        let (a, b) = (dir.file("a", &bytes), dir.file("b", &bytes));
+        let progress = Progress::new();
+        assert_eq!(
+            same_contents(&open(&a).unwrap(), &open(&b).unwrap(), &progress),
+            Ok(true)
+        );
+        // Bytes added after it was opened: its first bytes are still equal.
+        let (x, y) = (open(&a).unwrap(), open(&b).unwrap());
+        use std::io::Write;
+        let mut append = std::fs::OpenOptions::new().append(true).open(&b).unwrap();
+        append.write_all(b"more").unwrap();
+        assert_eq!(same_contents(&x, &y, &progress), Err(HashError::Unreadable));
+        // Empty files are compared without reading too.
+        let (e, f) = (dir.file("e", b""), dir.file("f", b""));
+        let (x, y) = (open(&e).unwrap(), open(&f).unwrap());
+        std::fs::write(&f, b"now full").unwrap();
+        assert_eq!(same_contents(&x, &y, &progress), Err(HashError::Unreadable));
     }
 
     #[test]
