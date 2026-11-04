@@ -177,6 +177,8 @@ pub enum TaskKind {
     SavingFileList,
     /// Pasting files that were cut.
     Moving,
+    /// Reading sizes and dates of entries the index has without them.
+    ReadingDetails,
 }
 
 /// The long operation the status line shows.

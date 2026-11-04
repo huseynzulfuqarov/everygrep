@@ -1282,6 +1282,56 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             targets.paths.iter().for_each(|p| open::open(p));
         }
     });
+    window.on_read_extended({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r| {
+            let Some(w) = weak.upgrade() else { return };
+            let rows = model.picked_rows(row(r));
+            let (epoch, wanted) = model.extended_wanted(&rows);
+            if wanted.is_empty() {
+                info(
+                    &w,
+                    tr("The index already has the size and date of these items.").into(),
+                );
+                return;
+            }
+            let engine = model.engine();
+            let weak = weak.clone();
+            std::thread::spawn(move || {
+                let job = engine.begin_job(engine::TaskKind::ReadingDetails);
+                job.progress().restart(Some(wanted.len() as u64));
+                let (mut read, mut failed) = (0, 0);
+                let mut batch = Vec::new();
+                let send = |batch: Vec<_>| {
+                    let _ = weak.upgrade_in_event_loop(move |w| {
+                        with_model(&w, |m| m.take_extended(epoch, batch));
+                    });
+                };
+                for (id, path) in wanted {
+                    if job.progress().is_cancelled() {
+                        break;
+                    }
+                    match results::read_meta(&path) {
+                        Some(meta) => {
+                            read += 1;
+                            batch.push((id, meta));
+                        }
+                        None => failed += 1,
+                    }
+                    job.progress().add(1);
+                    if batch.len() >= 256 {
+                        send(std::mem::take(&mut batch));
+                    }
+                }
+                let stopped = job.progress().is_cancelled();
+                drop(job);
+                send(batch);
+                let _ = weak.upgrade_in_event_loop(move |w| {
+                    info(&w, labels::extended_read(read, failed, stopped));
+                });
+            });
+        }
+    });
     window.on_open_all_bookmarks({
         let (weak, pending) = (weak.clone(), pending.clone());
         move |needle| {

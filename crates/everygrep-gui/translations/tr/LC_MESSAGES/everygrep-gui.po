@@ -4786,3 +4786,31 @@ msgstr "Arama alanının üstünde Geri, İleri, Yeni sekme, Yeniden tara, Filtr
 
 msgid "Rescan"
 msgstr "Yeniden tara"
+
+msgid "Load file details"
+msgstr "Genişletilmiş bilgiyi oku"
+
+msgid "Reading extended information: {}%"
+msgstr "Genişletilmiş bilgi okunuyor: {}%"
+
+msgid "The index already has the size and date of these items."
+msgstr "Dizinde bu öğelerin boyutu ve tarihi zaten var."
+
+msgid "Read the information of {} item."
+msgid_plural "Read the information of {} items."
+msgstr[0] "{} öğenin bilgisi okundu."
+msgstr[1] "{} öğenin bilgisi okundu."
+
+msgid "{} item could not be read."
+msgid_plural "{} items could not be read."
+msgstr[0] "{} öğe okunamadı."
+msgstr[1] "{} öğe okunamadı."
+
+msgid "Stopped."
+msgstr "Durduruldu."
+
+msgid "Read missing sizes and dates of the rows on screen"
+msgstr "Ekrandaki satırların eksik boyut ve tarihlerini oku"
+
+msgid "When the index holds names only, the rows shown read their size and date from disk, as Load file details does for the selected items. Off: only that command reads them."
+msgstr "Dizin yalnızca adları tuttuğunda görünen satırlar boyut ve tarihlerini diskten okur; \"Genişletilmiş bilgiyi oku\" komutunun seçili öğeler için yaptığı gibi. Kapalıyken onları yalnızca bu komut okur."

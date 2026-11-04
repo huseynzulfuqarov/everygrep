@@ -659,6 +659,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[(List, "Alt+Enter")],
     },
     Spec {
+        cmd: Command::ReadExtended,
+        id: "file.read-extended",
+        category: Category::File,
+        label: || tr("Load file details"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::Cut,
         id: "edit.cut",
         category: Category::Edit,
@@ -2031,6 +2038,7 @@ impl Keymap {
             open_folder => OpenFolder,
             open_with => OpenWith,
             properties => Properties,
+            read_extended => ReadExtended,
             cut => Cut,
             copy => Copy,
             paste => Paste,

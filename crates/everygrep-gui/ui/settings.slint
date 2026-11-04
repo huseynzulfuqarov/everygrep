@@ -300,6 +300,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> copy-full-path-quotes;
     in-out property <bool> export-protect-formulas;
     in-out property <bool> drive-root-labels;
+    in-out property <bool> read-extended-auto;
     in-out property <bool> type-to-jump;
     in-out property <int> open-confirm-over;
     in-out property <int> tab-results-kept;
@@ -1411,6 +1412,12 @@ export component SettingsWindow inherits Window {
                                 toggled => { root.window-changed(); }
                             }
                             Note { text: @tr("The root of an indexed drive is shown as its label followed by the mount point, such as USB DISK (/run/media/…)."); }
+                            CheckBox {
+                                text: @tr("Read missing sizes and dates of the rows on screen");
+                                checked <=> root.read-extended-auto;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("When the index holds names only, the rows shown read their size and date from disk, as Load file details does for the selected items. Off: only that command reads them."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Typing in the result list"); }
                             CheckBox {

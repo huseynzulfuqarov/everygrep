@@ -585,6 +585,9 @@ pub fn busy(b: &Busy) -> String {
         (TaskKind::Sorting, p) => fill(tr("Sorting: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::SavingFileList, p) => fill(tr("Saving the file list: {}%"), &[&p.unwrap_or(0)]),
         (TaskKind::ReversingFiles, _) => tr("Reversing file operations…").to_owned(),
+        (TaskKind::ReadingDetails, p) => {
+            fill(tr("Reading extended information: {}%"), &[&p.unwrap_or(0)])
+        }
         (TaskKind::Copying, Some(p)) => fill(tr("Copying: {}%"), &[&p]),
         // Items read for undo history before the copy starts.
         (TaskKind::Copying, None) if n > 0 => fill(
@@ -968,6 +971,36 @@ pub fn copied_rows(n: usize) -> String {
         &[&format::count(n)],
     )
 }
+
+/// Load file details finished: `read` entries were read, `failed`
+/// could not be (gone, no permission), `stopped` when it was cancelled.
+pub fn extended_read(read: usize, failed: usize, stopped: bool) -> String {
+    let mut text = fill(
+        trn(
+            "Read the information of {} item.",
+            "Read the information of {} items.",
+            read,
+        ),
+        &[&format::count(read)],
+    );
+    if failed > 0 {
+        text.push(' ');
+        text.push_str(&fill(
+            trn(
+                "{} item could not be read.",
+                "{} items could not be read.",
+                failed,
+            ),
+            &[&format::count(failed)],
+        ));
+    }
+    if stopped {
+        text.push(' ');
+        text.push_str(tr("Stopped."));
+    }
+    text
+}
+
 pub fn copied_folders(n: usize) -> String {
     fill(
         trn("Copied the folder path.", "Copied {} folder paths.", n),

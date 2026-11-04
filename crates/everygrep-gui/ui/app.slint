@@ -2068,6 +2068,9 @@ export component AppWindow inherits Window {
     callback select(int, int);
     // Actions on the selection, or on the given row when it is not selected.
     callback copy-names(int);
+    // Reads the size and date of the rows an action on the row applies
+    // to, where the index has none (Load file details).
+    callback read-extended(int);
     pure callback insert-search-part(string, int, int, int, int) -> SearchInsert;
     // The column under a point of a row: the widths of every column and
     // the x position in the row; -1 past the last one.
@@ -3626,6 +3629,7 @@ export component AppWindow inherits Window {
                 && (c != Command.rename || root.rename-row < 0);
         }
         if (c == Command.search-property-value) { return root.current >= 0 && root.value-available; }
+        if (c == Command.read-extended) { return root.current >= 0; }
         if (c == Command.copy-column-value || c == Command.copy-properties) { return root.current >= 0; }
         if (c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
                 || c == Command.copy-path-quoted || c == Command.copy-full-path-quoted
@@ -3696,6 +3700,8 @@ export component AppWindow inherits Window {
             root.paste-items(root.current);
         } else if (c == Command.copy-name) {
             root.copy-names(root.current);
+        } else if (c == Command.read-extended) {
+            root.read-extended(root.current);
         } else if (c == Command.copy-column-value) {
             root.copy-column-values(root.current, root.copy-column);
         } else if (c == Command.copy-properties) {
@@ -5526,6 +5532,7 @@ export component AppWindow inherits Window {
                                     activated => { root.run(Command.open); }
                                 }
                                 MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
+                                MenuItem { title: @tr("Load file details"); enabled: root.can-run(Command.read-extended); activated => { root.run(Command.read-extended); } }
                                 MenuItem {
                                     title: @tr("Open with…");
                                     enabled: root.can-run(Command.open-with);
@@ -6597,6 +6604,7 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.new-folder); }
             }
             MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
+            MenuItem { title: @tr("Load file details"); shortcut: root.menu-keys.read-extended; enabled: root.can-run(Command.read-extended); activated => { root.run(Command.read-extended); } }
             MenuItem {
                 title: @tr("Quit");
                 shortcut: root.menu-keys.quit;

@@ -4786,3 +4786,31 @@ msgstr "Axtarış sahəsinin üstündə Geri, İrəli, Yeni tab, Yenidən skan e
 
 msgid "Rescan"
 msgstr "Yenidən skan et"
+
+msgid "Load file details"
+msgstr "Genişləndirilmiş məlumatı oxu"
+
+msgid "Reading extended information: {}%"
+msgstr "Genişləndirilmiş məlumat oxunur: {}%"
+
+msgid "The index already has the size and date of these items."
+msgstr "İndeksdə bu elementlərin ölçüsü və tarixi artıq var."
+
+msgid "Read the information of {} item."
+msgid_plural "Read the information of {} items."
+msgstr[0] "{} elementin məlumatı oxundu."
+msgstr[1] "{} elementin məlumatı oxundu."
+
+msgid "{} item could not be read."
+msgid_plural "{} items could not be read."
+msgstr[0] "{} element oxuna bilmədi."
+msgstr[1] "{} element oxuna bilmədi."
+
+msgid "Stopped."
+msgstr "Dayandırıldı."
+
+msgid "Read missing sizes and dates of the rows on screen"
+msgstr "Ekrandakı sətirlərin çatışmayan ölçü və tarixlərini oxu"
+
+msgid "When the index holds names only, the rows shown read their size and date from disk, as Load file details does for the selected items. Off: only that command reads them."
+msgstr "İndeksdə yalnız adlar olanda görünən sətirlər ölçü və tarixlərini diskdən oxuyur, seçilmiş elementlər üçün \"Genişləndirilmiş məlumatı oxu\" etdiyi kimi. Söndürüləndə onları yalnız bu əmr oxuyur."

@@ -403,6 +403,9 @@ pub struct Settings {
     /// Whether the Name cell of a drive's root shows the drive's label,
     /// `Label (mount point)`.
     pub drive_root_labels: bool,
+    /// Whether rows on screen whose size or date the index lacks read them
+    /// from disk by themselves (Load file details).
+    pub read_extended_auto: bool,
     /// Whether typing in the result list moves to a name that starts with
     /// the typed text (see `jump.rs`).
     pub type_to_jump: bool,
@@ -519,6 +522,7 @@ impl Default for Settings {
             path_click_opens_folder: true,
             copy_full_path_quotes: false,
             drive_root_labels: true,
+            read_extended_auto: false,
             type_to_jump: true,
             export_format: crate::export::Format::Csv,
             export_protect_formulas: true,
@@ -849,6 +853,7 @@ impl Settings {
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
             "drive-root-labels" => put_flag(&mut self.drive_root_labels),
+            "load-file-details" => put_flag(&mut self.read_extended_auto),
             "type-to-jump" => put_flag(&mut self.type_to_jump),
             "export-protect-formulas" => put_flag(&mut self.export_protect_formulas),
             "export-format" => crate::export::Format::ALL
@@ -1615,6 +1620,12 @@ impl Settings {
             self.drive_root_labels,
             d.drive_root_labels,
         );
+        flag(
+            &mut out,
+            "load-file-details",
+            self.read_extended_auto,
+            d.read_extended_auto,
+        );
         flag(&mut out, "type-to-jump", self.type_to_jump, d.type_to_jump);
         flag(
             &mut out,
@@ -2053,6 +2064,7 @@ impl Settings {
                 self.path_click_opens_folder = d.path_click_opens_folder;
                 self.copy_full_path_quotes = d.copy_full_path_quotes;
                 self.drive_root_labels = d.drive_root_labels;
+                self.read_extended_auto = d.read_extended_auto;
                 self.type_to_jump = d.type_to_jump;
                 self.export_format = d.export_format;
                 self.export_protect_formulas = d.export_protect_formulas;
@@ -2863,6 +2875,7 @@ pub(crate) mod tests {
             path_click_opens_folder: false,
             copy_full_path_quotes: true,
             drive_root_labels: false,
+            read_extended_auto: true,
             type_to_jump: false,
             open_confirm_over: 0,
             focus_on_show: false,
@@ -2966,6 +2979,7 @@ pub(crate) mod tests {
         assert!(text.contains("rename-select-name-only = false\n"));
         assert!(text.contains("open-folder-on-path-double-click = false\n"));
         assert!(text.contains("copy-full-path-quotes = true\n"));
+        assert!(text.contains("load-file-details = true\n"));
         assert!(text.contains("confirm-open-over = 0\n"));
         assert_eq!(
             Settings::parse("confirm-open-over = 99999\n").open_confirm_over,

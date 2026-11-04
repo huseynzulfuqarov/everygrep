@@ -16,7 +16,7 @@ use std::ops::Range;
 
 use everygrep_core::query::{HighlightTerm, highlight_spans, merge_spans};
 use everygrep_core::sort::{FolderSize, Sort};
-use everygrep_core::store::NodeId;
+use everygrep_core::store::{Meta, NodeId};
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 
 use crate::engine::{Engine, IndexState, SearchResult, SettledSearch};
@@ -67,6 +67,11 @@ pub struct ResultsModel {
     sizes_known: Cell<bool>,
     /// Whether the status line describes the selected items.
     details: Cell<bool>,
+    /// Sizes and dates read from disk for entries the index has without
+    /// them (Load file details), with the id epoch they are for.
+    extended: RefCell<(u64, HashMap<NodeId, Meta>)>,
+    /// Whether rows on screen without them are read by themselves.
+    extended_auto: Cell<bool>,
     /// Which of the columns read from the file system are shown.
     detail_columns: Cell<DetailColumns>,
     /// Details read for rows that were on screen, until the next result.
@@ -126,9 +131,27 @@ struct DetailRequest {
     name: Vec<u8>,
 }
 
-/// Details a [`DetailReader`] read, for [`ResultsModel::take_details`].
+/// Details a [`DetailReader`] read, for [`ResultsModel::take_details`],
+/// with the size and date read at the same time.
 pub struct DetailBatch {
-    found: Vec<(u64, usize, NodeId, Details)>,
+    found: Vec<(u64, usize, NodeId, Details, Option<Meta>)>,
+}
+
+/// Sizes and dates read from disk that are kept at most.
+const MAX_EXTENDED: usize = 100_000;
+
+/// Whether the index has an entry without its modification time, or a file
+/// without its size (an index of names only).
+pub fn needs_extended(meta: Meta, sizes_known: bool, is_dir: bool) -> bool {
+    meta.mtime_ns == 0 || (!sizes_known && !is_dir)
+}
+
+/// The size and date of the entry at `path`, without following a link;
+/// `None` when it cannot be read (gone, no permission).
+pub fn read_meta(path: &Path) -> Option<Meta> {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .map(|m| Meta::from_metadata(&m))
 }
 
 /// At most this many rows are read before what was read is passed on.
@@ -148,7 +171,8 @@ impl DetailReader {
                     let mut found = Vec::new();
                     for r in std::iter::once(first).chain(asked.try_iter().take(DETAIL_BATCH - 1)) {
                         if r.list == list.load(Ordering::SeqCst) {
-                            found.push((r.list, r.row, r.id, read_details(&r.path, &r.name)));
+                            let (details, meta) = read_details(&r.path, &r.name);
+                            found.push((r.list, r.row, r.id, details, meta));
                         }
                     }
                     if !found.is_empty() {
@@ -160,8 +184,9 @@ impl DetailReader {
     }
 }
 
-/// The details of the entry at `path` (named `name`).
-fn read_details(path: &Path, name: &[u8]) -> Details {
+/// The details of the entry at `path` (named `name`), and its size and
+/// date.
+fn read_details(path: &Path, name: &[u8]) -> (Details, Option<Meta>) {
     #[cfg(test)]
     if tests::SLOW_DETAILS
         .lock()
@@ -171,7 +196,13 @@ fn read_details(path: &Path, name: &[u8]) -> Details {
     {
         std::thread::sleep(Duration::from_secs(1));
     }
-    Details::read(path, name)
+    match std::fs::symlink_metadata(path) {
+        Ok(m) => (
+            Details::from_metadata(name, &m),
+            Some(Meta::from_metadata(&m)),
+        ),
+        Err(_) => (Details::default(), None),
+    }
 }
 
 /// Frozen rows and selection for a background tab. Node ids are shared, not copied.
@@ -269,6 +300,8 @@ impl ResultsModel {
             folder_size: Cell::new(FolderSize::default()),
             sizes_known: Cell::new(true),
             details: Cell::new(true),
+            extended: RefCell::new((0, HashMap::new())),
+            extended_auto: Cell::new(false),
             detail_columns: Cell::new(DetailColumns::default()),
             detail_cache: RefCell::new(HashMap::new()),
             detail_reader: RefCell::new(None),
@@ -393,6 +426,7 @@ impl ResultsModel {
     /// Applies row behaviour shared by local changes and settings reloads.
     pub fn apply_behaviour(&self, settings: &crate::settings::Settings) {
         self.set_clear_on_search(settings.clear_selection_on_search);
+        self.set_extended_auto(settings.read_extended_auto);
         self.set_show_root_labels(settings.drive_root_labels);
     }
 
@@ -577,6 +611,79 @@ impl ResultsModel {
         }
     }
 
+    pub fn engine(&self) -> Arc<Engine> {
+        Arc::clone(&self.engine)
+    }
+
+    /// What Load file details read for `id`, while the ids still
+    /// mean what they meant then.
+    fn extended_of(&self, id: NodeId) -> Option<Meta> {
+        let extended = self.extended.borrow();
+        (extended.0 == self.epoch.get())
+            .then(|| extended.1.get(&id).copied())
+            .flatten()
+    }
+
+    /// Shows sizes and dates read from disk for ids of `epoch` in their
+    /// rows.
+    pub fn take_extended(&self, epoch: u64, found: Vec<(NodeId, Meta)>) {
+        if epoch != self.epoch.get() {
+            return;
+        }
+        {
+            let mut extended = self.extended.borrow_mut();
+            if extended.0 != epoch {
+                *extended = (epoch, HashMap::new());
+            }
+            if extended.1.len() + found.len() > MAX_EXTENDED {
+                extended.1.clear();
+            }
+            extended.1.extend(found.iter().copied());
+        }
+        let ids = self.ids.borrow();
+        let wanted: HashSet<NodeId> = found.into_iter().map(|(id, _)| id).collect();
+        for (row, id) in ids.iter().enumerate() {
+            if wanted.contains(id) {
+                self.notify.row_changed(row);
+            }
+        }
+    }
+
+    /// Whether rows on screen without size or date read them by themselves.
+    pub fn set_extended_auto(&self, on: bool) {
+        if self.extended_auto.replace(on) != on && on {
+            self.forget_details();
+            self.notify.reset();
+        }
+    }
+
+    /// The entries among `rows` that the index has without size or date
+    /// and that were not read yet, with their paths and the id epoch;
+    /// entries of drives that are not connected are left out.
+    pub fn extended_wanted(&self, rows: &[usize]) -> (u64, Vec<(NodeId, PathBuf)>) {
+        let epoch = self.epoch.get();
+        let Ok(index) = self.engine.index.read() else {
+            return (epoch, Vec::new());
+        };
+        if self.engine.epoch() != epoch {
+            return (epoch, Vec::new());
+        }
+        let store = index.store();
+        let ids = self.ids.borrow();
+        let wanted = rows
+            .iter()
+            .filter_map(|&r| ids.get(r).copied())
+            .filter(|&id| id.index() < store.len() && store.is_live(id))
+            .filter(|&id| {
+                needs_extended(store.meta(id), self.sizes_known.get(), store.is_dir(id))
+                    && !index.is_offline(id)
+                    && self.extended_of(id).is_none()
+            })
+            .map(|id| (id, store.path(id)))
+            .collect();
+        (epoch, wanted)
+    }
+
     /// Reads the details of rows with `reader` from now on.
     pub fn read_details_with(&self, reader: DetailReader) {
         self.forget_details();
@@ -630,7 +737,7 @@ impl ResultsModel {
             }
             return Details::default();
         }
-        let d = read_details(&store.path(id), store.name(id));
+        let (d, _) = read_details(&store.path(id), store.name(id));
         self.cache_details(id, d);
         d
     }
@@ -642,9 +749,17 @@ impl ResultsModel {
             Some(reader) => reader.current.load(Ordering::SeqCst),
             None => return,
         };
-        for (list, row, id, d) in batch.found {
+        let epoch = self.epoch.get();
+        for (list, row, id, d, meta) in batch.found {
             if list != current || !self.detail_pending.borrow_mut().remove(&id) {
                 continue;
+            }
+            if let Some(meta) = meta.filter(|_| self.extended_auto.get()) {
+                let mut extended = self.extended.borrow_mut();
+                if extended.0 != epoch || extended.1.len() >= MAX_EXTENDED {
+                    *extended = (epoch, HashMap::new());
+                }
+                extended.1.insert(id, meta);
             }
             self.cache_details(id, d);
             if self.ids.borrow().get(row) == Some(&id) {
@@ -1253,8 +1368,22 @@ impl Model for ResultsModel {
             // The index changed since this list was made; a fresh one is on its way.
             return Some(ResultRow::default());
         }
-        let meta = store.meta(id);
+        let mut meta = store.meta(id);
         let is_dir = store.is_dir(id);
+        let mut sizes_known = self.sizes_known.get();
+        let incomplete = needs_extended(meta, sizes_known, is_dir) && !index.is_offline(id);
+        let read = if incomplete {
+            self.extended_of(id)
+        } else {
+            None
+        };
+        if let Some(read) = read {
+            meta.mtime_ns = read.mtime_ns;
+            if !is_dir {
+                meta.size = read.size;
+                sizes_known = true;
+            }
+        }
         let now = self.now_ns.get();
         let raw_name = store.name(id);
         let kind = filetype::classify(raw_name, is_dir);
@@ -1277,7 +1406,10 @@ impl Model for ResultsModel {
             .map(|p| self.folder_cell(p, &folder_spans))
             .unwrap_or_default();
         let columns = self.detail_columns.get();
-        let details = if columns.any() {
+        // Load file details by itself (Settings) asks the row's
+        // reader for what the index lacks, with the other details.
+        let auto = incomplete && read.is_none() && self.extended_auto.get();
+        let details = if columns.any() || auto {
             self.details_of(&index, id, row)
         } else {
             Details::default()
@@ -1314,7 +1446,7 @@ impl Model for ResultsModel {
                 meta.size,
                 store.items(id),
                 self.folder_size.get(),
-                self.sizes_known.get(),
+                sizes_known,
             )
             .into(),
             modified: format::date(meta.mtime_ns, now, &self.zone).into(),
@@ -1559,6 +1691,47 @@ mod fit_tests {
 pub(crate) mod tests {
     use super::*;
     use everygrep_core::query::{Query, QueryOptions};
+
+    #[test]
+    fn rows_without_size_or_date_need_extended_information() {
+        let known = Meta {
+            size: 5,
+            mtime_ns: 1,
+        };
+        let no_date = Meta {
+            size: 5,
+            mtime_ns: 0,
+        };
+        assert!(!needs_extended(known, true, false));
+        assert!(needs_extended(no_date, true, false));
+        assert!(needs_extended(no_date, true, true));
+        // An index of names only: files lack their size, folders keep the
+        // total of what is below them.
+        assert!(needs_extended(known, false, false));
+        assert!(!needs_extended(known, false, true));
+    }
+
+    #[test]
+    fn reading_extended_information_never_follows_links_or_fails_loudly() {
+        let dir = std::env::temp_dir().join(format!("eg-extended-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("five.txt");
+        std::fs::write(&file, "12345").unwrap();
+        let link = dir.join("link");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        let meta = read_meta(&file).unwrap();
+        assert_eq!(meta.size, 5);
+        assert!(meta.mtime_ns > 0);
+        let link_meta = read_meta(&link).unwrap();
+        assert_eq!(
+            link_meta.size,
+            file.as_os_str().len() as u64,
+            "the link itself"
+        );
+        assert_eq!(read_meta(&dir.join("gone")), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_drive_root_shows_its_label_with_the_matches_moved() {
