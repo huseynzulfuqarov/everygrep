@@ -362,6 +362,43 @@ fn text_line(out: &mut impl Write, text: &[u8]) -> io::Result<()> {
     out.write_all(&text[start..])
 }
 
+/// One cell of tab-separated text on the clipboard: escaped as in a TSV
+/// export (`\\`, `\n`, `\r`, `\t`), so each row stays one line, with a
+/// `'` in front of a text a spreadsheet would read as a formula when
+/// `protect` is on.
+pub fn tsv_cell(text: &str, protect: bool) -> String {
+    let mut out = Vec::with_capacity(text.len() + 1);
+    out.extend_from_slice(formula_prefix(text.as_bytes(), protect));
+    // Writing into a Vec cannot fail.
+    let _ = text_line(&mut out, text.as_bytes());
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// A header row and the rows below it as tab-separated text, one line per
+/// row, each line ending with `\n`.
+pub fn tsv_table(header: &[String], rows: &[Vec<String>], protect: bool) -> String {
+    let mut out = String::new();
+    for row in std::iter::once(header).chain(rows.iter().map(Vec::as_slice)) {
+        let cells: Vec<String> = row.iter().map(|c| tsv_cell(c, protect)).collect();
+        out.push_str(&cells.join("\t"));
+        out.push('\n');
+    }
+    out
+}
+
+/// The values of one column for the clipboard: one value as it is, several
+/// one per line, escaped as [`tsv_cell`] without the formula mark.
+pub fn column_lines(values: &[String]) -> String {
+    match values {
+        [one] => one.clone(),
+        many => many
+            .iter()
+            .map(|v| tsv_cell(v, false))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
 /// Spreadsheet protection is applied to original bytes before escaping.
 fn formula_prefix(text: &[u8], protect: bool) -> &'static [u8] {
     if protect && text.first().is_some_and(|b| b"=+-@\t\r".contains(b)) {
@@ -410,6 +447,38 @@ fn local_time(mtime_ns: i64, zone: &Zone) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_tsv_keeps_every_row_on_one_line() {
+        let header = vec!["Name".to_owned(), "Folder".to_owned()];
+        let rows = vec![
+            vec!["a\tb.txt".to_owned(), "/x\\y".to_owned()],
+            vec!["line\nbreak\r".to_owned(), String::new()],
+            vec!["=SUM(A1)".to_owned(), "+1".to_owned()],
+        ];
+        assert_eq!(
+            tsv_table(&header, &rows, true),
+            "Name\tFolder\na\\tb.txt\t/x\\\\y\nline\\nbreak\\r\t\n'=SUM(A1)\t'+1\n"
+        );
+        assert_eq!(
+            tsv_table(&header, &rows[2..], false),
+            "Name\tFolder\n=SUM(A1)\t+1\n"
+        );
+        assert_eq!(tsv_table(&header, &[], true), "Name\tFolder\n");
+        // A tab at the start is both marked and escaped.
+        assert_eq!(tsv_cell("\tx", true), "'\\tx");
+        assert_eq!(tsv_cell("Şəkil ünü.png", true), "Şəkil ünü.png");
+    }
+
+    #[test]
+    fn one_column_value_is_copied_as_it_is_several_one_per_line() {
+        assert_eq!(column_lines(&["a\nb".to_owned()]), "a\nb");
+        assert_eq!(
+            column_lines(&["a\nb".to_owned(), "c".to_owned()]),
+            "a\\nb\nc"
+        );
+        assert_eq!(column_lines(&[]), "");
+    }
     use crate::settings::tests::Scratch;
 
     fn utc() -> Zone {

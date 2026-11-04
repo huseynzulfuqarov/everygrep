@@ -1336,6 +1336,57 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             }
         }
     });
+    window.on_column_at_x(|widths, x| {
+        let widths: Vec<f32> = widths.iter().collect();
+        columns::column_at(&widths, x)
+    });
+    window.on_copy_column_values({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r, column| {
+            let rows = model.picked_rows(row(r));
+            let Some(w) = weak.upgrade() else { return };
+            if rows.is_empty() {
+                return;
+            }
+            let values: Vec<String> = model
+                .cell_texts(&rows, &[column])
+                .into_iter()
+                .filter_map(|mut cells| cells.pop())
+                .collect();
+            w.invoke_copy_text(export::column_lines(&values).into());
+            info(&w, labels::copied_values(values.len()));
+        }
+    });
+    window.on_copy_properties({
+        let (weak, model) = (weak.clone(), model.clone());
+        move |r, shown, titles| {
+            let rows = model.picked_rows(row(r));
+            let Some(w) = weak.upgrade() else { return };
+            if rows.is_empty() {
+                return;
+            }
+            let columns: Vec<i32> = shown
+                .iter()
+                .enumerate()
+                .filter(|(_, on)| *on)
+                .map(|(c, _)| c as i32)
+                .collect();
+            let header: Vec<String> = columns
+                .iter()
+                .map(|&c| {
+                    titles
+                        .row_data(c as usize)
+                        .map(|t| t.to_string())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let cells = model.cell_texts(&rows, &columns);
+            let mut protect = true;
+            prefs::with(|p| protect = p.export_protect_formulas());
+            w.invoke_copy_text(export::tsv_table(&header, &cells, protect).into());
+            info(&w, labels::copied_rows(cells.len()));
+        }
+    });
     window.on_copy_paths({
         let (weak, model) = (weak.clone(), model.clone());
         move |r, quoted| {

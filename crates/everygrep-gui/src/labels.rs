@@ -951,6 +951,23 @@ pub fn copied_paths(n: usize) -> String {
     )
 }
 
+pub fn copied_values(n: usize) -> String {
+    fill(
+        trn("Copied the value.", "Copied {} values.", n),
+        &[&format::count(n)],
+    )
+}
+
+pub fn copied_rows(n: usize) -> String {
+    fill(
+        trn(
+            "Copied the properties of 1 item.",
+            "Copied the properties of {} items.",
+            n,
+        ),
+        &[&format::count(n)],
+    )
+}
 pub fn copied_folders(n: usize) -> String {
     fill(
         trn("Copied the folder path.", "Copied {} folder paths.", n),

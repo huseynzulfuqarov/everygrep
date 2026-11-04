@@ -1945,6 +1945,17 @@ export component AppWindow inherits Window {
     callback select(int, int);
     // Actions on the selection, or on the given row when it is not selected.
     callback copy-names(int);
+    // The column under a point of a row: the widths of every column and
+    // the x position in the row; -1 past the last one.
+    pure callback column-at-x([length], length) -> int;
+    // Copies the texts of a column (numbered as sort-column) of the rows an
+    // action on the row applies to.
+    callback copy-column-values(int, int);
+    // Copies the shown columns of those rows as tab-separated text with a
+    // header line: the row, whether each column is shown, their titles.
+    callback copy-properties(int, [bool], [string]);
+    // The column last right-clicked in a row (Name before any).
+    property <int> copy-column: 0;
     // The full paths; with true each in double quotes (otherwise as the
     // "Copy full path adds quotes" setting says).
     callback copy-paths(int, bool);
@@ -2536,6 +2547,17 @@ export component AppWindow inherits Window {
         if (c == 56) { return root.dupe-group-width; }
         return c == 3 ? root.date-width : c == 4 ? root.type-width : c == 5 ? root.ext-width
             : c == 6 ? root.created-width : c == 7 ? root.accessed-width : c == 8 ? root.attr-width : c == 9 ? root.md5-width : c == 10 ? root.sha256-width : c == 11 ? root.crc32-width : c == 12 ? root.name-freq-width : c == 13 ? root.ext-freq-width : root.size-freq-width;
+    }
+    // Every column's width, whether it is shown and its title, numbered as
+    // sort-column (for Copy column value and Copy all properties).
+    function all-col-widths() -> [length] {
+        return [root.name-width, root.folder-width, root.size-width, root.col-width(3), root.col-width(4), root.col-width(5), root.col-width(6), root.col-width(7), root.col-width(8), root.col-width(9), root.col-width(10), root.col-width(11), root.col-width(12), root.col-width(13), root.col-width(14), root.col-width(15), root.col-width(16), root.col-width(17), root.col-width(18), root.col-width(19), root.col-width(20), root.col-width(21), root.col-width(22), root.col-width(23), root.col-width(24), root.col-width(25), root.col-width(26), root.col-width(27), root.col-width(28), root.col-width(29), root.col-width(30), root.col-width(31), root.col-width(32), root.col-width(33), root.col-width(34), root.col-width(35), root.col-width(36), root.col-width(37), root.col-width(38), root.col-width(39), root.col-width(40), root.col-width(41), root.col-width(42), root.col-width(43), root.col-width(44), root.col-width(45), root.col-width(46), root.col-width(47), root.col-width(48), root.col-width(49), root.col-width(50), root.col-width(51), root.col-width(52), root.col-width(53), root.col-width(54), root.col-width(55), root.col-width(56)];
+    }
+    function all-col-shown() -> [bool] {
+        return [root.col-shown(0), root.col-shown(1), root.col-shown(2), root.col-shown(3), root.col-shown(4), root.col-shown(5), root.col-shown(6), root.col-shown(7), root.col-shown(8), root.col-shown(9), root.col-shown(10), root.col-shown(11), root.col-shown(12), root.col-shown(13), root.col-shown(14), root.col-shown(15), root.col-shown(16), root.col-shown(17), root.col-shown(18), root.col-shown(19), root.col-shown(20), root.col-shown(21), root.col-shown(22), root.col-shown(23), root.col-shown(24), root.col-shown(25), root.col-shown(26), root.col-shown(27), root.col-shown(28), root.col-shown(29), root.col-shown(30), root.col-shown(31), root.col-shown(32), root.col-shown(33), root.col-shown(34), root.col-shown(35), root.col-shown(36), root.col-shown(37), root.col-shown(38), root.col-shown(39), root.col-shown(40), root.col-shown(41), root.col-shown(42), root.col-shown(43), root.col-shown(44), root.col-shown(45), root.col-shown(46), root.col-shown(47), root.col-shown(48), root.col-shown(49), root.col-shown(50), root.col-shown(51), root.col-shown(52), root.col-shown(53), root.col-shown(54), root.col-shown(55), root.col-shown(56)];
+    }
+    function all-col-labels() -> [string] {
+        return [root.col-label(0), root.col-label(1), root.col-label(2), root.col-label(3), root.col-label(4), root.col-label(5), root.col-label(6), root.col-label(7), root.col-label(8), root.col-label(9), root.col-label(10), root.col-label(11), root.col-label(12), root.col-label(13), root.col-label(14), root.col-label(15), root.col-label(16), root.col-label(17), root.col-label(18), root.col-label(19), root.col-label(20), root.col-label(21), root.col-label(22), root.col-label(23), root.col-label(24), root.col-label(25), root.col-label(26), root.col-label(27), root.col-label(28), root.col-label(29), root.col-label(30), root.col-label(31), root.col-label(32), root.col-label(33), root.col-label(34), root.col-label(35), root.col-label(36), root.col-label(37), root.col-label(38), root.col-label(39), root.col-label(40), root.col-label(41), root.col-label(42), root.col-label(43), root.col-label(44), root.col-label(45), root.col-label(46), root.col-label(47), root.col-label(48), root.col-label(49), root.col-label(50), root.col-label(51), root.col-label(52), root.col-label(53), root.col-label(54), root.col-label(55), root.col-label(56)];
     }
     function col-min(c: int) -> length {
         if (c == 15) { return root.full-path-min; }
@@ -3480,6 +3502,7 @@ export component AppWindow inherits Window {
                 && (c != Command.rename || root.rename-row < 0);
         }
         if (c == Command.search-property-value) { return root.current >= 0 && root.value-available; }
+        if (c == Command.copy-column-value || c == Command.copy-properties) { return root.current >= 0; }
         if (c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
                 || c == Command.copy-path-quoted || c == Command.copy-full-path-quoted
                 || c == Command.search-in-program || c == Command.search-containing-folder
@@ -3549,6 +3572,10 @@ export component AppWindow inherits Window {
             root.paste-items(root.current);
         } else if (c == Command.copy-name) {
             root.copy-names(root.current);
+        } else if (c == Command.copy-column-value) {
+            root.copy-column-values(root.current, root.copy-column);
+        } else if (c == Command.copy-properties) {
+            root.copy-properties(root.current, root.all-col-shown(), root.all-col-labels());
         } else if (c == Command.copy-path) {
             root.copy-folders(root.current, false);
         } else if (c == Command.copy-full-path) {
@@ -4087,6 +4114,7 @@ export component AppWindow inherits Window {
         if (root.current >= 0) {
             root.value-column = 0;
             root.value-available = root.fileops-prepare-value(root.current, 0);
+            root.copy-column = 0;
             menu-area.show({
                 x: Theme.s3 + Theme.icon,
                 y: (root.current + 1) * Theme.row-height + list.content-y,
@@ -5428,6 +5456,17 @@ export component AppWindow inherits Window {
                                         enabled: root.can-run(Command.copy-full-path-quoted);
                                         activated => { root.run(Command.copy-full-path-quoted); }
                                     }
+                                    MenuSeparator { }
+                                    MenuItem {
+                                        title: @tr("Copy “{}”", root.col-label(root.copy-column));
+                                        enabled: root.can-run(Command.copy-column-value);
+                                        activated => { root.run(Command.copy-column-value); }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Copy all properties (TSV)");
+                                        enabled: root.can-run(Command.copy-properties);
+                                        activated => { root.run(Command.copy-properties); }
+                                    }
                                 }
                                 MenuSeparator { }
                                 MenuItem {
@@ -5619,6 +5658,7 @@ export component AppWindow inherits Window {
                                     root.hash-value = column == 9 ? row.md5 : column == 10 ? row.sha256 : column == 11 ? row.crc32 : column == 52 ? row.sha1 : column == 53 ? row.sha384 : column == 54 ? row.sha512 : column == 55 ? row.xxhash : "";
                                     root.value-column = column;
                                     root.value-available = root.fileops-prepare-value(i, column);
+                                    root.copy-column = max(0, root.column-at-x(root.all-col-widths(), x));
                                     keys.focus();
                                     if (!root.is-selected(i)) { root.select(i, 0); }
                                     menu-area.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });
@@ -6461,6 +6501,18 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.copy-full-path-quoted;
                 enabled: root.can-run(Command.copy-full-path-quoted);
                 activated => { root.run(Command.copy-full-path-quoted); }
+            }
+            MenuItem {
+                title: @tr("Copy column value");
+                shortcut: root.menu-keys.copy-column-value;
+                enabled: root.can-run(Command.copy-column-value);
+                activated => { root.run(Command.copy-column-value); }
+            }
+            MenuItem {
+                title: @tr("Copy all properties (TSV)");
+                shortcut: root.menu-keys.copy-properties;
+                enabled: root.can-run(Command.copy-properties);
+                activated => { root.run(Command.copy-properties); }
             }
             MenuSeparator { }
             MenuItem {

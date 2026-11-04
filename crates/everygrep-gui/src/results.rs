@@ -1030,37 +1030,64 @@ impl ResultsModel {
         let end = rows.end.min(self.row_count());
         (rows.start.min(end)..end)
             .filter_map(|r| self.row_data(r))
-            .map(|d| match column {
-                0 => plain(&d.name),
-                1 => plain(&d.folder),
-                2 => d.size.into(),
-                3 => d.modified.into(),
-                4 => d.type_name.into(),
-                5 => d.extension.into(),
-                6 => d.created.into(),
-                7 => d.accessed.into(),
-                8 => d.attributes.into(),
-                9 => d.md5.into(),
-                10 => d.sha256.into(),
-                11 => d.crc32.into(),
-                12 => d.name_freq.into(),
-                13 => d.ext_freq.into(),
-                14 => d.size_freq.into(),
-                52 => d.sha1.into(),
-                53 => d.sha384.into(),
-                54 => d.sha512.into(),
-                55 => d.xxhash.into(),
-                56 => d.dupe_group.into(),
-
-                c => d
-                    .properties
-                    .row_data((c - 15) as usize)
-                    .unwrap_or_default()
-                    .into(),
-            })
+            .map(|d| cell_text(&d, column))
             .collect()
     }
 
+    /// The rows an action on `row` applies to (see [`targets`](Self::targets)),
+    /// in the order shown.
+    pub fn picked_rows(&self, row: Option<usize>) -> Vec<usize> {
+        let picked: HashSet<NodeId> = self.picked(row).into_iter().collect();
+        self.ids
+            .borrow()
+            .iter()
+            .enumerate()
+            .filter(|(_, id)| picked.contains(id))
+            .map(|(r, _)| r)
+            .collect()
+    }
+
+    /// The texts of `columns` in each of `rows`, as the list shows them.
+    pub fn cell_texts(&self, rows: &[usize], columns: &[i32]) -> Vec<Vec<String>> {
+        rows.iter()
+            .filter_map(|&r| self.row_data(r))
+            .map(|d| columns.iter().map(|&c| cell_text(&d, c)).collect())
+            .collect()
+    }
+}
+
+/// The text of `column` in a row, as the list shows it.
+fn cell_text(d: &ResultRow, column: i32) -> String {
+    match column {
+        0 => plain(&d.name),
+        1 => plain(&d.folder),
+        2 => d.size.to_string(),
+        3 => d.modified.to_string(),
+        4 => d.type_name.to_string(),
+        5 => d.extension.to_string(),
+        6 => d.created.to_string(),
+        7 => d.accessed.to_string(),
+        8 => d.attributes.to_string(),
+        9 => d.md5.to_string(),
+        10 => d.sha256.to_string(),
+        11 => d.crc32.to_string(),
+        12 => d.name_freq.to_string(),
+        13 => d.ext_freq.to_string(),
+        14 => d.size_freq.to_string(),
+        52 => d.sha1.to_string(),
+        53 => d.sha384.to_string(),
+        54 => d.sha512.to_string(),
+        55 => d.xxhash.to_string(),
+        56 => d.dupe_group.to_string(),
+        c => d
+            .properties
+            .row_data((c - 15) as usize)
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
+impl ResultsModel {
     /// Whether the status line describes the selected items.
     pub fn set_details(&self, on: bool) {
         self.details.set(on);

@@ -175,9 +175,38 @@ pub fn filter_choices(
     slint::ModelRc::new(slint::VecModel::from(shown))
 }
 
+/// The column (numbered as the window's sort column) at `x` in a row, from
+/// the width of every column in order (0 for a hidden one); -1 left of the
+/// first or past the last.
+pub fn column_at(widths: &[f32], x: f32) -> i32 {
+    if x < 0.0 {
+        return -1;
+    }
+    let mut right = 0.0;
+    for (c, w) in widths.iter().enumerate() {
+        right += w.max(0.0);
+        if x < right {
+            return c as i32;
+        }
+    }
+    -1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_column_under_a_point_skips_hidden_columns() {
+        let widths = [100.0, 200.0, 0.0, 50.0];
+        assert_eq!(column_at(&widths, 0.0), 0);
+        assert_eq!(column_at(&widths, 99.9), 0);
+        assert_eq!(column_at(&widths, 100.0), 1);
+        assert_eq!(column_at(&widths, 300.0), 3, "the hidden one is skipped");
+        assert_eq!(column_at(&widths, 350.0), -1);
+        assert_eq!(column_at(&widths, -1.0), -1);
+        assert_eq!(column_at(&[], 5.0), -1);
+    }
 
     #[test]
     fn the_column_search_matches_parts_of_titles() {

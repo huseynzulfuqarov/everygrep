@@ -4617,3 +4617,22 @@ msgstr[1] "{} yer imi açılsın mı?"
 
 msgid "Each one opens in a new tab."
 msgstr "Her biri yeni bir sekmede açılır."
+
+msgid "Copy column value"
+msgstr "Sütun değerini kopyala"
+
+msgid "Copy all properties (TSV)"
+msgstr "Tüm özellikleri kopyala (TSV)"
+
+msgid "Copy “{}”"
+msgstr "“{}” kopyala"
+
+msgid "Copied the value."
+msgid_plural "Copied {} values."
+msgstr[0] "Değer kopyalandı."
+msgstr[1] "{} değer kopyalandı."
+
+msgid "Copied the properties of 1 item."
+msgid_plural "Copied the properties of {} items."
+msgstr[0] "1 öğenin özellikleri kopyalandı."
+msgstr[1] "{} öğenin özellikleri kopyalandı."
