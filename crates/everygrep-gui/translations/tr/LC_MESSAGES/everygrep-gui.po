@@ -4597,3 +4597,23 @@ msgstr[1] "(ve {} diğer sekme)"
 
 msgid "Find Filter…"
 msgstr "Filtre bul…"
+
+msgid "Open all bookmarks"
+msgstr "Tüm yer imlerini aç"
+
+msgid "Append to search"
+msgstr "Aramaya ekle"
+
+msgid "Open all in tabs"
+msgstr "Tümünü sekmelerde aç"
+
+msgid "No bookmarks to open."
+msgstr "Açılacak yer imi yok."
+
+msgid "Open {} bookmark?"
+msgid_plural "Open {} bookmarks?"
+msgstr[0] "{} yer imi açılsın mı?"
+msgstr[1] "{} yer imi açılsın mı?"
+
+msgid "Each one opens in a new tab."
+msgstr "Her biri yeni bir sekmede açılır."

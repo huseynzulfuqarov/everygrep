@@ -4597,3 +4597,23 @@ msgstr[1] "(və daha {} tab)"
 
 msgid "Find Filter…"
 msgstr "Filtr tap…"
+
+msgid "Open all bookmarks"
+msgstr "Bütün bookmarkları aç"
+
+msgid "Append to search"
+msgstr "Axtarışa əlavə et"
+
+msgid "Open all in tabs"
+msgstr "Hamısını tablarda aç"
+
+msgid "No bookmarks to open."
+msgstr "Açılacaq bookmark yoxdur."
+
+msgid "Open {} bookmark?"
+msgid_plural "Open {} bookmarks?"
+msgstr[0] "{} bookmark açılsın?"
+msgstr[1] "{} bookmark açılsın?"
+
+msgid "Each one opens in a new tab."
+msgstr "Hər biri yeni tabda açılır."

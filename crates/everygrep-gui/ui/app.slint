@@ -3448,6 +3448,10 @@ export component AppWindow inherits Window {
     in property <[MenuEntry]> bookmark-items;
     in property <bool> more-bookmarks;
     callback open-bookmark(int);
+    callback append-bookmark(int);
+    // Opens the bookmarks whose name or search holds the text (all for an
+    // empty one) in new tabs, asking first when there are many.
+    callback open-all-bookmarks(string);
     callback saved-key(string, bool, bool, bool, bool) -> bool;
     callback advanced-search();
     callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
@@ -3808,6 +3812,7 @@ export component AppWindow inherits Window {
         } else if (c == Command.organize-bookmarks) { root.organize-bookmarks();
         } else if (c == Command.find-bookmark) { root.find-bookmark();
         } else if (c == Command.find-filter) { root.find-filter();
+        } else if (c == Command.open-all-bookmarks) { root.open-all-bookmarks("");
         } else if (c == Command.copy-search) { root.copy-text(root.query);
         } else if (c == Command.advanced-search) { root.advanced-search();
         } else if (c == Command.settings) {
@@ -6891,6 +6896,14 @@ export component AppWindow inherits Window {
             MenuItem { title: @tr("Manage bookmarks…"); shortcut: root.menu-keys.organize-bookmarks; activated => { root.run(Command.organize-bookmarks); } }
             MenuItem { title: @tr("Find Bookmark…"); shortcut: root.menu-keys.find-bookmark; activated => { root.run(Command.find-bookmark); } }
             MenuItem { title: @tr("Copy Search"); shortcut: root.menu-keys.copy-search; activated => { root.run(Command.copy-search); } }
+            MenuItem { title: @tr("Open all bookmarks"); shortcut: root.menu-keys.open-all-bookmarks; enabled: root.bookmark-items.length > 0; activated => { root.run(Command.open-all-bookmarks); } }
+            if root.bookmark-items.length > 0: Menu {
+                title: @tr("Append to search");
+                for item in root.bookmark-items: MenuItem {
+                    title: item.title;
+                    activated => { root.append-bookmark(item.index); }
+                }
+            }
             if root.bookmark-items.length > 0: MenuSeparator { }
             for item in root.bookmark-items: MenuItem {
                 title: item.title;

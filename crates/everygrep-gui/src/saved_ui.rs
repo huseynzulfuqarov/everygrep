@@ -112,6 +112,16 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
             }
         });
     });
+    w.on_append_bookmark(|i| {
+        with(|s| {
+            let entry = usize::try_from(i)
+                .ok()
+                .and_then(|i| s.library.borrow().bookmarks.get(i).cloned());
+            if let Some(entry) = entry {
+                s.append(&entry);
+            }
+        });
+    });
     w.on_open_bookmark(|i| {
         with(|s| {
             let entry = usize::try_from(i)
@@ -512,6 +522,35 @@ impl State {
                         {
                             main.invoke_copy_text(b.search.as_str().into());
                         }
+                    }
+                });
+            });
+            w.on_append_entry(|| {
+                with(|s| {
+                    if let Some(id) = s.current_id() {
+                        let entry = s
+                            .library
+                            .borrow()
+                            .bookmarks
+                            .iter()
+                            .find(|b| b.id == id)
+                            .cloned();
+                        if let Some(b) = entry {
+                            s.append(&b);
+                        }
+                    }
+                });
+            });
+            w.on_open_all_entries(|| {
+                with(|s| {
+                    let needle = s
+                        .window
+                        .borrow()
+                        .as_ref()
+                        .map(|w| w.get_find_text())
+                        .unwrap_or_default();
+                    if let Some(main) = s.main.upgrade() {
+                        main.invoke_open_all_bookmarks(needle);
                     }
                 });
             });
@@ -928,6 +967,18 @@ impl State {
         crate::search_now(&w, &self.engine);
         w.invoke_focus_search();
     }
+    /// Adds the bookmark's search to the search field as one more
+    /// condition and searches; the window's options and filter stay.
+    fn append(&self, b: &Bookmark) {
+        let Some(w) = self.main.upgrade() else { return };
+        w.invoke_history_record();
+        let text = saved_searches::append_search(&w.get_query(), &b.search, w.get_and_before_or());
+        w.set_query(text.as_str().into());
+        w.invoke_place_search_caret(i32::try_from(text.len()).unwrap_or(i32::MAX));
+        crate::typing::with(|t| t.searched());
+        crate::search_now(&w, &self.engine);
+        w.invoke_focus_search();
+    }
     fn message(&self, text: String, error: bool) {
         if let Some(w) = self.window.borrow().as_ref() {
             w.set_notice(text.clone().into());
@@ -1091,6 +1142,21 @@ mod find_tests {
         assert!(super::bookmark_matches("Photos", "ext:png", ""));
         assert!(!super::bookmark_matches("Photos", "ext:png", "pdf"));
     }
+}
+
+/// The bookmarks whose name or search holds `needle` (all for an empty
+/// one), in their order.
+pub fn bookmarks_matching(needle: &str) -> Vec<Bookmark> {
+    with(|s| {
+        s.library
+            .borrow()
+            .bookmarks
+            .iter()
+            .filter(|b| bookmark_matches(&b.name, &b.search, needle))
+            .cloned()
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn imported(library: Library) {

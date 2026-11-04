@@ -612,6 +612,28 @@ fn missing() -> io::Error {
 
 /// All edits reload under one lock, including the identity allocation.
 /// Malformed files are never overwritten, even by Restore defaults.
+/// The search text with `extra` (a bookmark's search) added as one more
+/// condition. Space joins the two as AND; when AND binds tighter than OR
+/// (`and_before_or`), a side with `|` is grouped in `<` `>` so the OR stays
+/// inside it. An empty side is left out.
+pub fn append_search(current: &str, extra: &str, and_before_or: bool) -> String {
+    let (current, extra) = (current.trim(), extra.trim());
+    if current.is_empty() {
+        return extra.to_owned();
+    }
+    if extra.is_empty() {
+        return current.to_owned();
+    }
+    let side = |text: &str| {
+        if and_before_or && text.contains('|') {
+            format!("<{text}>")
+        } else {
+            text.to_owned()
+        }
+    };
+    format!("{} {}", side(current), side(extra))
+}
+
 pub fn update<R>(
     path: &Path,
     change: impl FnOnce(&mut Library) -> io::Result<R>,
@@ -675,6 +697,26 @@ pub fn recover(path: &Path) -> io::Result<(Library, std::path::PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appending_a_search_adds_it_as_one_more_condition() {
+        assert_eq!(append_search("report", "ext:pdf", false), "report ext:pdf");
+        assert_eq!(append_search("", "ext:pdf", false), "ext:pdf");
+        assert_eq!(append_search("  report ", "  ", false), "report");
+        // OR binds tighter than AND by default: no group needed.
+        assert_eq!(append_search("a|b", "c|d", false), "a|b c|d");
+        // With AND first, each side keeps its OR inside a group.
+        assert_eq!(append_search("a|b", "c|d", true), "<a|b> <c|d>");
+        assert_eq!(append_search("a b", "c|d", true), "a b <c|d>");
+        for and_before_or in [false, true] {
+            let options = QueryOptions {
+                and_before_or,
+                ..QueryOptions::default()
+            };
+            let text = append_search("a|b", "c|d", and_before_or);
+            assert!(Query::parse(&text, options).is_ok(), "{text}");
+        }
+    }
     use crate::settings::tests::Scratch;
 
     fn bookmark(l: &Library, name: &str) -> Bookmark {

@@ -1605,6 +1605,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::OpenAllBookmarks,
+        id: "bookmarks.open-all",
+        category: Category::Bookmarks,
+        label: || tr("Open all bookmarks"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::CopySearch,
         id: "bookmarks.copy-search",
         category: Category::Bookmarks,
@@ -2113,6 +2120,7 @@ impl Keymap {
             add_bookmark => AddBookmark,
             organize_bookmarks => OrganizeBookmarks,
             find_bookmark => FindBookmark,
+            open_all_bookmarks => OpenAllBookmarks,
             copy_search => CopySearch,
             advanced_search => AdvancedSearch,
             settings => Settings,

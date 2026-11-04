@@ -1166,6 +1166,8 @@ const TRASH_CONFIRM: usize = 50;
 /// What the confirmation dialog will do when accepted. The items are
 /// checked again then (see [`ResultsModel::recheck`]).
 enum Pending {
+    /// Bookmarks to open in new tabs.
+    Tabs(Vec<tabs::SearchState>),
     Open(Targets),
     Trash(Targets),
     Delete(Targets),
@@ -1254,6 +1256,38 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 return;
             }
             targets.paths.iter().for_each(|p| open::open(p));
+        }
+    });
+    window.on_open_all_bookmarks({
+        let (weak, pending) = (weak.clone(), pending.clone());
+        move |needle| {
+            let Some(w) = weak.upgrade() else { return };
+            let base = tabs_ui::shown_search(&w);
+            let searches: Vec<_> = saved_ui::bookmarks_matching(&needle)
+                .iter()
+                .map(|b| base.clone().of_bookmark(b))
+                .collect();
+            let count = searches.len();
+            if count == 0 {
+                info(&w, tr("No bookmarks to open.").into());
+                return;
+            }
+            let mut over = settings::DEFAULT_OPEN_CONFIRM;
+            prefs::with(|p| over = p.open_confirm_over());
+            if actions::open_needs_confirm(count, over) {
+                ask(
+                    &w,
+                    fill(
+                        trn("Open {} bookmark?", "Open {} bookmarks?", count),
+                        &[&format::count(count)],
+                    ),
+                    tr("Each one opens in a new tab."),
+                    tr("Open"),
+                );
+                *pending.borrow_mut() = Some(Pending::Tabs(searches));
+                return;
+            }
+            tabs_ui::open_tabs(searches);
         }
     });
     window.on_open_with({
@@ -1463,6 +1497,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 }
             };
             match taken {
+                Some(Pending::Tabs(searches)) => tabs_ui::open_tabs(searches),
                 Some(Pending::Open(t)) => {
                     if let Some(paths) = checked(t) {
                         paths.iter().for_each(|p| open::open(p));

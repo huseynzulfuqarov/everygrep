@@ -222,6 +222,46 @@ pub fn open_search(
     });
 }
 
+/// Opens `searches` in new tabs after the others, in their order; the first
+/// is shown when new tabs are shown at once (Settings).
+pub fn open_tabs(searches: Vec<SearchState>) {
+    with(|s| {
+        let Some(w) = s.main.upgrade() else { return };
+        if searches.is_empty() {
+            return;
+        }
+        let activate = s.prefs.switch_to_new_tab() && !blocked(&w);
+        if activate {
+            s.store(&w);
+        }
+        {
+            let mut tabs = s.tabs.borrow_mut();
+            let first = tabs.open.len();
+            for search in searches {
+                tabs.add(
+                    Tab {
+                        search,
+                        ..Default::default()
+                    },
+                    false,
+                );
+            }
+            if activate {
+                tabs.select(first);
+            }
+        }
+        if activate {
+            s.install(&w);
+        }
+        s.fill();
+    });
+}
+
+/// The search shown now, as a new tab would start from.
+pub fn shown_search(w: &AppWindow) -> SearchState {
+    read(w)
+}
+
 fn session_detail(path: Option<&std::path::Path>, error: &std::io::Error) -> String {
     let path = path.map(|p| p.display().to_string()).unwrap_or_default();
     format!(

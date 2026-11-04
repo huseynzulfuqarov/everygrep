@@ -46,6 +46,27 @@ impl SearchState {
         options
     }
 
+    /// The search of a bookmark opened in a new tab, from the shown tab's
+    /// state (its columns): the bookmark's text, options, filter (frozen as
+    /// saved) and sort; a sort column that is hidden is shown.
+    pub fn of_bookmark(mut self, b: &crate::saved_searches::Bookmark) -> Self {
+        self.query = b.search.clone();
+        self.options = tab_options(b.options);
+        self.filter = Some(b.filter.clone());
+        self.filter_snapshot = true;
+        self.sort_column = b.sort_column;
+        self.descending = b.descending;
+        match b.sort_column {
+            4 => self.columns.show_type = true,
+            5 => self.columns.show_ext = true,
+            6 => self.columns.show_created = true,
+            7 => self.columns.show_accessed = true,
+            8 => self.columns.show_attrs = true,
+            _ => {}
+        }
+        self
+    }
+
     pub fn launched(
         mut self,
         query: &str,
@@ -267,6 +288,42 @@ impl Tabs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bookmark_opens_with_its_search_filter_and_sort() {
+        use crate::saved_searches::{Bookmark, NamedFilter};
+        let filter = NamedFilter {
+            id: 7,
+            name: "Pictures".into(),
+            search: "image:".into(),
+            options: QueryOptions::default(),
+        };
+        let b = Bookmark {
+            id: 1,
+            name: "Holiday".into(),
+            search: "beach".into(),
+            options: QueryOptions {
+                case_sensitive: true,
+                ..QueryOptions::default()
+            },
+            filter: filter.clone(),
+            sort_column: 5,
+            descending: true,
+        };
+        let base = SearchState {
+            query: "old".into(),
+            ..Default::default()
+        };
+        let s = base.of_bookmark(&b);
+        assert_eq!(s.query, "beach");
+        assert!(s.options.case_sensitive);
+        assert_eq!(s.filter, Some(filter));
+        assert!(s.filter_snapshot);
+        assert_eq!((s.sort_column, s.descending), (5, true));
+        assert!(s.columns.show_ext, "the sort column is shown");
+        assert!(!s.columns.show_type);
+    }
+
     fn filled(n: usize) -> Tabs {
         Tabs {
             open: (0..n)

@@ -11,6 +11,8 @@ export component SavedWindow inherits Window {
     in-out property <int> sort-column;
     in-out property <bool> descending;
     callback open-entry();
+    callback open-all-entries();
+    callback append-entry();
     callback copy-search();
     in-out property <string> find-text;
     callback find-changed();
@@ -115,6 +117,8 @@ export component SavedWindow inherits Window {
             if root.bookmarks: HorizontalLayout {
                 spacing: Theme.s2;
                 Button { text: @tr("Open"); enabled: !root.busy && root.current >= 0; clicked => { root.open-entry(); } }
+                Button { text: @tr("Append to search"); enabled: !root.busy && root.current >= 0; clicked => { root.append-entry(); } }
+                Button { text: @tr("Open all in tabs"); enabled: !root.busy && root.rows.length > 0; clicked => { root.open-all-entries(); } }
             }
             VerticalLayout {
                 spacing: Theme.s2;
