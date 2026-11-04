@@ -595,7 +595,7 @@ pub(crate) fn stage_rename(src: &Path, folder: &Path) -> io::Result<PathBuf> {
     for _ in 0..TEMP_TRIES {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let temp = folder.join(format!(".everygrep-moving-{}-{n}", std::process::id()));
-        match rename_strict(src, &temp) {
+        match rename_noreplace(src, &temp) {
             Ok(()) => return Ok(temp),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e),
@@ -1112,56 +1112,37 @@ const AT_FDCWD: c_int = -100;
 /// `RENAME_NOREPLACE` from `<linux/fs.h>`.
 const RENAME_NOREPLACE: c_uint = 1;
 
-/// Renames `from` to `to`, failing with `AlreadyExists` instead of
-/// replacing. On file systems without this kind of rename (NFS, SMB, many
-/// FUSE file systems) a file or link gets a new hard link and loses its old
-/// name, which never replaces either; a folder (or a file where hard links
-/// are not supported) gets a check and a plain rename, which could replace
-/// an item created in between.
+/// Renames without replacement. If the filesystem cannot guarantee that
+/// atomically, leave both paths alone. A check followed by plain rename (or
+/// link followed by path-based unlink) cannot provide this guarantee.
 pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     rename_noreplace_with(from, to, rename_strict)
 }
 
-/// [`rename_noreplace`] with the atomic rename passed in, so the fallback
-/// can be tested on file systems that do support it.
 fn rename_noreplace_with(
     from: &Path,
     to: &Path,
     atomic: impl FnOnce(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
-    match atomic(from, to) {
-        // EINVAL: the file system does not support RENAME_NOREPLACE (or the
-        // rename itself is invalid, which the plain rename reports again).
-        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
-        result => return result,
-    }
-    if fs::symlink_metadata(from).is_ok_and(|m| !m.is_dir()) {
-        // `link` does not follow a link at `from` and fails when `to` exists.
-        match fs::hard_link(from, to) {
-            Ok(()) => {
-                return fs::remove_file(from).inspect_err(|_| {
-                    let _ = fs::remove_file(to);
-                });
-            }
-            Err(e) if !no_hard_links(&e) => return Err(e),
-            Err(_) => {}
+    atomic(from, to).map_err(|e| {
+        if matches!(e.raw_os_error(), Some(22 | 38 | 95)) || e.kind() == io::ErrorKind::Unsupported
+        {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                tr("This filesystem cannot rename without replacement. Both items were kept."),
+            )
+        } else {
+            e
         }
-    }
-    if fs::symlink_metadata(to).is_ok() {
-        return Err(io::ErrorKind::AlreadyExists.into());
-    }
-    fs::rename(from, to)
-}
-
-/// Whether `e` from `link` means another way is needed: EPERM or
-/// EOPNOTSUPP where the file system has no hard links (some FUSE file
-/// systems and SMB shares), EMLINK when the file has too many.
-fn no_hard_links(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(1 | 95 | 31)) || e.kind() == io::ErrorKind::Unsupported
+    })
 }
 
 /// `renameat2` with `RENAME_NOREPLACE`: atomic, never replaces the target.
 pub(crate) fn rename_strict(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if let Some(errno) = RENAME_ERRNO.with(std::cell::Cell::get) {
+        return Err(io::Error::from_raw_os_error(errno));
+    }
     let a = CString::new(from.as_os_str().as_bytes())?;
     let b = CString::new(to.as_os_str().as_bytes())?;
     // SAFETY: both are valid C strings that outlive the call.
@@ -1170,6 +1151,11 @@ pub(crate) fn rename_strict(from: &Path, to: &Path) -> io::Result<()> {
         return Ok(());
     }
     Err(io::Error::last_os_error())
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RENAME_ERRNO: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]
@@ -2168,67 +2154,53 @@ mod tests {
     }
 
     #[test]
-    fn rename_falls_back_where_the_atomic_rename_is_unsupported() {
-        let t = TempDir::new("noreplace-fallback");
-        let (a, b) = (t.path("a"), t.path("b"));
-        write(&a, "a");
-        write(&b, "b");
-        // What NFS or an SMB share answers to RENAME_NOREPLACE.
-        let unsupported = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(22));
-        let e = rename_noreplace_with(&a, &b, unsupported).unwrap_err();
-        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
-        assert_eq!(read(&b), "b");
-        rename_noreplace_with(&a, &t.path("c"), unsupported).unwrap();
-        assert_eq!(read(&t.path("c")), "a");
-        assert!(!a.exists());
-        // A folder is checked and renamed.
-        fs::create_dir(t.path("dir")).unwrap();
-        let e = rename_noreplace_with(&t.path("dir"), &b, unsupported).unwrap_err();
-        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
-        rename_noreplace_with(&t.path("dir"), &t.path("dir2"), unsupported).unwrap();
-        assert!(t.path("dir2").is_dir() && !t.path("dir").exists());
-        // Other errors are reported as they are, without a second attempt.
-        let denied = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(13));
-        let e = rename_noreplace_with(&t.path("c"), &t.path("d"), denied).unwrap_err();
-        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
-        assert_eq!(read(&t.path("c")), "a");
+    fn unsupported_no_replace_keeps_files_directories_and_links() {
+        for errno in [22, 38, 95] {
+            let t = TempDir::new(&format!("unsupported-{errno}"));
+            for kind in ["file", "dir", "link"] {
+                let source = t.path(kind);
+                match kind {
+                    "dir" => fs::create_dir(&source).unwrap(),
+                    "link" => symlink("unfollowed", &source).unwrap(),
+                    _ => write(&source, "selected bytes"),
+                }
+                let target = t.path(&format!("{kind}-target"));
+                // A target arriving just as the filesystem rejects the atomic
+                // operation must survive, even if hard links are unavailable.
+                let error = rename_noreplace_with(&source, &target, |_, to| {
+                    write(to, "unique destination bytes");
+                    Err(io::Error::from_raw_os_error(errno))
+                })
+                .unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+                assert!(error.to_string().contains("Both items were kept"));
+                assert!(fs::symlink_metadata(&source).is_ok());
+                assert_eq!(read(&target), "unique destination bytes");
+                fs::remove_file(&target).unwrap();
+                // Refuse on unsupported filesystems even when the target is free.
+                assert!(
+                    rename_noreplace_with(&source, &target, |_, _| {
+                        Err(io::Error::from_raw_os_error(errno))
+                    })
+                    .is_err()
+                );
+                assert!(fs::symlink_metadata(&source).is_ok());
+                assert!(!target.exists());
+            }
+        }
     }
 
     #[test]
-    fn the_fallback_rename_of_a_file_never_replaces_one_that_arrives_meanwhile() {
-        use std::sync::{Arc, Barrier};
-        let t = TempDir::new("noreplace-race");
-        let unsupported = |_: &Path, _: &Path| Err(io::Error::from_raw_os_error(22));
-        let target = t.path("target");
-        let mut replaced = 0;
-        for round in 0..300 {
-            let _ = fs::remove_file(&target);
-            let barrier = Arc::new(Barrier::new(2));
-            let threads: Vec<_> = ["a", "b"]
-                .into_iter()
-                .map(|who| {
-                    let from = t.path(&format!("{who}-{round}"));
-                    write(&from, who);
-                    let (to, barrier) = (target.clone(), barrier.clone());
-                    std::thread::spawn(move || {
-                        barrier.wait();
-                        rename_noreplace_with(&from, &to, unsupported).is_ok()
-                    })
-                })
-                .collect();
-            let ok = threads
-                .into_iter()
-                .map(|h| h.join().unwrap())
-                .filter(|&ok| ok)
-                .count();
-            if ok == 2 {
-                replaced += 1;
-            }
-        }
-        assert_eq!(
-            replaced, 0,
-            "both renames succeeded, one replacing the other"
-        );
+    fn no_replace_preserves_other_errors() {
+        let t = TempDir::new("noreplace-denied");
+        let source = t.path("source");
+        write(&source, "keep");
+        let error = rename_noreplace_with(&source, &t.path("target"), |_, _| {
+            Err(io::Error::from_raw_os_error(13))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(read(&source), "keep");
     }
 
     #[test]

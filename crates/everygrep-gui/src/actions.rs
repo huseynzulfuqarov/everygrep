@@ -234,11 +234,8 @@ pub(crate) fn has_entry(path: &Path) -> bool {
 /// Renames `old` to `new_name` in the same folder. Returns the new path, or
 /// `None` if the name did not change.
 ///
-/// The rename never replaces a target that appears after the check, where
-/// the file system can refuse that atomically or a file can get a hard
-/// link; elsewhere (a folder on NFS, SMB, some FUSE file systems) the check
-/// and the rename are two steps. A change of case on a case-insensitive
-/// file system goes through a hidden name (see [`rename_case`]).
+/// Every publication refuses replacement, including a change of case on a
+/// case-insensitive filesystem, which first vacates the old spelling.
 pub fn rename(old: &Path, new_name: &str) -> Result<Option<PathBuf>, RenameError> {
     let Some(target) = rename_target(old, new_name)? else {
         return Ok(None);
@@ -267,32 +264,28 @@ fn rename_error(e: io::Error, new_name: &str) -> RenameError {
 /// replaces anything. Afterwards the folder must list exactly the new
 /// name, or the rename is reported as failed.
 fn rename_case(old: &Path, target: &Path, new_name: &str) -> Result<PathBuf, RenameError> {
-    let folder = old
-        .parent()
-        .ok_or_else(|| RenameError::Io(io::ErrorKind::InvalidInput.into()))?;
-    let staged = match crate::transfer::stage_rename(old, folder) {
-        Ok(staged) => staged,
-        // No atomic no-replace rename here (SMB, some FUSE file systems):
-        // a plain rename, which can only find the item itself under the
-        // new spelling, checked below like the two steps.
-        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
-            std::fs::rename(old, target).map_err(|e| rename_error(e, new_name))?;
-            return kept_new_case(target);
-        }
-        Err(e) => return Err(RenameError::Io(e)),
-    };
-    if let Err(e) = crate::transfer::rename_noreplace(&staged, target) {
-        // The old spelling is free again: nothing else can hold it but an
-        // item made meanwhile, which this never replaces.
-        return Err(match crate::transfer::rename_noreplace(&staged, old) {
-            Ok(()) => rename_error(e, new_name),
-            Err(back) => RenameError::Io(io::Error::other(fill(
-                tr("the original name could not be restored; the item is now at {0}: {1}"),
-                &[&staged.display(), &back],
-            ))),
-        });
-    }
+    rename_case_only(old, target, crate::transfer::rename_noreplace)
+        .map_err(|e| rename_error(e, new_name))?;
     kept_new_case(target)
+}
+
+fn rename_case_only(
+    old: &Path,
+    target: &Path,
+    publish: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let parent = old.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    let staged = crate::transfer::stage_rename(old, parent)?;
+    if let Err(error) = publish(&staged, target) {
+        if let Err(restore) = crate::transfer::rename_noreplace(&staged, old) {
+            return Err(io::Error::other(fill(
+                tr("the original name could not be restored; the item is now at {0}: {1}"),
+                &[&staged.display(), &restore],
+            )));
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// `target` when its folder lists exactly that name after a change of
@@ -838,6 +831,70 @@ mod tests {
     }
 
     #[test]
+    fn case_only_rename_refuses_unsupported_staging_without_changing_either_item() {
+        let dir = TempDir::new("case-unsupported");
+        let old = dir.0.join("Notes.txt");
+        let target = dir.0.join("NOTES.txt");
+        fs::write(&old, "selected").unwrap();
+        for errno in [22, 38, 95] {
+            for occupied in [false, true] {
+                if occupied {
+                    fs::write(&target, "unrelated").unwrap();
+                }
+                crate::transfer::RENAME_ERRNO.with(|value| value.set(Some(errno)));
+                let result = rename_case(&old, &target, "NOTES.txt");
+                crate::transfer::RENAME_ERRNO.with(|value| value.set(None));
+                let Err(RenameError::Io(error)) = result else {
+                    panic!("unsupported staging must refuse the rename");
+                };
+                assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+                assert!(
+                    error
+                        .to_string()
+                        .contains("cannot rename without replacement")
+                );
+                assert_eq!(fs::read_to_string(&old).unwrap(), "selected");
+                if occupied {
+                    assert_eq!(fs::read_to_string(&target).unwrap(), "unrelated");
+                    fs::remove_file(&target).unwrap();
+                } else {
+                    assert!(!target.exists());
+                }
+                assert_eq!(names(&dir.0), ["Notes.txt"]);
+            }
+        }
+    }
+
+    #[test]
+    fn case_only_stages_before_publication_and_preserves_a_racing_target() {
+        let dir = TempDir::new("case-stage");
+        let old = dir.0.join("a.txt");
+        let target = dir.0.join("A.txt");
+        fs::write(&old, "selected").unwrap();
+        rename_case_only(&old, &target, |from, to| {
+            assert!(
+                !from
+                    .file_name()
+                    .unwrap()
+                    .eq_ignore_ascii_case(to.file_name().unwrap())
+            );
+            crate::transfer::rename_noreplace(from, to)
+        })
+        .unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"selected");
+        fs::rename(&target, &old).unwrap();
+        let error = rename_case_only(&old, &target, |from, to| {
+            fs::write(to, "unique racing target").unwrap();
+            crate::transfer::rename_noreplace(from, to)
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&old).unwrap(), b"selected");
+        assert_eq!(fs::read(&target).unwrap(), b"unique racing target");
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
+    }
+
+    #[test]
     fn rename_counts_utf8_bytes_and_preserves_a_dangling_target() {
         let dir = TempDir::new("rename-unicode");
         let old = dir.0.join("old");
@@ -1059,7 +1116,16 @@ mod tests {
                 fs::symlink_metadata(d.join("ABC")).is_ok(),
                 "case-insensitive"
             );
-            let new = rename(&abc, "ABC").unwrap().unwrap();
+            let new = match rename(&abc, "ABC") {
+                Ok(Some(new)) => new,
+                Err(RenameError::Io(e)) if e.kind() == io::ErrorKind::Unsupported => {
+                    assert!(e.to_string().contains("cannot rename without replacement"));
+                    assert_eq!(names(&d), ["Abc"]);
+                    assert_eq!(fs::read_to_string(&abc).unwrap(), "abc");
+                    return;
+                }
+                other => panic!("unexpected rename result: {other:?}"),
+            };
             assert_eq!(new, d.join("ABC"));
             assert_eq!(names(&d), ["ABC"]);
             assert_eq!(fs::read_to_string(&new).unwrap(), "abc");

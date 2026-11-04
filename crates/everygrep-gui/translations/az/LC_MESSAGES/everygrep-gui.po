@@ -5308,3 +5308,7 @@ msgstr "silmə təsdiqlənəndən sonra bu yolda artıq başqa element var, ona 
 #: src/main.rs
 msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"
 msgstr "{} element zibil qutusuna köçürüldü (cəmi {}). Köçürülmədi: {}, məsələn {}. {}"
+
+#: src/transfer.rs
+msgid "This filesystem cannot rename without replacement. Both items were kept."
+msgstr "Bu fayl sistemi əvəzləmədən ad dəyişə bilmir. Hər iki element saxlanıldı."

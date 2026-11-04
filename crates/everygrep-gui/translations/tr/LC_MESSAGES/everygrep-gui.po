@@ -5308,3 +5308,7 @@ msgstr "silme onaylandığından beri bu yolda başka bir öğe var, bu yüzden 
 #: src/main.rs
 msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"
 msgstr "{} öğe çöp kutusuna taşındı (toplam {}). Taşınmadı: {}, örneğin {}. {}"
+
+#: src/transfer.rs
+msgid "This filesystem cannot rename without replacement. Both items were kept."
+msgstr "Bu dosya sistemi üzerine yazmadan yeniden adlandıramıyor. Her iki öğe korundu."
