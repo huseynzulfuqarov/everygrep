@@ -15,5 +15,5 @@ export component PreviewSettings inherits VerticalLayout {
     CheckBox { text: @tr("Preview text files"); checked <=> root.text-files; enabled: root.shown; toggled => { root.changed(); } }
     CheckBox { text: @tr("Sandbox thumbnail helpers"); checked <=> root.sandbox; enabled: root.shown; toggled => { root.changed(); } }
     CheckBox { text: @tr("Preview PDF, video and other formats"); checked <=> root.thumbnailers; enabled: root.shown && root.sandbox; toggled => { root.changed(); } }
-    Text { text: @tr("System helpers stay disabled when sandboxing is off."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; }
+    Text { text: @tr("System helpers stay disabled when sandboxing is off."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; min-height: self.preferred-height; }
 }

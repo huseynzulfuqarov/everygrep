@@ -23,6 +23,7 @@ export component ContentSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
     HorizontalLayout {
         spacing: Theme.s3;
@@ -47,6 +48,7 @@ export component ContentSettings inherits VerticalLayout {
             vertical-alignment: center;
             horizontal-stretch: 1;
             wrap: word-wrap;
+            min-height: self.preferred-height;
         }
     }
     HorizontalLayout {
@@ -70,6 +72,7 @@ export component ContentSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
     CheckBox {
         text: @tr("Let a match run over line ends");
@@ -81,6 +84,7 @@ export component ContentSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
     CheckBox {
         text: @tr("Search inside PDF files");
@@ -92,6 +96,7 @@ export component ContentSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
 }
 
@@ -111,6 +116,7 @@ export component DuplicateSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
     CheckBox {
         text: @tr("Compare duplicates byte by byte");
@@ -122,6 +128,7 @@ export component DuplicateSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
 }
 
@@ -162,6 +169,7 @@ export component HashCacheSettings inherits VerticalLayout {
         font-size: Theme.small;
         color: Theme.text-muted;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
     HorizontalLayout {
         Button {

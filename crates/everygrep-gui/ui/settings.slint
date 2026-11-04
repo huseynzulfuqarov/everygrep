@@ -51,6 +51,10 @@ component Note inherits Text {
     font-size: Theme.small;
     color: Theme.text-muted;
     wrap: word-wrap;
+    // Its height at the width it gets: inside a row the layout measures a
+    // wrapped text at the row's full width, which made the page shorter
+    // than its content, so its end could not be scrolled into view.
+    min-height: self.preferred-height;
 }
 
 // A list of folders with Add and Remove buttons.
@@ -457,6 +461,7 @@ export component SettingsWindow inherits Window {
                             color: Theme.danger;
                             font-size: Theme.small;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
 
                         if root.page == 0: VerticalLayout {
@@ -540,6 +545,7 @@ export component SettingsWindow inherits Window {
                                     color: Theme.danger;
                                     font-size: Theme.small;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                 }
                                 Note { text: @tr("A rescan reads every folder to index again from scratch, as Rebuild index now does, and also finds changes no event reported, such as a file whose contents changed without touching its folder. Hours count from the last full scan, also across restarts (from the start of EveryGrep when none is known); a daily time passed while the computer slept runs at the next check. Nothing runs while index updates are paused."); }
                             }
@@ -605,6 +611,7 @@ export component SettingsWindow inherits Window {
                                     color: Theme.danger;
                                     font-size: Theme.small;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                 }
                             }
                             if root.drives-enabled: VerticalLayout {
@@ -781,6 +788,7 @@ export component SettingsWindow inherits Window {
                                     text: root.index-file;
                                     color: Theme.text;
                                     wrap: word-wrap;
+                                    min-height: self.preferred-height;
                                 }
                                 HorizontalLayout {
                                     spacing: Theme.s2;
@@ -1177,6 +1185,7 @@ export component SettingsWindow inherits Window {
                                 text: @tr("Saving tabs requires search history recording and disk storage.");
                                 color: Theme.text-muted;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                             }
                             HorizontalLayout {
                                 spacing: Theme.s3;
@@ -1480,6 +1489,7 @@ export component SettingsWindow inherits Window {
                                 text: root.settings-file;
                                 color: Theme.text;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                             }
                             HorizontalLayout {
                                 spacing: Theme.s2;
@@ -1515,6 +1525,7 @@ export component SettingsWindow inherits Window {
                                         text: root.pending-text;
                                         color: Theme.text;
                                         wrap: word-wrap;
+                                        min-height: self.preferred-height;
                                         vertical-alignment: center;
                                         horizontal-stretch: 1;
                                     }
@@ -1630,6 +1641,7 @@ export component SettingsWindow inherits Window {
                         color: Theme.danger;
                         font-size: Theme.small;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                 }
                 if root.page < 4: HorizontalLayout {
@@ -1681,6 +1693,7 @@ export component SettingsWindow inherits Window {
                         font-weight: 600;
                         color: Theme.text;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Note { text: root.key-dialog-command; color: Theme.text; }
                     HorizontalLayout {
@@ -1748,6 +1761,7 @@ export component SettingsWindow inherits Window {
                         color: Theme.danger;
                         font-size: Theme.small;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Text {
                         text: @tr("Shortcut key currently used by:");

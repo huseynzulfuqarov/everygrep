@@ -18,7 +18,7 @@ export component PropertySettings inherits VerticalLayout {
         SpinBox { minimum: 0; maximum: 1048576; value <=> root.cache-mb; edited => { root.changed(); } }
         Button { text: @tr("Clear property cache"); clicked => { root.clear(); } }
     }
-    Text { text: @tr("0 disables the cache. Visible metadata reads use an 8 MB and 250 ms budget per file."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; }
+    Text { text: @tr("0 disables the cache. Visible metadata reads use an 8 MB and 250 ms budget per file."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; min-height: self.preferred-height; }
     ComboBox { model: root.names; current-index <=> root.selected; selected => { root.selected-property(); } }
     CheckBox { text: @tr("Index this property in the background"); checked <=> root.indexed; toggled => { root.changed(); } }
     HorizontalLayout {
@@ -30,11 +30,11 @@ export component PropertySettings inherits VerticalLayout {
     LineEdit { text <=> root.include; edited => { root.changed(); } }
     Text { text: @tr("Exclude patterns"); color: Theme.text; }
     LineEdit { text <=> root.exclude; edited => { root.changed(); } }
-    Text { text: root.error; color: Theme.text; wrap: word-wrap; }
+    Text { text: root.error; color: Theme.text; wrap: word-wrap; min-height: self.preferred-height; }
     HorizontalLayout {
         Button { text: @tr("Index properties now"); clicked => { root.scan(); } }
         Button { text: @tr("Cancel"); clicked => { root.cancel(); } }
         Text { text: root.progress; color: Theme.text-muted; vertical-alignment: center; }
     }
-    Text { text: @tr("Rules apply to the selected property. Values read from file contents are kept in the property cache and shared by the columns and sorting."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; }
+    Text { text: @tr("Rules apply to the selected property. Values read from file contents are kept in the property cache and shared by the columns and sorting."); color: Theme.text-muted; font-size: Theme.small; wrap: word-wrap; min-height: self.preferred-height; }
 }
