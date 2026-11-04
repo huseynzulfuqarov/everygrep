@@ -5066,3 +5066,36 @@ msgstr "{} klavye kısayolu zaten kullanıldığı için atlandı."
 
 msgid "“{}” must be 0 or 1."
 msgstr "“{}” 0 veya 1 olmalı."
+
+msgid "Add ready-made searches"
+msgstr "Hazır aramaları ekle"
+
+msgid "No bookmarks yet. Ready-made searches (large files, changed today, recent downloads, empty folders, duplicate photos) can be added; you can edit or delete them."
+msgstr "Henüz yer imi yok. Hazır aramalar (büyük dosyalar, bugün değişenler, son indirilenler, boş klasörler, yinelenen fotoğraflar) eklenebilir; bunları düzenleyebilir veya silebilirsiniz."
+
+msgid "The home folder is unknown."
+msgstr "Ev klasörü bilinmiyor."
+
+msgid "The ready-made searches are already there."
+msgstr "Hazır aramalar zaten var."
+
+msgid "Added {} ready-made searches to the folder “{}”."
+msgstr "{} hazır arama “{}” klasörüne eklendi."
+
+msgid "Ready-made searches"
+msgstr "Hazır aramalar"
+
+msgid "Files over 1 GB"
+msgstr "1 GB üzeri dosyalar"
+
+msgid "Changed today"
+msgstr "Bugün değişenler"
+
+msgid "Downloads of the last 7 days"
+msgstr "Son 7 günün indirilenleri"
+
+msgid "Empty folders (0 bytes)"
+msgstr "Boş klasörler (0 bayt)"
+
+msgid "Duplicate photos"
+msgstr "Yinelenen fotoğraflar"

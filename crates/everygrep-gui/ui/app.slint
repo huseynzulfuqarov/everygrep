@@ -3612,6 +3612,7 @@ export component AppWindow inherits Window {
     // Opens the bookmarks whose name or search holds the text (all for an
     // empty one) in new tabs, asking first when there are many.
     callback open-all-bookmarks(string);
+    callback add-starter-bookmarks();
     callback saved-key(string, bool, bool, bool, bool) -> bool;
     callback advanced-search();
     callback search-name-list();
@@ -7186,6 +7187,7 @@ export component AppWindow inherits Window {
                     activated => { root.append-bookmark(item.index); }
                 }
             }
+            MenuItem { title: @tr("Add ready-made searches"); activated => { root.add-starter-bookmarks(); } }
             if root.bookmark-items.length > 0 || root.bookmark-folders.length > 0: MenuSeparator { }
             for folder in root.bookmark-folders: Menu {
                 title: folder.title;

@@ -840,6 +840,95 @@ fn decode_sort(column: &str, descending: &str) -> io::Result<Option<(i32, bool)>
     Ok(Some((column, descending)))
 }
 
+/// The download folder of the desktop (`XDG_DOWNLOAD_DIR` in
+/// `user-dirs.dirs`), else `~/Downloads`.
+pub fn download_dir(config: Option<&Path>, home: &Path) -> std::path::PathBuf {
+    let from_file = config
+        .and_then(|c| std::fs::read_to_string(c.join("user-dirs.dirs")).ok())
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                let value = line.trim().strip_prefix("XDG_DOWNLOAD_DIR=")?;
+                let value = value.strip_prefix('"')?.strip_suffix('"')?;
+                let path = match value.strip_prefix("$HOME") {
+                    Some(rest) => home.join(rest.trim_start_matches('/')),
+                    None => std::path::PathBuf::from(value),
+                };
+                (path.is_absolute() && path != home).then_some(path)
+            })
+        });
+    from_file.unwrap_or_else(|| home.join("Downloads"))
+}
+
+/// The ready-made searches offered in the Bookmarks menu, by name. The
+/// Downloads search is left out when the folder's path cannot be quoted.
+pub fn starter_pack(downloads: &Path) -> Vec<Bookmark> {
+    let mut entries = vec![
+        (
+            tr("Files over 1 GB"),
+            "file: size:>1gb".to_string(),
+            2,
+            true,
+        ),
+        (tr("Changed today"), "modified:today".to_string(), 3, true),
+    ];
+    let dl = downloads.to_string_lossy();
+    if !dl.contains('"') && downloads.to_str().is_some() {
+        entries.push((
+            tr("Downloads of the last 7 days"),
+            format!("path:\"{}/\" modified:last7days", dl.trim_end_matches('/')),
+            3,
+            true,
+        ));
+    }
+    entries.push((
+        tr("Empty folders (0 bytes)"),
+        "folder: size:empty".into(),
+        0,
+        false,
+    ));
+    entries.push((tr("Duplicate photos"), "image: duplicates:".into(), 2, true));
+    entries
+        .into_iter()
+        .map(|(name, search, sort, descending)| {
+            let mut b = Bookmark::group(Kind::Search, name, 0);
+            b.search = search;
+            b.sort_column = sort;
+            b.descending = descending;
+            b
+        })
+        .collect()
+}
+
+impl Library {
+    /// Adds the ready-made searches to their own folder; the ones already
+    /// there (same search) are skipped. Returns how many were added.
+    pub fn add_starter_pack(&mut self, downloads: &Path) -> io::Result<usize> {
+        let name = tr("Ready-made searches");
+        let folder = match self
+            .bookmarks
+            .iter()
+            .find(|b| b.kind == Kind::Folder && b.name == name)
+        {
+            Some(f) => f.id,
+            None => self.put_bookmark(None, Bookmark::group(Kind::Folder, name, 0))?,
+        };
+        let mut added = 0;
+        for mut b in starter_pack(downloads) {
+            if self
+                .bookmarks
+                .iter()
+                .any(|e| e.is_search() && e.folder == folder && e.search == b.search)
+            {
+                continue;
+            }
+            b.folder = folder;
+            self.put_bookmark(None, b)?;
+            added += 1;
+        }
+        Ok(added)
+    }
+}
+
 fn move_entry<T>(entries: &mut [T], matches: impl Fn(&T) -> bool, step: i32) -> io::Result<()> {
     let i = entries.iter().position(matches).ok_or_else(missing)?;
     let next = if step == -1 {
@@ -1200,6 +1289,50 @@ mod tests {
         assert_eq!(Library::parse(&l.text()).unwrap(), l);
         let dangling = format!("{HEADER}\n{}\nS\t11\t99\n", l.next_id);
         assert!(Library::parse(&dangling).is_err());
+    }
+
+    #[test]
+    fn starter_pack_parses_is_idempotent_and_finds_the_download_folder() {
+        let d = Scratch::new("starter");
+        let home = d.0.join("home");
+        let config = d.0.join("config");
+        std::fs::create_dir_all(&config).unwrap();
+        assert_eq!(download_dir(Some(&config), &home), home.join("Downloads"));
+        std::fs::write(
+            config.join("user-dirs.dirs"),
+            "# x\nXDG_DOWNLOAD_DIR=\"$HOME/Yükləmələr\"\n",
+        )
+        .unwrap();
+        let dl = download_dir(Some(&config), &home);
+        assert_eq!(dl, home.join("Yükləmələr"));
+        std::fs::write(
+            config.join("user-dirs.dirs"),
+            "XDG_DOWNLOAD_DIR=\"$HOME/\"\n",
+        )
+        .unwrap();
+        assert_eq!(download_dir(Some(&config), &home), home.join("Downloads"));
+        let pack = starter_pack(Path::new("/home/me/My Downloads"));
+        assert_eq!(pack.len(), 5);
+        for b in &pack {
+            Query::parse(&b.search, b.options).unwrap_or_else(|e| panic!("{}: {e}", b.search));
+            assert!(crate::is_sort_column(b.sort_column));
+        }
+        assert!(
+            pack[2]
+                .search
+                .starts_with("path:\"/home/me/My Downloads/\"")
+        );
+        assert_eq!(starter_pack(Path::new("/home/me/a\"b")).len(), 4);
+        let mut l = Library::default();
+        assert_eq!(l.add_starter_pack(&dl).unwrap(), 5);
+        assert_eq!(l.add_starter_pack(&dl).unwrap(), 0);
+        assert_eq!(l.bookmarks.len(), 6);
+        assert_eq!(Library::parse(&l.text()).unwrap(), l);
+        // A removed entry comes back; the others stay single.
+        let id = l.bookmarks[3].id;
+        l.remove_bookmark(id).unwrap();
+        assert_eq!(l.add_starter_pack(&dl).unwrap(), 1);
+        assert_eq!(l.bookmarks.len(), 6);
     }
 
     #[test]

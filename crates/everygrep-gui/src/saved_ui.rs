@@ -196,6 +196,12 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
             }
         });
     });
+    w.on_add_starter_bookmarks(|| {
+        with(|s| {
+            s.open(true);
+            s.add_starter();
+        });
+    });
     w.on_saved_key(|text, ctrl, alt, shift, meta| {
         let chords = crate::physical::chords(&text, ctrl, alt, shift, meta);
         if chords.is_empty() {
@@ -609,6 +615,9 @@ impl State {
             });
             w.on_save_entry(|| {
                 with(State::save);
+            });
+            w.on_add_starter(|| {
+                with(State::add_starter);
             });
             w.on_new_group(|kind| {
                 with(|s| {
@@ -1405,6 +1414,36 @@ impl State {
                 );
             }
             Err(e) => self.message(fill(tr("Cannot save searches: {}"), &[&e]), true),
+        }
+    }
+
+    fn add_starter(&self) {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let Some(home) = home.filter(|h| h.is_absolute()) else {
+            self.message(tr("The home folder is unknown.").into(), true);
+            return;
+        };
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|c| c.is_absolute())
+            .unwrap_or_else(|| home.join(".config"));
+        let downloads = saved_searches::download_dir(Some(&config), &home);
+        let mut added = 0;
+        if self.change(|l| {
+            added = l.add_starter_pack(&downloads)?;
+            Ok(())
+        }) {
+            self.message(
+                if added == 0 {
+                    tr("The ready-made searches are already there.").into()
+                } else {
+                    fill(
+                        tr("Added {} ready-made searches to the folder “{}”."),
+                        &[&added, &tr("Ready-made searches")],
+                    )
+                },
+                false,
+            );
         }
     }
 

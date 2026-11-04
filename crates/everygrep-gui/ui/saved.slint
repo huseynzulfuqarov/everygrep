@@ -23,6 +23,7 @@ export component SavedWindow inherits Window {
     in-out property <int> folder-choice;
     callback new-group(int);
     callback import-csv();
+    callback add-starter();
     callback export-csv();
     callback open-entry();
     callback open-all-entries();
@@ -130,6 +131,11 @@ export component SavedWindow inherits Window {
                 Button { text: @tr("Delete"); enabled: !root.busy && root.current >= 0; clicked => { root.request-remove(); } }
                 Button { text: @tr("Move up"); enabled: !root.busy && root.current > 0; clicked => { root.move-entry(-1); } }
                 Button { text: @tr("Move down"); enabled: !root.busy && root.current >= 0 && root.current + 1 < root.rows.length; clicked => { root.move-entry(1); } }
+            }
+            if root.bookmarks && root.rows.length == 0 && root.find-text == "": HorizontalLayout {
+                spacing: Theme.gap;
+                Text { text: @tr("No bookmarks yet. Ready-made searches (large files, changed today, recent downloads, empty folders, duplicate photos) can be added; you can edit or delete them."); color: Theme.text-muted; wrap: word-wrap; horizontal-stretch: 1; }
+                Button { text: @tr("Add ready-made searches"); enabled: !root.busy; clicked => { root.add-starter(); } }
             }
             if root.bookmarks: HorizontalLayout {
                 spacing: Theme.s2;
