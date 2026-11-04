@@ -39,6 +39,7 @@ mod insert;
 mod instance;
 mod jump;
 mod labels;
+mod largest_folders;
 mod look;
 mod menus;
 mod name_list_ui;
@@ -338,6 +339,7 @@ fn main() -> Result<(), slint::PlatformError> {
     scope_ui::connect(&window, &engine, settings.scope_selector);
     advanced::connect(&window);
     name_list_ui::connect(&window);
+    largest_folders::connect(&window, &engine);
     set_filter_names(&window);
     set_options(&window, start_options);
     window.set_show_type(args.show_type);

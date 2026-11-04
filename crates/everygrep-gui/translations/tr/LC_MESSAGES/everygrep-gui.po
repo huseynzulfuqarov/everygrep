@@ -4940,3 +4940,39 @@ msgstr "Metin dosyaları"
 
 msgid "All files"
 msgstr "Tüm dosyalar"
+
+msgid "Largest folders"
+msgstr "En büyük klasörler"
+
+msgid "Minimum total size"
+msgstr "En az toplam boyut"
+
+msgid "Maximum rows (0 = all)"
+msgstr "En fazla satır (0 = tümü)"
+
+msgid "Include indexed roots"
+msgstr "Dizinin kök klasörlerini dahil et"
+
+msgid "Largest total size first. Totals include indexed descendants only. Refresh reads the current index and follows the main window's hidden and offline visibility choices."
+msgstr "En büyük toplam boyut önce gösterilir. Toplama yalnızca dizindeki alt öğeler dahildir. Yenile geçerli dizini okur ve ana pencerenin gizli ve çevrimdışı öğe seçimlerini izler."
+
+msgid "Enter a valid minimum size."
+msgstr "Geçerli bir en az boyut girin."
+
+msgid "Maximum rows must be a non-negative whole number."
+msgstr "En fazla satır sayısı negatif olmayan bir tam sayı olmalıdır."
+
+msgid "Updating folder sizes…"
+msgstr "Klasör boyutları güncelleniyor…"
+
+msgid "The index is unavailable."
+msgstr "Dizine erişilemiyor."
+
+msgid "Showing {0} of {1} folders."
+msgstr "{1} klasörden {0} klasör gösteriliyor."
+
+msgid "Cancelled. Previous folder results were kept."
+msgstr "İptal edildi. Önceki klasör sonuçları korundu."
+
+msgid "Status"
+msgstr "Durum"

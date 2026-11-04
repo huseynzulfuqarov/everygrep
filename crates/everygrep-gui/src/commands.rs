@@ -1672,6 +1672,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::LargestFolders,
+        id: "view.largest-folders",
+        category: Category::View,
+        label: || tr("Largest folders"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::SearchNameList,
         id: "search.name-list",
         category: Category::Search,
@@ -2191,6 +2198,7 @@ impl Keymap {
             copy_search => CopySearch,
             advanced_search => AdvancedSearch,
             search_name_list => SearchNameList,
+            largest_folders => LargestFolders,
             settings => Settings,
             keyboard_settings => KeyboardSettings,
             open_settings_file => OpenSettingsFile,

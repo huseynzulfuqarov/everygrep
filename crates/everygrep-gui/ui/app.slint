@@ -21,6 +21,7 @@ export { HistoryWindow } from "history.slint";
 export { SavedWindow } from "saved.slint";
 export { AdvancedWindow } from "advanced.slint";
 export { NameListWindow } from "name-list.slint";
+export { LargestFoldersWindow } from "largest-folders.slint";
 export { StalledDialog } from "stalled.slint";
 export { DebugLogWindow } from "debuglog.slint";
 
@@ -3607,6 +3608,8 @@ export component AppWindow inherits Window {
     callback saved-key(string, bool, bool, bool, bool) -> bool;
     callback advanced-search();
     callback search-name-list();
+    callback largest-folders();
+    in-out property <bool> largest-folders-visible;
     callback resolve-key(int, string, bool, bool, bool, bool) -> Command;
 
     // File actions that are refused, with a note, for an item on a drive
@@ -3984,6 +3987,7 @@ export component AppWindow inherits Window {
         } else if (c == Command.find-filter) { root.find-filter();
         } else if (c == Command.open-all-bookmarks) { root.open-all-bookmarks("");
         } else if (c == Command.copy-search) { root.copy-text(root.query);
+        } else if (c == Command.largest-folders) { root.largest-folders();
         } else if (c == Command.search-name-list) { root.search-name-list();
         } else if (c == Command.advanced-search) { root.advanced-search();
         } else if (c == Command.settings) {
@@ -6925,6 +6929,13 @@ export component AppWindow inherits Window {
                     enabled: root.can-run(Command.advanced-sort);
                     activated => { root.run(Command.advanced-sort); }
                 }
+            }
+            MenuItem {
+                title: @tr("Largest folders");
+                shortcut: root.menu-keys.largest-folders;
+                checkable: true;
+                checked: root.largest-folders-visible;
+                activated => { root.run(Command.largest-folders); }
             }
             Menu {
                 title: @tr("Folder size");

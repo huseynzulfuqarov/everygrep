@@ -136,7 +136,7 @@ fn term(text: &str, path: bool, wildcard: bool) -> String {
     format!("{scope}:noregex:{quoted}")
 }
 
-fn size(text: &str, unit: i32) -> Option<u64> {
+pub(crate) fn size(text: &str, unit: i32) -> Option<u64> {
     let unit = [1u128, 1 << 10, 1 << 20, 1 << 30]
         .get(usize::try_from(unit).ok()?)
         .copied()?;

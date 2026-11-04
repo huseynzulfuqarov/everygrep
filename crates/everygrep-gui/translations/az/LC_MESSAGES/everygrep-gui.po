@@ -4940,3 +4940,39 @@ msgstr "Mətn faylları"
 
 msgid "All files"
 msgstr "Bütün fayllar"
+
+msgid "Largest folders"
+msgstr "Ən böyük qovluqlar"
+
+msgid "Minimum total size"
+msgstr "Minimum cəm ölçü"
+
+msgid "Maximum rows (0 = all)"
+msgstr "Maksimum sətir sayı (0 = hamısı)"
+
+msgid "Include indexed roots"
+msgstr "İndeksin kök qovluqlarını daxil et"
+
+msgid "Largest total size first. Totals include indexed descendants only. Refresh reads the current index and follows the main window's hidden and offline visibility choices."
+msgstr "Ən böyük cəm ölçü əvvəl göstərilir. Cəmdə yalnız indeksdəki alt elementlər nəzərə alınır. Yenilə cari indeksi oxuyur və əsas pəncərənin gizli və oflayn element seçimlərinə tabedir."
+
+msgid "Enter a valid minimum size."
+msgstr "Düzgün minimum ölçü daxil edin."
+
+msgid "Maximum rows must be a non-negative whole number."
+msgstr "Maksimum sətir sayı mənfi olmayan tam ədəd olmalıdır."
+
+msgid "Updating folder sizes…"
+msgstr "Qovluq ölçüləri yenilənir…"
+
+msgid "The index is unavailable."
+msgstr "İndeks əlçatan deyil."
+
+msgid "Showing {0} of {1} folders."
+msgstr "{1} qovluqdan {0} qovluq göstərilir."
+
+msgid "Cancelled. Previous folder results were kept."
+msgstr "Ləğv edildi. Əvvəlki qovluq nəticələri saxlanıldı."
+
+msgid "Status"
+msgstr "Vəziyyət"

@@ -1,0 +1,82 @@
+import { Button, CheckBox, ComboBox, LineEdit, Palette, StandardTableView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component LargestFoldersWindow inherits Window {
+    title: @tr("Largest folders");
+    icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
+    preferred-width: 900px;
+    preferred-height: 560px;
+    min-width: 680px;
+    min-height: 380px;
+    background: Theme.surface;
+    default-font-size: Theme.body;
+    in property <[[StandardListViewItem]]> rows;
+    in-out property <int> current <=> table.current-row;
+    in-out property <string> minimum: "0";
+    in-out property <int> size-unit: 2;
+    in-out property <string> limit-text: "1000";
+    in-out property <bool> include-roots: true;
+    in property <bool> busy;
+    in property <string> notice;
+    in property <bool> notice-error;
+    callback refresh();
+    callback cancel();
+    callback close-window();
+
+    public function set-color-scheme(scheme: int) {
+        Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
+        Palette.color-scheme = Theme.scheme;
+    }
+
+    // The view always ranks folders by total size. Keep header indicators
+    // consistent when a table header is clicked.
+    function keep-size-order() {
+        table.columns[0].sort-order = SortOrder.unsorted;
+        table.columns[1].sort-order = SortOrder.descending;
+        table.columns[2].sort-order = SortOrder.unsorted;
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) { root.close-window(); return accept; }
+            reject
+        }
+        VerticalLayout {
+            padding: Theme.margin;
+            spacing: Theme.gap;
+            GridLayout {
+                spacing: Theme.gap;
+                Row {
+                    Text { text: @tr("Minimum total size"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Minimum total size"); text <=> root.minimum; accepted => { root.refresh(); } }
+                    ComboBox { accessible-label: @tr("Size unit"); model: [@tr("bytes"), @tr("KiB"), @tr("MiB"), @tr("GiB")]; current-index <=> root.size-unit; }
+                }
+                Row {
+                    Text { text: @tr("Maximum rows (0 = all)"); color: Theme.text; vertical-alignment: center; }
+                    LineEdit { accessible-label: @tr("Maximum rows (0 = all)"); text <=> root.limit-text; accepted => { root.refresh(); } }
+                    CheckBox { text: @tr("Include indexed roots"); checked <=> root.include-roots; }
+                }
+            }
+            Text { text: @tr("Largest total size first. Totals include indexed descendants only. Refresh reads the current index and follows the main window's hidden and offline visibility choices."); color: Theme.text-muted; wrap: word-wrap; }
+            table := StandardTableView {
+                accessible-label: @tr("Largest folders");
+                rows: root.rows;
+                sort-ascending(column) => { root.keep-size-order(); }
+                sort-descending(column) => { root.keep-size-order(); }
+                columns: [
+                    { title: @tr("Folder"), width: 560px, min-width: 200px, horizontal-stretch: 1 },
+                    { title: @tr("Total size"), width: 130px, min-width: 100px, sort-order: SortOrder.descending },
+                    { title: @tr("Status"), width: 90px, min-width: 70px },
+                ];
+            }
+            Text { text: root.notice; color: root.notice-error ? Theme.danger : Theme.text-muted; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: Theme.gap;
+                Button { text: @tr("Refresh"); clicked => { root.refresh(); } }
+                if root.busy: Button { text: @tr("Cancel"); clicked => { root.cancel(); } }
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Close"); clicked => { root.close-window(); } }
+            }
+        }
+    }
+}

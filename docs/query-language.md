@@ -560,3 +560,21 @@ Search menu (`Alt+B` prefix, `Alt+E` suffix, `Alt+U` ignore punctuation,
 `--suffix`, `--ignore-punctuation`, `--ignore-whitespace` and `--regex`.
 Modifiers in the query then override them per term (except in regex mode,
 where the query is not split into terms).
+
+## Largest folders view
+
+View → Largest folders toggles a separate window sorted by total indexed
+size, largest first. It does not replace the search or its sorting or
+folder-size display setting. The minimum total size is inclusive and has
+bytes/KiB/MiB/GiB units. The first 1000 rows are shown by default; Maximum
+rows can be changed to any non-negative integer, with 0 showing all rows.
+The window states how many of the matching folders are shown. Indexed
+roots can be included or excluded.
+
+Refresh takes a consistent snapshot of the current index, including the
+main window's hidden and offline visibility choices. Cached offline rows
+are marked Offline. The totals come from the index tree, including its
+indexed descendants only; no directory walk or file read is performed.
+Changes after a refresh appear on the next refresh. Cancel keeps the
+previous complete snapshot; closing the view cancels pending work. A newer
+refresh supersedes an older one, including while waiting for the index.
