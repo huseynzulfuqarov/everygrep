@@ -11,6 +11,8 @@ import { ExportOptions } from "export.slint";
 import { FileopsRename } from "fileops-rename.slint";
 import { FileopsBulk, BulkRow } from "fileops-bulk.slint";
 export { BulkRow }
+import { FileopsDupes, DupeRow } from "fileops-dupes.slint";
+export { DupeRow }
 import { Command, MenuKeys } from "commands.slint";
 export { Command, MenuKeys }
 export { SettingsWindow, DriveRow, FileListRow, ShortcutCommand } from "settings.slint";
@@ -1913,6 +1915,19 @@ export component AppWindow inherits Window {
     in property <string> fileops-rename-action;
     in property <string> fileops-rename-label;
     callback fileops-new-folder(int);
+    // Cleaning up duplicates (src/fileops_dupes.rs).
+    callback fileops-clean-duplicates();
+    in-out property <bool> dupes-open;
+    in property <bool> dupes-busy;
+    in-out property <int> dupes-keep;
+    in property <string> dupes-folder;
+    in property <[DupeRow]> dupes-rows;
+    in property <string> dupes-summary;
+    in property <bool> dupes-can-apply;
+    callback dupes-changed();
+    callback dupes-choose-folder();
+    callback dupes-apply();
+    callback dupes-cancel();
     // Renaming several items (src/fileops_bulk.rs).
     callback fileops-bulk-rename(int);
     in-out property <bool> bulk-open;
@@ -3258,7 +3273,7 @@ export component AppWindow inherits Window {
 
     // Whether a command can run now; menu items are enabled by it.
     function can-run(c: Command) -> bool {
-        if (root.properties-open || root.export-open || root.confirm-open || root.fileops-rename-open || root.bulk-open || root.fileops-conflict-open) {
+        if (root.properties-open || root.export-open || root.confirm-open || root.fileops-rename-open || root.bulk-open || root.dupes-open || root.fileops-conflict-open) {
             return false;
         }
         if (c == Command.properties) { return root.current >= 0; }
@@ -3279,7 +3294,7 @@ export component AppWindow inherits Window {
                 || c == Command.toggle-row || c == Command.context-menu) {
             return root.current >= 0;
         }
-        if (c == Command.export-results || c == Command.select-all || c == Command.invert-selection) {
+        if (c == Command.export-results || c == Command.select-all || c == Command.invert-selection || c == Command.clean-duplicates) {
             return root.results.length > 0;
         }
         if (c == Command.restore-removed-column) {
@@ -3365,6 +3380,8 @@ export component AppWindow inherits Window {
             root.fileops-new-folder(root.current);
         } else if (c == Command.bulk-rename) {
             root.fileops-bulk-rename(root.current);
+        } else if (c == Command.clean-duplicates) {
+            root.fileops-clean-duplicates();
         } else if (c == Command.copy-to-folder || c == Command.move-to-folder) {
             root.fileops-to-folder(root.current, c == Command.move-to-folder);
         } else if (c == Command.search-property-value) {
@@ -3791,10 +3808,10 @@ export component AppWindow inherits Window {
             root.value-available = root.fileops-prepare-value(root.current, 0);
         }
         if (c == Command.none) {
-            if (root.export-open || root.confirm-open || root.fileops-rename-open || root.bulk-open || root.fileops-conflict-open) { return false; }
+            if (root.export-open || root.confirm-open || root.fileops-rename-open || root.bulk-open || root.dupes-open || root.fileops-conflict-open) { return false; }
             return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
         }
-        if (root.can-run(c) || (!root.export-open && !root.confirm-open && !root.fileops-rename-open && !root.bulk-open && !root.fileops-conflict-open && ((root.current >= 0 && root.needs-online(c)) || c == Command.undo-file || c == Command.redo-file))) {
+        if (root.can-run(c) || (!root.export-open && !root.confirm-open && !root.fileops-rename-open && !root.bulk-open && !root.dupes-open && !root.fileops-conflict-open && ((root.current >= 0 && root.needs-online(c)) || c == Command.undo-file || c == Command.redo-file))) {
             root.run(c);
         }
         true
@@ -5135,6 +5152,11 @@ export component AppWindow inherits Window {
                                     enabled: root.can-run(Command.bulk-rename);
                                     activated => { root.run(Command.bulk-rename); }
                                 }
+                                if root.results[root.current].group > 0: MenuItem {
+                                    title: @tr("Clean up duplicates…");
+                                    enabled: root.can-run(Command.clean-duplicates);
+                                    activated => { root.run(Command.clean-duplicates); }
+                                }
                                 MenuItem {
                                     title: @tr("Create shortcuts…");
                                     enabled: root.can-run(Command.create-shortcut);
@@ -5668,6 +5690,18 @@ export component AppWindow inherits Window {
         }
     }
 
+    if root.dupes-open: FileopsDupes {
+        keep <=> root.dupes-keep;
+        folder: root.dupes-folder;
+        rows: root.dupes-rows;
+        summary: root.dupes-summary;
+        can-apply: root.dupes-can-apply;
+        busy: root.dupes-busy;
+        changed => { root.dupes-changed(); }
+        choose-folder => { root.dupes-choose-folder(); }
+        apply => { root.dupes-apply(); }
+        cancel => { root.dupes-cancel(); }
+    }
     if root.bulk-open: FileopsBulk {
         title: root.bulk-title;
         mode <=> root.bulk-mode;
@@ -6111,6 +6145,12 @@ export component AppWindow inherits Window {
                 shortcut: root.menu-keys.bulk-rename;
                 enabled: root.can-run(Command.bulk-rename);
                 activated => { root.run(Command.bulk-rename); }
+            }
+            MenuItem {
+                title: @tr("Clean up duplicates…");
+                shortcut: root.menu-keys.clean-duplicates;
+                enabled: root.can-run(Command.clean-duplicates);
+                activated => { root.run(Command.clean-duplicates); }
             }
             MenuItem {
                 title: @tr("Move to trash");

@@ -729,6 +729,176 @@ pub fn rename_batch(items: &[(PathBuf, String)]) -> Result<BatchOutcome, String>
     Ok(out)
 }
 
+/// What cleaning up duplicates did.
+#[derive(Debug, Default)]
+pub struct DupesOutcome {
+    pub trashed: Vec<PathBuf>,
+    /// Bytes of the trashed files.
+    pub bytes: u64,
+    /// Copies left where they were, and why.
+    pub kept: Vec<(PathBuf, String)>,
+    pub note: Option<String>,
+    pub cancelled: bool,
+}
+
+fn left(out: &mut DupesOutcome, path: &Path, why: &str) {
+    out.kept.push((path.to_owned(), why.to_owned()));
+}
+
+/// Whether the opened file is the copy the preview saw.
+fn opened_as_seen(
+    file: &everygrep_core::hash::OpenFile,
+    seen: &crate::fileops_dupes::Copy,
+) -> bool {
+    let k = file.key;
+    k.dev == seen.dev
+        && k.ino == seen.ino
+        && k.size == seen.size
+        && k.mtime_ns
+            == seen
+                .mtime
+                .0
+                .saturating_mul(1_000_000_000)
+                .saturating_add(seen.mtime.1)
+}
+
+/// Sends the copies the preview marked for the trash there, group by
+/// group, and records them as one undo step. A copy goes only when, just
+/// before: the group's first kept copy is still the file of the preview
+/// and at its place, the copy is too, it is not the same file (a hard
+/// link), and both hold the same bytes. Anything else leaves the copy
+/// where it is, with the reason.
+pub fn trash_duplicates(
+    groups: &[crate::fileops_dupes::Group],
+    trash: &dyn Fn(&Path) -> Result<(), String>,
+    progress: &Progress,
+) -> DupesOutcome {
+    use everygrep_core::hash::{self, CompareError};
+    let _files = file_guard();
+    let c = config();
+    let mut out = DupesOutcome::default();
+    let mut entries = Vec::new();
+    'groups: for g in groups {
+        if g.skipped.is_some() {
+            continue;
+        }
+        // Never without a copy that stays.
+        let Some(keeper) = g.keep.first() else {
+            continue;
+        };
+        let leave_all = |out: &mut DupesOutcome, why: &str| {
+            for t in &g.trash {
+                out.kept.push((t.path.clone(), why.to_owned()));
+            }
+        };
+        let kept_file = match hash::open(&keeper.path) {
+            Ok(f) if opened_as_seen(&f, keeper) => f,
+            _ => {
+                leave_all(
+                    &mut out,
+                    tr("The copy to keep changed or is gone since the preview."),
+                );
+                continue;
+            }
+        };
+        for (n, t) in g.trash.iter().enumerate() {
+            if progress.is_cancelled() {
+                out.cancelled = true;
+                break 'groups;
+            }
+            let file = match hash::open(&t.path) {
+                Ok(f) if opened_as_seen(&f, t) => f,
+                _ => {
+                    left(
+                        &mut out,
+                        &t.path,
+                        tr("It changed or is gone since the preview."),
+                    );
+                    continue;
+                }
+            };
+            if (t.dev, t.ino) == (keeper.dev, keeper.ino) {
+                left(
+                    &mut out,
+                    &t.path,
+                    tr("The same file as another copy (a hard link): left as it is."),
+                );
+                continue;
+            }
+            match hash::same_contents(&kept_file, &file, progress) {
+                Ok(true) => {}
+                Ok(false) => {
+                    left(
+                        &mut out,
+                        &t.path,
+                        tr("Its contents differ from the copy that stays."),
+                    );
+                    continue;
+                }
+                Err(CompareError::Cancelled) => {
+                    out.cancelled = true;
+                    break 'groups;
+                }
+                Err(CompareError::Unreadable { .. }) => {
+                    left(
+                        &mut out,
+                        &t.path,
+                        tr("It could not be compared with the copy that stays."),
+                    );
+                    continue;
+                }
+            }
+            drop(file);
+            // Both still at their places, as compared.
+            if !keeper.unchanged() {
+                for t in &g.trash[n..] {
+                    out.kept.push((
+                        t.path.clone(),
+                        tr("The copy to keep changed or is gone since the preview.").into(),
+                    ));
+                }
+                continue 'groups;
+            }
+            let Some(expected) = Snapshot::read(&t.path).ok().filter(|_| t.unchanged()) else {
+                left(
+                    &mut out,
+                    &t.path,
+                    tr("It changed or is gone since the preview."),
+                );
+                continue;
+            };
+            if let Err(e) = trash(&t.path) {
+                left(&mut out, &t.path, &e);
+                continue;
+            }
+            out.trashed.push(t.path.clone());
+            out.bytes += t.size;
+            entries.push(Entry {
+                id: 0,
+                kind: Kind::Trash,
+                from: t.path.clone(),
+                to: t.path.clone(),
+                expected,
+                source: None,
+                applied: true,
+                skipped: None,
+            });
+        }
+    }
+    if c.enabled && !entries.is_empty() {
+        let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(Err(dropped)) = journal.push_group(entries, c) {
+            let what = tr("The operation could not be recorded for undo.");
+            out.note = Some(if dropped {
+                format!("{what} {}", tr("Earlier undo steps were removed."))
+            } else {
+                what.into()
+            });
+        }
+    }
+    out
+}
+
 /// Makes the folder `name` in `parent`, and records it when undo is on.
 /// Never takes an existing name: the caller offers a free one. The answer
 /// has a notice for the user when undo history could not follow.
@@ -1137,6 +1307,37 @@ pub fn csv(rows: &[Row]) -> String {
         out.push_str("\r\n");
     }
     out
+}
+
+/// Runs `f` with undo on and an empty session journal; the caller holds
+/// [`tests_lock`].
+#[cfg(test)]
+pub fn with_undo_on(f: impl FnOnce()) {
+    let before = config();
+    *CONFIG.lock().unwrap() = Config {
+        enabled: true,
+        limit: 100,
+        epoch: before.epoch.wrapping_add(1),
+    };
+    JOURNAL.lock().unwrap().sync(config());
+    f();
+    *CONFIG.lock().unwrap() = Config {
+        epoch: before.epoch.wrapping_add(2),
+        ..before
+    };
+    JOURNAL.lock().unwrap().sync(config());
+}
+
+/// Undoes (or redoes) the last step with the test trash: (done, skipped).
+#[cfg(test)]
+pub fn step_for_tests(redo: bool) -> (usize, usize) {
+    let trash = |p: &Path| crate::trashbin::test_trash(p);
+    let out = JOURNAL
+        .lock()
+        .unwrap()
+        .step(redo, &trash, &Progress::new())
+        .unwrap();
+    (out.done, out.skipped.len())
 }
 
 /// Serializes tests that use the session journal or the file lock.

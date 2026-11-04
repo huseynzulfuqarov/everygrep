@@ -786,6 +786,13 @@ pub const COMMANDS: &[Spec] = &[
         defaults: &[],
     },
     Spec {
+        cmd: Command::CleanDuplicates,
+        id: "edit.clean-duplicates",
+        category: Category::Edit,
+        label: || tr("Clean up duplicates…"),
+        defaults: &[],
+    },
+    Spec {
         cmd: Command::CopyToFolder,
         id: "file.copy-to-folder",
         category: Category::File,
@@ -1940,6 +1947,7 @@ impl Keymap {
             create_shortcut => CreateShortcut,
             new_folder => NewFolder,
             bulk_rename => BulkRename,
+            clean_duplicates => CleanDuplicates,
             copy_to_folder => CopyToFolder,
             move_to_folder => MoveToFolder,
             search_in_program => SearchInProgram,

@@ -17,6 +17,7 @@ mod file_properties;
 mod fileops_bulk;
 mod fileops_conflict;
 mod fileops_drop;
+mod fileops_dupes;
 mod fileops_rename;
 mod fileops_search;
 mod fileops_settings;
@@ -674,6 +675,7 @@ fn main() -> Result<(), slint::PlatformError> {
     connect_clipboard(&window, &model, &engine);
     connect_to_folder(&window, &model, &engine);
     fileops_drop::connect(&window, &model, &engine);
+    fileops_dupes::connect(&window, &model, &engine);
     connect_export(&window, &model, &engine);
     connect_troubleshooting(&window, &engine);
     let main = window.as_weak();

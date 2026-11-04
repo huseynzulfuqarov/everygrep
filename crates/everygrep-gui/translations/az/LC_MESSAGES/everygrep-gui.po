@@ -4389,3 +4389,121 @@ msgstr "Müntəzəm ifadə düzgün deyil: {}"
 #: src/fileops_bulk.rs
 msgid "Type the text to find."
 msgstr "Axtarılan mətni yazın."
+
+#: src/fileops_dupes.rs
+msgid "{0} file goes to the trash, freeing {1}."
+msgid_plural "{0} files go to the trash, freeing {1}."
+msgstr[0] "{0} fayl zibil qutusuna gedir, {1} boşalır."
+msgstr[1] "{0} fayl zibil qutusuna gedir, {1} boşalır."
+
+#: src/fileops_dupes.rs
+msgid "{0} Left as they were: {1}. First: {2}: {3}"
+msgstr "{0} Olduğu kimi qalan: {1}. Birincisi: {2}: {3}"
+
+#: src/fileops_dupes.rs
+msgid "Choose the folder whose copies are kept."
+msgstr "Nüsxələri saxlanılacaq qovluğu seçin."
+
+#: ui/fileops-dupes.slint
+msgid "Clean up duplicates"
+msgstr "Dublikatları təmizlə"
+
+#: ui/app.slint
+msgid "Clean up duplicates…"
+msgstr "Dublikatları təmizlə…"
+
+#: src/fileops_dupes.rs
+msgid "Fewer than two files of this group are left."
+msgstr "Bu qrupda ikidən az fayl qalıb."
+
+#: src/fileops_dupes.rs
+msgid "{} group is left as it is."
+msgid_plural "{} groups are left as they are."
+msgstr[0] "{} qrup olduğu kimi qalır."
+msgstr[1] "{} qrup olduğu kimi qalır."
+
+#: src/fileops_dupes.rs
+msgid "Group {}"
+msgstr "Qrup {}"
+
+#: ui/fileops-dupes.slint
+msgid "In each group"
+msgstr "Hər qrupda"
+
+#: src/fileops_undo.rs
+msgid "It changed or is gone since the preview."
+msgstr "Ön baxışdan sonra dəyişib və ya yoxdur."
+
+#: src/fileops_undo.rs
+msgid "It could not be compared with the copy that stays."
+msgstr "Qalan nüsxə ilə müqayisə edilə bilmədi."
+
+#: src/fileops_undo.rs
+msgid "Its contents differ from the copy that stays."
+msgstr "Məzmunu qalan nüsxədən fərqlidir."
+
+#: ui/fileops-dupes.slint
+msgid "Just before a copy goes to the trash it is compared byte for byte with the copy that stays; a copy that changed or differs stays. Undo brings the copies back from the trash."
+msgstr "Nüsxə zibil qutusuna getməzdən dərhal əvvəl qalan nüsxə ilə bayt-bayt müqayisə olunur; dəyişmiş və ya fərqli nüsxə yerində qalır. Geri qaytarma nüsxələri zibil qutusundan geri gətirir."
+
+#: src/fileops_dupes.rs
+msgid "Keep"
+msgstr "Saxla"
+
+#: ui/fileops-dupes.slint
+msgid "Keep the copies in a folder"
+msgstr "Bir qovluqdakı nüsxələri saxla"
+
+#: src/fileops_dupes.rs
+msgid "Keep the copies in this folder"
+msgstr "Bu qovluqdakı nüsxələri saxla"
+
+#: ui/fileops-dupes.slint
+msgid "Keep the newest copy"
+msgstr "Ən yeni nüsxəni saxla"
+
+#: ui/fileops-dupes.slint
+msgid "Keep the oldest copy"
+msgstr "Ən köhnə nüsxəni saxla"
+
+#: src/fileops_dupes.rs
+msgid "Moved {0} duplicate to the trash, freeing {1}."
+msgid_plural "Moved {0} duplicates to the trash, freeing {1}."
+msgstr[0] "{0} dublikat zibil qutusuna atıldı, {1} boşaldı."
+msgstr[1] "{0} dublikat zibil qutusuna atıldı, {1} boşaldı."
+
+#: src/fileops_dupes.rs
+msgid "No copy of this group is in the chosen folder."
+msgstr "Bu qrupun seçilmiş qovluqda nüsxəsi yoxdur."
+
+#: ui/fileops-dupes.slint
+msgid "No folder chosen"
+msgstr "Qovluq seçilməyib"
+
+#: src/fileops_dupes.rs
+msgid "Not a regular file (a folder, a link or gone): left as it is."
+msgstr "Adi fayl deyil (qovluq, keçid və ya yoxdur): olduğu kimi qalır."
+
+#: src/fileops_dupes.rs
+msgid "Search for duplicates first, for example with duplicates:content."
+msgstr "Əvvəlcə dublikatları axtarın, məsələn duplicates:content ilə."
+
+#: src/fileops_dupes.rs
+msgid "Stopped before the end."
+msgstr "Sona çatmadan dayandı."
+
+#: src/fileops_undo.rs
+msgid "The copy to keep changed or is gone since the preview."
+msgstr "Saxlanılacaq nüsxə ön baxışdan sonra dəyişib və ya yoxdur."
+
+#: src/fileops_dupes.rs
+msgid "The files are not the same size."
+msgstr "Faylların ölçüsü eyni deyil."
+
+#: src/fileops_dupes.rs
+msgid "The same file as another copy (a hard link): left as it is."
+msgstr "Başqa nüsxə ilə eyni fayldır (sərt keçid): olduğu kimi qalır."
+
+#: src/fileops_dupes.rs
+msgid "To the trash ({})"
+msgstr "Zibil qutusuna ({})"

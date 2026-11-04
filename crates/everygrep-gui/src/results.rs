@@ -825,6 +825,32 @@ impl ResultsModel {
         Ok(targets.paths)
     }
 
+    /// The paths of each group of duplicates in the list, in list order;
+    /// empty when the list is not in groups. An error when a drive that is
+    /// not connected holds any of them.
+    pub fn duplicate_groups(&self) -> Result<Vec<Vec<PathBuf>>, Offline> {
+        let ids = Arc::clone(&self.ids.borrow());
+        let groups = Arc::clone(&self.groups.borrow());
+        let Ok(index) = self.engine.index.read() else {
+            return Ok(Vec::new());
+        };
+        if groups.is_empty() || self.engine.epoch() != self.epoch.get() {
+            return Ok(Vec::new());
+        }
+        let store = index.store();
+        let mut by_group: std::collections::BTreeMap<u32, Vec<PathBuf>> = Default::default();
+        for (&id, &group) in ids.iter().zip(groups.iter()) {
+            if group == 0 || id.index() >= store.len() || !store.is_live(id) {
+                continue;
+            }
+            if index.is_offline(id) {
+                return Err(Offline);
+            }
+            by_group.entry(group).or_default().push(store.path(id));
+        }
+        Ok(by_group.into_values().collect())
+    }
+
     /// The ids of the rows an action on `row` applies to.
     fn picked(&self, row: Option<usize>) -> Vec<NodeId> {
         let ids = Arc::clone(&self.ids.borrow());
