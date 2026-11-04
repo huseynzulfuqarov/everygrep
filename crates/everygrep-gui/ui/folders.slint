@@ -72,7 +72,10 @@ export component FoldersPanel inherits Rectangle {
                         activated => { root.recursive-changed(); }
                     }
                 }
-                Button { text: @tr("Folder actions"); clicked => { actions.show({ x: 0px, y: self.height }); } }
+                HorizontalLayout {
+                    alignment: start;
+                    Button { text: @tr("Folder actions"); clicked => { actions.show({ x: 0px, y: self.height }); } }
+                }
             }
             CheckBox {
                 text: @tr("Include subfolders"); checked <=> root.recursive;
