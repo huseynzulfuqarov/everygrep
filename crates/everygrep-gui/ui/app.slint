@@ -580,6 +580,11 @@ component SearchField inherits Rectangle {
                         MenuItem { title: "duplicates:  " + @tr("duplicates"); activated => { root.put(2, 10); } }
                         MenuItem { title: "type:  " + @tr("file type"); activated => { root.put(2, 11); } }
                         MenuItem { title: "attributes:  " + @tr("attributes"); activated => { root.put(2, 12); } }
+                        MenuItem { title: "parent:  " + @tr("parent folder"); activated => { root.put(2, 13); } }
+                        MenuItem { title: "child:  " + @tr("item inside"); activated => { root.put(2, 14); } }
+                        MenuItem { title: "depth:  " + @tr("folder depth"); activated => { root.put(2, 15); } }
+                        MenuItem { title: "children:  " + @tr("items inside"); activated => { root.put(2, 16); } }
+                        MenuItem { title: "len:  " + @tr("name length"); activated => { root.put(2, 17); } }
                         }
                     }
                 }

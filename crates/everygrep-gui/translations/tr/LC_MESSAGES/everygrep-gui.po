@@ -4748,6 +4748,21 @@ msgstr "dosya türü"
 msgid "attributes"
 msgstr "öznitelikler"
 
+msgid "parent folder"
+msgstr "üst klasör"
+
+msgid "item inside"
+msgstr "içindeki öğe"
+
+msgid "folder depth"
+msgstr "klasör derinliği"
+
+msgid "items inside"
+msgstr "içindeki öğe sayısı"
+
+msgid "name length"
+msgstr "ad uzunluğu"
+
 msgid "Zoom in"
 msgstr "Yakınlaştır"
 

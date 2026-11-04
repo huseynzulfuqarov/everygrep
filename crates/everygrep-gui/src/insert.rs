@@ -57,7 +57,7 @@ pub const MODIFIERS: [Part; 13] = [
 ];
 
 /// Functions that test a value.
-pub const FUNCTIONS: [Part; 13] = [
+pub const FUNCTIONS: [Part; 18] = [
     wrap("ext:", ""),
     wrap("size:>", ""),
     wrap("size:<", ""),
@@ -71,6 +71,11 @@ pub const FUNCTIONS: [Part; 13] = [
     wrap("duplicates:", ""),
     wrap("type:", ""),
     wrap("attributes:", ""),
+    wrap("parent:", ""),
+    wrap("child:", ""),
+    wrap("depth:", ""),
+    wrap("children:", ""),
+    wrap("len:", ""),
 ];
 
 /// The part of a menu (0 operators, 1 modifiers, 2 functions) at `index`.
@@ -171,6 +176,9 @@ mod tests {
                     "modified:today" => "modified:today".into(),
                     "type:" => "type:image".into(),
                     "attributes:" => "attributes:R".into(),
+                    "depth:" => "depth:2".into(),
+                    "children:" => "children:0".into(),
+                    "len:" => "len:>20".into(),
                     _ => text,
                 };
                 assert!(

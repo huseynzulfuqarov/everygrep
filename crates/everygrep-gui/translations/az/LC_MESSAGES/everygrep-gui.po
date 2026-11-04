@@ -4748,6 +4748,21 @@ msgstr "fayl növü"
 msgid "attributes"
 msgstr "atributlar"
 
+msgid "parent folder"
+msgstr "üst qovluq"
+
+msgid "item inside"
+msgstr "içindəki element"
+
+msgid "folder depth"
+msgstr "qovluq dərinliyi"
+
+msgid "items inside"
+msgstr "içindəki elementlərin sayı"
+
+msgid "name length"
+msgstr "ad uzunluğu"
+
 msgid "Zoom in"
 msgstr "Böyüt"
 
