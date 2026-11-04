@@ -84,6 +84,7 @@ impl From<Outcome> for HashError {
 pub struct OpenFile {
     file: File,
     pub key: FileKey,
+    ctime: (i64, i64),
 }
 
 /// Opens `path` for hashing (see the module notes).
@@ -92,6 +93,7 @@ pub fn open(path: &Path) -> Result<OpenFile, HashError> {
     let meta = file.metadata().map_err(|_| HashError::Unreadable)?;
     Ok(OpenFile {
         key: FileKey::of(&meta),
+        ctime: (meta.ctime(), meta.ctime_nsec()),
         file,
     })
 }
@@ -196,9 +198,18 @@ pub fn ends_hash(file: &OpenFile, progress: &Progress) -> Result<u128, HashError
 /// Whether `a` and `b` hold the same bytes, read side by side in pieces of
 /// [`BUFFER`]; files of different sizes do not. A cancel of `progress` is
 /// seen before each piece. A file that is no longer the one opened (its
-/// size or modification time changed, by the end of the reading) is
+/// size, modification time or change time changed, by the end of the reading) is
 /// [`HashError::Unreadable`]: equal pieces of it say nothing.
 pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<bool, HashError> {
+    same_contents_with_read(a, b, progress, read_exact_at)
+}
+
+fn same_contents_with_read(
+    a: &OpenFile,
+    b: &OpenFile,
+    progress: &Progress,
+    mut read: impl FnMut(&File, &mut [u8], u64) -> Result<(), HashError>,
+) -> Result<bool, HashError> {
     let size = a.key.size;
     if size != b.key.size {
         return Ok(false);
@@ -211,8 +222,8 @@ pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<
             return Err(HashError::Cancelled);
         }
         let n = (size - at).min(BUFFER as u64) as usize;
-        read_exact_at(&a.file, &mut x[..n], at)?;
-        read_exact_at(&b.file, &mut y[..n], at)?;
+        read(&a.file, &mut x[..n], at)?;
+        read(&b.file, &mut y[..n], at)?;
         if x[..n] != y[..n] {
             return Ok(false);
         }
@@ -220,7 +231,7 @@ pub fn same_contents(a: &OpenFile, b: &OpenFile, progress: &Progress) -> Result<
     }
     for file in [a, b] {
         let meta = file.file.metadata().map_err(|_| HashError::Unreadable)?;
-        if FileKey::of(&meta) != file.key {
+        if FileKey::of(&meta) != file.key || (meta.ctime(), meta.ctime_nsec()) != file.ctime {
             return Err(HashError::Unreadable);
         }
     }
@@ -442,6 +453,31 @@ mod tests {
         let (x, y) = (open(&e).unwrap(), open(&f).unwrap());
         std::fs::write(&f, b"now full").unwrap();
         assert_eq!(same_contents(&x, &y, &progress), Err(HashError::Unreadable));
+    }
+
+    #[test]
+    fn restored_mtime_does_not_hide_a_write_to_compared_bytes() {
+        let dir = Dir::new("restored-mtime");
+        let bytes = vec![5u8; BUFFER + 10];
+        let (a, b) = (dir.file("a", &bytes), dir.file("b", &bytes));
+        let (x, y) = (open(&a).unwrap(), open(&b).unwrap());
+        let modified = y.file.metadata().unwrap().modified().unwrap();
+        let writer = std::fs::OpenOptions::new().write(true).open(&b).unwrap();
+        let mut reads = 0;
+        let result = same_contents_with_read(&x, &y, &Progress::new(), |file, buf, at| {
+            read_exact_at(file, buf, at)?;
+            reads += 1;
+            if reads == 2 {
+                // Both first buffers have been read. Change those bytes only,
+                // keeping the remaining bytes, size and mtime unchanged.
+                writer.write_all_at(b"changed", 0).unwrap();
+                writer.set_modified(modified).unwrap();
+                assert_eq!(FileKey::of(&writer.metadata().unwrap()), y.key);
+            }
+            Ok(())
+        });
+        assert_eq!(reads, 4);
+        assert_eq!(result, Err(HashError::Unreadable));
     }
 
     #[test]
