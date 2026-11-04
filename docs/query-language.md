@@ -43,6 +43,43 @@ components in an indexed root path count too. This checks indexed names,
 with no disk access, rescanning or removal from the index. The Attributes
 column retains its own-name `H` meaning.
 
+## Parents, children and numeric properties
+
+These conditions read the index tree only, including saved offline entries.
+
+| Query | Meaning |
+|---|---|
+| `parent:docs` | items directly inside a folder whose name contains docs |
+| `parent:wholename:docs` | items whose immediate parent has exactly that name |
+| `parent:/home/me/docs` | match the immediate parent's full path (a slash selects path mode) |
+| `child:*.txt` | folders with a matching direct child, including files and folders |
+| `child:<file: ext:txt !draft>` | folders with a direct child satisfying all conditions |
+| `case:child:<Readme.md\|LICENSE>` | modifiers before the function apply to every term in the group |
+| `depth:3`, `depth:<=2`, `depth:2..4` | absolute path depth, for files and folders; `/` is 0, `/home` is 1, `/home/me/a.txt` is 3 |
+| `len:5..20` | name length in Unicode scalar values; each invalid UTF-8 byte counts once |
+| `children:0`, `childfiles:>10`, `childfolders:1..3` | direct child counts, matching folders only |
+
+Integer conditions accept `=`, `<`, `<=`, `>` and `>=` or an inclusive
+`min..max` range. Empty, negative, overflowing and reversed ranges are errors.
+`<0` and `>18446744073709551615` are valid empty ranges.
+Depth includes components above an indexed root: `/home/me` has depth 2 even
+when it is indexed on its own. For folders alone, combine with `folder:`.
+Counts include only indexed direct children; excluded or unindexed items
+cannot contribute. Symlinks follow the index's file/folder classification.
+Renames, moves and removals take effect through the current index tree.
+
+Parent and child conditions can be negated, grouped, nested and combined
+with other query terms. `parent:` has no match for an indexed root, whose
+parent is outside the index. When a relative is an indexed root, name
+conditions see its final path component; `path:` sees its full path.
+A function needs a non-empty term or group. Inside these functions only
+indexed conditions are allowed: content, disk times, executable checks,
+result limits and duplicate searches are rejected with a diagnostic.
+Those functions can still be used alongside the parent/child condition.
+Relative names are not highlighted in the result's own name.
+Tree walks check the search cancellation flag, and cancelled searches
+return no partial results.
+
 ## Plain text
 
 A term without wildcards matches anywhere in the name, not only at the start

@@ -211,10 +211,12 @@ fn scan_groups<T: Send>(
     let threads = threads.clamp(1, groups.len().max(1));
     let scan_group = |group: &[Vec<NodeId>]| -> Result<Vec<T>, Cancelled> {
         progress.check()?;
-        let mut scratch = EvalScratch::with_offline_roots(index.offline_roots());
+        let mut scratch =
+            EvalScratch::with_offline_roots(index.offline_roots()).with_progress(progress);
         let found = group
             .iter()
             .flatten()
+            .take_while(|_| !progress.is_cancelled())
             .filter_map(|&id| test(&mut scratch, id))
             .collect();
         progress.add(group.iter().map(|b| b.len() as u64).sum());
@@ -377,7 +379,14 @@ mod tests {
     #[test]
     fn cancelled_search_returns_no_results_for_any_query_or_index_size() {
         for index in [Index::new(NodeStore::new()), big_index(50_000)] {
-            for text in ["", "match"] {
+            for text in [
+                "",
+                "match",
+                "parent:r",
+                "!child:missing",
+                "depth:>=0 childfiles:>0",
+                "child:<file: !absent>",
+            ] {
                 let query = Query::parse(text, QueryOptions::default()).unwrap();
                 for threads in [1, 8] {
                     let progress = Progress::new();
@@ -391,6 +400,39 @@ mod tests {
                     assert_eq!(progress.done(), 0);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn cancellation_interrupts_a_large_nested_child_walk() {
+        use std::sync::{Arc, Barrier, mpsc};
+        use std::time::Duration;
+        let index = Arc::new(big_index(50_000));
+        // Without cancellation this would rescan all siblings for each child.
+        let query = Query::parse("child:parent:child:absent", QueryOptions::default()).unwrap();
+        for threads in [1, 4] {
+            let progress = Arc::new(Progress::new());
+            let barrier = Arc::new(Barrier::new(2));
+            let (tx, rx) = mpsc::channel();
+            let worker = std::thread::spawn({
+                let index = index.clone();
+                let progress = progress.clone();
+                let barrier = barrier.clone();
+                let query = query.clone();
+                move || {
+                    barrier.wait();
+                    let result = search_with_progress(&index, &query, threads, &progress);
+                    tx.send(result).unwrap();
+                }
+            });
+            barrier.wait();
+            std::thread::sleep(Duration::from_millis(10));
+            progress.cancel();
+            assert_eq!(
+                rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+                Err(Cancelled)
+            );
+            worker.join().unwrap();
         }
     }
 

@@ -218,6 +218,14 @@ enum Pred {
         none: bool,
         case: bool,
     },
+    /// Match a direct relative using only indexed data.
+    Parent(Box<Node>),
+    Child(Box<Node>),
+    Number {
+        field: NumberField,
+        min: u64,
+        max: u64,
+    },
     Size {
         min: u64,
         max: u64,
@@ -236,6 +244,16 @@ enum Pred {
     },
     /// A `content:` term: its slot in [`Query::content_terms`].
     Content(usize, Arc<ContentTerm>),
+}
+
+/// Integer properties available without opening files.
+#[derive(Clone, Copy, Debug)]
+enum NumberField {
+    Depth,
+    NameLength,
+    Children,
+    ChildFiles,
+    ChildFolders,
 }
 
 /// A time of an entry that is read from disk while searching.
@@ -330,7 +348,9 @@ pub fn squeeze_into(text: &[u8], squeeze: Squeeze, keep_wildcards: bool, out: &m
 /// Per-node scratch space for predicates that need the full path or a name
 /// without diacritics.
 #[derive(Default)]
-pub struct EvalScratch {
+pub struct EvalScratch<'a> {
+    progress: Option<&'a Progress>,
+    relative_name: bool,
     path: Vec<u8>,
     folded_path: Vec<u8>,
     for_node: Option<NodeId>,
@@ -346,7 +366,17 @@ pub struct EvalScratch {
     content_bits: Option<u64>,
 }
 
-impl EvalScratch {
+impl<'a> EvalScratch<'a> {
+    /// Check the search cancellation flag inside tree walks too.
+    pub fn with_progress(mut self, progress: &'a Progress) -> Self {
+        self.progress = Some(progress);
+        self
+    }
+
+    fn cancelled(&self) -> bool {
+        self.progress.is_some_and(Progress::is_cancelled)
+    }
+
     /// Scratch space for an index with these offline roots.
     pub fn with_offline_roots(roots: &[NodeId]) -> Self {
         Self {
@@ -664,6 +694,9 @@ fn and_also(node: Node, extra: Node) -> Node {
 }
 
 fn eval(node: &Node, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
+    if scratch.cancelled() {
+        return false;
+    }
     match node {
         Node::All => true,
         Node::And(items) => items.iter().all(|n| eval(n, store, id, scratch)),
@@ -671,6 +704,30 @@ fn eval(node: &Node, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -
         Node::Not(inner) => !eval(inner, store, id, scratch),
         Node::Leaf(pred) => eval_pred(pred, store, id, scratch),
     }
+}
+
+/// Indexed roots store an absolute path as their name. A relative name
+/// condition sees its final component; path conditions still see the full path.
+fn eval_name(store: &NodeStore, id: NodeId, folded: bool, relative: bool) -> &[u8] {
+    let name = if folded {
+        store.folded_name(id)
+    } else {
+        store.name(id)
+    };
+    if relative && store.parent(id).is_none() {
+        name.rsplit(|&b| b == b'/')
+            .find(|part| !part.is_empty())
+            .unwrap_or(name)
+    } else {
+        name
+    }
+}
+
+fn eval_relative(node: &Node, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
+    let old = std::mem::replace(&mut scratch.relative_name, true);
+    let answer = eval(node, store, id, scratch);
+    scratch.relative_name = old;
+    answer
 }
 
 fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
@@ -714,6 +771,74 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                     let parts = g.iter().filter(|&&b| b == b'.').count() + 1;
                     extension_parts(name, parts).is_some_and(|ext| glob_match(g, ext))
                 })
+        }
+        Pred::Parent(inner) => store
+            .parent(id)
+            .is_some_and(|parent| eval_relative(inner, store, parent, scratch)),
+        Pred::Child(inner) => {
+            if !store.is_dir(id) {
+                return false;
+            }
+            for child in store.children(id) {
+                if scratch.cancelled() {
+                    return false;
+                }
+                if eval_relative(inner, store, child, scratch) {
+                    return true;
+                }
+            }
+            false
+        }
+        Pred::Number { field, min, max } => {
+            let value = match field {
+                NumberField::Depth => {
+                    // Absolute depth: / is 0, /home is 1, even when the
+                    // indexed root starts further down the path.
+                    let mut depth = 0;
+                    let mut node = id;
+                    while let Some(parent) = store.parent(node) {
+                        if scratch.cancelled() {
+                            return false;
+                        }
+                        depth += 1;
+                        node = parent;
+                    }
+                    depth
+                        + store
+                            .name(node)
+                            .split(|&b| b == b'/')
+                            .filter(|part| !part.is_empty())
+                            .count() as u64
+                }
+                NumberField::NameLength => {
+                    // Count Unicode scalar values; each invalid byte counts once.
+                    eval_name(store, id, false, scratch.relative_name)
+                        .utf8_chunks()
+                        .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())
+                        .sum::<usize>() as u64
+                }
+                NumberField::Children => {
+                    if !store.is_dir(id) {
+                        return false;
+                    }
+                    u64::from(store.items(id))
+                }
+                NumberField::ChildFiles | NumberField::ChildFolders => {
+                    if !store.is_dir(id) {
+                        return false;
+                    }
+                    let want_dir = matches!(field, NumberField::ChildFolders);
+                    let mut count = 0;
+                    for child in store.children(id) {
+                        if scratch.cancelled() {
+                            return false;
+                        }
+                        count += u64::from(store.is_dir(child) == want_dir);
+                    }
+                    count
+                }
+            };
+            *min <= value && value <= *max
         }
         Pred::Size { min, max } => {
             // A folder's size is the total of the files below it.
@@ -775,7 +900,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
             if r.on_path {
                 r.re.is_match(path_bytes(store, id, scratch))
             } else {
-                r.re.is_match(store.name(id))
+                r.re.is_match(eval_name(store, id, false, scratch.relative_name))
             }
         }
         Pred::Text(t) => {
@@ -789,10 +914,8 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                     } else {
                         folded_path_bytes(store, id, scratch)
                     }
-                } else if t.case {
-                    store.name(id)
                 } else {
-                    store.folded_name(id)
+                    eval_name(store, id, !t.case, scratch.relative_name)
                 };
                 // Most names are ASCII and have no diacritics to remove.
                 let subject = if t.diacritics || subject.is_ascii() {
@@ -1698,6 +1821,11 @@ fn word_starts_function(word: &str, name: &str) -> bool {
 fn word_takes_comparison(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
     [
+        "depth:",
+        "len:",
+        "children:",
+        "childfiles:",
+        "childfolders:",
         "size:",
         "modified:",
         "modified:",
@@ -1732,6 +1860,8 @@ struct Parser {
     content: Vec<Arc<ContentTerm>>,
     /// Inside `content:<...>`: the settings of its words.
     content_scope: Option<TermMods>,
+    relative_scope: Option<TermMods>,
+    in_relative: bool,
     /// The duplicate term so far.
     dupe: Option<DupeSpec>,
     /// Only checked, not built ([`Query::text_reads_files`]): expressions
@@ -1760,6 +1890,8 @@ impl Parser {
             depth: 0,
             content: Vec::new(),
             content_scope: None,
+            relative_scope: None,
+            in_relative: false,
             dupe: None,
             check_only: false,
             checked_content: 0,
@@ -1900,6 +2032,7 @@ impl Parser {
                 self.pos += 1;
                 let mods = self
                     .content_scope
+                    .or(self.relative_scope)
                     .unwrap_or_else(|| TermMods::new(&self.options));
                 self.parse_word(&w, mods)
             }
@@ -1922,7 +2055,44 @@ impl Parser {
             }
             // Quotes inside a value (`ext:"pdf"`) only group; drop their markers.
             let value: String = tail.chars().filter(|&c| c != '\u{0}').collect();
+            if self.in_relative
+                && matches!(
+                    head.as_str(),
+                    "limit"
+                        | "duplicates"
+                        | "extra-copies"
+                        | "distinct"
+                        | "unique"
+                        | "content"
+                        | "content-utf8"
+                        | "content-utf16le"
+                        | "content-utf16be"
+                        | "content-codepage"
+                        | "created"
+                        | "accessed"
+                        | "executable"
+                        | "attributes"
+                        | "attrib"
+                )
+                || self.in_relative && crate::hash::Algorithm::from_keyword(&head).is_some()
+            {
+                return Err(ParseError(format!(
+                    "{head}: is not available inside parent: or child:; use indexed conditions"
+                )));
+            }
             match head.as_str() {
+                "parent" | "child" => return self.parse_relative(&head, tail, m).map(Some),
+                "depth" | "len" | "children" | "childfiles" | "childfolders" => {
+                    let field = match head.as_str() {
+                        "depth" => NumberField::Depth,
+                        "len" => NumberField::NameLength,
+                        "children" => NumberField::Children,
+                        "childfiles" => NumberField::ChildFiles,
+                        _ => NumberField::ChildFolders,
+                    };
+                    let (min, max) = parse_number_range(&head, &value)?;
+                    return Ok(Some(Node::Leaf(Pred::Number { field, min, max })));
+                }
                 "content" => m.content = Some(ContentEncoding::Auto),
                 "content-utf8" => m.content = Some(ContentEncoding::Utf8),
                 "content-utf16le" => m.content = Some(ContentEncoding::Utf16Le),
@@ -1970,6 +2140,9 @@ impl Parser {
                 }
                 word if Filter::from_query_word(word).is_some() => {
                     let filter = Filter::from_query_word(word).unwrap_or_default();
+                    if self.in_relative && filter == Filter::Executable {
+                        return Err(ParseError("executable: is not available inside parent: or child:; use indexed conditions".into()));
+                    }
                     self.reads_disk |= filter == Filter::Executable;
                     return Ok(Some(self.with_rest(Pred::Kind(filter), tail, m)?));
                 }
@@ -2120,6 +2293,36 @@ impl Parser {
             self.content.len() - 1,
             term,
         ))))
+    }
+
+    fn parse_relative(
+        &mut self,
+        head: &str,
+        rest: &str,
+        mods: TermMods,
+    ) -> Result<Node, ParseError> {
+        let old_relative = self.in_relative;
+        let old_scope = self.relative_scope.replace(mods);
+        self.in_relative = true;
+        let parsed = self.nested(|p| {
+            if rest.is_empty() {
+                if p.peek() != Some(&Token::Open) {
+                    return Err(ParseError(format!("{head}: needs a name, path or <group>")));
+                }
+                p.parse_unary()
+            } else {
+                p.parse_word(rest, mods)
+            }
+        });
+        self.in_relative = old_relative;
+        self.relative_scope = old_scope;
+        let inner =
+            parsed?.ok_or_else(|| ParseError(format!("{head}: needs a non-empty condition")))?;
+        Ok(Node::Leaf(if head == "parent" {
+            Pred::Parent(Box::new(inner))
+        } else {
+            Pred::Child(Box::new(inner))
+        }))
     }
 
     /// The text of a `content:` term; without one, a group that follows
@@ -2296,6 +2499,14 @@ fn cost(node: &Node) -> u8 {
         Node::Leaf(Pred::Kind(_) | Pred::Type(_)) => 2,
         // Hidden status walks parent names; let cheap name terms narrow first.
         Node::Leaf(Pred::Hidden(_)) => 2,
+        Node::Leaf(
+            Pred::Parent(_)
+            | Pred::Child(_)
+            | Pred::Number {
+                field: NumberField::ChildFiles | NumberField::ChildFolders | NumberField::Depth,
+                ..
+            },
+        ) => 4,
         Node::Leaf(_) => 0,
         Node::Not(inner) => cost(inner),
         Node::And(items) | Node::Or(items) => items.iter().map(cost).max().unwrap_or(0),
@@ -2394,6 +2605,13 @@ const KNOWN_MODIFIERS: &[&str] = &[
     "space",
     "regex",
     "noregex",
+    "parent",
+    "child",
+    "depth",
+    "len",
+    "children",
+    "childfiles",
+    "childfolders",
     "limit",
     "duplicates",
     "extra-copies",
@@ -2464,6 +2682,44 @@ fn parse_dupe(head: &str, value: &str, case: bool) -> Result<DupeSpec, ParseErro
 }
 
 /// `limit:100`: a number of results.
+/// An unsigned integer, comparison or inclusive range. Never wrap at an
+/// endpoint: >MAX and <0 are empty ranges, represented by min > max.
+fn parse_number_range(head: &str, value: &str) -> Result<(u64, u64), ParseError> {
+    let bad = || {
+        ParseError(format!(
+            "bad {head}: '{value}'; expected an unsigned integer, comparison or min..max"
+        ))
+    };
+    let number = |s: &str| -> Result<u64, ParseError> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(bad());
+        }
+        s.parse().map_err(|_| bad())
+    };
+    if let Some((a, b)) = value.split_once("..") {
+        let (min, max) = (number(a)?, number(b)?);
+        return if min <= max {
+            Ok((min, max))
+        } else {
+            Err(bad())
+        };
+    }
+    for op in [">=", "<=", ">", "<", "="] {
+        if let Some(tail) = value.strip_prefix(op) {
+            let n = number(tail)?;
+            return Ok(match op {
+                ">=" => (n, u64::MAX),
+                "<=" => (0, n),
+                ">" => n.checked_add(1).map_or((1, 0), |min| (min, u64::MAX)),
+                "<" => n.checked_sub(1).map_or((1, 0), |max| (0, max)),
+                _ => (n, n),
+            });
+        }
+    }
+    let n = number(value)?;
+    Ok((n, n))
+}
+
 fn parse_limit(value: &str) -> Result<usize, ParseError> {
     let value = value.trim();
     if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
@@ -5510,5 +5766,228 @@ mod tests {
         // Matching directly reads the file; it does not exist here.
         let q = Query::parse("content:a", QueryOptions::default()).unwrap();
         assert!(!q.matches(&s, report, &mut EvalScratch::default()));
+    }
+    /// A tree that exists only in the index: matching must not need disk access.
+    fn relation_tree() -> (NodeStore, [NodeId; 6]) {
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/missing/Project", true, Meta::default());
+        let docs = s.add(Some(root), "Döcs".as_bytes(), true, Meta::default());
+        let src = s.add(Some(root), b"src", true, Meta::default());
+        let report = s.add(
+            Some(docs),
+            b"Report.txt",
+            false,
+            Meta {
+                size: 42,
+                mtime_ns: 1,
+            },
+        );
+        let empty = s.add(Some(docs), b"empty", true, Meta::default());
+        let code = s.add(Some(src), b"main.rs", false, Meta::default());
+        (s, [root, docs, src, report, empty, code])
+    }
+
+    #[test]
+    fn relations_use_direct_index_edges_and_inherit_modifiers() {
+        let (s, [root, docs, src, report, empty, code]) = relation_tree();
+        let check = |text: &str, expected: &[NodeId]| {
+            for and_before_or in [false, true] {
+                let q = Query::parse(
+                    text,
+                    QueryOptions {
+                        and_before_or,
+                        literal_operators: true,
+                        ..QueryOptions::default()
+                    },
+                )
+                .unwrap();
+                let mut scratch = EvalScratch::default();
+                let found: Vec<_> = [root, docs, src, report, empty, code]
+                    .into_iter()
+                    .filter(|&id| q.matches(&s, id, &mut scratch))
+                    .collect();
+                assert_eq!(found, expected, "{text}");
+                assert!(q.content_terms().is_empty());
+                assert!(!q.reads_files());
+            }
+        };
+        check("parent:docs", &[report, empty]);
+        check("parent:wholename:Project", &[docs, src]);
+        check("parent:regex:^Project$", &[docs, src]);
+        check("case:parent:docs", &[]);
+        check("diacritics:parent:Döcs", &[report, empty]);
+        check("parent:wholeword:doc", &[]);
+        check("parent:/missing/Project/Döcs", &[report, empty]);
+        check("parent:path:wholename:/missing/Project", &[docs, src]);
+        check("child:Report.txt", &[docs]);
+        check("child:*.txt", &[docs]);
+        check("child:ext:rs", &[src]);
+        check("child:folder:", &[root, docs]);
+        check("child:child:ext:txt", &[root]);
+        check("case:child:<Report.txt OR absent>", &[docs]);
+        check("case:child:<report.txt OR absent>", &[]);
+        check("child:<file: size:>=42 !ext:rs>", &[docs]);
+        check("<parent:docs | parent:src> file: NOT *.rs", &[report]);
+        check("!child:*.txt folder:", &[root, src, empty]);
+        // Relative names must not leak into the following term's path cache.
+        check(
+            "parent:path:Project path:wholename:/missing/Project/Döcs/Report.txt",
+            &[report],
+        );
+        check("child:<parent:Project folder:>", &[root]);
+        check("parent:Project case:wholename:src", &[src]);
+    }
+
+    #[test]
+    fn depth_length_and_child_counts_have_inclusive_numeric_ranges() {
+        let (s, ids) = relation_tree();
+        let answers = |text: &str| {
+            let q = Query::parse(text, QueryOptions::default()).unwrap();
+            ids.map(|id| q.matches(&s, id, &mut EvalScratch::default()))
+        };
+        assert_eq!(
+            answers("depth:2"),
+            [true, false, false, false, false, false]
+        );
+        assert_eq!(
+            answers("depth:<=3 folder:"),
+            [true, true, true, false, false, false]
+        );
+        assert_eq!(
+            answers("depth:3..4 file:"),
+            [false, false, false, true, false, true]
+        );
+        assert_eq!(answers("depth:>3"), [false, false, false, true, true, true]);
+        assert_eq!(
+            answers("children:2"),
+            [true, true, false, false, false, false]
+        );
+        assert_eq!(
+            answers("childfiles:1"),
+            [false, true, true, false, false, false]
+        );
+        assert_eq!(
+            answers("childfolders:>=1"),
+            [true, true, false, false, false, false]
+        );
+        assert_eq!(
+            answers("children:0"),
+            [false, false, false, false, true, false]
+        );
+        assert_eq!(answers("len:4"), [false, true, false, false, false, false]);
+        assert_eq!(answers("depth:<0"), [false; 6]);
+        assert_eq!(answers("children:>18446744073709551615"), [false; 6]);
+        let mut s = NodeStore::new();
+        let root = s.add(None, b"/", true, Meta::default());
+        let invalid = s.add(Some(root), b"a\xffb", false, Meta::default());
+        assert!(
+            Query::parse("depth:0", QueryOptions::default())
+                .unwrap()
+                .matches(&s, root, &mut EvalScratch::default())
+        );
+        assert!(
+            Query::parse("len:3", QueryOptions::default())
+                .unwrap()
+                .matches(&s, invalid, &mut EvalScratch::default())
+        );
+    }
+
+    #[test]
+    fn tree_conditions_follow_index_changes() {
+        use crate::index::Index;
+        let (s, [root, docs, src, report, empty, _]) = relation_tree();
+        let mut index = Index::new(s);
+        let q = Query::parse("child:*.txt childfiles:1", QueryOptions::default()).unwrap();
+        let matched = |index: &Index, id| q.matches(index.store(), id, &mut EvalScratch::default());
+        assert!(matched(&index, docs));
+        index.rename(report, Some(src), b"renamed.txt").unwrap();
+        assert!(!matched(&index, docs));
+        assert!(!matched(&index, src)); // Now two files.
+        index.remove(empty);
+        index.insert(Some(docs), b"new.txt", false, Meta::default());
+        assert!(matched(&index, docs));
+        assert!(!matched(&index, root));
+        let (compacted, _) = index.compacted();
+        assert_eq!(crate::search::search(&compacted, &q, 2).len(), 1);
+    }
+
+    #[test]
+    fn malformed_tree_conditions_report_errors_without_panicking() {
+        for head in ["depth", "len", "children", "childfiles", "childfolders"] {
+            for value in [
+                "",
+                "-1",
+                "1.5",
+                "2..1",
+                "..3",
+                "3..",
+                "1..2..3",
+                "18446744073709551616",
+                "=>3",
+                "!3",
+                "abc",
+                "三",
+            ] {
+                let text = format!("{head}:{value}");
+                let e = Query::parse(&text, QueryOptions::default()).unwrap_err();
+                assert!(e.0.contains(head), "{e}");
+                assert!(e.0.contains("expected"), "{e}");
+            }
+        }
+        for text in [
+            "parent:",
+            "child:",
+            "child:<> ",
+            "parent:\"\"",
+            "child:<",
+            "child:content:secret",
+            "parent:accessed:today",
+            "child:executable:",
+            "child:<limit:1>",
+            "parent:duplicates:name",
+            "child:<regex:(>",
+            "child:attributes:H",
+            "parent:attrib:R",
+            "child:sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        ] {
+            assert!(
+                Query::parse(text, QueryOptions::default()).is_err(),
+                "{text}"
+            );
+        }
+        for text in [
+            format!("{}x", "child:".repeat(200)),
+            format!("{}x{}", "parent:<".repeat(200), ">".repeat(200)),
+        ] {
+            assert!(
+                Query::parse(&text, QueryOptions::default())
+                    .unwrap_err()
+                    .0
+                    .contains("nested too deeply")
+            );
+        }
+        // Short arbitrary sequences exercise operator/value boundaries too.
+        for a in ["", "parent:", "child:", "depth:", "case:", "!"] {
+            for b in ["<>", ":", "\"", ">=", "1..", "<x|y>"] {
+                let _ = Query::parse(&format!("{a}{b}"), QueryOptions::default());
+            }
+        }
+    }
+
+    #[test]
+    fn tree_conditions_combine_with_content_staging_and_do_not_highlight_relatives() {
+        let (s, [_, _, _, report, _, _]) = relation_tree();
+        let q = Query::parse("parent:docs Report content:needle", QueryOptions::default()).unwrap();
+        assert_eq!(q.highlight_terms().len(), 1);
+        assert_eq!(
+            q.stage(&s, report, &mut EvalScratch::default()),
+            Stage::Contents(2)
+        );
+        let other = Query::parse("!parent:docs | content:other", QueryOptions::default()).unwrap();
+        let combined = q.and(other).unwrap();
+        assert_eq!(
+            combined.stage(&s, report, &mut EvalScratch::default()),
+            Stage::Contents(8)
+        );
     }
 }

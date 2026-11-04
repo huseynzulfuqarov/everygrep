@@ -33,6 +33,30 @@ fn translated(error: &str, tr: impl Fn(&'static str) -> &'static str) -> String 
             &[&n],
         );
     }
+    if let Some(head) = error.strip_suffix(": needs a name, path or <group>") {
+        return fill(tr("{0}: enter a name, path or <group>."), &[&head]);
+    }
+    if let Some(head) = error.strip_suffix(": needs a non-empty condition") {
+        return fill(tr("{0}: enter a non-empty condition."), &[&head]);
+    }
+    if let Some(head) =
+        error.strip_suffix(": is not available inside parent: or child:; use indexed conditions")
+    {
+        return fill(
+            tr("{0}: is unavailable inside parent: or child:. Use conditions from the index."),
+            &[&head],
+        );
+    }
+    if let Some((head, value)) = error
+        .strip_prefix("bad ")
+        .and_then(|s| s.strip_suffix("; expected an unsigned integer, comparison or min..max"))
+        .and_then(|s| s.split_once(": "))
+    {
+        return fill(
+            tr("Invalid {0}: {1}. Use a non-negative integer, comparison or min..max."),
+            &[&head, &value],
+        );
+    }
     if let Some(value) = error.strip_prefix("bad size: ") {
         return fill(tr("Invalid size: {}"), &[&value]);
     }
@@ -126,6 +150,11 @@ mod tests {
         for query in [
             "content:a content:b content:c content:d content:e content:f content:g",
             "size:invalid",
+            "depth:invalid",
+            "children:2..1",
+            "parent:",
+            "child:<> ",
+            "child:content:secret",
             "limit:invalid",
             "modified:2026-99-99",
             "modified:nonsense",

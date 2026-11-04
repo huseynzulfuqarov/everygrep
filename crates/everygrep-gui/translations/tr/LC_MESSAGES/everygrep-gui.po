@@ -4826,3 +4826,15 @@ msgstr "Kısayolları tuşun konumuna göre eşleştir"
 
 msgid "A shortcut with Ctrl, Alt or Super stays on the same key whatever the keyboard layout (Ctrl+W is the key marked W on a US keyboard). Off: the character the key types counts. Shortcuts set by a character only a layout has keep working."
 msgstr "Ctrl, Alt veya Super içeren bir kısayol klavye düzeni ne olursa olsun aynı tuşta kalır (Ctrl+W, ABD klavyesinde W yazan tuştur). Kapalıyken tuşun yazdığı karakter geçerlidir. Yalnızca bir düzende olan karakterle atanmış kısayollar çalışmaya devam eder."
+
+msgid "{0}: enter a name, path or <group>."
+msgstr "{0}: ad, yol veya <grup> girin."
+
+msgid "{0}: enter a non-empty condition."
+msgstr "{0}: boş olmayan bir koşul girin."
+
+msgid "{0}: is unavailable inside parent: or child:. Use conditions from the index."
+msgstr "{0}: parent: veya child: içinde kullanılamaz. Dizindeki koşulları kullanın."
+
+msgid "Invalid {0}: {1}. Use a non-negative integer, comparison or min..max."
+msgstr "Geçersiz {0}: {1}. Negatif olmayan tam sayı, karşılaştırma veya min..max kullanın."
