@@ -191,6 +191,7 @@ pub struct Record {
     pub source: PathBuf,
     pub target: PathBuf,
     pub overwritten: bool,
+    pub(crate) produced: Option<Produced>,
 }
 
 /// Why copying stopped.
@@ -301,12 +302,18 @@ pub fn paste_observed_using(
                 if target.file_name() != src.file_name() {
                     out.renamed += 1;
                 }
-                let record = Record {
+                let mut record = Record {
                     source: src.clone(),
                     target: target.clone(),
                     overwritten: run.replaced,
+                    produced: run.produced.take(),
                 };
+                #[cfg(test)]
+                crate::fileops_test::at("before-record", &target);
                 observe(&record);
+                // The observer captured the frozen proof while its inodes were
+                // pinned. Do not keep a descriptor per file for the whole batch.
+                record.produced = None;
                 out.records.push(record);
                 out.done.push(target);
             }
@@ -358,6 +365,7 @@ struct Run {
     replacements: usize,
     replacement: Replacement,
     exact: Option<PathBuf>,
+    produced: Option<Produced>,
     /// For each name (and whether it is a folder's), the first number
     /// `name (N)` not yet known to be taken in the target folder.
     next: HashMap<(OsString, bool), u64>,
@@ -427,6 +435,7 @@ fn paste_attempt(
 ) -> Result<Pasted, Stop> {
     run.replace = None;
     run.replaced = false;
+    run.produced = None;
     let meta = fs::symlink_metadata(src)?;
     let name = src
         .file_name()
@@ -490,13 +499,17 @@ fn paste_attempt(
         let (target, copied, produced) = copy_in(src, &meta, dest, name, progress, true, run)?;
         run.changed = true;
         return Ok(match remove_copied(&copied, &produced) {
-            None => Pasted::New(target),
+            None => {
+                run.produced = Some(produced);
+                Pasted::New(target)
+            }
             Some(e) => Pasted::Failed(Failure::NotRemoved(e)),
         });
     }
     match op {
         Operation::Copy => {
-            let (target, _, _) = copy_in(src, &meta, dest, name, progress, false, run)?;
+            let (target, _, produced) = copy_in(src, &meta, dest, name, progress, false, run)?;
+            run.produced = Some(produced);
             Ok(Pasted::New(target))
         }
         Operation::Cut => move_in(src, &meta, dest, name, progress, run),
@@ -639,7 +652,10 @@ fn move_in(
     let (target, copied, produced) = copy_in(src, meta, dest, name, progress, true, run)?;
     run.changed = true;
     match remove_copied(&copied, &produced) {
-        None => Ok(Pasted::New(target)),
+        None => {
+            run.produced = Some(produced);
+            Ok(Pasted::New(target))
+        }
         Some(e) => Ok(Pasted::Failed(Failure::NotRemoved(e))),
     }
 }
@@ -1070,7 +1086,11 @@ fn copy_in(
 }
 
 /// Recreate a recorded copy at its exact path, with no replacement fallback.
-pub fn copy_exact(src: &Path, target: &Path, progress: &Progress) -> io::Result<()> {
+pub fn copy_exact(
+    src: &Path,
+    target: &Path,
+    progress: &Progress,
+) -> io::Result<Vec<(PathBuf, FileStamp)>> {
     let parent = target
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -1088,7 +1108,7 @@ pub fn copy_exact(src: &Path, target: &Path, progress: &Progress) -> io::Result<
         ..Run::default()
     };
     copy_in(src, &meta, parent, name, progress, false, &mut run)
-        .map(|_| ())
+        .map(|(_, _, proof)| proof.snapshot())
         .map_err(|e| match e {
             Stop::Io(e) => e,
             Stop::Cancelled => io::Error::other(tr("Operation cancelled.")),
@@ -1188,6 +1208,12 @@ fn require_private(file: &File) -> io::Result<()> {
     }
     Ok(())
 }
+pub(crate) fn pin_path(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(0o10000000 | 0o400000)
+        .open(path)
+}
 fn open_dir(path: &Path) -> io::Result<File> {
     OpenOptions::new()
         .read(true)
@@ -1198,7 +1224,7 @@ fn open_dir(path: &Path) -> io::Result<File> {
 /// A completed copy is bound to the descriptors used to write it. Each
 /// child's parent descriptor and relative name remain part of that proof.
 #[derive(Debug)]
-struct Produced {
+pub(crate) struct Produced {
     nodes: Vec<ProducedNode>,
     durable: bool,
 }
@@ -1209,18 +1235,22 @@ struct ProducedNode {
     parent_index: Option<usize>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FileStamp {
-    dev: u64,
-    ino: u64,
-    len: u64,
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    mtime: (i64, i64),
-    ctime: (i64, i64),
+pub(crate) struct FileStamp {
+    pub(crate) dev: u64,
+    pub(crate) ino: u64,
+    pub(crate) len: u64,
+    pub(crate) mode: u32,
+    pub(crate) uid: u32,
+    pub(crate) gid: u32,
+    pub(crate) mtime: (i64, i64),
+    pub(crate) ctime: (i64, i64),
 }
 impl FileStamp {
-    fn of(m: &Metadata) -> Self {
+    pub(crate) fn read(path: &Path) -> io::Result<Self> {
+        Ok(Self::of(&fs::symlink_metadata(path)?))
+    }
+
+    pub(crate) fn of(m: &Metadata) -> Self {
         Self {
             dev: m.dev(),
             ino: m.ino(),
@@ -1232,13 +1262,33 @@ impl FileStamp {
             ctime: (m.ctime(), m.ctime_nsec()),
         }
     }
-    fn same_except_ctime(&self, other: &Self) -> bool {
+    pub(crate) fn same_except_ctime(&self, other: &Self) -> bool {
         let mut other = *other;
         other.ctime = self.ctime;
         other == *self
     }
 }
 impl Produced {
+    pub(crate) fn snapshot(&self) -> Vec<(PathBuf, FileStamp)> {
+        let root = &self.nodes[0].entry.path;
+        let mut out: Vec<(PathBuf, FileStamp)> = self
+            .nodes
+            .iter()
+            .map(|n| {
+                (
+                    n.entry
+                        .path
+                        .strip_prefix(root)
+                        .expect("copy manifest root")
+                        .into(),
+                    n.expected,
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
     fn before_publication(created: &[Created], progress: &Progress) -> io::Result<Self> {
         let mut nodes: Vec<ProducedNode> = Vec::with_capacity(created.len());
         let mut directories = HashMap::new();

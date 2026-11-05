@@ -4,33 +4,11 @@ use crate::{actions, clipboard::Operation, fileops_settings::Settings, transfer}
 use everygrep_core::progress::Progress;
 use std::fs;
 use std::io;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const MAX_TREE: usize = 100_000;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Stamp {
-    dev: u64,
-    ino: u64,
-    len: u64,
-    mode: u32,
-    mtime: (i64, i64),
-    ctime: (i64, i64),
-}
-impl Stamp {
-    fn read(path: &Path) -> io::Result<Self> {
-        let m = fs::symlink_metadata(path)?;
-        Ok(Self {
-            dev: m.dev(),
-            ino: m.ino(),
-            len: m.len(),
-            mode: m.mode(),
-            mtime: (m.mtime(), m.mtime_nsec()),
-            ctime: (m.ctime(), m.ctime_nsec()),
-        })
-    }
-}
+use crate::transfer::FileStamp as Stamp;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Snapshot(Vec<(PathBuf, Stamp)>);
 impl Snapshot {
@@ -92,6 +70,49 @@ impl Snapshot {
             Ok(_) => Err(tr("The item changed since the recorded operation.").into()),
             Err(e) => Err(e.to_string()),
         }
+    }
+}
+
+/// The inode selected before rename stays pinned until its resulting snapshot
+/// is checked. A post-publication pathname cannot replace this identity.
+#[derive(Clone)]
+struct BeforeRename {
+    snapshot: Snapshot,
+    root: std::sync::Arc<fs::File>,
+}
+impl BeforeRename {
+    fn read(path: &Path) -> io::Result<Self> {
+        Self::read_with(path, &Progress::new(), false)
+    }
+    fn read_with(path: &Path, progress: &Progress, count: bool) -> io::Result<Self> {
+        let root = std::sync::Arc::new(transfer::pin_path(path)?);
+        let snapshot = Snapshot::read_with(path, progress, count)?;
+        if Stamp::of(&root.metadata()?) != snapshot.0[0].1 {
+            return Err(io::Error::other(tr(
+                "The item changed since the recorded operation.",
+            )));
+        }
+        Ok(Self { snapshot, root })
+    }
+    fn after(&self, path: &Path) -> io::Result<Snapshot> {
+        let after = Snapshot::read(path)?;
+        let held = Stamp::of(&self.root.metadata()?);
+        if after.0.len() != self.snapshot.0.len()
+            || after.0[0].1 != held
+            || !self.snapshot.0[0].1.same_except_ctime(&held)
+            || self
+                .snapshot
+                .0
+                .iter()
+                .zip(&after.0)
+                .enumerate()
+                .any(|(i, (before, after))| before.0 != after.0 || (i > 0 && before.1 != after.1))
+        {
+            return Err(io::Error::other(tr(
+                "The item changed since the recorded operation.",
+            )));
+        }
+        Ok(after)
     }
 }
 
@@ -294,6 +315,9 @@ struct StepOutcome {
 
 impl Journal {
     fn advance_rename(&mut self, before: Stamp, after: Stamp) {
+        if (before.dev, before.ino) != (after.dev, after.ino) {
+            return;
+        }
         for other in &mut self.entries {
             for snapshot in std::iter::once(&mut other.expected).chain(other.source.iter_mut()) {
                 for (_, stamp) in &mut snapshot.0 {
@@ -544,8 +568,14 @@ impl Entry {
                     })?
                     .check(&self.from)?;
                 ensure_absent(&self.to)?;
-                transfer::copy_exact(&self.from, &self.to, progress).map_err(|e| e.to_string())?;
-                self.expected = Snapshot::read(&self.to).map_err(|e| e.to_string())?;
+                let expected = Snapshot(
+                    transfer::copy_exact(&self.from, &self.to, progress)
+                        .map_err(|e| e.to_string())?,
+                );
+                #[cfg(test)]
+                crate::fileops_test::at("redo-copy-journal", &self.to);
+                expected.check(&self.to)?;
+                self.expected = expected;
             } else {
                 self.expected.check(&self.to)?;
                 trash(&self.to)?;
@@ -557,13 +587,17 @@ impl Entry {
                 (&self.to, &self.from)
             };
             self.expected.check(from)?;
+            let before = BeforeRename::read(from).map_err(|e| e.to_string())?;
+            if before.snapshot != self.expected {
+                return Err(tr("The item changed since the recorded operation.").into());
+            }
             reverse_rename(
                 from,
                 to,
                 actions::case_only(from, to),
                 transfer::rename_strict,
             )?;
-            self.expected = Snapshot::read(to).map_err(|e| e.to_string())?;
+            self.expected = before.after(to).map_err(|e| e.to_string())?;
         }
         self.applied = redo;
         Ok(())
@@ -613,17 +647,24 @@ pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameE
         actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
     })?;
     let c = config();
-    let before_stamp = Stamp::read(old).ok();
+    let before = BeforeRename::read(old).ok();
     let result = actions::rename(old, name)?;
     let mut note = None;
     if c.enabled {
         if let Some(to) = &result {
             let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
-            match Snapshot::read(to) {
+            #[cfg(test)]
+            crate::fileops_test::at("rename-journal", to);
+            match before
+                .as_ref()
+                .ok_or_else(|| {
+                    io::Error::other(tr("The item changed since the recorded operation."))
+                })
+                .and_then(|b| b.after(to))
+            {
                 Ok(expected) => {
-                    if let Some(before) = before_stamp {
-                        journal.advance_rename(before, expected.0[0].1);
-                    }
+                    journal
+                        .advance_rename(before.as_ref().unwrap().snapshot.0[0].1, expected.0[0].1);
                     // A rename tree always fits after older steps go.
                     let _ = journal.push_group(
                         vec![Entry {
@@ -675,10 +716,13 @@ pub fn rename_batch(items: &[(PathBuf, String)]) -> Result<BatchOutcome, String>
     let mut out = BatchOutcome::default();
     let mut stamps = Vec::new();
     for (from, name) in items {
-        let before = Stamp::read(from).ok();
+        let before = BeforeRename::read(from).ok();
         match actions::rename(from, name) {
             Ok(Some(to)) => {
-                stamps.push(before);
+                #[cfg(test)]
+                crate::fileops_test::at("rename-journal", &to);
+                let expected = before.as_ref().and_then(|b| b.after(&to).ok());
+                stamps.push((before, expected));
                 out.done.push((from.clone(), to));
             }
             Ok(None) => {}
@@ -690,13 +734,13 @@ pub fn rename_batch(items: &[(PathBuf, String)]) -> Result<BatchOutcome, String>
     }
     let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
     let mut entries = Vec::new();
-    for ((from, to), before) in out.done.iter().zip(stamps) {
-        let Ok(expected) = Snapshot::read(to) else {
+    for ((from, to), (before, expected)) in out.done.iter().zip(stamps) {
+        let Some(expected) = expected else {
             entries.clear();
             break;
         };
         if let Some(before) = before {
-            journal.advance_rename(before, expected.0[0].1);
+            journal.advance_rename(before.snapshot.0[0].1, expected.0[0].1);
         }
         entries.push(Entry {
             id: 0,
@@ -1057,11 +1101,11 @@ fn paste_using(
                 if budget == 0 {
                     return None;
                 }
-                let snapshot = Snapshot::read_with(p, progress, true).ok()?;
-                if snapshot.0.len() > budget {
+                let snapshot = BeforeRename::read_with(p, progress, true).ok()?;
+                if snapshot.snapshot.0.len() > budget {
                     return None;
                 }
-                budget -= snapshot.0.len();
+                budget -= snapshot.snapshot.0.len();
                 Some(snapshot)
             })
             .collect()
@@ -1073,9 +1117,19 @@ fn paste_using(
     let mut out = if c.enabled {
         transfer::paste_observed_using(op, sources, dest, progress, resolver, replacement, |r| {
             // Not counted: the transfer counts bytes by then.
-            let snapshot = Snapshot::read_with(&r.target, progress, false)
-                .ok()
-                .filter(|s| s.0.len() <= budget);
+            let snapshot = if let Some(produced) = &r.produced {
+                let expected = Snapshot(produced.snapshot());
+                expected.check(&r.target).ok().map(|()| expected)
+            } else if op == Operation::Cut {
+                sources
+                    .iter()
+                    .position(|s| s == &r.source)
+                    .and_then(|i| before[i].as_ref())
+                    .and_then(|b| b.after(&r.target).ok())
+            } else {
+                None
+            }
+            .filter(|s| s.0.len() <= budget);
             if let Some(s) = &snapshot {
                 budget -= s.0.len();
             }
@@ -1099,7 +1153,7 @@ fn paste_using(
                 let source = sources
                     .iter()
                     .position(|s| s == &r.source)
-                    .and_then(|i| before[i].clone());
+                    .and_then(|i| before[i].as_ref().map(|b| b.snapshot.clone()));
                 // Cross-device moves are excluded: reversing a partly removed
                 // source needs a separate recovery transaction.
                 if op == Operation::Cut
@@ -2345,6 +2399,166 @@ mod new_item_tests {
             assert_eq!(fs::read(&a).unwrap(), b"a");
             assert_eq!(fs::read(&c).unwrap(), b"c");
         });
+    }
+
+    #[test]
+    fn copy_history_cannot_adopt_a_foreign_target_before_journal_capture() {
+        with_undo(|| {
+            let t = Temp::new();
+            let src = t.work("source");
+            let dest = t.work("dest");
+            fs::write(&src, "selected bytes").unwrap();
+            fs::create_dir(&dest).unwrap();
+            let foreign = t.work("foreign");
+            fs::write(&foreign, "unique foreign bytes").unwrap();
+            let saved = t.work("saved-copy");
+            crate::fileops_test::arm("before-record", move |target| {
+                fs::rename(target, &saved).unwrap();
+                fs::rename(&foreign, target).unwrap();
+            });
+            let out = paste_using(
+                Operation::Copy,
+                std::slice::from_ref(&src),
+                &dest,
+                &Progress::new(),
+                None,
+                transfer::test_replacement(),
+            );
+            crate::fileops_test::fired();
+            assert_eq!(out.done.len(), 1);
+            assert!(out.history_omitted);
+            assert!(JOURNAL.lock().unwrap().entries.is_empty());
+            assert_eq!(
+                fs::read(dest.join("source")).unwrap(),
+                b"unique foreign bytes"
+            );
+            assert_eq!(fs::read(src).unwrap(), b"selected bytes");
+        });
+    }
+
+    #[test]
+    fn copy_history_does_not_adopt_a_child_added_before_journal_capture() {
+        with_undo(|| {
+            let t = Temp::new();
+            let src = t.work("tree");
+            let dest = t.work("dest");
+            fs::create_dir(&src).unwrap();
+            fs::write(src.join("selected"), "selected bytes").unwrap();
+            fs::create_dir(&dest).unwrap();
+            crate::fileops_test::arm("before-record", |target| {
+                fs::write(target.join("foreign"), "unique foreign bytes").unwrap()
+            });
+            let out = paste_using(
+                Operation::Copy,
+                std::slice::from_ref(&src),
+                &dest,
+                &Progress::new(),
+                None,
+                transfer::test_replacement(),
+            );
+            crate::fileops_test::fired();
+            assert!(out.history_omitted);
+            assert!(JOURNAL.lock().unwrap().entries.is_empty());
+            assert_eq!(
+                fs::read(dest.join("tree/foreign")).unwrap(),
+                b"unique foreign bytes"
+            );
+        });
+    }
+
+    #[test]
+    fn single_rename_history_cannot_adopt_a_post_publication_replacement() {
+        with_undo(|| {
+            let t = Temp::new();
+            let src = t.work("source");
+            let target = t.work("renamed");
+            fs::write(&src, "selected bytes").unwrap();
+            let foreign = t.work("foreign");
+            fs::write(&foreign, "unique bytes").unwrap();
+            let saved = t.work("saved");
+            crate::fileops_test::arm("rename-journal", move |path| {
+                fs::rename(path, &saved).unwrap();
+                fs::rename(&foreign, path).unwrap();
+            });
+            let note = rename(&src, "renamed").unwrap();
+            crate::fileops_test::fired();
+            assert!(note.is_some());
+            assert!(JOURNAL.lock().unwrap().entries.is_empty());
+            assert_eq!(fs::read(target).unwrap(), b"unique bytes");
+        });
+    }
+
+    #[test]
+    fn bulk_rename_history_cannot_adopt_a_post_publication_replacement() {
+        with_undo(|| {
+            let t = Temp::new();
+            let src = t.work("source");
+            let target = t.work("renamed");
+            fs::write(&src, "selected bytes").unwrap();
+            let foreign = t.work("foreign");
+            fs::write(&foreign, "unique bytes").unwrap();
+            let saved = t.work("saved");
+            crate::fileops_test::arm("rename-journal", move |path| {
+                fs::rename(path, &saved).unwrap();
+                fs::rename(&foreign, path).unwrap();
+            });
+            let out = rename_batch(&[(src, "renamed".into())]).unwrap();
+            crate::fileops_test::fired();
+            assert_eq!(out.done.len(), 1);
+            assert!(out.note.is_some());
+            assert!(JOURNAL.lock().unwrap().entries.is_empty());
+            assert_eq!(fs::read(target).unwrap(), b"unique bytes");
+        });
+    }
+
+    #[test]
+    fn copy_redo_cannot_adopt_a_replacement_before_updating_history() {
+        with_undo(|| {
+            let t = Temp::new();
+            let src = t.work("source");
+            let dest = t.work("dest");
+            fs::write(&src, "selected bytes").unwrap();
+            fs::create_dir(&dest).unwrap();
+            let out = paste_using(
+                Operation::Copy,
+                std::slice::from_ref(&src),
+                &dest,
+                &Progress::new(),
+                None,
+                transfer::test_replacement(),
+            );
+            assert_eq!(out.done.len(), 1);
+            assert_eq!(step(false).done, 1);
+            let foreign = t.work("foreign");
+            fs::write(&foreign, "unique bytes").unwrap();
+            let saved = t.work("saved");
+            crate::fileops_test::arm("redo-copy-journal", move |path| {
+                fs::rename(path, &saved).unwrap();
+                fs::rename(&foreign, path).unwrap();
+            });
+            let redo = step(true);
+            crate::fileops_test::fired();
+            assert_eq!(redo.done, 0);
+            assert_eq!(redo.skipped.len(), 1);
+            assert_eq!(fs::read(dest.join("source")).unwrap(), b"unique bytes");
+        });
+    }
+
+    #[test]
+    fn rename_stamp_propagation_never_changes_the_recorded_inode() {
+        let t = Temp::new();
+        let a = t.work("a");
+        let b = t.work("b");
+        fs::write(&a, "a").unwrap();
+        fs::write(&b, "b").unwrap();
+        let first = Stamp::read(&a).unwrap();
+        let other = Stamp::read(&b).unwrap();
+        let mut j = Journal::default();
+        let mut entry = trash_entry(&a);
+        entry.expected = Snapshot::read(&a).unwrap();
+        j.entries.push(entry);
+        j.advance_rename(first, other);
+        assert_eq!(j.entries[0].expected.0[0].1, first);
     }
 
     fn trash_entry(path: &Path) -> Entry {
