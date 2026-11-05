@@ -391,10 +391,6 @@ msgid "Cannot rename: {}."
 msgstr "Adını dəyişmək olmadı: {}."
 
 #: src/actions.rs
-msgid "Cannot run gio: {}."
-msgstr "gio işə salına bilmədi: {}."
-
-#: src/actions.rs
 msgid "Cannot move to the trash."
 msgstr "Zibil qutusuna atmaq olmadı."
 
@@ -5365,3 +5361,7 @@ msgstr "“{}” ünvanındakı nüsxə yoxlanıla bilmədi: {}. Mənbə saxlan�
 #: src/transfer.rs
 msgid "This filesystem cannot keep temporary data private. The source was kept."
 msgstr "Bu fayl sistemi müvəqqəti məlumatı məxfi saxlaya bilmir. Mənbə saxlanıldı."
+
+#: src/trashbin.rs
+msgid "A folder cannot be trashed into itself."
+msgstr "Qovluq öz daxilindəki zibil qutusuna köçürülə bilməz."

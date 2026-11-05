@@ -63,11 +63,11 @@ pub type Resolver = Box<dyn Fn(Question, &Progress) -> Decision + Send>;
 #[derive(Clone, Copy)]
 pub struct Replacement {
     available: fn(&Path) -> bool,
-    trash: fn(&Path) -> io::Result<()>,
+    trash: fn(&Path, &Path, FileStamp) -> io::Result<()>,
 }
 #[cfg(test)]
 impl Replacement {
-    pub fn with_trash(trash: fn(&Path) -> io::Result<()>) -> Self {
+    pub fn with_trash(trash: fn(&Path, &Path, FileStamp) -> io::Result<()>) -> Self {
         Self {
             available: |_| true,
             trash,
@@ -91,7 +91,9 @@ impl Default for Replacement {
                                 .any(|line| line.trim() == "access::can-trash: TRUE")
                     })
             },
-            trash: |path| crate::actions::trash(&[path.to_owned()]).map_err(io::Error::other),
+            trash: |actual, original, stamp| {
+                crate::actions::trash(actual, original, stamp).map_err(io::Error::other)
+            },
         }
     }
 }
@@ -99,10 +101,10 @@ impl Default for Replacement {
 pub fn test_replacement() -> Replacement {
     Replacement {
         available: |_| true,
-        trash: |path| {
+        trash: |actual, path, stamp| {
             let bin = path.parent().unwrap().parent().unwrap().join("test-trash");
             fs::create_dir_all(&bin)?;
-            rename_strict(path, &temp_name(&bin))
+            rename_expected(actual, &temp_name(&bin), stamp).map(|_| ())
         },
     }
 }
@@ -565,7 +567,14 @@ fn move_replace(
             return Err(Stop::Cancelled);
         }
         unchanged_target()?;
-        (run.replacement.trash)(&expected.path)?;
+        crate::fileops_undo::trash_file_checked(
+            &expected.path,
+            expected.stamp,
+            &|actual, original, stamp| {
+                (run.replacement.trash)(actual, original, stamp).map_err(|e| e.to_string())
+            },
+        )
+        .map_err(io::Error::other)?;
         run.replacements += 1;
         run.replaced = true;
         rename_strict(&staged, &expected.path).map_err(|e| io::Error::other(fill(tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e])))?;
@@ -1037,7 +1046,14 @@ fn copy_in(
                     "The destination changed while copying. Retry to review it.",
                 )));
             }
-            (run.replacement.trash)(&expected.path)?;
+            crate::fileops_undo::trash_file_checked(
+                &expected.path,
+                expected.stamp,
+                &|actual, original, stamp| {
+                    (run.replacement.trash)(actual, original, stamp).map_err(|e| e.to_string())
+                },
+            )
+            .map_err(io::Error::other)?;
             run.replacements += 1;
             run.replaced = true;
             publish_created(&created, &expected.path, progress, sync, &mut run.changed, &mut published)
@@ -1193,10 +1209,10 @@ impl Created {
         held.remove(self.is_dir)
     }
 }
-fn fd_path(file: &File) -> PathBuf {
+pub(crate) fn fd_path(file: &File) -> PathBuf {
     PathBuf::from(format!("/proc/self/fd/{}/.", file.as_raw_fd()))
 }
-fn require_private(file: &File) -> io::Result<()> {
+pub(crate) fn require_private(file: &File) -> io::Result<()> {
     let meta = file.metadata()?;
     // SAFETY: geteuid has no arguments and cannot fail.
     let owner = unsafe { geteuid() };
@@ -1214,11 +1230,22 @@ pub(crate) fn pin_path(path: &Path) -> io::Result<File> {
         .custom_flags(0o10000000 | 0o400000)
         .open(path)
 }
-fn open_dir(path: &Path) -> io::Result<File> {
+pub(crate) fn open_dir(path: &Path) -> io::Result<File> {
+    // Path::parent normalizes the trailing dot in our descriptor paths. Only
+    // this process's numeric fd links may be followed to reopen the held dir.
+    let descriptor = path.parent() == Some(Path::new("/proc/self/fd"))
+        && path.file_name().is_some_and(|n| {
+            !n.as_bytes().is_empty() && n.as_bytes().iter().all(u8::is_ascii_digit)
+        });
+    let actual = if descriptor {
+        path.join(".")
+    } else {
+        path.to_owned()
+    };
     OpenOptions::new()
         .read(true)
         .custom_flags(0o200000 | 0o400000)
-        .open(path)
+        .open(actual)
 }
 
 /// A completed copy is bound to the descriptors used to write it. Each
@@ -1463,9 +1490,42 @@ fn publication_failed(
     };
     cleaned_up(temp, created, stop)
 }
+/// Bind a no-replace namespace move to the checked source inode. A surprise
+/// object taken in the final lookup gap is rolled back without overwriting.
+pub(crate) fn rename_expected(
+    from: &Path,
+    to: &Path,
+    expected: FileStamp,
+) -> io::Result<FileStamp> {
+    let old_parent = open_dir(from.parent().ok_or(io::ErrorKind::InvalidInput)?)?;
+    let new_parent = open_dir(to.parent().ok_or(io::ErrorKind::InvalidInput)?)?;
+    let old = from.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+    let new = to.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+    let pinned = pin_path(&fd_path(&old_parent).join(old))?;
+    if FileStamp::of(&pinned.metadata()?) != expected
+        || FileStamp::read(&fd_path(&old_parent).join(old))? != expected
+    {
+        return Err(source_changed());
+    }
+    #[cfg(test)]
+    crate::fileops_test::at("rename-checked", from);
+    rename_at(&old_parent, old, &new_parent, new)?;
+    let moved = FileStamp::read(&fd_path(&new_parent).join(new))?;
+    if !expected.same_except_ctime(&moved) {
+        if let Err(e) = rename_at(&new_parent, new, &old_parent, old) {
+            return Err(io::Error::other(fill(
+                tr("Could not restore the source; it remains at {0}: {1}"),
+                &[&to.display(), &e],
+            )));
+        }
+        return Err(source_changed());
+    }
+    Ok(moved)
+}
+
 /// A private holding directory narrows the check-to-unlink window: an entry
 /// taken from the visible name is verified again before it can be removed.
-struct Isolation {
+pub(crate) struct Isolation {
     parent: std::sync::Arc<File>,
     name: OsString,
     folder: std::sync::Arc<File>,
@@ -1477,7 +1537,7 @@ struct Isolation {
 fn same_inode(meta: &Metadata, id: (u64, u64)) -> bool {
     (meta.dev(), meta.ino()) == id
 }
-fn rename_at(from: &File, old: &OsStr, to: &File, new: &OsStr) -> io::Result<()> {
+pub(crate) fn rename_at(from: &File, old: &OsStr, to: &File, new: &OsStr) -> io::Result<()> {
     let a = CString::new(old.as_bytes())?;
     let b = CString::new(new.as_bytes())?;
     rename_noreplace_with(Path::new(old), Path::new(new), |_, _| {
@@ -1498,7 +1558,7 @@ fn rename_at(from: &File, old: &OsStr, to: &File, new: &OsStr) -> io::Result<()>
         }
     })
 }
-fn unlink_at(parent: &File, name: &OsStr, directory: bool) -> io::Result<()> {
+pub(crate) fn unlink_at(parent: &File, name: &OsStr, directory: bool) -> io::Result<()> {
     let name = CString::new(name.as_bytes())?;
     // SAFETY: live directory descriptor, valid name, no recursive removal.
     let rc = unsafe {
@@ -1515,7 +1575,7 @@ fn unlink_at(parent: &File, name: &OsStr, directory: bool) -> io::Result<()> {
     }
 }
 impl Isolation {
-    fn take(
+    pub(crate) fn take(
         parent: std::sync::Arc<File>,
         name: &OsStr,
         logical: &Path,
@@ -1602,10 +1662,10 @@ impl Isolation {
         }
         Ok(held)
     }
-    fn path(&self) -> PathBuf {
+    pub(crate) fn path(&self) -> PathBuf {
         fd_path(&self.folder).join("item")
     }
-    fn recovery_path(&self) -> PathBuf {
+    pub(crate) fn recovery_path(&self) -> PathBuf {
         fs::read_link(format!("/proc/self/fd/{}", self.folder.as_raw_fd()))
             .unwrap_or_else(|_| {
                 self.logical
@@ -1623,7 +1683,7 @@ impl Isolation {
         }
         Ok(())
     }
-    fn clear_folder(&self) -> io::Result<()> {
+    pub(crate) fn clear_folder(&self) -> io::Result<()> {
         let path = fd_path(&self.parent).join(&self.folder_name);
         if !same_inode(&fs::symlink_metadata(path)?, self.folder_id) {
             return Err(io::Error::other(tr(
@@ -1632,12 +1692,12 @@ impl Isolation {
         }
         unlink_at(&self.parent, &self.folder_name, true)
     }
-    fn restore(&self) -> io::Result<()> {
+    pub(crate) fn restore(&self) -> io::Result<()> {
         // Even a foreign item accidentally taken in the rename gap is kept.
         rename_at(&self.folder, OsStr::new("item"), &self.parent, &self.name)?;
         self.clear_folder()
     }
-    fn restore_error(&self, error: io::Error) -> io::Error {
+    pub(crate) fn restore_error(&self, error: io::Error) -> io::Error {
         match self.restore() {
             Ok(()) => error,
             Err(restore) => io::Error::other(fill(
@@ -1646,7 +1706,7 @@ impl Isolation {
             )),
         }
     }
-    fn remove(self, directory: bool) -> io::Result<()> {
+    pub(crate) fn remove(self, directory: bool) -> io::Result<()> {
         if let Err(e) = self
             .check()
             .and_then(|()| unlink_at(&self.folder, OsStr::new("item"), directory))
@@ -2173,7 +2233,7 @@ mod tests {
         assert!(out.cancelled);
         assert_eq!(read(&dest.join("x")), "old");
         let fails = Replacement {
-            trash: |_| Err(io::Error::other("trash unavailable")),
+            trash: |_, _, _| Err(io::Error::other("trash unavailable")),
             ..test_replacement()
         };
         let out = paste_observed_using(
@@ -2373,7 +2433,7 @@ mod tests {
         fs::write(dest.join("source"), "old target").unwrap();
         let replacement = Replacement {
             available: |_| true,
-            trash: |target| {
+            trash: |_actual, target, _stamp| {
                 fs::write(
                     target.parent().unwrap().parent().unwrap().join("source"),
                     "new occupant",
@@ -3925,6 +3985,61 @@ mod tests {
         assert_eq!(progress.done(), 0);
         assert_eq!(read(&src.join("secret")), "private bytes");
         assert!(names(&dest).is_empty());
+    }
+
+    #[test]
+    fn reopening_a_descriptor_parent_keeps_its_directory_identity() {
+        let t = TempDir::new("descriptor-parent");
+        let fd = open_dir(&t.0).unwrap();
+        let path = fd_path(&fd).join("child");
+        let parent = open_dir(path.parent().unwrap()).unwrap();
+        assert_eq!(
+            (fd.metadata().unwrap().dev(), fd.metadata().unwrap().ino()),
+            (
+                parent.metadata().unwrap().dev(),
+                parent.metadata().unwrap().ino()
+            )
+        );
+        symlink(&t.0, t.path("link")).unwrap();
+        assert!(
+            open_dir(&t.path("link")).is_err(),
+            "ordinary directory links are still refused"
+        );
+    }
+
+    #[test]
+    fn overwrite_never_trashes_a_new_occupant_of_the_consented_name() {
+        let t = TempDir::new("replace-isolated");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "new source");
+        write(&dest.join("x"), "consented target");
+        crate::trashbin::set_test_home(Some(t.path("Trash")));
+        let replacement = Replacement::with_trash(|actual, original, stamp| {
+            crate::trashbin::put_from(actual, original, stamp).map_err(io::Error::other)
+        });
+        crate::fileops_test::arm("trash-checked", |path| write(path, "new unique occupant"));
+        let out = paste_observed_using(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|q, _| {
+                if q.error.is_some() {
+                    Decision::Skip
+                } else {
+                    Decision::Overwrite
+                }
+            })),
+            replacement,
+            |_| {},
+        );
+        crate::fileops_test::fired();
+        crate::trashbin::set_test_home(None);
+        assert!(!out.failed.is_empty());
+        assert_eq!(read(&src), "new source");
+        assert_eq!(read(&dest.join("x")), "new unique occupant");
+        assert_eq!(read(&t.path("Trash/files/x")), "consented target");
     }
 
     #[test]

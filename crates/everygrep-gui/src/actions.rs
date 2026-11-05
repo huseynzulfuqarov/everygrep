@@ -9,15 +9,12 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::{Command, Stdio};
 
 use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, StatxFlags};
 
 use crate::i18n::{fill, tr};
-
-/// Paths passed to one `gio trash` call, to stay well below the argument
-/// size limit.
-const TRASH_BATCH: usize = 256;
 
 /// Longest file name Linux file systems accept, in bytes.
 const NAME_MAX: usize = 255;
@@ -300,76 +297,14 @@ fn kept_new_case(target: &Path) -> Result<PathBuf, RenameError> {
     }
 }
 
-/// The `gio trash` commands for `paths`, in batches.
-pub fn trash_commands(paths: &[PathBuf]) -> Vec<Command> {
-    paths
-        .chunks(TRASH_BATCH)
-        .map(|batch| {
-            let mut cmd = Command::new("gio");
-            // After `--` every argument is a location, even one starting with `-`.
-            cmd.arg("trash").arg("--").args(batch);
-            cmd
-        })
-        .collect()
-}
-
-/// Moves `paths` to the trash. Returns an error message for the user.
-pub fn trash(paths: &[PathBuf]) -> Result<(), String> {
-    for mut cmd in trash_commands(paths) {
-        let out = cmd
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| fill(tr("Cannot run gio: {}."), &[&e]))?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            let first = err.lines().next().unwrap_or("").trim();
-            return Err(if first.is_empty() {
-                tr("Cannot move to the trash.").to_owned()
-            } else {
-                fill(tr("Cannot move to the trash: {}"), &[&first])
-            });
-        }
-    }
-    Ok(())
-}
-
-/// What a move to the trash did.
-#[cfg(test)]
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct TrashOutcome {
-    /// Items no longer at their place afterwards.
-    pub moved: usize,
-    /// Items still at their place.
-    pub kept: Vec<PathBuf>,
-    /// The first error `gio` (or running it) gave, for the user.
-    pub error: Option<String>,
-}
-
-/// [`trash`] with the command for one batch passed in.
-#[cfg(test)]
-fn trash_with(
-    paths: &[PathBuf],
-    mut run: impl FnMut(&[PathBuf]) -> Result<(), String>,
-) -> TrashOutcome {
-    let mut out = TrashOutcome::default();
-    for batch in paths.chunks(TRASH_BATCH) {
-        match run(batch) {
-            Ok(()) => out.moved += batch.len(),
-            Err(e) => {
-                out.error.get_or_insert(e);
-                for path in batch {
-                    if std::fs::symlink_metadata(path).is_ok() {
-                        out.kept.push(path.clone());
-                    } else {
-                        out.moved += 1;
-                    }
-                }
-            }
-        }
-    }
-    out
+/// The already-isolated entry is published to the freedesktop Trash without
+/// a child process resolving a mutable source pathname.
+pub fn trash(
+    actual: &Path,
+    original: &Path,
+    stamp: crate::transfer::FileStamp,
+) -> Result<(), String> {
+    crate::trashbin::put_from(actual, original, stamp)
 }
 
 /// Which item a path named when the user asked to delete it: device,
@@ -907,25 +842,27 @@ mod tests {
     }
 
     #[test]
-    fn trash_runs_gio_in_batches_with_an_option_terminator() {
-        let paths: Vec<PathBuf> = (0..TRASH_BATCH + 3)
-            .map(|i| PathBuf::from(format!("/t/-{i}")))
-            .collect();
-        let cmds = trash_commands(&paths);
-        assert_eq!(cmds.len(), 2);
-        let args: Vec<&OsStr> = cmds[1].get_args().collect();
-        assert_eq!(cmds[1].get_program(), "gio");
-        assert_eq!(&args[..2], [OsStr::new("trash"), OsStr::new("--")]);
-        assert_eq!(args.len(), 2 + 3);
-        assert_eq!(cmds[0].get_args().count(), 2 + TRASH_BATCH);
+    fn native_trash_preserves_option_like_and_non_utf8_original_names() {
+        let dir = TempDir::new("trash-names");
+        crate::trashbin::set_test_home(Some(dir.0.join("Trash")));
+        let path = dir.0.join(OsStr::from_bytes(b"-option\xff\n%"));
+        fs::write(&path, "bytes").unwrap();
+        let meta = fs::symlink_metadata(&path).unwrap();
+        trash(&path, &path, crate::transfer::FileStamp::of(&meta)).unwrap();
+        assert!(!path.exists());
+        crate::trashbin::restore(&path, crate::trashbin::Identity::of(&meta)).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"bytes");
+        crate::trashbin::set_test_home(None);
     }
 
     #[test]
     fn a_failed_trash_batch_reports_each_kept_item_and_the_rest_goes_on() {
+        let _lock = crate::fileops_undo::tests_lock();
         let dir = TempDir::new("trash-batches");
-        let bin = dir.0.join("bin");
-        fs::create_dir(&bin).unwrap();
-        let paths: Vec<PathBuf> = (0..TRASH_BATCH + 5)
+        let bin = dir.0.join("Trash");
+        crate::trashbin::set_test_home(Some(bin.clone()));
+        // Continue beyond the former command batch boundary after failures.
+        let paths: Vec<PathBuf> = (0..256 + 5)
             .map(|i| {
                 let p = dir.0.join(format!("f{i}"));
                 fs::write(&p, "x").unwrap();
@@ -933,30 +870,47 @@ mod tests {
             })
             .collect();
         let stuck = [paths[3].clone(), paths[7].clone()];
-        let mut batches = 0;
-        let out = trash_with(&paths, |batch| {
-            batches += 1;
-            // Like gio: every item it can move, then a failure.
-            for p in batch.iter().filter(|p| !stuck.contains(p)) {
-                fs::rename(p, bin.join(p.file_name().unwrap())).unwrap();
+        let attempts = std::cell::Cell::new(0);
+        crate::fileops_undo::with_undo_on(|| {
+            let out = crate::fileops_undo::trash(&paths, &|actual, original, stamp| {
+                attempts.set(attempts.get() + 1);
+                if stuck.contains(&original.to_path_buf()) {
+                    Err("Cannot move to the trash: no permission".into())
+                } else {
+                    crate::trashbin::test_send(actual, original, stamp)
+                }
+            });
+            assert_eq!(attempts.get(), paths.len(), "all later items were tried");
+            assert_eq!(
+                out.failed
+                    .iter()
+                    .map(|(p, _)| p.clone())
+                    .collect::<Vec<_>>(),
+                stuck
+            );
+            assert!(out.failed.iter().all(|(_, e)| e.contains("no permission")));
+            assert_eq!(
+                out.trashed,
+                paths
+                    .iter()
+                    .filter(|p| !stuck.contains(p))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            );
+            for path in &paths {
+                assert_eq!(path.exists(), stuck.contains(path));
             }
-            if batch.iter().any(|p| stuck.contains(p)) {
-                Err("Cannot move to the trash: no permission".into())
-            } else {
-                Ok(())
+            for path in &stuck {
+                assert_eq!(fs::read_to_string(path).unwrap(), "x");
             }
+            assert_eq!(
+                fs::read_dir(bin.join("files")).unwrap().count(),
+                paths.len() - 2
+            );
+            let empty = crate::fileops_undo::trash(&[], &|_, _, _| unreachable!());
+            assert!(empty.trashed.is_empty() && empty.failed.is_empty() && empty.note.is_none());
         });
-        assert_eq!(batches, 2, "the batch after the failed one ran");
-        assert_eq!(out.kept, stuck);
-        assert_eq!(out.moved, paths.len() - 2);
-        assert_eq!(
-            out.error.as_deref(),
-            Some("Cannot move to the trash: no permission")
-        );
-        assert!(paths[TRASH_BATCH + 4].symlink_metadata().is_err());
-
-        let fine = trash_with(&[], |_| unreachable!());
-        assert_eq!(fine, TrashOutcome::default());
+        crate::trashbin::set_test_home(None);
     }
 
     #[test]

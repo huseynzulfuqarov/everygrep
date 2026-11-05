@@ -349,7 +349,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
                     let job = engine.begin_job(crate::engine::TaskKind::ComparingFiles);
                     crate::fileops_undo::trash_duplicates(
                         &plan.groups,
-                        &|p: &Path| crate::actions::trash(&[p.to_owned()]),
+                        &crate::actions::trash,
                         job.progress(),
                     )
                 });
@@ -456,7 +456,7 @@ mod tests {
     fn run(plan: &Plan) -> crate::fileops_undo::DupesOutcome {
         crate::fileops_undo::trash_duplicates(
             &plan.groups,
-            &|p: &Path| crate::trashbin::test_trash(p),
+            &crate::trashbin::test_send,
             &Progress::new(),
         )
     }
@@ -633,7 +633,7 @@ mod tests {
         let p = plan(&[vec![keep, copy.clone()]], &Keep::Newest);
         let out = crate::fileops_undo::trash_duplicates(
             &p.groups,
-            &|_: &Path| Err("no trash here".to_owned()),
+            &|_, _, _| Err("no trash here".to_owned()),
             &Progress::new(),
         );
         assert!(out.trashed.is_empty());
@@ -652,7 +652,7 @@ mod tests {
         progress.cancel();
         let out = crate::fileops_undo::trash_duplicates(
             &p.groups,
-            &|p: &Path| crate::trashbin::test_trash(p),
+            &crate::trashbin::test_send,
             &progress,
         );
         assert!(out.cancelled && out.trashed.is_empty());

@@ -73,6 +73,111 @@ impl Snapshot {
     }
 }
 
+impl Snapshot {
+    fn trash_checked(
+        &self,
+        path: &Path,
+        send: &crate::trashbin::Backend<'_>,
+    ) -> Result<Stamp, String> {
+        self.check(path)?;
+        let before = BeforeRename::read(path).map_err(|e| e.to_string())?;
+        if before.snapshot != *self {
+            return Err(tr("The item changed since the recorded operation.").into());
+        }
+        let parent = std::sync::Arc::new(
+            transfer::open_dir(
+                path.parent()
+                    .ok_or_else(|| tr("The original folder no longer exists.").to_owned())?,
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        let name = path
+            .file_name()
+            .ok_or_else(|| tr("The item changed since the recorded operation.").to_owned())?;
+        let stamp = self.0[0].1;
+        let held = transfer::Isolation::take(parent, name, path, (stamp.dev, stamp.ino))
+            .map_err(|e| e.to_string())?;
+        let ready = before
+            .after(&held.path())
+            .map_err(|e| held.restore_error(e).to_string())?;
+        #[cfg(test)]
+        crate::fileops_test::at("trash-checked", path);
+        if let Err(e) = send(&held.path(), path, ready.0[0].1) {
+            return Err(held.restore_error(io::Error::other(e)).to_string());
+        }
+        // The expected entry is durably in the Trash. Only an empty private
+        // holder is eligible for removal; unexpected children are kept.
+        if let Err(e) = held.clear_folder() {
+            crate::debug_log::note!(
+                "trash holder cleanup at {}: {e}",
+                held.recovery_path().display()
+            );
+        }
+        Ok(Stamp::of(
+            &before.root.metadata().map_err(|e| e.to_string())?,
+        ))
+    }
+}
+pub(crate) fn trash_file_checked(
+    path: &Path,
+    expected: Stamp,
+    send: &crate::trashbin::Backend<'_>,
+) -> Result<(), String> {
+    Snapshot(vec![(PathBuf::new(), expected)])
+        .trash_checked(path, send)
+        .map(|_| ())
+}
+
+impl Snapshot {
+    fn isolate(
+        &self,
+        path: &Path,
+    ) -> Result<(BeforeRename, transfer::Isolation, Snapshot), String> {
+        self.check(path)?;
+        let before = BeforeRename::read(path).map_err(|e| e.to_string())?;
+        if before.snapshot != *self {
+            return Err(tr("The item changed since the recorded operation.").into());
+        }
+        let parent = std::sync::Arc::new(
+            transfer::open_dir(
+                path.parent()
+                    .ok_or_else(|| tr("The original folder no longer exists.").to_owned())?,
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        let held = transfer::Isolation::take(
+            parent,
+            path.file_name()
+                .ok_or_else(|| tr("The item changed since the recorded operation.").to_owned())?,
+            path,
+            (self.0[0].1.dev, self.0[0].1.ino),
+        )
+        .map_err(|e| e.to_string())?;
+        let ready = before
+            .after(&held.path())
+            .map_err(|e| held.restore_error(e).to_string())?;
+        Ok((before, held, ready))
+    }
+    fn rename_checked(&self, from: &Path, to: &Path) -> Result<Self, String> {
+        let (before, held, ready) = self.isolate(from)?;
+        if let Err(e) = transfer::rename_expected(&held.path(), to, ready.0[0].1) {
+            return Err(held.restore_error(e).to_string());
+        }
+        let result = before.after(to).map_err(|e| e.to_string());
+        if let Err(e) = held.clear_folder() {
+            crate::debug_log::note!("rename holder cleanup: {e}");
+        }
+        result
+    }
+    fn remove_empty_checked(&self, path: &Path) -> Result<(), String> {
+        if self.0.len() != 1 {
+            return Err(tr("The item changed since the recorded operation.").into());
+        }
+        let (_, held, _) = self.isolate(path)?;
+        held.remove(true).map_err(|e| e.to_string())
+    }
+}
+
 /// The inode selected before rename stays pinned until its resulting snapshot
 /// is checked. A post-publication pathname cannot replace this identity.
 #[derive(Clone)]
@@ -416,7 +521,7 @@ impl Journal {
     fn step(
         &mut self,
         redo: bool,
-        trash: &impl Fn(&Path) -> Result<(), String>,
+        trash: &impl Fn(&Path, &Path, Stamp) -> Result<(), String>,
         progress: &Progress,
     ) -> Option<StepOutcome> {
         let index = if redo {
@@ -464,7 +569,7 @@ impl Journal {
     fn step_one(
         &mut self,
         redo: bool,
-        trash: &impl Fn(&Path) -> Result<(), String>,
+        trash: &impl Fn(&Path, &Path, Stamp) -> Result<(), String>,
         progress: &Progress,
     ) -> Option<Result<(), String>> {
         let index = if redo {
@@ -524,7 +629,7 @@ impl Entry {
     fn reverse(
         &mut self,
         redo: bool,
-        trash: &impl Fn(&Path) -> Result<(), String>,
+        trash: &impl Fn(&Path, &Path, Stamp) -> Result<(), String>,
         progress: &Progress,
     ) -> Result<(), String> {
         if progress.is_cancelled() {
@@ -539,25 +644,27 @@ impl Entry {
                 // Unchanged means still empty: anything put in it since
                 // changed the folder's modification time. `remove_dir`
                 // removes empty folders only.
-                self.expected.check(&self.to)?;
-                fs::remove_dir(&self.to).map_err(|e| e.to_string())?;
+                self.expected.remove_empty_checked(&self.to)?;
             }
         } else if self.kind == Kind::Trash {
             if redo {
                 self.expected.check(&self.from)?;
-                trash(&self.from)?;
+                self.expected.0[0].1 = self.expected.trash_checked(&self.from, trash)?;
             } else {
                 let stamp = self.expected.0[0].1;
-                crate::trashbin::restore(
-                    &self.from,
-                    crate::trashbin::Identity {
-                        dev: stamp.dev,
-                        ino: stamp.ino,
-                        len: stamp.len,
-                        mtime: stamp.mtime,
-                    },
-                )?;
-                self.expected = Snapshot::read(&self.from).map_err(|e| e.to_string())?;
+                let identity = crate::trashbin::Identity {
+                    dev: stamp.dev,
+                    ino: stamp.ino,
+                    len: stamp.len,
+                    mtime: stamp.mtime,
+                };
+                let found = crate::trashbin::find(&self.from, identity)
+                    .ok_or_else(|| tr("The item is no longer in the trash.").to_owned())?;
+                let info = crate::transfer::pin_path(&found.info).ok();
+                self.expected = self.expected.rename_checked(&found.file, &self.from)?;
+                if let Some(info) = info {
+                    let _ = crate::trashbin::remove_description(&found.info, &info);
+                }
             }
         } else if self.kind == Kind::Copy {
             if redo {
@@ -578,7 +685,7 @@ impl Entry {
                 self.expected = expected;
             } else {
                 self.expected.check(&self.to)?;
-                trash(&self.to)?;
+                self.expected.trash_checked(&self.to, trash)?;
             }
         } else {
             let (from, to) = if redo {
@@ -586,24 +693,14 @@ impl Entry {
             } else {
                 (&self.to, &self.from)
             };
-            self.expected.check(from)?;
-            let before = BeforeRename::read(from).map_err(|e| e.to_string())?;
-            if before.snapshot != self.expected {
-                return Err(tr("The item changed since the recorded operation.").into());
-            }
-            reverse_rename(
-                from,
-                to,
-                actions::case_only(from, to),
-                transfer::rename_strict,
-            )?;
-            self.expected = before.after(to).map_err(|e| e.to_string())?;
+            self.expected = self.expected.rename_checked(from, to)?;
         }
         self.applied = redo;
         Ok(())
     }
 }
 
+#[cfg(test)]
 fn reverse_rename(
     from: &Path,
     to: &Path,
@@ -814,7 +911,7 @@ fn opened_as_seen(
 /// where it is, with the reason.
 pub fn trash_duplicates(
     groups: &[crate::fileops_dupes::Group],
-    trash: &dyn Fn(&Path) -> Result<(), String>,
+    trash: &dyn Fn(&Path, &Path, Stamp) -> Result<(), String>,
     progress: &Progress,
 ) -> DupesOutcome {
     use everygrep_core::hash::{self, CompareError};
@@ -903,7 +1000,7 @@ pub fn trash_duplicates(
                 }
                 continue 'groups;
             }
-            let Some(expected) = Snapshot::read(&t.path).ok().filter(|_| t.unchanged()) else {
+            let Some(mut expected) = Snapshot::read(&t.path).ok().filter(|_| t.unchanged()) else {
                 left(
                     &mut out,
                     &t.path,
@@ -911,9 +1008,12 @@ pub fn trash_duplicates(
                 );
                 continue;
             };
-            if let Err(e) = trash(&t.path) {
-                left(&mut out, &t.path, &e);
-                continue;
+            match expected.trash_checked(&t.path, trash) {
+                Ok(stamp) => expected.0[0].1 = stamp,
+                Err(e) => {
+                    left(&mut out, &t.path, &e);
+                    continue;
+                }
             }
             out.trashed.push(t.path.clone());
             out.bytes += t.size;
@@ -953,22 +1053,28 @@ pub struct TrashOutcome {
 
 /// Plain Trash uses the same identity snapshots and grouped journal as
 /// duplicate cleanup. Individual desktop calls cannot hide partial batches.
-pub fn trash(paths: &[PathBuf], send: &dyn Fn(&Path) -> Result<(), String>) -> TrashOutcome {
+pub fn trash(
+    paths: &[PathBuf],
+    send: &dyn Fn(&Path, &Path, Stamp) -> Result<(), String>,
+) -> TrashOutcome {
     let _files = file_guard();
     let c = config();
     let mut out = TrashOutcome::default();
     let mut entries = Vec::new();
     for path in paths {
-        let expected = match Snapshot::read(path) {
+        let mut expected = match Snapshot::read(path) {
             Ok(expected) => expected,
             Err(e) => {
                 out.failed.push((path.clone(), e.to_string()));
                 continue;
             }
         };
-        if let Err(error) = expected.check(path).and_then(|()| send(path)) {
-            out.failed.push((path.clone(), error));
-            continue;
+        match expected.trash_checked(path, send) {
+            Ok(stamp) => expected.0[0].1 = stamp,
+            Err(error) => {
+                out.failed.push((path.clone(), error));
+                continue;
+            }
         }
         out.trashed.push(path.clone());
         entries.push(Entry {
@@ -1307,7 +1413,8 @@ pub fn run(request: Request, progress: &Progress) -> (String, bool) {
             }),
         _ => 1,
     };
-    let trash = |path: &Path| actions::trash(&[path.to_owned()]);
+    let trash =
+        |actual: &Path, original: &Path, stamp: Stamp| actions::trash(actual, original, stamp);
     for _ in 0..count {
         if progress.is_cancelled() {
             break;
@@ -1438,7 +1545,7 @@ pub fn with_undo_on(f: impl FnOnce()) {
 /// Undoes (or redoes) the last step with the test trash: (done, skipped).
 #[cfg(test)]
 pub fn step_for_tests(redo: bool) -> (usize, usize) {
-    let trash = |p: &Path| crate::trashbin::test_trash(p);
+    let trash = crate::trashbin::test_send;
     let out = JOURNAL
         .lock()
         .unwrap()
@@ -1501,7 +1608,7 @@ mod tests {
             ..Journal::default()
         }
     }
-    fn no_trash(_: &Path) -> Result<(), String> {
+    fn no_trash(_: &Path, _: &Path, _: Stamp) -> Result<(), String> {
         panic!("unexpected trash");
     }
 
@@ -1553,10 +1660,22 @@ mod tests {
             e.id = 1;
         }
         fs::write(&changed, "changed contents").unwrap();
-        let trash =
-            |p: &Path| fs::rename(p, p.with_extension("trashed")).map_err(|e| e.to_string());
+        let trash = |actual: &Path, original: &Path, stamp: Stamp| {
+            transfer::rename_expected(actual, &original.with_extension("trashed"), stamp)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
         let outcome = j.step(false, &trash, &Progress::new()).unwrap();
-        assert_eq!(outcome.done, 2);
+        assert_eq!(
+            outcome.done,
+            2,
+            "{:?}",
+            outcome
+                .skipped
+                .iter()
+                .map(|s| &s.reason)
+                .collect::<Vec<_>>()
+        );
         assert_eq!(outcome.skipped.len(), 1);
         assert_eq!(outcome.skipped[0].name, "copy-1");
         assert!(t.0.join("copy-0.trashed").exists());
@@ -1744,9 +1863,9 @@ mod tests {
                     transfer::Decision::Overwrite
                 }
             })),
-            transfer::Replacement::with_trash(|target| {
+            transfer::Replacement::with_trash(|actual, target, stamp| {
                 let bin = target.parent().unwrap().parent().unwrap().join("trashed");
-                transfer::rename_strict(target, &bin)?;
+                transfer::rename_expected(actual, &bin, stamp)?;
                 fs::write(target, "new occupant")
             }),
         );
@@ -1900,7 +2019,11 @@ mod tests {
             copy.clone(),
             Some(source),
         )]);
-        let trash = |path: &Path| fs::rename(path, &bin).map_err(|e| e.to_string());
+        let trash = |actual: &Path, _: &Path, stamp: Stamp| {
+            transfer::rename_expected(actual, &bin, stamp)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
         assert!(
             j.step(false, &trash, &Progress::new())
                 .unwrap()
@@ -1948,7 +2071,11 @@ mod tests {
         assert!(
             j.step(
                 false,
-                &|path| fs::rename(path, &bin).map_err(|e| e.to_string()),
+                &|actual: &Path, _: &Path, stamp: Stamp| transfer::rename_expected(
+                    actual, &bin, stamp
+                )
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
                 &p
             )
             .unwrap()
@@ -2267,7 +2394,7 @@ mod new_item_tests {
     }
 
     fn step(redo: bool) -> StepOutcome {
-        let trash = |p: &Path| crate::trashbin::test_trash(p);
+        let trash = crate::trashbin::test_send;
         JOURNAL
             .lock()
             .unwrap()
@@ -2357,8 +2484,8 @@ mod new_item_tests {
             let b = t.work("b");
             fs::write(&a, "first").unwrap();
             fs::write(&b, "second").unwrap();
-            let out = trash(&[a.clone(), b.clone()], &crate::trashbin::test_trash);
-            assert_eq!(out.trashed, [a.clone(), b.clone()]);
+            let out = trash(&[a.clone(), b.clone()], &crate::trashbin::test_send);
+            assert_eq!(out.trashed, [a.clone(), b.clone()], "{:?}", out.failed);
             assert!(out.failed.is_empty() && out.note.is_none());
             let undo = step(false);
             assert_eq!(undo.done, 2);
@@ -2384,13 +2511,16 @@ mod new_item_tests {
             for p in [&a, &b, &c] {
                 fs::write(p, p.file_name().unwrap().as_encoded_bytes()).unwrap();
             }
-            let out = trash(&[a.clone(), b.clone(), c.clone()], &|path| {
-                if path == b {
-                    Err("permission denied for b".into())
-                } else {
-                    crate::trashbin::test_trash(path)
-                }
-            });
+            let out = trash(
+                &[a.clone(), b.clone(), c.clone()],
+                &|actual, path, stamp| {
+                    if path == b {
+                        Err("permission denied for b".into())
+                    } else {
+                        crate::trashbin::test_send(actual, path, stamp)
+                    }
+                },
+            );
             assert_eq!(out.trashed, [a.clone(), c.clone()]);
             assert_eq!(out.failed, [(b.clone(), "permission denied for b".into())]);
             assert!(!a.exists() && !c.exists());
@@ -2561,6 +2691,162 @@ mod new_item_tests {
         assert_eq!(j.entries[0].expected.0[0].1, first);
     }
 
+    #[test]
+    fn native_trash_undo_redo_preserves_a_tree_links_and_external_hard_links() {
+        use std::os::unix::fs::{MetadataExt, symlink};
+        with_undo(|| {
+            let t = Temp::new();
+            let tree = t.work("tree");
+            let link = t.work("link");
+            let outside = t.work("outside");
+            let alias = t.work("alias");
+            fs::create_dir(&tree).unwrap();
+            fs::write(tree.join("file"), "selected bytes").unwrap();
+            fs::write(&outside, "outside unique bytes").unwrap();
+            fs::hard_link(tree.join("file"), &alias).unwrap();
+            symlink(&outside, tree.join("nested-link")).unwrap();
+            symlink(&outside, &link).unwrap();
+            let inode = fs::metadata(&alias).unwrap().ino();
+            let out = trash(&[tree.clone(), link.clone()], &crate::trashbin::test_send);
+            assert_eq!(out.trashed.len(), 2, "{:?}", out.failed);
+            assert!(fs::symlink_metadata(&tree).is_err());
+            assert!(fs::symlink_metadata(&link).is_err());
+            assert_eq!(step(false).done, 2);
+            assert_eq!(fs::read(tree.join("file")).unwrap(), b"selected bytes");
+            assert_eq!(fs::metadata(tree.join("file")).unwrap().ino(), inode);
+            assert_eq!(fs::read_link(tree.join("nested-link")).unwrap(), outside);
+            assert_eq!(fs::read_link(&link).unwrap(), outside);
+            assert_eq!(step(true).done, 2);
+            assert_eq!(
+                fs::metadata(t.0.join("Trash/files/tree/file"))
+                    .unwrap()
+                    .ino(),
+                inode
+            );
+            assert_eq!(fs::read(&alias).unwrap(), b"selected bytes");
+            assert_eq!(fs::read(&outside).unwrap(), b"outside unique bytes");
+            assert_eq!(step(false).done, 2);
+        });
+    }
+
+    #[test]
+    fn copy_undo_keeps_a_new_file_at_the_visible_name_after_isolation() {
+        with_undo(|| {
+            let t = Temp::new();
+            let src = t.work("source");
+            let dest = t.work("dest");
+            fs::write(&src, "selected bytes").unwrap();
+            fs::create_dir(&dest).unwrap();
+            let out = paste_using(
+                Operation::Copy,
+                std::slice::from_ref(&src),
+                &dest,
+                &Progress::new(),
+                None,
+                transfer::test_replacement(),
+            );
+            assert_eq!(out.done.len(), 1);
+            crate::fileops_test::arm("trash-checked", |path| {
+                fs::write(path, "new unique visible file").unwrap()
+            });
+            let undo = step(false);
+            crate::fileops_test::fired();
+            assert_eq!(undo.done, 1);
+            assert_eq!(
+                fs::read(dest.join("source")).unwrap(),
+                b"new unique visible file"
+            );
+            assert_eq!(
+                fs::read(t.0.join("Trash/files/source")).unwrap(),
+                b"selected bytes"
+            );
+        });
+    }
+
+    #[test]
+    fn trash_rechecks_the_inode_after_the_final_native_publication_gap() {
+        with_undo(|| {
+            let t = Temp::new();
+            let file = t.work("file");
+            let parked = t.work("parked");
+            fs::write(&file, "selected bytes").unwrap();
+            let out = trash(std::slice::from_ref(&file), &|actual, original, stamp| {
+                let held = actual.to_owned();
+                let saved = parked.clone();
+                crate::fileops_test::arm_path("trash-publish-checked", original, move |_| {
+                    fs::rename(&held, saved).unwrap();
+                    fs::write(&held, "foreign unique bytes").unwrap();
+                });
+                crate::trashbin::test_send(actual, original, stamp)
+            });
+            crate::fileops_test::fired();
+            assert!(out.trashed.is_empty());
+            assert_eq!(out.failed.len(), 1);
+            assert_eq!(fs::read(&file).unwrap(), b"foreign unique bytes");
+            assert_eq!(fs::read(&parked).unwrap(), b"selected bytes");
+            assert_eq!(fs::read_dir(t.0.join("Trash/files")).unwrap().count(), 0);
+        });
+    }
+
+    #[test]
+    fn undo_rename_restores_a_surprise_source_instead_of_moving_it_to_the_old_name() {
+        with_undo(|| {
+            let t = Temp::new();
+            let a = t.work("a");
+            let b = t.work("b");
+            let saved = t.work("saved");
+            fs::write(&a, "selected bytes").unwrap();
+            rename(&a, "b").unwrap();
+            crate::fileops_test::arm_path("isolate-checked", &b, move |path| {
+                fs::rename(path, saved).unwrap();
+                fs::write(path, "foreign unique bytes").unwrap();
+            });
+            let undo = step(false);
+            crate::fileops_test::fired();
+            assert_eq!(undo.done, 0);
+            assert_eq!(undo.skipped.len(), 1);
+            assert!(!a.exists());
+            assert_eq!(fs::read(b).unwrap(), b"foreign unique bytes");
+        });
+    }
+
+    #[test]
+    fn new_folder_undo_never_removes_a_replacement_or_its_children() {
+        with_undo(|| {
+            let t = Temp::new();
+            let (folder, _) = new_folder(&t.0.join("work"), "fresh").unwrap();
+            let saved = t.work("saved");
+            crate::fileops_test::arm_path("isolate-checked", &folder, move |path| {
+                fs::rename(path, saved).unwrap();
+                fs::create_dir(path).unwrap();
+                fs::write(path.join("unique"), "foreign bytes").unwrap();
+            });
+            let undo = step(false);
+            crate::fileops_test::fired();
+            assert_eq!(undo.done, 0);
+            assert_eq!(fs::read(folder.join("unique")).unwrap(), b"foreign bytes");
+        });
+    }
+
+    #[test]
+    fn trash_undo_refuses_an_in_place_edit_even_when_mtime_is_restored() {
+        with_undo(|| {
+            let t = Temp::new();
+            let file = t.work("file");
+            fs::write(&file, "AAAA").unwrap();
+            let out = trash(std::slice::from_ref(&file), &crate::trashbin::test_send);
+            assert_eq!(out.trashed.len(), 1);
+            let target = t.0.join("Trash/files/file");
+            let old = fs::metadata(&target).unwrap().modified().unwrap();
+            fs::write(&target, "BBBB").unwrap();
+            fs::File::open(&target).unwrap().set_modified(old).unwrap();
+            let undo = step(false);
+            assert_eq!(undo.done, 0);
+            assert!(!file.exists());
+            assert_eq!(fs::read(target).unwrap(), b"BBBB");
+        });
+    }
+
     fn trash_entry(path: &Path) -> Entry {
         Entry {
             id: 1,
@@ -2579,15 +2865,27 @@ mod new_item_tests {
         let t = Temp::new();
         let file = t.work("dupe.txt");
         fs::write(&file, "copy").unwrap();
-        let entry = trash_entry(&file);
+        let mut entry = trash_entry(&file);
         crate::trashbin::test_trash(&file).unwrap();
+        let stamp = entry.expected.0[0].1;
+        let found = crate::trashbin::find(
+            &file,
+            crate::trashbin::Identity {
+                dev: stamp.dev,
+                ino: stamp.ino,
+                len: stamp.len,
+                mtime: stamp.mtime,
+            },
+        )
+        .unwrap();
+        entry.expected = Snapshot::read(&found.file).unwrap();
         let mut j = Journal {
             entries: vec![entry],
             cursor: 1,
             next_id: 1,
             ..Journal::default()
         };
-        let trash = |p: &Path| crate::trashbin::test_trash(p);
+        let trash = crate::trashbin::test_send;
         let p = Progress::new();
         assert!(j.step(false, &trash, &p).unwrap().skipped.is_empty());
         assert_eq!(fs::read(&file).unwrap(), b"copy");
@@ -2605,15 +2903,27 @@ mod new_item_tests {
         let t = Temp::new();
         let file = t.work("dupe.txt");
         fs::write(&file, "copy").unwrap();
-        let entry = trash_entry(&file);
+        let mut entry = trash_entry(&file);
         crate::trashbin::test_trash(&file).unwrap();
+        let stamp = entry.expected.0[0].1;
+        let found = crate::trashbin::find(
+            &file,
+            crate::trashbin::Identity {
+                dev: stamp.dev,
+                ino: stamp.ino,
+                len: stamp.len,
+                mtime: stamp.mtime,
+            },
+        )
+        .unwrap();
+        entry.expected = Snapshot::read(&found.file).unwrap();
         let mut j = Journal {
             entries: vec![entry],
             cursor: 1,
             next_id: 1,
             ..Journal::default()
         };
-        let trash = |p: &Path| crate::trashbin::test_trash(p);
+        let trash = crate::trashbin::test_send;
         let p = Progress::new();
         assert!(j.step(false, &trash, &p).unwrap().skipped.is_empty());
         fs::write(&file, "edited after the restore").unwrap();

@@ -179,9 +179,234 @@ fn percent_decode(text: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// A backend receives the isolated entry, its public original path and the
+/// exact post-isolation identity; no path lookup may authorize another inode.
+pub(crate) type Backend<'a> =
+    dyn Fn(&Path, &Path, crate::transfer::FileStamp) -> Result<(), String> + 'a;
+
+fn private_dir(path: &Path) -> io::Result<std::sync::Arc<std::fs::File>> {
+    use std::os::unix::fs::DirBuilderExt;
+    match fs::symlink_metadata(path) {
+        Ok(m) if !m.is_dir() => return Err(io::ErrorKind::NotADirectory.into()),
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(path)?;
+        }
+        Err(e) => return Err(e),
+    }
+    let dir = std::sync::Arc::new(crate::transfer::open_dir(path)?);
+    crate::transfer::require_private(&dir)?;
+    Ok(dir)
+}
+fn deletion_date() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let zone = everygrep_core::localtime::Zone::local();
+    let (y, m, d) = zone.local_date(secs);
+    let day = zone.to_local(secs).rem_euclid(86400);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}",
+        day / 3600,
+        (day % 3600) / 60,
+        day % 60
+    )
+}
+fn remove_own_info(
+    parent: &std::fs::File,
+    name: &std::ffi::OsStr,
+    expected: &std::fs::File,
+) -> io::Result<()> {
+    let current = fs::symlink_metadata(crate::transfer::fd_path(parent).join(name))?;
+    let own = expected.metadata()?;
+    if (current.dev(), current.ino()) != (own.dev(), own.ino()) {
+        return Err(io::Error::other(tr(
+            "The item changed since the recorded operation.",
+        )));
+    }
+    crate::transfer::unlink_at(parent, name, false)
+}
+
+/// Freedesktop Trash publication through held directory descriptors. Metadata
+/// is reserved without replacement before moving the already-isolated inode.
+pub(crate) fn put_from(
+    actual: &Path,
+    original: &Path,
+    expected: crate::transfer::FileStamp,
+) -> Result<(), String> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    let perform = || -> io::Result<()> {
+        let parent =
+            crate::transfer::open_dir(actual.parent().ok_or(io::ErrorKind::InvalidInput)?)?;
+        let name = actual.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+        let source = crate::transfer::pin_path(&crate::transfer::fd_path(&parent).join(name))?;
+        if crate::transfer::FileStamp::of(&source.metadata()?) != expected {
+            return Err(io::Error::other(tr(
+                "The item changed since the recorded operation.",
+            )));
+        }
+        let base = original.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+        let mut last = io::Error::new(io::ErrorKind::Unsupported, tr("Cannot move to the trash."));
+        for (root, top) in candidates(original) {
+            if top.is_some()
+                && root.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new(".Trash"))
+            {
+                let Some(shared) = root.parent() else {
+                    continue;
+                };
+                if !fs::symlink_metadata(shared).is_ok_and(|m| m.is_dir() && m.mode() & 0o1000 != 0)
+                {
+                    continue;
+                }
+            }
+            if source.metadata()?.is_dir() && root.starts_with(original) {
+                return Err(io::Error::other(tr(
+                    "A folder cannot be trashed into itself.",
+                )));
+            }
+            let dirs = (|| -> io::Result<_> {
+                let root = private_dir(&root)?;
+                if root.metadata()?.dev() != expected.dev {
+                    return Err(io::ErrorKind::CrossesDevices.into());
+                }
+                let files = private_dir(&crate::transfer::fd_path(&root).join("files"))?;
+                let info = private_dir(&crate::transfer::fd_path(&root).join("info"))?;
+                Ok((root, files, info))
+            })();
+            let (root, files, info) = match dirs {
+                Ok(d) => d,
+                Err(e) => {
+                    last = e;
+                    continue;
+                }
+            };
+            for n in 0..1000 {
+                let suffix = if n == 0 {
+                    String::new()
+                } else {
+                    format!(".{n}")
+                };
+                let mut bytes = base.as_bytes().to_vec();
+                bytes.truncate(245usize.saturating_sub(suffix.len()));
+                bytes.extend(suffix.as_bytes());
+                let trash_name = OsString::from_vec(bytes);
+                let mut info_name = trash_name.clone();
+                info_name.push(".trashinfo");
+                let info_path = crate::transfer::fd_path(&info).join(&info_name);
+                let mut record = match OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&info_path)
+                {
+                    Ok(f) => f,
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => {
+                        last = e;
+                        break;
+                    }
+                };
+                let relative = match &top {
+                    Some(top) => original
+                        .strip_prefix(top)
+                        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?,
+                    None => original,
+                };
+                let prepared = (|| -> io::Result<()> {
+                    crate::transfer::require_private(&record)?;
+                    record.write_all(
+                        format!(
+                            "[Trash Info]\nPath={}\nDeletionDate={}\n",
+                            encode(relative),
+                            deletion_date()
+                        )
+                        .as_bytes(),
+                    )?;
+                    record.sync_all()?;
+                    info.sync_all()?;
+                    root.sync_all()?;
+                    if crate::transfer::FileStamp::read(
+                        &crate::transfer::fd_path(&parent).join(name),
+                    )? != expected
+                    {
+                        return Err(io::Error::other(tr(
+                            "The item changed since the recorded operation.",
+                        )));
+                    }
+                    Ok(())
+                })();
+                if let Err(e) = prepared {
+                    let _ = remove_own_info(&info, &info_name, &record);
+                    return Err(e);
+                }
+                #[cfg(test)]
+                crate::fileops_test::at("trash-publish-checked", original);
+                match crate::transfer::rename_at(&parent, name, &files, &trash_name) {
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                        remove_own_info(&info, &info_name, &record)?;
+                        continue;
+                    }
+                    Err(e) => {
+                        let _ = remove_own_info(&info, &info_name, &record);
+                        return Err(e);
+                    }
+                    Ok(()) => {}
+                }
+                let published = (|| -> io::Result<()> {
+                    let target = crate::transfer::fd_path(&files).join(&trash_name);
+                    if !expected.same_except_ctime(&crate::transfer::FileStamp::read(&target)?) {
+                        return Err(io::Error::other(tr(
+                            "The item changed since the recorded operation.",
+                        )));
+                    }
+                    files.sync_all()?;
+                    parent.sync_all()?;
+                    info.sync_all()?;
+                    root.sync_all()?;
+                    Ok(())
+                })();
+                if let Err(e) = published {
+                    // Keep even an unexpected inode; roll it back without
+                    // replacing anything. A collision leaves it in the Trash.
+                    if let Err(restore) =
+                        crate::transfer::rename_at(&files, &trash_name, &parent, name)
+                    {
+                        return Err(io::Error::other(crate::i18n::fill(
+                            tr("Could not restore the source; it remains at {0}: {1}"),
+                            &[
+                                &fs::read_link(format!(
+                                    "/proc/self/fd/{}",
+                                    std::os::fd::AsRawFd::as_raw_fd(&*files)
+                                ))
+                                .unwrap_or_else(|_| crate::transfer::fd_path(&files))
+                                .join(&trash_name)
+                                .display(),
+                                &restore,
+                            ],
+                        )));
+                    }
+                    let _ = remove_own_info(&info, &info_name, &record);
+                    return Err(e);
+                }
+                return Ok(());
+            }
+        }
+        Err(last)
+    };
+    perform().map_err(|e| crate::i18n::fill(tr("Cannot move to the trash: {}"), &[&e]))
+}
+
 /// Puts the trashed item `id` back at `original`. Refuses when something
 /// has that name now, when its folder is gone, or when the item is not in
 /// the trash any more (emptied, restored or changed).
+#[cfg(test)]
 pub fn restore(original: &Path, id: Identity) -> Result<(), String> {
     let parent = original
         .parent()
@@ -196,14 +421,30 @@ pub fn restore(original: &Path, id: Identity) -> Result<(), String> {
     }
     let found =
         find(original, id).ok_or_else(|| tr("The item is no longer in the trash.").to_owned())?;
-    crate::transfer::rename_strict(&found.file, original).map_err(|e| e.to_string())?;
-    // The item is back; a description left behind only shows a stale entry.
-    let _ = fs::remove_file(&found.info);
+    let expected = crate::transfer::FileStamp::read(&found.file).map_err(|e| e.to_string())?;
+    if (expected.dev, expected.ino, expected.len, expected.mtime)
+        != (id.dev, id.ino, id.len, id.mtime)
+    {
+        return Err(tr("The item changed since the recorded operation.").into());
+    }
+    let info = crate::transfer::pin_path(&found.info).ok();
+    crate::transfer::rename_expected(&found.file, original, expected).map_err(|e| e.to_string())?;
+    if let Some(info) = info {
+        let _ = remove_description(&found.info, &info);
+    }
     Ok(())
 }
 
+pub(crate) fn remove_description(path: &Path, expected: &fs::File) -> io::Result<()> {
+    let parent = crate::transfer::open_dir(path.parent().ok_or(io::ErrorKind::InvalidInput)?)?;
+    remove_own_info(
+        &parent,
+        path.file_name().ok_or(io::ErrorKind::InvalidInput)?,
+        expected,
+    )
+}
+
 /// The `Path=` value for `path`, percent-encoded as the specification asks.
-#[cfg(test)]
 fn encode(path: &Path) -> String {
     use std::os::unix::ffi::OsStrExt;
     let mut out = String::new();
@@ -220,28 +461,16 @@ fn encode(path: &Path) -> String {
 /// Trashes `path` into the test home trash like a desktop does.
 #[cfg(test)]
 pub fn test_trash(path: &Path) -> Result<(), String> {
-    let home = home_trash().ok_or("no test trash")?;
-    fs::create_dir_all(home.join("files")).map_err(|e| e.to_string())?;
-    fs::create_dir_all(home.join("info")).map_err(|e| e.to_string())?;
-    let name = path.file_name().ok_or("no name")?;
-    let mut n = 1;
-    let mut target = OsString::from(name);
-    while home.join("files").join(&target).exists() {
-        n += 1;
-        target = OsString::from(format!("{}.{n}", name.to_string_lossy()));
-    }
-    let mut info_name = target.clone();
-    info_name.push(".trashinfo");
-    fs::write(
-        home.join("info").join(info_name),
-        format!(
-            "[Trash Info]\nPath={}\nDeletionDate=2026-11-04T20:00:00\n",
-            encode(path)
-        ),
-    )
-    .map_err(|e| e.to_string())?;
-    crate::transfer::rename_strict(path, &home.join("files").join(target))
-        .map_err(|e| e.to_string())
+    let stamp = crate::transfer::FileStamp::read(path).map_err(|e| e.to_string())?;
+    put_from(path, path, stamp)
+}
+#[cfg(test)]
+pub(crate) fn test_send(
+    actual: &Path,
+    original: &Path,
+    stamp: crate::transfer::FileStamp,
+) -> Result<(), String> {
+    put_from(actual, original, stamp)
 }
 
 #[cfg(test)]
@@ -272,6 +501,57 @@ mod tests {
 
     fn id(path: &Path) -> Identity {
         Identity::of(&fs::symlink_metadata(path).unwrap())
+    }
+
+    #[test]
+    fn restore_rejects_a_replacement_in_the_last_rename_lookup_gap() {
+        let t = Bin::new();
+        let file = t.0.join("work/file");
+        let saved = t.0.join("saved");
+        fs::write(&file, "selected bytes").unwrap();
+        let id = Identity::of(&fs::symlink_metadata(&file).unwrap());
+        test_trash(&file).unwrap();
+        let found = find(&file, id).unwrap();
+        let target = found.file.clone();
+        crate::fileops_test::arm_path("rename-checked", &target, move |path| {
+            fs::rename(path, saved).unwrap();
+            fs::write(path, "foreign unique bytes").unwrap();
+        });
+        assert!(restore(&file, id).is_err());
+        crate::fileops_test::fired();
+        assert!(!file.exists());
+        assert_eq!(fs::read(&target).unwrap(), b"foreign unique bytes");
+    }
+
+    #[test]
+    fn private_trash_directories_never_follow_a_files_symlink() {
+        let t = Bin::new();
+        let file = t.0.join("work/file");
+        let outside = t.0.join("outside");
+        fs::write(&file, "selected bytes").unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::create_dir_all(t.0.join("Trash")).unwrap();
+        fs::set_permissions(
+            t.0.join("Trash"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&outside, t.0.join("Trash/files")).unwrap();
+        assert!(test_trash(&file).is_err());
+        assert_eq!(fs::read(file).unwrap(), b"selected bytes");
+        assert_eq!(fs::read_dir(outside).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_trash_inside_the_selected_directory_keeps_the_source() {
+        let bin = Bin::new();
+        let folder = bin.0.join("work/folder");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("unique"), "selected bytes").unwrap();
+        set_test_home(Some(folder.join("Trash")));
+        assert!(test_trash(&folder).unwrap_err().contains("itself"));
+        assert_eq!(fs::read(folder.join("unique")).unwrap(), b"selected bytes");
+        assert!(!folder.join("Trash").exists());
     }
 
     #[test]

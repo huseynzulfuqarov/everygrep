@@ -2347,9 +2347,7 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
     let weak = w.as_weak();
     std::thread::spawn(move || {
         fileops_undo::queue_notice(weak.clone());
-        let result = fileops_undo::catch_worker(|| {
-            fileops_undo::trash(&paths, &|p| actions::trash(&[p.to_owned()]))
-        });
+        let result = fileops_undo::catch_worker(|| fileops_undo::trash(&paths, &actions::trash));
         let _ = weak.upgrade_in_event_loop(move |w| match result {
             Ok(out) => {
                 if out.failed.is_empty() {
