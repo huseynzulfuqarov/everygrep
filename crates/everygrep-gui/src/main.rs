@@ -2331,12 +2331,26 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
         fileops_undo::queue_notice(weak.clone());
         let result = fileops_undo::catch_worker(|| {
             let _files = fileops_undo::file_guard();
-            actions::trash(&paths)
-        })
-        .unwrap_or_else(Err);
+            actions::trash_all(&paths)
+        });
         let _ = weak.upgrade_in_event_loop(move |w| match result {
-            Ok(()) => info(&w, fill(tr("Moved {} to the trash."), &[&what])),
             Err(e) => error(&w, e),
+            Ok(out) => match (out.kept.first(), out.error) {
+                (None, _) => info(&w, fill(tr("Moved {} to the trash."), &[&what])),
+                (Some(first), e) => error(
+                    &w,
+                    fill(
+                        tr("Moved {} of {} to the trash. Not moved: {}, for example {}. {}"),
+                        &[
+                            &format::count(out.moved),
+                            &format::count(paths.len()),
+                            &format::count(out.kept.len()),
+                            &first.display(),
+                            &e.unwrap_or_default(),
+                        ],
+                    ),
+                ),
+            },
         });
     });
 }

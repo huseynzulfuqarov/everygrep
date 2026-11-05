@@ -5304,3 +5304,7 @@ msgstr "həmin qovluqda artıq {} var; onları bu proqram yazmayıb və onlar ə
 #: src/actions.rs
 msgid "another item is at this path now than when the delete was confirmed, so it was kept"
 msgstr "silmə təsdiqlənəndən sonra bu yolda artıq başqa element var, ona görə saxlanıldı"
+
+#: src/main.rs
+msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"
+msgstr "{} element zibil qutusuna köçürüldü (cəmi {}). Köçürülmədi: {}, məsələn {}. {}"

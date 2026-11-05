@@ -5304,3 +5304,7 @@ msgstr "o klasörde zaten {} var; bunları bu program yazmadı ve üzerlerine ya
 #: src/actions.rs
 msgid "another item is at this path now than when the delete was confirmed, so it was kept"
 msgstr "silme onaylandığından beri bu yolda başka bir öğe var, bu yüzden korundu"
+
+#: src/main.rs
+msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"
+msgstr "{} öğe çöp kutusuna taşındı (toplam {}). Taşınmadı: {}, örneğin {}. {}"

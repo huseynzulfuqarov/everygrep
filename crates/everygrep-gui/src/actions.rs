@@ -342,6 +342,49 @@ pub fn trash(paths: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
+/// What a move to the trash did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct TrashOutcome {
+    /// Items no longer at their place afterwards.
+    pub moved: usize,
+    /// Items still at their place.
+    pub kept: Vec<PathBuf>,
+    /// The first error `gio` (or running it) gave, for the user.
+    pub error: Option<String>,
+}
+
+/// Moves `paths` to the trash, reporting each item that stayed. Unlike
+/// [`trash`], all batches run, also after one failed: `gio` goes on after
+/// an item it cannot move, so afterwards each item of a failed batch is
+/// looked at, and the ones still at their place are reported.
+pub fn trash_all(paths: &[PathBuf]) -> TrashOutcome {
+    trash_with(paths, trash)
+}
+
+/// [`trash`] with the command for one batch passed in.
+fn trash_with(
+    paths: &[PathBuf],
+    mut run: impl FnMut(&[PathBuf]) -> Result<(), String>,
+) -> TrashOutcome {
+    let mut out = TrashOutcome::default();
+    for batch in paths.chunks(TRASH_BATCH) {
+        match run(batch) {
+            Ok(()) => out.moved += batch.len(),
+            Err(e) => {
+                out.error.get_or_insert(e);
+                for path in batch {
+                    if std::fs::symlink_metadata(path).is_ok() {
+                        out.kept.push(path.clone());
+                    } else {
+                        out.moved += 1;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Which item a path named when the user asked to delete it: device,
 /// inode and type, of the entry itself (a link, not what it points to).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -824,6 +867,45 @@ mod tests {
         assert_eq!(&args[..2], [OsStr::new("trash"), OsStr::new("--")]);
         assert_eq!(args.len(), 2 + 3);
         assert_eq!(cmds[0].get_args().count(), 2 + TRASH_BATCH);
+    }
+
+    #[test]
+    fn a_failed_trash_batch_reports_each_kept_item_and_the_rest_goes_on() {
+        let dir = TempDir::new("trash-batches");
+        let bin = dir.0.join("bin");
+        fs::create_dir(&bin).unwrap();
+        let paths: Vec<PathBuf> = (0..TRASH_BATCH + 5)
+            .map(|i| {
+                let p = dir.0.join(format!("f{i}"));
+                fs::write(&p, "x").unwrap();
+                p
+            })
+            .collect();
+        let stuck = [paths[3].clone(), paths[7].clone()];
+        let mut batches = 0;
+        let out = trash_with(&paths, |batch| {
+            batches += 1;
+            // Like gio: every item it can move, then a failure.
+            for p in batch.iter().filter(|p| !stuck.contains(p)) {
+                fs::rename(p, bin.join(p.file_name().unwrap())).unwrap();
+            }
+            if batch.iter().any(|p| stuck.contains(p)) {
+                Err("Cannot move to the trash: no permission".into())
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(batches, 2, "the batch after the failed one ran");
+        assert_eq!(out.kept, stuck);
+        assert_eq!(out.moved, paths.len() - 2);
+        assert_eq!(
+            out.error.as_deref(),
+            Some("Cannot move to the trash: no permission")
+        );
+        assert!(paths[TRASH_BATCH + 4].symlink_metadata().is_err());
+
+        let fine = trash_with(&[], |_| unreachable!());
+        assert_eq!(fine, TrashOutcome::default());
     }
 
     #[test]
