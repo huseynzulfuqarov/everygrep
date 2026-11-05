@@ -5352,3 +5352,11 @@ msgstr "Geçici kopya doğrulanamadı. Kaynak korundu."
 #: src/transfer.rs
 msgid "The partial copy moved; it remains at {}."
 msgstr "Kısmi kopya taşındı; şurada duruyor: {}."
+
+#: src/transfer.rs
+msgid "The completed copy could not be verified. The source was kept."
+msgstr "Tamamlanan kopya doğrulanamadı. Kaynak korundu."
+
+#: src/transfer.rs
+msgid "The copy at “{}” could not be verified: {}. The source was kept."
+msgstr "“{}” konumundaki kopya doğrulanamadı: {}. Kaynak korundu."

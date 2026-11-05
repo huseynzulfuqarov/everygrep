@@ -98,6 +98,60 @@ pub fn open(path: &Path) -> Result<OpenFile, HashError> {
     })
 }
 
+/// SHA-256 over bytes written by a transfer, independently of path names.
+#[derive(Default)]
+pub struct Sha256Stream(sha2::Sha256);
+impl Sha256Stream {
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+    pub fn finish(self) -> [u8; 32] {
+        self.0.finalize().into()
+    }
+}
+
+/// Hashes a held regular-file descriptor with positional reads. Its identity,
+/// length, mode and change times must stay stable throughout verification.
+pub fn sha256_open_file(file: &File, progress: &Progress) -> Result<[u8; 32], HashError> {
+    fn stamp(m: &std::fs::Metadata) -> (u64, u64, u64, u32, i64, i64, i64, i64) {
+        (
+            m.dev(),
+            m.ino(),
+            m.len(),
+            m.mode(),
+            m.mtime(),
+            m.mtime_nsec(),
+            m.ctime(),
+            m.ctime_nsec(),
+        )
+    }
+    let before = file.metadata().map_err(|_| HashError::Unreadable)?;
+    if !before.is_file() {
+        return Err(HashError::NotAFile);
+    }
+    let mut digest = Sha256Stream::default();
+    let mut buf = vec![0; BUFFER];
+    let mut offset = 0;
+    loop {
+        if progress.is_cancelled() {
+            return Err(HashError::Cancelled);
+        }
+        let n = match file.read_at(&mut buf, offset) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(HashError::Unreadable),
+        };
+        digest.update(&buf[..n]);
+        offset += n as u64;
+    }
+    let after = file.metadata().map_err(|_| HashError::Unreadable)?;
+    if offset != before.len() || stamp(&before) != stamp(&after) {
+        return Err(HashError::Unreadable);
+    }
+    Ok(digest.finish())
+}
+
 /// The hashes to compute in one reading of a file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Wanted {
@@ -468,6 +522,24 @@ pub fn read_cached(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn copied_byte_stream_and_held_descriptor_match_the_standard_sha256_vector() {
+        let mut digest = Sha256Stream::default();
+        digest.update(b"a");
+        digest.update(b"bc");
+        let expected = digest.finish();
+        let hex: String = expected.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let t = Dir::new("copied-digest");
+        let path = t.0.join("held");
+        std::fs::write(&path, b"abc").unwrap();
+        let file = File::open(path).unwrap();
+        assert_eq!(sha256_open_file(&file, &Progress::new()).unwrap(), expected);
+    }
 
     struct Dir(PathBuf);
 

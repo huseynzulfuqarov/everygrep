@@ -487,16 +487,16 @@ fn paste_attempt(
         {
             return Ok(pasted);
         }
-        let (target, copied) = copy_in(src, &meta, dest, name, progress, true, run)?;
+        let (target, copied, produced) = copy_in(src, &meta, dest, name, progress, true, run)?;
         run.changed = true;
-        return Ok(match remove_copied(&copied) {
+        return Ok(match remove_copied(&copied, &produced) {
             None => Pasted::New(target),
             Some(e) => Pasted::Failed(Failure::NotRemoved(e)),
         });
     }
     match op {
         Operation::Copy => {
-            let (target, _) = copy_in(src, &meta, dest, name, progress, false, run)?;
+            let (target, _, _) = copy_in(src, &meta, dest, name, progress, false, run)?;
             Ok(Pasted::New(target))
         }
         Operation::Cut => move_in(src, &meta, dest, name, progress, run),
@@ -580,6 +580,7 @@ const EXDEV: i32 = 18;
 thread_local! {
     static FORCE_EXDEV: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static COPY_IO_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static COPY_SYNC_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn stage_for_replace(src: &Path, folder: &Path) -> io::Result<PathBuf> {
@@ -635,9 +636,9 @@ fn move_in(
             Err(e) => return Err(e.into()),
         }
     }
-    let (target, copied) = copy_in(src, meta, dest, name, progress, true, run)?;
+    let (target, copied, produced) = copy_in(src, meta, dest, name, progress, true, run)?;
     run.changed = true;
-    match remove_copied(&copied) {
+    match remove_copied(&copied, &produced) {
         None => Ok(Pasted::New(target)),
         Some(e) => Ok(Pasted::Failed(Failure::NotRemoved(e))),
     }
@@ -697,7 +698,7 @@ impl Copied {
 /// that still holds something (a special file, or a file added meanwhile)
 /// stays, and so does an entry that was changed or replaced after it was
 /// read for the copy. Returns the first error.
-fn remove_copied(copied: &[Copied]) -> Option<io::Error> {
+fn remove_copied(copied: &[Copied], produced: &Produced) -> Option<io::Error> {
     // Metadata is part of a move. Never remove even the first source entry
     // if any part of the copy could not preserve it.
     if let Some(c) = copied.iter().find(|c| c.metadata_error.is_some()) {
@@ -706,8 +707,24 @@ fn remove_copied(copied: &[Copied]) -> Option<io::Error> {
             &[&c.path.display(), c.metadata_error.as_ref().unwrap()],
         )));
     }
+    if !produced.durable {
+        return Some(unverified_copy());
+    }
+    if let Err(e) = produced.check() {
+        return Some(e);
+    }
     let mut first_error = None;
-    for c in copied.iter().rev() {
+    for (index, c) in copied.iter().enumerate().rev() {
+        // Metadata can be coalesced by a filesystem. The held destination
+        // must still contain exactly the bytes written before removing source.
+        if let Err(e) = produced
+            .check_node(index)
+            .and_then(|()| produced.nodes[index].entry.verify_bytes())
+            .and_then(|()| produced.check_node(index))
+        {
+            first_error.get_or_insert(e);
+            break;
+        }
         let removed = match fs::symlink_metadata(&c.path) {
             Ok(now) if !c.unchanged(&now) => Err(io::Error::other(fill(
                 tr("“{}” changed after it was copied"),
@@ -735,7 +752,7 @@ fn copy_in(
     progress: &Progress,
     sync: bool,
     run: &mut Run,
-) -> Result<(PathBuf, Vec<Copied>), Stop> {
+) -> Result<(PathBuf, Vec<Copied>, Produced), Stop> {
     let mut copied = Vec::new();
     let mut created = Vec::new();
     let mut buf = vec![0; CHUNK];
@@ -791,13 +808,26 @@ fn copy_in(
                 ));
             }
         }
-        return match rename_strict(&temp, &target) {
-            Ok(()) => Ok((target, copied)),
-            Err(e) => Err(cleaned_up(&temp, &created, e.into())),
+        let mut published = false;
+        return match publish_created(
+            &created,
+            &target,
+            progress,
+            sync,
+            &mut run.changed,
+            &mut published,
+        ) {
+            Ok(produced) => Ok((target, copied, produced)),
+            Err(e) => Err(publication_failed(
+                &temp, &created, &target, e, published, progress,
+            )),
         };
     }
     if let Some(expected) = run.replace.take() {
-        let mut publish = || -> io::Result<()> {
+        let mut published = false;
+        let mut publish = || -> io::Result<Produced> {
+            // Verify our completed inode before removing the consented target.
+            let _ = Produced::before_publication(&created, progress)?;
             let now = fs::symlink_metadata(&expected.path)?;
             if !now.is_file() || !expected.unchanged(&now) {
                 return Err(io::Error::other(tr(
@@ -807,16 +837,24 @@ fn copy_in(
             (run.replacement.trash)(&expected.path)?;
             run.replacements += 1;
             run.replaced = true;
-            rename_strict(&temp, &expected.path).map_err(|e| io::Error::other(fill(
-                tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e],
-            )))
+            publish_created(&created, &expected.path, progress, sync, &mut run.changed, &mut published)
+                .map_err(|e| io::Error::other(fill(
+                    tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e],
+                )))
         };
         return match publish() {
-            Ok(()) => {
+            Ok(produced) => {
                 run.replaced = true;
-                Ok((expected.path, copied))
+                Ok((expected.path, copied, produced))
             }
-            Err(e) => Err(cleaned_up(&temp, &created, e.into())),
+            Err(e) => Err(publication_failed(
+                &temp,
+                &created,
+                &expected.path,
+                e,
+                published,
+                progress,
+            )),
         };
     }
     loop {
@@ -824,10 +862,22 @@ fn copy_in(
             Ok(t) => t,
             Err(e) => return Err(cleaned_up(&temp, &created, e.into())),
         };
-        match rename_noreplace(&temp, &target) {
-            Ok(()) => return Ok((target, copied)),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(cleaned_up(&temp, &created, e.into())),
+        let mut published = false;
+        match publish_created(
+            &created,
+            &target,
+            progress,
+            sync,
+            &mut run.changed,
+            &mut published,
+        ) {
+            Ok(produced) => return Ok((target, copied, produced)),
+            Err(e) if !published && e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(publication_failed(
+                    &temp, &created, &target, e, published, progress,
+                ));
+            }
         }
     }
 }
@@ -867,7 +917,7 @@ const TEMP_TRIES: u32 = 100;
 
 /// Each entry belongs to this copy only while its device and inode match.
 /// Parent descriptors prevent a renamed/replaced ancestor redirecting cleanup.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Created {
     path: PathBuf,
     parent: std::sync::Arc<File>,
@@ -876,6 +926,7 @@ struct Created {
     ino: u64,
     is_dir: bool,
     handle: Option<std::sync::Arc<File>>,
+    digest: Option<[u8; 32]>,
 }
 impl Created {
     fn new(
@@ -895,6 +946,7 @@ impl Created {
             ino: meta.ino(),
             is_dir: meta.is_dir(),
             handle,
+            digest: None,
         })
     }
     fn anchored(&self) -> PathBuf {
@@ -909,15 +961,29 @@ impl Created {
         }
         Ok(())
     }
+    fn verify_bytes(&self) -> io::Result<()> {
+        if let Some(digest) = self.digest {
+            let handle = self.handle.as_ref().ok_or_else(unverified_copy)?;
+            if everygrep_core::hash::sha256_open_file(handle, &Progress::new()).ok() != Some(digest)
+            {
+                return Err(unverified_copy());
+            }
+        }
+        Ok(())
+    }
     fn unlink(&self) -> io::Result<()> {
         self.check()?;
-        Isolation::take(
+        self.verify_bytes()?;
+        let held = Isolation::take(
             self.parent.clone(),
             &self.name,
             &self.path,
             (self.dev, self.ino),
-        )?
-        .remove(self.is_dir)
+        )?;
+        if let Err(e) = self.verify_bytes() {
+            return Err(held.restore_error(e));
+        }
+        held.remove(self.is_dir)
     }
 }
 fn fd_path(file: &File) -> PathBuf {
@@ -930,6 +996,224 @@ fn open_dir(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
+/// A completed copy is bound to the descriptors used to write it. Each
+/// child's parent descriptor and relative name remain part of that proof.
+#[derive(Debug)]
+struct Produced {
+    nodes: Vec<ProducedNode>,
+    durable: bool,
+}
+#[derive(Debug)]
+struct ProducedNode {
+    entry: Created,
+    expected: FileStamp,
+    parent_index: Option<usize>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileStamp {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    mtime: (i64, i64),
+    ctime: (i64, i64),
+}
+impl FileStamp {
+    fn of(m: &Metadata) -> Self {
+        Self {
+            dev: m.dev(),
+            ino: m.ino(),
+            len: m.len(),
+            mode: m.mode(),
+            uid: m.uid(),
+            gid: m.gid(),
+            mtime: (m.mtime(), m.mtime_nsec()),
+            ctime: (m.ctime(), m.ctime_nsec()),
+        }
+    }
+    fn same_except_ctime(&self, other: &Self) -> bool {
+        let mut other = *other;
+        other.ctime = self.ctime;
+        other == *self
+    }
+}
+impl Produced {
+    fn before_publication(created: &[Created], progress: &Progress) -> io::Result<Self> {
+        let mut nodes: Vec<ProducedNode> = Vec::with_capacity(created.len());
+        let mut directories = HashMap::new();
+        for entry in created {
+            entry.check()?;
+            let handle = entry.handle.as_ref().ok_or_else(unverified_copy)?;
+            let meta = handle.metadata()?;
+            let expected = FileStamp::of(&meta);
+            if let Some(digest) = entry.digest {
+                if everygrep_core::hash::sha256_open_file(handle, progress).ok() != Some(digest) {
+                    return Err(unverified_copy());
+                }
+                // A verification read must not change the preserved access time
+                // on filesystems that ignore O_NOATIME.
+                handle.set_times(
+                    fs::FileTimes::new()
+                        .set_accessed(meta.accessed()?)
+                        .set_modified(meta.modified()?),
+                )?;
+            }
+            let parent_index = entry
+                .path
+                .parent()
+                .and_then(|p| directories.get(p))
+                .copied();
+            if entry.is_dir {
+                directories.insert(entry.path.clone(), nodes.len());
+            }
+            nodes.push(ProducedNode {
+                entry: entry.clone(),
+                expected: if entry.digest.is_some() {
+                    FileStamp::of(&handle.metadata()?)
+                } else {
+                    expected
+                },
+                parent_index,
+            });
+        }
+        Ok(Self {
+            nodes,
+            durable: false,
+        })
+    }
+    fn check_node(&self, index: usize) -> io::Result<()> {
+        let node = &self.nodes[index];
+        if let Some(parent) = node.parent_index {
+            self.check_node(parent)?;
+        }
+        let m = fs::symlink_metadata(node.entry.anchored())?;
+        if FileStamp::of(&m) != node.expected {
+            return Err(unverified_copy());
+        }
+        Ok(())
+    }
+    fn check(&self) -> io::Result<()> {
+        for index in 0..self.nodes.len() {
+            self.check_node(index)?;
+        }
+        Ok(())
+    }
+    fn sync(&mut self) -> io::Result<()> {
+        #[cfg(test)]
+        if COPY_SYNC_ERROR.with(|v| v.replace(false)) {
+            return Err(io::Error::from_raw_os_error(5));
+        }
+        for node in self.nodes.iter().rev() {
+            let handle = node.entry.handle.as_ref().ok_or_else(unverified_copy)?;
+            if !handle.metadata()?.is_symlink() {
+                handle.sync_all()?;
+            }
+        }
+        self.nodes[0].entry.parent.sync_all()?;
+        self.check()?;
+        self.durable = true;
+        Ok(())
+    }
+}
+fn unverified_copy() -> io::Error {
+    io::Error::other(tr(
+        "The completed copy could not be verified. The source was kept.",
+    ))
+}
+
+/// Publish a regular file using its open descriptor; the source of linkat is
+/// the inode we wrote, even if its old temporary name was replaced. Folders
+/// and symlinks use held parent descriptors and are checked again afterwards.
+fn publish_created(
+    created: &[Created],
+    target: &Path,
+    progress: &Progress,
+    sync: bool,
+    changed: &mut bool,
+    published: &mut bool,
+) -> io::Result<Produced> {
+    let mut produced = Produced::before_publication(created, progress)?;
+    let root = produced.nodes.first_mut().ok_or_else(unverified_copy)?;
+    let target_parent = std::sync::Arc::new(open_dir(
+        target
+            .parent()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
+    )?);
+    let name = target
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    root.entry.check()?;
+    let handle = root.entry.handle.as_ref().ok_or_else(unverified_copy)?;
+    if handle.metadata()?.is_file() {
+        let source = CString::new(format!("/proc/self/fd/{}", handle.as_raw_fd()))?;
+        let target_name = CString::new(name.as_bytes())?;
+        // SAFETY: the proc fd path names our live descriptor; AT_SYMLINK_FOLLOW
+        // follows that proc link, not a mutable source pathname. linkat refuses
+        // an existing destination atomically.
+        let rc = unsafe {
+            linkat(
+                AT_FDCWD,
+                source.as_ptr(),
+                target_parent.as_raw_fd(),
+                target_name.as_ptr(),
+                0x400,
+            )
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        *changed = true;
+        *published = true;
+        // Remove only our temporary name. A replacement stays and makes this
+        // operation fail without deleting the move source.
+        root.entry.unlink()?;
+    } else {
+        rename_at(&root.entry.parent, &root.entry.name, &target_parent, name)?;
+        *changed = true;
+        *published = true;
+    }
+    root.entry.parent = target_parent;
+    root.entry.name = name.into();
+    // Our link/rename changes ctime, but cannot authorize different contents,
+    // ownership, permissions or modification time on the held inode.
+    let after = FileStamp::of(&handle.metadata()?);
+    if !root.expected.same_except_ctime(&after) {
+        return Err(unverified_copy());
+    }
+    root.expected = after;
+    #[cfg(test)]
+    crate::fileops_test::at("copy-published", target);
+    produced.check()?;
+    if sync {
+        produced.sync()?;
+    }
+    Ok(produced)
+}
+
+fn publication_failed(
+    temp: &Path,
+    created: &[Created],
+    target: &Path,
+    error: io::Error,
+    published: bool,
+    progress: &Progress,
+) -> Stop {
+    if published {
+        return io::Error::other(fill(
+            tr("The copy at “{}” could not be verified: {}. The source was kept."),
+            &[&target.display(), &error],
+        ))
+        .into();
+    }
+    let stop = if progress.is_cancelled() {
+        Stop::Cancelled
+    } else {
+        error.into()
+    };
+    cleaned_up(temp, created, stop)
+}
 /// A private holding directory narrows the check-to-unlink window: an entry
 /// taken from the visible name is verified again before it can be removed.
 struct Isolation {
@@ -1286,9 +1570,11 @@ impl Copier<'_> {
         );
         let to = std::sync::Arc::new(
             OpenOptions::new()
+                .read(true)
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
+                .custom_flags(0o1000000)
                 .open(&actual)?,
         );
         self.made = true;
@@ -1300,6 +1586,8 @@ impl Copier<'_> {
         )?);
         #[cfg(test)]
         crate::fileops_test::at("copy-created", &actual);
+        let created_index = self.created.len() - 1;
+        let mut digest = everygrep_core::hash::Sha256Stream::default();
         loop {
             if self.progress.is_cancelled() {
                 return Err(Stop::Cancelled);
@@ -1317,8 +1605,12 @@ impl Copier<'_> {
                 return Err(io::Error::from_raw_os_error(28).into());
             }
             (&*to).write_all(&self.buf[..n])?;
+            digest.update(&self.buf[..n]);
             self.progress.add(n as u64);
         }
+        self.created[created_index].digest = Some(digest.finish());
+        #[cfg(test)]
+        crate::fileops_test::at("copy-written", &actual);
         let metadata_error = if self.sync {
             crate::transfer_metadata::file(&from, &to, meta).err()
         } else {
@@ -1461,6 +1753,13 @@ fn temp_name(dir: &Path) -> PathBuf {
 }
 
 unsafe extern "C" {
+    fn linkat(
+        olddirfd: c_int,
+        oldpath: *const c_char,
+        newdirfd: c_int,
+        newpath: *const c_char,
+        flags: c_int,
+    ) -> c_int;
     fn unlinkat(dirfd: c_int, path: *const c_char, flags: c_int) -> c_int;
     fn renameat2(
         olddirfd: c_int,
@@ -2453,7 +2752,7 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         let meta = fs::symlink_metadata(&src).unwrap();
         let mut run = Run::default();
-        let (target, copied) = copy_in(
+        let (target, copied, produced) = copy_in(
             &src,
             &meta,
             &dest,
@@ -2468,12 +2767,12 @@ mod tests {
         assert_eq!(entries, [(src.clone(), true), (src.join("f"), false)]);
         // A file added after the copy is not in the list and stays.
         write(&src.join("late"), "l");
-        assert!(remove_copied(&copied).is_some());
+        assert!(remove_copied(&copied, &produced).is_some());
         assert_eq!(names(&src), ["late"]);
         assert_eq!(read(&dest.join("tree/f")), "f");
         // Without it, the whole source goes.
         fs::remove_file(src.join("late")).unwrap();
-        assert!(remove_copied(&copied[..1]).is_none());
+        assert!(remove_copied(&copied[..1], &produced).is_none());
         assert!(!src.exists());
     }
 
@@ -2487,7 +2786,7 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         let meta = fs::symlink_metadata(&src).unwrap();
         let mut run = Run::default();
-        let (_, copied) = copy_in(
+        let (_, copied, produced) = copy_in(
             &src,
             &meta,
             &dest,
@@ -2499,7 +2798,7 @@ mod tests {
         .unwrap();
         // Another program writes a file after it was copied.
         write(&src.join("f"), "v2, longer");
-        let e = remove_copied(&copied).expect("the change is reported");
+        let e = remove_copied(&copied, &produced).expect("the change is reported");
         assert!(e.to_string().contains("changed after it was copied"), "{e}");
         assert_eq!(read(&src.join("f")), "v2, longer");
         assert_eq!(read(&dest.join("tree/f")), "v1");
@@ -3033,6 +3332,169 @@ mod tests {
         ));
         let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
         assert_eq!(read(&temp.join("x")), "unique replacement");
+    }
+
+    fn move_across_devices(source: &Path, dest: &Path) -> Outcome {
+        FORCE_EXDEV.with(|v| v.set(true));
+        let out = paste(Operation::Cut, &[source.into()], dest, &Progress::new());
+        FORCE_EXDEV.with(|v| v.set(false));
+        out
+    }
+
+    #[test]
+    fn move_never_publishes_a_foreign_replacement_of_the_written_inode() {
+        let t = TempDir::new("publish-inode");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let d = dest.clone();
+        crate::fileops_test::arm("copy-read", move |_| {
+            let temp = fs::read_dir(d).unwrap().next().unwrap().unwrap().path();
+            fs::remove_file(&temp).unwrap();
+            write(&temp, "unique foreign bytes");
+        });
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert!(!out.failed.is_empty());
+        assert!(out.done.is_empty());
+        assert_eq!(fs::read(&src).unwrap(), vec![b'A'; CHUNK * 2]);
+        assert!(!dest.join("x").exists());
+        let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(read(&temp), "unique foreign bytes");
+    }
+
+    #[test]
+    fn move_keeps_the_source_if_its_published_destination_disappears() {
+        let t = TempDir::new("publish-removed");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "unique original bytes");
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-published", |target| fs::remove_file(target).unwrap());
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1);
+        assert!(out.changed);
+        assert!(out.done.is_empty());
+        assert_eq!(read(&src), "unique original bytes");
+        assert!(!dest.join("x").exists());
+    }
+
+    #[test]
+    fn a_completed_copy_changed_through_its_inode_is_kept_and_not_published() {
+        let t = TempDir::new("publish-corrupt");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-written", |temp| write(temp, "external unique bytes"));
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::PartLeft { .. })]
+        ));
+        assert_eq!(fs::read(&src).unwrap(), vec![b'A'; CHUNK * 2]);
+        assert!(!dest.join("x").exists());
+        let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(read(&temp), "external unique bytes");
+    }
+
+    #[test]
+    fn a_sync_error_after_publication_never_removes_the_move_source() {
+        let t = TempDir::new("publish-sync");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "payload");
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-published", |_| COPY_SYNC_ERROR.with(|v| v.set(true)));
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1);
+        assert!(out.done.is_empty());
+        assert_eq!(read(&src), "payload");
+        assert_eq!(read(&dest.join("x")), "payload");
+        assert!(out.failed[0].1.to_string().contains("source was kept"));
+    }
+
+    #[test]
+    fn a_replaced_destination_subdirectory_cannot_authorize_source_cleanup() {
+        let t = TempDir::new("publish-subdir");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("sub/x"), "selected bytes");
+        fs::create_dir(&dest).unwrap();
+        let parked = t.path("parked");
+        crate::fileops_test::arm("copy-published", move |target| {
+            fs::rename(target.join("sub"), &parked).unwrap();
+            write(&target.join("sub/foreign"), "unrelated bytes");
+        });
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(read(&src.join("sub/x")), "selected bytes");
+        assert_eq!(read(&dest.join("tree/sub/foreign")), "unrelated bytes");
+    }
+
+    #[test]
+    fn an_unverified_copy_does_not_trash_the_consented_destination() {
+        let t = TempDir::new("publish-verify-before-trash");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "selected bytes");
+        write(&dest.join("x"), "consented old bytes");
+        crate::fileops_test::arm("copy-written", |temp| write(temp, "external unique data"));
+        let out = paste_with(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|q, _| {
+                if q.error.is_some() {
+                    Decision::Skip
+                } else {
+                    Decision::Overwrite
+                }
+            })),
+        );
+        crate::fileops_test::fired();
+        assert_eq!(out.replaced, 0);
+        assert!(!out.failed.is_empty());
+        assert_eq!(read(&src), "selected bytes");
+        assert_eq!(read(&dest.join("x")), "consented old bytes");
+        assert!(!t.path("test-trash").exists());
+    }
+
+    #[test]
+    fn coalesced_destination_times_do_not_authorize_deleting_different_source_bytes() {
+        let t = TempDir::new("publish-coarse-times");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "AAAA");
+        fs::create_dir(&dest).unwrap();
+        let meta = fs::symlink_metadata(&src).unwrap();
+        let (target, copied, mut produced) = copy_in(
+            &src,
+            &meta,
+            &dest,
+            OsStr::new("x"),
+            &Progress::new(),
+            true,
+            &mut Run::default(),
+        )
+        .unwrap();
+        let saved = fs::metadata(&target).unwrap().modified().unwrap();
+        write(&target, "BBBB");
+        File::open(&target).unwrap().set_modified(saved).unwrap();
+        // Model a filesystem whose timestamp precision coalesces this edit.
+        // Device, inode, size, mode, uid/gid and mtime already match.
+        let changed = fs::metadata(&target).unwrap();
+        produced.nodes[0].expected.ctime = (changed.ctime(), changed.ctime_nsec());
+        produced.check().unwrap();
+        assert!(remove_copied(&copied, &produced).is_some());
+        assert_eq!(read(&src), "AAAA");
+        assert_eq!(read(&target), "BBBB");
     }
 
     #[test]

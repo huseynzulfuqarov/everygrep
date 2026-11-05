@@ -5352,3 +5352,11 @@ msgstr "Müvəqqəti nüsxə yoxlanıla bilmədi. Mənbə saxlanıldı."
 #: src/transfer.rs
 msgid "The partial copy moved; it remains at {}."
 msgstr "Yarımçıq nüsxə başqa yerə daşınıb; burada saxlanılır: {}."
+
+#: src/transfer.rs
+msgid "The completed copy could not be verified. The source was kept."
+msgstr "Tam nüsxə yoxlanıla bilmədi. Mənbə saxlanıldı."
+
+#: src/transfer.rs
+msgid "The copy at “{}” could not be verified: {}. The source was kept."
+msgstr "“{}” ünvanındakı nüsxə yoxlanıla bilmədi: {}. Mənbə saxlanıldı."
