@@ -32,6 +32,10 @@ optdepends=(
   'glib2: Move to trash (runs gio trash)'
   'xdg-desktop-portal: folder chooser and following the light or dark style'
   'dbus: one window per index (session bus)'
+  'bubblewrap: thumbnails from system thumbnailers (each runs in a sandbox)'
+  'xdg-utils: Open with the default application (runs xdg-open)'
+  'shared-mime-info: file types for choosing a system thumbnailer'
+  'poppler: searching PDF contents and PDF page counts (pdftotext, pdfinfo)'
 )
 
 _checkout="${EVERYGREP_CHECKOUT:-$(realpath "${startdir:-.}/../..")}"
