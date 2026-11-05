@@ -5361,6 +5361,7 @@ msgstr "Tam nüsxə yoxlanıla bilmədi. Mənbə saxlanıldı."
 msgid "The copy at “{}” could not be verified: {}. The source was kept."
 msgstr "“{}” ünvanındakı nüsxə yoxlanıla bilmədi: {}. Mənbə saxlanıldı."
 
+
 #: src/transfer.rs
-msgid "This filesystem cannot protect a staging folder. The source was kept."
-msgstr "Bu fayl sistemi müvəqqəti əməliyyat qovluğunu məxfi saxlaya bilmir. Mənbə saxlanıldı."
+msgid "This filesystem cannot keep temporary data private. The source was kept."
+msgstr "Bu fayl sistemi müvəqqəti məlumatı məxfi saxlaya bilmir. Mənbə saxlanıldı."

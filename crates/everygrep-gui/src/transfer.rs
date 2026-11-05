@@ -1176,6 +1176,18 @@ impl Created {
 fn fd_path(file: &File) -> PathBuf {
     PathBuf::from(format!("/proc/self/fd/{}/.", file.as_raw_fd()))
 }
+fn require_private(file: &File) -> io::Result<()> {
+    let meta = file.metadata()?;
+    // SAFETY: geteuid has no arguments and cannot fail.
+    let owner = unsafe { geteuid() };
+    if meta.mode() & 0o077 != 0 || meta.uid() != owner {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            tr("This filesystem cannot keep temporary data private. The source was kept."),
+        ));
+    }
+    Ok(())
+}
 fn open_dir(path: &Path) -> io::Result<File> {
     OpenOptions::new()
         .read(true)
@@ -1491,21 +1503,13 @@ impl Isolation {
                             "The temporary copy changed. Unrecognized items were kept.",
                         )));
                     }
-                    let opened = file.metadata()?;
-                    // SAFETY: geteuid has no arguments and cannot fail.
-                    let owner = unsafe { geteuid() };
-                    if opened.mode() & 0o077 != 0 || opened.uid() != owner {
+                    if let Err(error) = require_private(&file) {
                         if fs::symlink_metadata(&path)
                             .is_ok_and(|m| same_inode(&m, (made.dev(), made.ino())))
                         {
                             let _ = unlink_at(&parent, &cell, true);
                         }
-                        return Err(io::Error::new(
-                            io::ErrorKind::Unsupported,
-                            tr(
-                                "This filesystem cannot protect a staging folder. The source was kept.",
-                            ),
-                        ));
+                        return Err(error);
                     }
                     break (cell, file, (made.dev(), made.ino()));
                 }
@@ -1737,6 +1741,7 @@ impl Copier<'_> {
             self.created[created_index].handle = Some(handle.clone());
             #[cfg(test)]
             crate::fileops_test::at("copy-created", &actual);
+            require_private(&handle)?;
             let index = self.copied.len();
             self.copied.push(source);
             for entry in fs::read_dir(src)? {
@@ -1792,6 +1797,7 @@ impl Copier<'_> {
         )?);
         #[cfg(test)]
         crate::fileops_test::at("copy-created", &actual);
+        require_private(&to)?;
         let created_index = self.created.len() - 1;
         let mut digest = everygrep_core::hash::Sha256Stream::default();
         loop {
@@ -3820,6 +3826,55 @@ mod tests {
         ));
         assert_eq!(read(&src.join("x")), "foreign child bytes");
         assert_eq!(read(&dest.join("tree/x")), "selected bytes");
+    }
+
+    #[test]
+    fn a_filesystem_ignoring_private_file_mode_is_rejected_before_reading_data() {
+        let t = TempDir::new("private-file-ignored");
+        let src = t.path("src/secret");
+        let dest = t.path("dest");
+        write(&src, &"S".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-created", |path| {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(fs::metadata(path).unwrap().len(), 0);
+        });
+        let progress = Progress::new();
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &progress,
+        );
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(progress.done(), 0);
+        assert_eq!(fs::metadata(&src).unwrap().len(), (CHUNK * 2) as u64);
+        assert!(names(&dest).is_empty());
+    }
+
+    #[test]
+    fn a_filesystem_ignoring_private_directory_mode_is_rejected_before_copying_children() {
+        let t = TempDir::new("private-dir-ignored");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("secret"), "private bytes");
+        fs::create_dir(&dest).unwrap();
+        crate::fileops_test::arm("copy-created", |path| {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap()
+        });
+        let progress = Progress::new();
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &progress,
+        );
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(progress.done(), 0);
+        assert_eq!(read(&src.join("secret")), "private bytes");
+        assert!(names(&dest).is_empty());
     }
 
     #[test]
