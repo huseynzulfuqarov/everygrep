@@ -5300,3 +5300,7 @@ msgstr "Nəticələr göstəricinin altında dəyişdi, ona görə heç nə bura
 #: src/engine.rs
 msgid "that folder already holds {}, which this program did not write and would replace; choose another folder"
 msgstr "həmin qovluqda artıq {} var; onları bu proqram yazmayıb və onlar əvəz olunardı; başqa qovluq seçin"
+
+#: src/actions.rs
+msgid "another item is at this path now than when the delete was confirmed, so it was kept"
+msgstr "silmə təsdiqlənəndən sonra bu yolda artıq başqa element var, ona görə saxlanıldı"

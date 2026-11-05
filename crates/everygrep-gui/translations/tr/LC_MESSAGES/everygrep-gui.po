@@ -5300,3 +5300,7 @@ msgstr "Sonuçlar işaretçinin altında değişti, bu yüzden hiçbir şey bır
 #: src/engine.rs
 msgid "that folder already holds {}, which this program did not write and would replace; choose another folder"
 msgstr "o klasörde zaten {} var; bunları bu program yazmadı ve üzerlerine yazılırdı; başka bir klasör seçin"
+
+#: src/actions.rs
+msgid "another item is at this path now than when the delete was confirmed, so it was kept"
+msgstr "silme onaylandığından beri bu yolda başka bir öğe var, bu yüzden korundu"

@@ -1225,7 +1225,8 @@ enum Pending {
     Tabs(Vec<tabs::SearchState>),
     Open(Targets),
     Trash(Targets),
-    Delete(Targets),
+    /// With the items as they were when the user asked.
+    Delete(Targets, Vec<actions::Identity>),
 }
 
 /// Open, copy, rename, trash and delete.
@@ -1642,7 +1643,8 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 tr("This cannot be undone. Folders are deleted with all their contents."),
                 tr("Delete"),
             );
-            *pending.borrow_mut() = Some(Pending::Delete(targets));
+            let confirmed = actions::Identity::of_all(&targets.paths);
+            *pending.borrow_mut() = Some(Pending::Delete(targets, confirmed));
         }
     });
     window.on_confirm_accepted({
@@ -1671,9 +1673,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                         run_trash(&w, paths);
                     }
                 }
-                Some(Pending::Delete(t)) => {
+                Some(Pending::Delete(t, confirmed)) => {
                     if let Some(paths) = checked(t) {
-                        run_delete(&w, paths);
+                        run_delete(&w, paths, confirmed);
                     }
                 }
                 // The settings file question (see `ask_reload_settings`).
@@ -2339,8 +2341,9 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
     });
 }
 
-/// Deletes items on a helper thread and reports the outcome.
-fn run_delete(w: &AppWindow, paths: Vec<PathBuf>) {
+/// Deletes items on a helper thread and reports the outcome; only the
+/// items `confirmed` (see [`actions::delete_permanently`]).
+fn run_delete(w: &AppWindow, paths: Vec<PathBuf>, confirmed: Vec<actions::Identity>) {
     let what = actions::describe(&paths);
     info(w, fill(tr("Deleting {}…"), &[&what]));
     let weak = w.as_weak();
@@ -2348,7 +2351,7 @@ fn run_delete(w: &AppWindow, paths: Vec<PathBuf>) {
         fileops_undo::queue_notice(weak.clone());
         let result = fileops_undo::catch_worker(|| {
             let _files = fileops_undo::file_guard();
-            actions::delete_permanently(&paths)
+            actions::delete_permanently(&paths, &confirmed)
         });
         let failed = match result {
             Ok(failed) => failed,

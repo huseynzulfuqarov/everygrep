@@ -342,16 +342,53 @@ pub fn trash(paths: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
+/// Which item a path named when the user asked to delete it: device,
+/// inode and type, of the entry itself (a link, not what it points to).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Identity {
+    dev: u64,
+    ino: u64,
+    kind: u32,
+}
+
+impl Identity {
+    fn from_meta(m: &std::fs::Metadata) -> Self {
+        Self {
+            dev: m.dev(),
+            ino: m.ino(),
+            kind: m.mode() & S_IFMT,
+        }
+    }
+
+    /// The identities of the items at `paths` now; items that cannot be
+    /// read are left out (they are not deleted later).
+    pub fn of_all(paths: &[PathBuf]) -> Vec<Self> {
+        paths
+            .iter()
+            .filter_map(|p| std::fs::symlink_metadata(p).ok())
+            .map(|m| Self::from_meta(&m))
+            .collect()
+    }
+}
+
+/// `S_IFMT`: the type bits of a mode.
+const S_IFMT: u32 = 0o170000;
+
 /// Deletes `paths` permanently: folders with all their contents, links as
-/// links (never what they point to). A folder that is, or holds, another
-/// file system (a mounted drive or share, a bind mount, a btrfs subvolume)
-/// is not deleted at all: see [`remove_tree`]. Returns the paths that
-/// failed.
-pub fn delete_permanently(paths: &[PathBuf]) -> Vec<(PathBuf, io::Error)> {
+/// links (never what they point to). Only items whose [`Identity`] is in
+/// `confirmed` are deleted: an item replaced at its path after the user
+/// confirmed (a save by an editor, a sync) is refused and kept. A folder
+/// that is, or holds, another file system (a mounted drive or share, a
+/// bind mount, a btrfs subvolume) is not deleted at all: see
+/// [`remove_tree`]. Returns the paths that failed.
+pub fn delete_permanently(paths: &[PathBuf], confirmed: &[Identity]) -> Vec<(PathBuf, io::Error)> {
     let mut failed = Vec::new();
     for path in paths {
         let result = match std::fs::symlink_metadata(path) {
-            Ok(m) if m.is_dir() => remove_tree(path),
+            Ok(m) if !confirmed.contains(&Identity::from_meta(&m)) => Err(io::Error::other(tr(
+                "another item is at this path now than when the delete was confirmed, so it was kept",
+            ))),
+            Ok(m) if m.is_dir() => remove_tree(path, (m.dev(), m.ino())),
             Ok(_) => std::fs::remove_file(path),
             Err(e) => Err(e),
         };
@@ -414,14 +451,17 @@ fn open_subdir(dir: BorrowedFd<'_>, name: &CStr) -> io::Result<OwnedFd> {
 /// a mount point, or anything below it is on another file system or mount,
 /// nothing is deleted. While deleting, every folder is checked again before
 /// its contents are touched.
-pub(crate) fn remove_tree(path: &Path) -> io::Result<()> {
-    remove_tree_with(path, &place_of)
+/// `expected` is the folder's device and inode as checked before: a
+/// folder put at `path` in between is not touched.
+pub(crate) fn remove_tree(path: &Path, expected: (u64, u64)) -> io::Result<()> {
+    remove_tree_with(path, expected, &place_of)
 }
 
 /// [`remove_tree`] with the place of a folder passed in, so a mount can be
 /// simulated in tests.
 fn remove_tree_with(
     path: &Path,
+    expected: (u64, u64),
     place: &dyn Fn(BorrowedFd<'_>) -> io::Result<Place>,
 ) -> io::Result<()> {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
@@ -439,6 +479,12 @@ fn remove_tree_with(
     )?;
     let name = CString::new(name.as_bytes())?;
     let root = open_subdir(parent_fd.as_fd(), &name)?;
+    let st = rustix::fs::fstat(&root)?;
+    if (st.st_dev, st.st_ino) != expected {
+        return Err(io::Error::other(tr(
+            "another item is at this path now than when the delete was confirmed, so it was kept",
+        )));
+    }
     let here = place(root.as_fd())?;
     if here != place(parent_fd.as_fd())? {
         return Err(other_file_system(path));
@@ -795,8 +841,8 @@ mod tests {
         std::os::unix::fs::symlink(&keep, &link).unwrap();
 
         let missing = dir.0.join("missing");
-        let failed =
-            delete_permanently(&[file.clone(), tree.clone(), link.clone(), missing.clone()]);
+        let all = [file.clone(), tree.clone(), link.clone(), missing.clone()];
+        let failed = delete_permanently(&all, &Identity::of_all(&all));
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].0, missing);
         assert!(!file.exists() && !tree.exists());
@@ -829,7 +875,9 @@ mod tests {
         fs::write(tree.join("a/second.txt"), "x").unwrap();
         fs::write(tree.join("a/mnt/data.txt"), "precious").unwrap();
         let mnt = fs::metadata(tree.join("a/mnt")).unwrap().ino();
-        let err = remove_tree_with(&tree, &fake_mount(mnt)).unwrap_err();
+        let m = fs::metadata(&tree).unwrap();
+        let tree_id = (m.dev(), m.ino());
+        let err = remove_tree_with(&tree, tree_id, &fake_mount(mnt)).unwrap_err();
         assert!(err.to_string().contains("a/mnt"), "{err}");
         assert!(err.to_string().contains("nothing was deleted"), "{err}");
         // Checked before anything was removed: all of it is still there.
@@ -842,11 +890,11 @@ mod tests {
 
         // The folder itself on another device than its parent: refused.
         let top = fs::metadata(&tree).unwrap().ino();
-        assert!(remove_tree_with(&tree, &fake_mount(top)).is_err());
+        assert!(remove_tree_with(&tree, tree_id, &fake_mount(top)).is_err());
         assert!(tree.join("first.txt").exists());
 
         // On one file system the whole tree goes.
-        remove_tree(&tree).unwrap();
+        remove_tree(&tree, tree_id).unwrap();
         assert!(fs::symlink_metadata(&tree).is_err());
     }
 
@@ -860,7 +908,13 @@ mod tests {
         fs::create_dir_all(tree.join("sub")).unwrap();
         std::os::unix::fs::symlink(&outside, tree.join("sub/to-outside")).unwrap();
         std::os::unix::fs::symlink(outside.join("keep.txt"), tree.join("file-link")).unwrap();
-        assert!(delete_permanently(std::slice::from_ref(&tree)).is_empty());
+        assert!(
+            delete_permanently(
+                std::slice::from_ref(&tree),
+                &Identity::of_all(std::slice::from_ref(&tree))
+            )
+            .is_empty()
+        );
         assert!(fs::symlink_metadata(&tree).is_err());
         assert!(outside.join("keep.txt").is_file());
     }
@@ -876,7 +930,8 @@ mod tests {
                 fs::metadata(&victim).unwrap().dev(),
                 "inner is a mount"
             );
-            let failed = delete_permanently(std::slice::from_ref(&victim));
+            let one = std::slice::from_ref(&victim);
+            let failed = delete_permanently(one, &Identity::of_all(one));
             assert_eq!(failed.len(), 1, "{failed:?}");
             assert!(failed[0].1.to_string().contains("inner"), "{failed:?}");
             assert_eq!(
@@ -885,7 +940,8 @@ mod tests {
             );
             assert!(victim.join("own.txt").exists());
             // Picking the mount point itself is refused too.
-            let failed = delete_permanently(std::slice::from_ref(&inner));
+            let one = std::slice::from_ref(&inner);
+            let failed = delete_permanently(one, &Identity::of_all(one));
             assert_eq!(failed.len(), 1, "{failed:?}");
             assert!(inner.join("data.txt").exists());
             return;
@@ -968,6 +1024,45 @@ mod tests {
         assert_eq!(names(&dir.0), ["NOTES.txt", "notes.txt"]);
         assert_eq!(fs::read_to_string(&other).unwrap(), "other");
         assert_eq!(fs::read_to_string(&target).unwrap(), "n");
+    }
+
+    #[test]
+    fn a_confirmed_delete_keeps_an_item_replaced_meanwhile() {
+        let dir = TempDir::new("delete-identity");
+        let file = dir.0.join("doc.txt");
+        fs::write(&file, "old").unwrap();
+        let folder = dir.0.join("tree");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("a"), "a").unwrap();
+        let link = dir.0.join("link");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        let asked = [file.clone(), folder.clone(), link.clone()];
+        let confirmed = Identity::of_all(&asked);
+        // While the question is open, an editor saves by writing a new
+        // file and renaming it over the old one, and a sync puts another
+        // folder in place of the old one.
+        let temp = dir.0.join(".doc.txt.new");
+        fs::write(&temp, "new").unwrap();
+        fs::rename(&temp, &file).unwrap();
+        let old_folder = dir.0.join("tree-old");
+        fs::rename(&folder, &old_folder).unwrap();
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("b"), "b").unwrap();
+
+        let failed = delete_permanently(&asked, &confirmed);
+        let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, [file.clone(), folder.clone()]);
+        assert!(failed[0].1.to_string().contains("kept"), "{failed:?}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new");
+        assert!(folder.join("b").is_file());
+        // The link did not change: deleted, its target kept.
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(old_folder.join("a").is_file());
+
+        // The folder checked before is not the one opened: refused too.
+        let m = fs::metadata(&old_folder).unwrap();
+        assert!(remove_tree(&folder, (m.dev(), m.ino())).is_err());
+        assert!(folder.join("b").is_file());
     }
 
     #[test]
