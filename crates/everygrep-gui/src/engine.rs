@@ -680,6 +680,57 @@ pub const HASH_FILE: &str = "hashes.bin";
 /// index file, so a rescan every N hours counts across restarts.
 pub const LAST_FULL_SCAN_FILE: &str = "last-full-scan";
 
+/// The property cache's file, next to the index file.
+const PROPERTIES_FILE: &str = "properties.bin";
+
+/// The files kept next to the index file `index_file` (and the temporary
+/// name [`save_last_full_scan`] writes first) that are there but were not
+/// written by this program: not a regular file, or not starting the way
+/// this program's files start. Moving the index to that folder would
+/// replace them, so it is refused.
+pub fn foreign_files_beside(index_file: &Path) -> Vec<PathBuf> {
+    // How each file starts; empty for the time of the last full scan,
+    // which is a number as text.
+    let checks: [(PathBuf, &[u8]); 5] = [
+        (index_file.to_path_buf(), b"EGRPIDX\0"),
+        (index_file.with_file_name(HASH_FILE), b"EGHASH"),
+        (index_file.with_file_name(PROPERTIES_FILE), b"EGPRP"),
+        (index_file.with_file_name(LAST_FULL_SCAN_FILE), b""),
+        (
+            index_file
+                .with_file_name(LAST_FULL_SCAN_FILE)
+                .with_extension("new"),
+            b"",
+        ),
+    ];
+    let ours = |head: &[u8], magic: &[u8]| {
+        if magic.is_empty() {
+            !head.is_empty()
+                && head.len() <= 24
+                && head
+                    .iter()
+                    .all(|c| c.is_ascii_digit() || b"-\n".contains(c))
+        } else {
+            head.starts_with(magic)
+        }
+    };
+    checks
+        .into_iter()
+        .filter(|(path, magic)| match std::fs::symlink_metadata(path) {
+            Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+            Ok(m) if !m.is_file() => true,
+            Ok(_) => {
+                let mut head = Vec::new();
+                let read = std::fs::File::open(path).and_then(|f| {
+                    std::io::Read::read_to_end(&mut std::io::Read::take(f, 25), &mut head)
+                });
+                !(read.is_ok() && ours(&head, magic))
+            }
+        })
+        .map(|(path, _)| path)
+        .collect()
+}
+
 /// The time saved by [`save_last_full_scan`] next to `index_file`.
 fn load_last_full_scan(index_file: &Path) -> Option<i64> {
     let text = std::fs::read_to_string(index_file.with_file_name(LAST_FULL_SCAN_FILE)).ok()?;
@@ -1048,6 +1099,24 @@ impl Engine {
         if self.index_file().as_ref() == Some(&to) {
             return Ok(());
         }
+        let foreign = foreign_files_beside(&to);
+        if !foreign.is_empty() {
+            let names: Vec<String> = foreign
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            return Err(std::io::Error::other(crate::i18n::fill(
+                crate::i18n::tr(
+                    "that folder already holds {}, which this program did not write and would replace; choose another folder",
+                ),
+                &[&names.join(", ")],
+            )));
+        }
         if self.incomplete.load(Ordering::SeqCst) {
             return Err(std::io::ErrorKind::WouldBlock.into());
         }
@@ -1072,7 +1141,7 @@ impl Engine {
             let _ = save_last_full_scan(&to, self.last_full_scan.load(Ordering::SeqCst));
         }
         let properties = self.properties.clone();
-        let destination = to.with_file_name("properties.bin");
+        let destination = to.with_file_name(PROPERTIES_FILE);
         std::thread::spawn(move || properties.move_to(destination));
         if let Some(old) = old.filter(|old| old != &to) {
             let _ = std::fs::remove_file(old.with_file_name(LAST_FULL_SCAN_FILE));
@@ -4564,6 +4633,88 @@ mod tests {
         assert_eq!(fs::read(&old).unwrap(), bytes);
         assert!(new.is_dir());
         probe.engine.shutdown();
+    }
+
+    #[test]
+    fn the_index_never_moves_over_files_it_did_not_write() {
+        let dir = Scratch::new("move-index-foreign");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "one").unwrap();
+        let old = dir.0.join("index.bin");
+        let probe = Probe::start_unwatched(vec![root], old.clone());
+        probe.wait_for(IndexState::Unwatched);
+        probe.engine.save();
+        // A folder of the user's that holds files with these names.
+        let docs = dir.0.join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        for (name, text) in [
+            ("index.bin", "my index"),
+            ("hashes.bin", "my hashes"),
+            ("properties.bin", "my notes"),
+            ("last-full-scan", "a story"),
+        ] {
+            fs::write(docs.join(name), text).unwrap();
+            let err = probe
+                .engine
+                .move_index_file(docs.join("index.bin"))
+                .unwrap_err();
+            assert!(err.to_string().contains(name), "{err}");
+            assert_eq!(probe.engine.index_file(), Some(old.clone()));
+            assert_eq!(fs::read_to_string(docs.join(name)).unwrap(), text);
+            fs::rename(docs.join(name), docs.join(format!("{name}.mine"))).unwrap();
+        }
+        // A link or a folder of that name is not this program's either.
+        std::os::unix::fs::symlink(docs.join("index.bin.mine"), docs.join("index.bin")).unwrap();
+        assert!(
+            probe
+                .engine
+                .move_index_file(docs.join("index.bin"))
+                .is_err()
+        );
+        fs::remove_file(docs.join("index.bin")).unwrap();
+        // Free names: moved, and the user's files are all untouched.
+        probe
+            .engine
+            .move_index_file(docs.join("index.bin"))
+            .unwrap();
+        probe.engine.save();
+        assert_eq!(
+            fs::read_to_string(docs.join("index.bin.mine")).unwrap(),
+            "my index"
+        );
+        assert_eq!(
+            fs::read_to_string(docs.join("properties.bin.mine")).unwrap(),
+            "my notes"
+        );
+        // Its own files there do not stop a move back and forth.
+        probe.engine.move_index_file(old.clone()).unwrap();
+        fs::copy(&old, docs.join("index.bin")).unwrap();
+        assert!(foreign_files_beside(&docs.join("index.bin")).is_empty());
+        probe
+            .engine
+            .move_index_file(docs.join("index.bin"))
+            .unwrap();
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn files_written_by_this_program_are_told_from_others() {
+        let dir = Scratch::new("foreign-files");
+        let file = dir.0.join("index.bin");
+        assert!(foreign_files_beside(&file).is_empty());
+        fs::write(dir.0.join("hashes.bin"), b"EGHASH01rest").unwrap();
+        fs::write(dir.0.join("properties.bin"), b"EGPRP001rest").unwrap();
+        fs::write(dir.0.join("last-full-scan"), "1793700000\n").unwrap();
+        fs::write(dir.0.join("last-full-scan.new"), "1793700001\n").unwrap();
+        fs::write(&file, b"EGRPIDX\0rest").unwrap();
+        assert!(foreign_files_beside(&file).is_empty());
+        fs::write(dir.0.join("last-full-scan"), "").unwrap();
+        fs::write(dir.0.join("hashes.bin"), "EGHAS").unwrap();
+        assert_eq!(
+            foreign_files_beside(&file),
+            [dir.0.join("hashes.bin"), dir.0.join("last-full-scan")]
+        );
     }
 
     #[test]

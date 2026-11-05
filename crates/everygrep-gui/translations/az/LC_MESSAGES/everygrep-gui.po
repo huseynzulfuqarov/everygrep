@@ -5296,3 +5296,7 @@ msgstr "Siyahının başqa elementi bu adı başqa hərf registrində alır, bu 
 #: src/fileops_drop.rs
 msgid "The results changed under the pointer, so nothing was dropped. Drag the items again."
 msgstr "Nəticələr göstəricinin altında dəyişdi, ona görə heç nə buraxılmadı. Elementləri yenidən sürükləyin."
+
+#: src/engine.rs
+msgid "that folder already holds {}, which this program did not write and would replace; choose another folder"
+msgstr "həmin qovluqda artıq {} var; onları bu proqram yazmayıb və onlar əvəz olunardı; başqa qovluq seçin"

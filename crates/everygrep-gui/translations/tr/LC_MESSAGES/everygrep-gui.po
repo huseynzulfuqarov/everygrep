@@ -5296,3 +5296,7 @@ msgstr "Listedeki başka bir öğe bu adı farklı harf büyüklüğüyle alıyo
 #: src/fileops_drop.rs
 msgid "The results changed under the pointer, so nothing was dropped. Drag the items again."
 msgstr "Sonuçlar işaretçinin altında değişti, bu yüzden hiçbir şey bırakılmadı. Öğeleri yeniden sürükleyin."
+
+#: src/engine.rs
+msgid "that folder already holds {}, which this program did not write and would replace; choose another folder"
+msgstr "o klasörde zaten {} var; bunları bu program yazmadı ve üzerlerine yazılırdı; başka bir klasör seçin"
