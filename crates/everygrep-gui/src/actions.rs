@@ -2,13 +2,16 @@
 //! permanent delete. The index is not touched here; the watcher sees the
 //! changes on disk and updates it.
 
-use std::ffi::OsStr;
+use std::ffi::{CStr, CString, OsStr};
 use std::fmt;
 use std::io;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, StatxFlags};
 
 use crate::i18n::{fill, tr};
 
@@ -294,12 +297,15 @@ pub fn trash(paths: &[PathBuf]) -> Result<(), String> {
 }
 
 /// Deletes `paths` permanently: folders with all their contents, links as
-/// links (never what they point to). Returns the paths that failed.
+/// links (never what they point to). A folder that is, or holds, another
+/// file system (a mounted drive or share, a bind mount, a btrfs subvolume)
+/// is not deleted at all: see [`remove_tree`]. Returns the paths that
+/// failed.
 pub fn delete_permanently(paths: &[PathBuf]) -> Vec<(PathBuf, io::Error)> {
     let mut failed = Vec::new();
     for path in paths {
         let result = match std::fs::symlink_metadata(path) {
-            Ok(m) if m.is_dir() => std::fs::remove_dir_all(path),
+            Ok(m) if m.is_dir() => remove_tree(path),
             Ok(_) => std::fs::remove_file(path),
             Err(e) => Err(e),
         };
@@ -308,6 +314,142 @@ pub fn delete_permanently(paths: &[PathBuf]) -> Vec<(PathBuf, io::Error)> {
         }
     }
     failed
+}
+
+/// Where a folder's entries live: its device and the mount it was reached
+/// through. Two folders of one tree with different places are on different
+/// file systems, or one is mounted over (a bind mount of the same file
+/// system has the same device but another mount).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Place {
+    dev: (u32, u32),
+    /// `None` where the kernel does not report it (before Linux 5.8); the
+    /// device alone is compared then.
+    mount: Option<u64>,
+}
+
+/// The [`Place`] of the open folder `dir`.
+fn place_of(dir: BorrowedFd<'_>) -> io::Result<Place> {
+    let st = rustix::fs::statx(
+        dir,
+        c"",
+        AtFlags::EMPTY_PATH,
+        StatxFlags::TYPE | StatxFlags::MNT_ID,
+    )?;
+    Ok(Place {
+        dev: (st.stx_dev_major, st.stx_dev_minor),
+        mount: (st.stx_mask & StatxFlags::MNT_ID.bits() != 0).then_some(st.stx_mnt_id),
+    })
+}
+
+/// The error for a folder that is on another file system than the folder
+/// being deleted.
+fn other_file_system(path: &Path) -> io::Error {
+    io::Error::other(fill(
+        tr("{} is another drive or file system (a mount point), so nothing was deleted from it"),
+        &[&path.display()],
+    ))
+}
+
+/// Opens the folder `name` in `dir` for reading, refusing a symbolic link.
+fn open_subdir(dir: BorrowedFd<'_>, name: &CStr) -> io::Result<OwnedFd> {
+    Ok(rustix::fs::openat(
+        dir,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?)
+}
+
+/// Deletes the folder `path` with all it holds, on its own file system
+/// only. Folders are opened by descriptor, one below the other, never by
+/// following a symbolic link, so a folder swapped for a link meanwhile is
+/// not followed. First the whole tree is checked: when the folder is itself
+/// a mount point, or anything below it is on another file system or mount,
+/// nothing is deleted. While deleting, every folder is checked again before
+/// its contents are touched.
+pub(crate) fn remove_tree(path: &Path) -> io::Result<()> {
+    remove_tree_with(path, &place_of)
+}
+
+/// [`remove_tree`] with the place of a folder passed in, so a mount can be
+/// simulated in tests.
+fn remove_tree_with(
+    path: &Path,
+    place: &dyn Fn(BorrowedFd<'_>) -> io::Result<Place>,
+) -> io::Result<()> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(io::ErrorKind::InvalidInput.into());
+    };
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    let parent_fd = rustix::fs::open(
+        parent,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    let name = CString::new(name.as_bytes())?;
+    let root = open_subdir(parent_fd.as_fd(), &name)?;
+    let here = place(root.as_fd())?;
+    if here != place(parent_fd.as_fd())? {
+        return Err(other_file_system(path));
+    }
+    // A first pass only looks, so a mount deep inside stops the delete
+    // before anything is gone.
+    let mut root = Dir::new(root)?;
+    walk(&mut root, path, here, place, false)?;
+    root.rewind();
+    walk(&mut root, path, here, place, true)?;
+    Ok(rustix::fs::unlinkat(
+        parent_fd.as_fd(),
+        name.as_c_str(),
+        AtFlags::REMOVEDIR,
+    )?)
+}
+
+/// Goes through the open folder `dir` (at `path`, on `here`) and the
+/// folders below it; with `remove`, deletes their entries. A folder below
+/// on another place is an error.
+fn walk(
+    entries: &mut Dir,
+    path: &Path,
+    here: Place,
+    place: &dyn Fn(BorrowedFd<'_>) -> io::Result<Place>,
+    remove: bool,
+) -> io::Result<()> {
+    while let Some(entry) = entries.read() {
+        let entry = entry?;
+        let name = entry.file_name();
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        let fd = entries.fd()?;
+        let is_dir = match entry.file_type() {
+            FileType::Directory => true,
+            FileType::Unknown => FileType::from_raw_mode(
+                rustix::fs::statat(fd, name, AtFlags::SYMLINK_NOFOLLOW)?.st_mode,
+            )
+            .is_dir(),
+            _ => false,
+        };
+        let full = path.join(OsStr::from_bytes(name.to_bytes()));
+        if is_dir {
+            let sub = open_subdir(fd, name)?;
+            if place(sub.as_fd())? != here {
+                return Err(other_file_system(&full));
+            }
+            walk(&mut Dir::new(sub)?, &full, here, place, remove)?;
+            if remove {
+                rustix::fs::unlinkat(fd, name, AtFlags::REMOVEDIR)?;
+            }
+        } else if remove {
+            rustix::fs::unlinkat(fd, name, AtFlags::empty())?;
+        }
+    }
+    Ok(())
 }
 
 /// "“name”" for one item, "N items" for more.
@@ -614,6 +756,128 @@ mod tests {
         assert!(!file.exists() && !tree.exists());
         assert!(fs::symlink_metadata(&link).is_err());
         assert!(keep.join("inside").is_file());
+    }
+
+    /// A [`Place`] that says the folder with inode `mounted` is on another
+    /// device, as if a drive were mounted there.
+    fn fake_mount(mounted: u64) -> impl Fn(BorrowedFd<'_>) -> io::Result<Place> {
+        move |fd| {
+            let real = place_of(fd)?;
+            Ok(if rustix::fs::fstat(fd)?.st_ino == mounted {
+                Place {
+                    dev: (real.dev.0, real.dev.1 + 1),
+                    ..real
+                }
+            } else {
+                real
+            })
+        }
+    }
+
+    #[test]
+    fn delete_never_crosses_into_another_file_system() {
+        let dir = TempDir::new("delete-mount");
+        let tree = dir.0.join("tree");
+        fs::create_dir_all(tree.join("a/mnt/deep")).unwrap();
+        fs::write(tree.join("first.txt"), "x").unwrap();
+        fs::write(tree.join("a/second.txt"), "x").unwrap();
+        fs::write(tree.join("a/mnt/data.txt"), "precious").unwrap();
+        let mnt = fs::metadata(tree.join("a/mnt")).unwrap().ino();
+        let err = remove_tree_with(&tree, &fake_mount(mnt)).unwrap_err();
+        assert!(err.to_string().contains("a/mnt"), "{err}");
+        assert!(err.to_string().contains("nothing was deleted"), "{err}");
+        // Checked before anything was removed: all of it is still there.
+        assert_eq!(
+            fs::read_to_string(tree.join("a/mnt/data.txt")).unwrap(),
+            "precious"
+        );
+        assert!(tree.join("first.txt").exists() && tree.join("a/second.txt").exists());
+        assert!(tree.join("a/mnt/deep").is_dir());
+
+        // The folder itself on another device than its parent: refused.
+        let top = fs::metadata(&tree).unwrap().ino();
+        assert!(remove_tree_with(&tree, &fake_mount(top)).is_err());
+        assert!(tree.join("first.txt").exists());
+
+        // On one file system the whole tree goes.
+        remove_tree(&tree).unwrap();
+        assert!(fs::symlink_metadata(&tree).is_err());
+    }
+
+    #[test]
+    fn delete_does_not_follow_links_inside_a_folder() {
+        let dir = TempDir::new("delete-links");
+        let outside = dir.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), "x").unwrap();
+        let tree = dir.0.join("tree");
+        fs::create_dir_all(tree.join("sub")).unwrap();
+        std::os::unix::fs::symlink(&outside, tree.join("sub/to-outside")).unwrap();
+        std::os::unix::fs::symlink(outside.join("keep.txt"), tree.join("file-link")).unwrap();
+        assert!(delete_permanently(std::slice::from_ref(&tree)).is_empty());
+        assert!(fs::symlink_metadata(&tree).is_err());
+        assert!(outside.join("keep.txt").is_file());
+    }
+
+    /// Set inside the user namespace that [`delete_stops_at_a_real_mount`]
+    /// starts: the scratch folder holding a real mount.
+    const MOUNT_TEST_ENV: &str = "EVERYGREP_TEST_MOUNT_DIR";
+
+    #[test]
+    fn delete_stops_at_a_real_mount() {
+        if let Some(base) = std::env::var_os(MOUNT_TEST_ENV) {
+            // In the namespace: base/victim/inner is a tmpfs of its own.
+            let victim = Path::new(&base).join("victim");
+            let inner = victim.join("inner");
+            assert_ne!(
+                fs::metadata(&inner).unwrap().dev(),
+                fs::metadata(&victim).unwrap().dev(),
+                "inner is a mount"
+            );
+            let failed = delete_permanently(std::slice::from_ref(&victim));
+            assert_eq!(failed.len(), 1, "{failed:?}");
+            assert!(failed[0].1.to_string().contains("inner"), "{failed:?}");
+            assert_eq!(
+                fs::read_to_string(inner.join("data.txt")).unwrap(),
+                "precious"
+            );
+            assert!(victim.join("own.txt").exists());
+            // Picking the mount point itself is refused too.
+            let failed = delete_permanently(std::slice::from_ref(&inner));
+            assert_eq!(failed.len(), 1, "{failed:?}");
+            assert!(inner.join("data.txt").exists());
+            return;
+        }
+        // Mount a tmpfs in a user namespace of its own (no root needed),
+        // and run this test again in there.
+        let dir = TempDir::new("delete-real-mount");
+        fs::create_dir_all(dir.0.join("victim/inner")).unwrap();
+        fs::write(dir.0.join("victim/own.txt"), "x").unwrap();
+        let script = "mount -t tmpfs tmpfs \"$1/victim/inner\" || exit 77
+            printf precious > \"$1/victim/inner/data.txt\" || exit 1
+            exec \"$2\" --exact actions::tests::delete_stops_at_a_real_mount --test-threads=1";
+        let run = Command::new("unshare")
+            .args(["-rm", "sh", "-c", script, "sh"])
+            .arg(&dir.0)
+            .arg(std::env::current_exe().unwrap())
+            .env(MOUNT_TEST_ENV, &dir.0)
+            .stdin(Stdio::null())
+            .output();
+        match run {
+            Ok(out) if out.status.success() => {}
+            Ok(out) if matches!(out.status.code(), Some(1 | 77)) && out.stdout.is_empty() => {
+                eprintln!(
+                    "skipped: no user namespace mounts here: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+            Ok(out) => panic!(
+                "in the namespace: {}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ),
+            Err(e) => eprintln!("skipped: no unshare: {e}"),
+        }
     }
 
     #[test]

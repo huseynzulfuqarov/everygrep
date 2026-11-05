@@ -5276,3 +5276,7 @@ msgstr "{} / {} değişiklik"
 
 msgid "HEIC/JXL/SVG previews (helper uses its own sandbox)"
 msgstr "HEIC/JXL/SVG önizlemeleri (yardımcı kendi korumalı alanını kullanır)"
+
+#: src/actions.rs
+msgid "{} is another drive or file system (a mount point), so nothing was deleted from it"
+msgstr "{} başka bir sürücü veya dosya sistemidir (bağlama noktası), bu yüzden ondan hiçbir şey silinmedi"

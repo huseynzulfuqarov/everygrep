@@ -34,6 +34,10 @@ zbus = { version = "5.19", default-features = false, features = [
 # the copy Slint's clipboard already uses, without features, so no new
 # crates.
 x11rb = { version = "0.13.2", default-features = false }
+# Permanent delete walks folders by descriptor and stays on one file system
+# (see src/actions.rs). Same version and features as everygrep-core, so no
+# new crates.
+rustix = { version = "1.1.5", default-features = false, features = ["fs", "std"] }
 
 [build-dependencies]
 slint-build = "1.18"

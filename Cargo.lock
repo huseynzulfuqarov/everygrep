@@ -1197,6 +1197,7 @@ version = "0.1.0"
 dependencies = [
  "everygrep-core",
  "i-slint-backend-winit",
+ "rustix 1.1.5",
  "slint",
  "slint-build",
  "x11rb",
