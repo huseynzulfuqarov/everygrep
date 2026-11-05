@@ -338,8 +338,13 @@ fn limits() -> std::io::Result<()> {
 /// namespace creation. Namespace isolation still applies without this filter.
 /// The one helper allowed to make its own nested sandbox (HEIC, JXL, SVG
 /// and other image formats): it runs each image decoder in a `bwrap` of
-/// its own, which needs user namespaces and mounts inside ours.
-const GLYCIN: &str = "/usr/bin/glycin-thumbnailer";
+/// its own, which needs user namespaces and mounts inside ours. These are
+/// the places distributions install it; each one is checked as it is.
+const GLYCIN: [&str; 3] = [
+    "/usr/bin/glycin-thumbnailer",
+    "/usr/libexec/glycin-thumbnailer",
+    "/usr/lib/glycin/glycin-thumbnailer",
+];
 
 /// Syscalls a nested `bwrap` needs beyond the rest: pivot_root, chroot,
 /// mount, umount2, unshare and setns (and clone with a new user namespace).
@@ -350,9 +355,9 @@ const NESTED: &[u32] = &[41, 51, 40, 39, 97, 268];
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 const NESTED: &[u32] = &[];
 
-/// Whether `helper` may open its own nested sandbox: only the exact glycin
-/// path, a regular file owned by root that no one else can change (nor its
-/// folder), and only when allowed in Settings.
+/// Whether `helper` may open its own nested sandbox: only one of the exact
+/// [`GLYCIN`] paths, a regular file owned by root that no one else can
+/// change (nor its folder), and only when allowed in Settings.
 fn nested_allowed(helper: &Path, allowed: bool) -> bool {
     use std::os::unix::fs::MetadataExt;
     let root_only = |p: &Path, dir: bool| {
@@ -361,7 +366,7 @@ fn nested_allowed(helper: &Path, allowed: bool) -> bool {
         })
     };
     allowed
-        && helper == Path::new(GLYCIN)
+        && GLYCIN.iter().any(|g| helper == Path::new(g))
         && root_only(helper, false)
         && helper.parent().is_some_and(|d| root_only(d, true))
 }
@@ -693,29 +698,43 @@ mod tests {
 
     #[test]
     fn only_the_exact_root_owned_glycin_helper_may_nest() {
-        assert!(!nested_allowed(Path::new(GLYCIN), false));
+        for g in GLYCIN {
+            assert!(!nested_allowed(Path::new(g), false), "{g}");
+        }
         assert!(!nested_allowed(Path::new("/usr/bin/sh"), true));
         assert!(!nested_allowed(
             Path::new("/usr/bin/../bin/glycin-thumbnailer"),
             true
         ));
-        assert!(!nested_allowed(
-            Path::new("/usr/local/bin/glycin-thumbnailer"),
-            true
-        ));
+        for other in [
+            "/usr/local/bin/glycin-thumbnailer",
+            "/usr/libexec/../bin/glycin-thumbnailer",
+            "/usr/lib/glycin/../glycin/glycin-thumbnailer",
+            "/usr/libexec/glycin/glycin-thumbnailer",
+            "/usr/lib/glycin/glycin-loader",
+        ] {
+            assert!(!nested_allowed(Path::new(other), true), "{other}");
+        }
         let d = std::env::temp_dir().join(format!("eg-glycin-{}", std::process::id()));
         fs::create_dir_all(&d).unwrap();
         let fake = d.join("glycin-thumbnailer");
         fs::write(&fake, b"").unwrap();
         assert!(!nested_allowed(&fake, true));
         let _ = fs::remove_dir_all(&d);
-        // On a system with the real helper, it is allowed when switched on.
-        let real = Path::new(GLYCIN);
-        if fs::symlink_metadata(real).is_ok_and(|m| {
-            use std::os::unix::fs::MetadataExt;
-            m.is_file() && m.uid() == 0 && m.mode() & 0o022 == 0
-        }) {
-            assert!(nested_allowed(real, true));
+        // Where the real helper is installed, root-owned in a root-owned
+        // folder, it is allowed when switched on; missing places are not.
+        use std::os::unix::fs::MetadataExt;
+        let root_only = |p: &Path, dir: bool| {
+            fs::symlink_metadata(p).is_ok_and(|m| {
+                (if dir { m.is_dir() } else { m.is_file() })
+                    && m.uid() == 0
+                    && m.mode() & 0o022 == 0
+            })
+        };
+        for g in GLYCIN {
+            let real = Path::new(g);
+            let installed = root_only(real, false) && root_only(real.parent().unwrap(), true);
+            assert_eq!(nested_allowed(real, true), installed, "{g}");
         }
     }
 
