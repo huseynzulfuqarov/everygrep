@@ -129,8 +129,36 @@ fn mime(path: &Path) -> Option<String> {
         .map(|(_, mime)| mime.to_string())
 }
 
-/// Bind only runtime data and this input, never the host home or root tree.
-fn args(input: &Path, output: &Path, sandbox_input: &str, helper: &[OsString]) -> Vec<OsString> {
+/// The top-level program and library folders, mirrored from the host.
+const TOP_LEVEL: [&str; 6] = ["bin", "sbin", "lib", "lib64", "lib32", "libx32"];
+
+/// Recreates the host's top-level program and library folders (below `root`,
+/// which is `/` outside tests): a symlink gets the same target (merged /usr
+/// systems, where the loader may be in `/usr/lib`, `/usr/lib64` or
+/// `/usr/lib/<triplet>`), a real folder is bound read-only (split systems),
+/// and a missing one is left out.
+fn host_layout(root: &Path) -> Vec<OsString> {
+    let mut out = Vec::new();
+    for name in TOP_LEVEL {
+        let host = root.join(name);
+        let inside = OsString::from(format!("/{name}"));
+        let Ok(meta) = fs::symlink_metadata(&host) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            if let Ok(target) = fs::read_link(&host) {
+                out.extend(["--symlink".into(), target.into_os_string(), inside]);
+            }
+        } else if meta.is_dir() {
+            out.extend(["--ro-bind".into(), host.into_os_string(), inside]);
+        }
+    }
+    out
+}
+
+/// The sandbox without the input and output files: only runtime data,
+/// never the host home or root tree. `layout` comes from [`host_layout`].
+fn base_args(layout: &[OsString]) -> Vec<OsString> {
     let mut a: Vec<OsString> = [
         "--die-with-parent",
         "--new-session",
@@ -156,45 +184,55 @@ fn args(input: &Path, output: &Path, sandbox_input: &str, helper: &[OsString]) -
         "--ro-bind",
         "/usr",
         "/usr",
-        "--symlink",
-        "usr/lib",
-        "/lib",
-        "--symlink",
-        "usr/lib",
-        "/lib64",
-        "--symlink",
-        "usr/bin",
-        "/bin",
-        "--ro-bind-try",
-        "/etc/ld.so.cache",
-        "/etc/ld.so.cache",
-        "--ro-bind-try",
-        "/etc/alternatives",
-        "/etc/alternatives",
-        "--ro-bind-try",
-        "/etc/fonts",
-        "/etc/fonts",
-        "--ro-bind-try",
-        "/etc/localtime",
-        "/etc/localtime",
-        "--proc",
-        "/proc",
-        "--dev",
-        "/dev",
-        "--size",
-        "16777216",
-        "--tmpfs",
-        "/tmp",
-        "--dir",
-        "/input",
-        "--chdir",
-        "/tmp",
-        "--ro-bind",
     ]
     .into_iter()
     .map(OsString::from)
     .collect();
+    a.extend(layout.iter().cloned());
+    a.extend(
+        [
+            "--ro-bind-try",
+            "/etc/ld.so.cache",
+            "/etc/ld.so.cache",
+            "--ro-bind-try",
+            "/etc/alternatives",
+            "/etc/alternatives",
+            "--ro-bind-try",
+            "/etc/fonts",
+            "/etc/fonts",
+            "--ro-bind-try",
+            "/etc/localtime",
+            "/etc/localtime",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--size",
+            "16777216",
+            "--tmpfs",
+            "/tmp",
+            "--dir",
+            "/input",
+            "--chdir",
+            "/tmp",
+        ]
+        .into_iter()
+        .map(OsString::from),
+    );
+    a
+}
+
+/// Bind only runtime data and this input, never the host home or root tree.
+fn args(
+    input: &Path,
+    output: &Path,
+    sandbox_input: &str,
+    helper: &[OsString],
+    layout: &[OsString],
+) -> Vec<OsString> {
+    let mut a = base_args(layout);
     a.extend([
+        "--ro-bind".into(),
         input.as_os_str().into(),
         sandbox_input.into(),
         "--bind".into(),
@@ -422,6 +460,7 @@ pub fn generate(
             .filter(char::is_ascii_alphanumeric)
             .collect::<String>()
     );
+    let layout = host_layout(Path::new("/"));
     let started = Instant::now();
     for entry in definitions {
         if !preview::active(progress, started) {
@@ -467,7 +506,7 @@ pub fn generate(
             command.args(["--seccomp", &fd.to_string()]);
             filter = Some(f);
         }
-        command.args(args(&input, &output, &sandbox_input, &helper));
+        command.args(args(&input, &output, &sandbox_input, &helper, &layout));
         // Only async-signal-safe libc calls in the child before exec.
         unsafe {
             command.pre_exec(move || {
@@ -645,6 +684,7 @@ mod tests {
             Path::new("/tmp/output"),
             "/input/file.pdf",
             &["/usr/bin/helper".into()],
+            &host_layout(Path::new("/")),
         );
         let s = a.iter().map(|s| s.to_str().unwrap()).collect::<Vec<_>>();
         for flag in [
@@ -668,6 +708,118 @@ mod tests {
             ["helper", "a b", "$HOME", ";"]
         );
         assert!(words("helper \"broken").is_none());
+    }
+    /// Builds a fake host root with `links` (name, target) and real `dirs`.
+    fn fake_root(tag: &str, links: &[(&str, &str)], dirs: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("eg-layout-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("usr/lib")).unwrap();
+        for (name, target) in links {
+            std::os::unix::fs::symlink(target, root.join(name)).unwrap();
+        }
+        for name in dirs {
+            fs::create_dir(root.join(name)).unwrap();
+        }
+        root
+    }
+    fn triples(a: &[OsString]) -> Vec<[String; 3]> {
+        a.chunks(3)
+            .map(|c| c.iter().map(|s| s.to_string_lossy().into_owned()))
+            .map(|mut c| [(); 3].map(|_| c.next().unwrap()))
+            .collect()
+    }
+    #[test]
+    fn sandbox_layout_mirrors_merged_usr_hosts() {
+        // Arch and CachyOS: all of them point into usr/lib and usr/bin.
+        let arch = fake_root(
+            "arch",
+            &[
+                ("bin", "usr/bin"),
+                ("sbin", "usr/bin"),
+                ("lib", "usr/lib"),
+                ("lib64", "usr/lib"),
+            ],
+            &[],
+        );
+        assert_eq!(
+            triples(&host_layout(&arch)),
+            [
+                ["--symlink", "usr/bin", "/bin"],
+                ["--symlink", "usr/bin", "/sbin"],
+                ["--symlink", "usr/lib", "/lib"],
+                ["--symlink", "usr/lib", "/lib64"],
+            ]
+        );
+        // Fedora and openSUSE: the loader is in /usr/lib64; Debian and
+        // Ubuntu also have lib32/libx32 links on some installs.
+        let fedora = fake_root(
+            "fedora",
+            &[
+                ("bin", "usr/bin"),
+                ("sbin", "usr/sbin"),
+                ("lib", "usr/lib"),
+                ("lib64", "usr/lib64"),
+                ("lib32", "usr/lib32"),
+            ],
+            &[],
+        );
+        let layout = host_layout(&fedora);
+        assert_eq!(
+            triples(&layout),
+            [
+                ["--symlink", "usr/bin", "/bin"],
+                ["--symlink", "usr/sbin", "/sbin"],
+                ["--symlink", "usr/lib", "/lib"],
+                ["--symlink", "usr/lib64", "/lib64"],
+                ["--symlink", "usr/lib32", "/lib32"],
+            ]
+        );
+        // The layout comes right after /usr, so the links resolve in it.
+        let a = args(
+            Path::new("/tmp/in"),
+            Path::new("/tmp/out"),
+            "/input/file",
+            &["/usr/bin/helper".into()],
+            &layout,
+        );
+        let s = a.iter().map(|s| s.to_str().unwrap()).collect::<Vec<_>>();
+        let usr = s
+            .windows(3)
+            .position(|w| w == ["--ro-bind", "/usr", "/usr"])
+            .unwrap();
+        assert_eq!(&s[usr + 3..usr + 6], ["--symlink", "usr/bin", "/bin"]);
+        assert!(
+            !s.windows(3)
+                .any(|w| w == ["--symlink", "usr/lib", "/lib64"])
+        );
+        assert!(
+            s.windows(3)
+                .any(|w| w == ["--symlink", "usr/lib64", "/lib64"])
+        );
+        let _ = fs::remove_dir_all(&arch);
+        let _ = fs::remove_dir_all(&fedora);
+    }
+    #[test]
+    fn sandbox_layout_binds_real_top_level_folders_read_only() {
+        // An older Debian without merged /usr: real folders, no lib32.
+        let debian = fake_root("debian", &[], &["bin", "sbin", "lib", "lib64"]);
+        // A stray file with a known name is neither linked nor bound.
+        fs::write(debian.join("libx32"), b"").unwrap();
+        let p = |n: &str| debian.join(n).to_string_lossy().into_owned();
+        assert_eq!(
+            triples(&host_layout(&debian)),
+            [
+                ["--ro-bind".into(), p("bin"), "/bin".into()],
+                ["--ro-bind".into(), p("sbin"), "/sbin".into()],
+                ["--ro-bind".into(), p("lib"), "/lib".into()],
+                ["--ro-bind".into(), p("lib64"), "/lib64".into()],
+            ]
+        );
+        let _ = fs::remove_dir_all(&debian);
+        // An empty root gives no top-level entries at all.
+        let empty = fake_root("empty", &[], &[]);
+        assert!(host_layout(&empty).is_empty());
+        let _ = fs::remove_dir_all(&empty);
     }
     #[test]
     fn desktop_placeholders_are_arguments_and_unknown_codes_are_refused() {
