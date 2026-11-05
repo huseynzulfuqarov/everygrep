@@ -110,18 +110,41 @@ pub fn plan(paths: &[PathBuf], rule: &Rule, zone: Zone) -> Result<Plan, RuleErro
         };
         rows.push(row(new, problem));
     }
-    // Two items of one folder that would get the same name.
-    let mut seen: HashMap<(PathBuf, String), usize> = HashMap::new();
+    // Two items of one folder that would get the same name; in a folder
+    // that does not tell case apart, also names that differ only in case.
+    let mut sensitive: HashMap<PathBuf, bool> = HashMap::new();
     for row in rows.iter().filter(|r| r.problem.is_none()) {
         let folder = row.from.parent().map(Path::to_owned).unwrap_or_default();
-        *seen.entry((folder, row.new.clone())).or_default() += 1;
+        if let std::collections::hash_map::Entry::Vacant(entry) = sensitive.entry(folder) {
+            let answer = rows
+                .iter()
+                .filter(|r| r.problem.is_none() && r.from.parent() == Some(entry.key().as_path()))
+                .find_map(|r| case_sensitive(&r.from))
+                .unwrap_or(false);
+            entry.insert(answer);
+        }
+    }
+    let key = |row: &Row| {
+        let folder = row.from.parent().map(Path::to_owned).unwrap_or_default();
+        let name = if sensitive[&folder] {
+            row.new.clone()
+        } else {
+            row.new.to_lowercase()
+        };
+        (folder, name)
+    };
+    let mut seen: HashMap<(PathBuf, String), Vec<String>> = HashMap::new();
+    for row in rows.iter().filter(|r| r.problem.is_none()) {
+        seen.entry(key(row)).or_default().push(row.new.clone());
     }
     for row in rows.iter_mut().filter(|r| r.problem.is_none()) {
-        let folder = row.from.parent().map(Path::to_owned).unwrap_or_default();
-        if seen[&(folder, row.new.clone())] > 1 {
-            row.problem = Some(Problem::Blocking(
-                tr("Another item of the list gets this name.").into(),
-            ));
+        let same = &seen[&key(row)];
+        if same.len() > 1 {
+            row.problem = Some(Problem::Blocking(if same.iter().all(|n| *n == row.new) {
+                tr("Another item of the list gets this name.").into()
+            } else {
+                tr("Another item of the list gets this name in other letter case, and this folder does not tell upper and lower case apart.").into()
+            }));
         }
     }
     let mut out = Plan {
@@ -136,6 +159,36 @@ pub fn plan(paths: &[PathBuf], rule: &Rule, zone: Zone) -> Result<Plan, RuleErro
         }
     }
     Ok(out)
+}
+
+/// Whether the folder of the existing item `sample` tells names apart by
+/// case: the item is looked up under its name with the case of every
+/// letter swapped. `None` when that tells nothing (no letters with case,
+/// or the item cannot be read).
+fn case_sensitive(sample: &Path) -> Option<bool> {
+    let name = sample.file_name()?.to_str()?;
+    let swapped: String = name
+        .chars()
+        .flat_map(|c| -> Vec<char> {
+            if c.is_uppercase() {
+                c.to_lowercase().collect()
+            } else {
+                c.to_uppercase().collect()
+            }
+        })
+        .collect();
+    if swapped == name {
+        return None;
+    }
+    let other = sample.with_file_name(&swapped);
+    let own = std::fs::symlink_metadata(sample).ok()?;
+    match std::fs::symlink_metadata(&other) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(true),
+        Err(_) => None,
+        // Found under the other spelling: the item itself, unless the
+        // folder lists that spelling as an entry of its own.
+        Ok(m) => Some(m.dev() != own.dev() || m.ino() != own.ino() || actions::has_entry(&other)),
+    }
 }
 
 fn rule_of(w: &AppWindow) -> Rule {
@@ -463,6 +516,55 @@ mod tests {
         };
         let same = plan(&[paths[0].clone(), paths[2].clone()], &rule, Zone::utc()).unwrap();
         assert_eq!(blocking(&same), ["a.txt", "b.txt"]);
+    }
+
+    /// Removes the digits: "Q1.txt" and "q2.txt" become "Q.txt" and "q.txt".
+    fn no_digits() -> Rule {
+        Rule {
+            mode: Mode::Regex,
+            text: "[0-9]".into(),
+            with: String::new(),
+            match_case: true,
+            ..Rule::default()
+        }
+    }
+
+    #[test]
+    fn names_differing_only_in_case_block_where_the_folder_ignores_case() {
+        if let Some(base) = crate::mount_ns::inside() {
+            let d = base.join("cf/d");
+            let paths: Vec<PathBuf> = ["Q1.txt", "q2.txt", "r3.txt"]
+                .iter()
+                .map(|n| {
+                    let p = d.join(n);
+                    fs::write(&p, n).unwrap();
+                    p
+                })
+                .collect();
+            assert_eq!(case_sensitive(&paths[0]), Some(false));
+            let plan = plan(&paths, &no_digits(), Zone::utc()).unwrap();
+            assert_eq!(blocking(&plan), ["Q1.txt", "q2.txt"]);
+            assert!(!plan.can_apply());
+            return;
+        }
+        let t = Temp::new();
+        crate::mount_ns::run(
+            "fileops_bulk::tests::names_differing_only_in_case_block_where_the_folder_ignores_case",
+            &t.0,
+            crate::mount_ns::CASEFOLD_SETUP,
+        );
+    }
+
+    #[test]
+    fn names_differing_only_in_case_are_fine_where_case_counts() {
+        let t = Temp::new();
+        let paths = t.files(&["Q1.txt", "q2.txt"]);
+        assert_eq!(case_sensitive(&paths[0]), Some(true));
+        assert_eq!(case_sensitive(&t.0.join("missing")), None);
+        let plan = plan(&paths, &no_digits(), Zone::utc()).unwrap();
+        assert!(plan.can_apply(), "{:?}", blocking(&plan));
+        // A name without letters tells nothing.
+        assert_eq!(case_sensitive(&t.files(&["123"])[0]), None);
     }
 
     #[test]

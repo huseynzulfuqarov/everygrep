@@ -221,7 +221,7 @@ pub(crate) fn case_only(old: &Path, target: &Path) -> bool {
 
 /// Whether the folder of `path` lists an entry named exactly (byte for
 /// byte) like it. An unreadable folder counts as having it.
-fn has_entry(path: &Path) -> bool {
+pub(crate) fn has_entry(path: &Path) -> bool {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return true;
     };

@@ -5288,3 +5288,7 @@ msgstr "özgün ad geri yüklenemedi; öğe şimdi {0} konumunda: {1}"
 #: src/actions.rs
 msgid "the file system kept the name in its old case"
 msgstr "dosya sistemi adı eski harf büyüklüğünde tuttu"
+
+#: src/fileops_bulk.rs
+msgid "Another item of the list gets this name in other letter case, and this folder does not tell upper and lower case apart."
+msgstr "Listedeki başka bir öğe bu adı farklı harf büyüklüğüyle alıyor ve bu klasör büyük ve küçük harfleri ayırt etmiyor."
