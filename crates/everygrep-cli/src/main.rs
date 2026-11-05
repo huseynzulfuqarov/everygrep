@@ -159,36 +159,35 @@ enum Source {
 /// Returns the index, the roots it covers and where it came from.
 fn open_index(args: &Args, force_scan: bool) -> io::Result<(Index, Vec<PathBuf>, Source)> {
     let mut saved_roots = None;
-    if !force_scan && !args.rescan {
-        if let Some(path) = &args.index_file {
-            let started = Instant::now();
-            match persist::load(path) {
-                Ok(saved)
-                    if (args.roots.is_empty() || saved.roots == args.roots)
-                        && saved.rules_hash == Some(fingerprint(&args.scan)) =>
-                {
-                    eprintln!(
-                        "loaded {} entries from {} in {:.0} ms, memory {:.1} MiB",
-                        saved.index.len(),
-                        path.display(),
-                        started.elapsed().as_secs_f64() * 1e3,
-                        saved.index.heap_bytes() as f64 / 1048576.0,
-                    );
-                    if saved.reordered {
-                        // An older file: store the new name order once.
-                        save_index(args, &saved.index, &saved.roots)?;
-                    }
-                    return Ok((saved.index, saved.roots, Source::Loaded));
+    if !force_scan
+        && !args.rescan
+        && let Some(path) = &args.index_file
+    {
+        let started = Instant::now();
+        match persist::load(path) {
+            Ok(saved)
+                if (args.roots.is_empty() || saved.roots == args.roots)
+                    && saved.rules_hash == Some(fingerprint(&args.scan)) =>
+            {
+                eprintln!(
+                    "loaded {} entries from {} in {:.0} ms, memory {:.1} MiB",
+                    saved.index.len(),
+                    path.display(),
+                    started.elapsed().as_secs_f64() * 1e3,
+                    saved.index.heap_bytes() as f64 / 1048576.0,
+                );
+                if saved.reordered {
+                    // An older file: store the new name order once.
+                    save_index(args, &saved.index, &saved.roots)?;
                 }
-                Ok(saved) => {
-                    saved_roots = Some(saved.roots);
-                    eprintln!(
-                        "saved index has other roots, indexing rules or file details, scanning"
-                    );
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => eprintln!("cannot use saved index ({e}), scanning"),
+                return Ok((saved.index, saved.roots, Source::Loaded));
             }
+            Ok(saved) => {
+                saved_roots = Some(saved.roots);
+                eprintln!("saved index has other roots, indexing rules or file details, scanning");
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("cannot use saved index ({e}), scanning"),
         }
     }
     let roots = if args.roots.is_empty() {

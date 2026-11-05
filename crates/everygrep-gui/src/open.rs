@@ -46,10 +46,10 @@ fn show_items(gdbus: &Path, paths: &[PathBuf]) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-    if !status.is_ok_and(|s| s.success()) {
-        if let Some(parent) = first.parent() {
-            open(parent);
-        }
+    if !status.is_ok_and(|s| s.success())
+        && let Some(parent) = first.parent()
+    {
+        open(parent);
     }
 }
 

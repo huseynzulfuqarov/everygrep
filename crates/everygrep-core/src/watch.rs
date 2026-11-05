@@ -689,20 +689,19 @@ impl Watcher {
                 } else if ev
                     .mask
                     .intersects(Mask::ATTRIB | Mask::CLOSE_WRITE | Mask::MODIFY)
+                    && let Some(node) = index.find_child(Some(dir), name)
                 {
-                    if let Some(node) = index.find_child(Some(dir), name) {
-                        if self.skip.with_metadata || index.store().is_dir(node) {
-                            self.refresh_meta(index, node, &mut stats, &mut touched);
-                        }
-                        if self.journal.is_some() && !ev.mask.contains(Mask::ATTRIB) {
-                            let is_dir = index.store().is_dir(node);
-                            self.note(ChangeKind::Modified, is_dir, index.store().path(node), None);
-                        }
-                        if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
-                            // A folder's permissions decide what can be read
-                            // below it, without events for the nodes there.
-                            index.note_subtree_changed(node);
-                        }
+                    if self.skip.with_metadata || index.store().is_dir(node) {
+                        self.refresh_meta(index, node, &mut stats, &mut touched);
+                    }
+                    if self.journal.is_some() && !ev.mask.contains(Mask::ATTRIB) {
+                        let is_dir = index.store().is_dir(node);
+                        self.note(ChangeKind::Modified, is_dir, index.store().path(node), None);
+                    }
+                    if ev.mask.contains(Mask::ATTRIB) && index.store().is_dir(node) {
+                        // A folder's permissions decide what can be read
+                        // below it, without events for the nodes there.
+                        index.note_subtree_changed(node);
                     }
                 }
             }
@@ -817,10 +816,10 @@ impl Watcher {
             }
         }
         for dir in touched {
-            if keeps_time(index, &self.watches, dir) {
-                if let Ok(m) = fs::symlink_metadata(index.store().path(dir)) {
-                    self.unsettled.insert(dir, Meta::from_metadata(&m));
-                }
+            if keeps_time(index, &self.watches, dir)
+                && let Ok(m) = fs::symlink_metadata(index.store().path(dir))
+            {
+                self.unsettled.insert(dir, Meta::from_metadata(&m));
             }
         }
         // The topmost of them: below them all was on the same file system.

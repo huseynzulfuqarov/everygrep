@@ -894,11 +894,11 @@ impl State {
         });
         let marked = rows.clone();
         w.on_marked(move |i, checked| {
-            if let Ok(i) = usize::try_from(i) {
-                if let Some(mut row) = marked.row_data(i) {
-                    row.checked = checked;
-                    marked.set_row_data(i, row);
-                }
+            if let Ok(i) = usize::try_from(i)
+                && let Some(mut row) = marked.row_data(i)
+            {
+                row.checked = checked;
+                marked.set_row_data(i, row);
             }
         });
         let weak = Rc::downgrade(self);

@@ -330,7 +330,12 @@ pub fn rewrite_order(path: &Path, version: u32, order: &[NodeId]) -> io::Result<
     data[8..12].copy_from_slice(&version.to_le_bytes());
     let body = data.len() - 8;
     let start = body - 4 * order.len();
-    for (slot, id) in data[start..body].chunks_exact_mut(4).zip(order) {
+    for (slot, id) in data[start..body]
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(order)
+    {
         slot.copy_from_slice(&id.0.to_le_bytes());
     }
     let sum = checksum(&data[..body]);
@@ -499,11 +504,10 @@ impl Hasher {
             self.mix(u64::from_le_bytes(self.pending));
             self.pending_len = 0;
         }
-        let mut words = data.chunks_exact(8);
-        for w in &mut words {
-            self.mix(u64::from_le_bytes(w.try_into().expect("8 bytes")));
+        let (words, rest) = data.as_chunks::<8>();
+        for w in words {
+            self.mix(u64::from_le_bytes(*w));
         }
-        let rest = words.remainder();
         self.pending[..rest.len()].copy_from_slice(rest);
         self.pending_len = rest.len();
     }
@@ -574,8 +578,8 @@ impl StreamReader {
         while i < n {
             let count = (n - i).min(CHUNK);
             self.fill(count * W)?;
-            for c in self.scratch.chunks_exact(W) {
-                f(i, decode(c.try_into().expect("chunk of W bytes")));
+            for c in self.scratch.as_chunks::<W>().0 {
+                f(i, decode(*c));
                 i += 1;
             }
         }

@@ -76,10 +76,11 @@ pub fn watch_color_scheme(changed: impl Fn(ColorScheme)) -> Result<(), String> {
         else {
             continue;
         };
-        if namespace == APPEARANCE && key == COLOR_SCHEME {
-            if let Some(scheme) = color_scheme(&value) {
-                changed(scheme);
-            }
+        if namespace == APPEARANCE
+            && key == COLOR_SCHEME
+            && let Some(scheme) = color_scheme(&value)
+        {
+            changed(scheme);
         }
     }
     Ok(())

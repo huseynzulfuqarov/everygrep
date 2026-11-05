@@ -999,10 +999,11 @@ fn watch_progress(
             let text = busy.as_ref().map(labels::busy).unwrap_or_default();
             w.set_progress_text(text.into());
             w.set_can_cancel(busy.as_ref().is_some_and(|b| b.cancellable));
-            if busy.is_none() && !engine.is_busy() {
-                if let Some(t) = timer.upgrade() {
-                    t.stop();
-                }
+            if busy.is_none()
+                && !engine.is_busy()
+                && let Some(t) = timer.upgrade()
+            {
+                t.stop();
             }
         }
     };
@@ -1546,10 +1547,10 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             let Some((name, is_dir)) = model.name(r) else {
                 return;
             };
-            if let Some(path) = model.path(r) {
-                if rename_dialog.start(&w, path, &name, is_dir) {
-                    return;
-                }
+            if let Some(path) = model.path(r)
+                && rename_dialog.start(&w, path, &name, is_dir)
+            {
+                return;
             }
             model.set_renaming(model.id(r));
             let mut name_only = true;
@@ -1596,10 +1597,10 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     window.on_rename_cancel({
         let (weak, model) = (weak.clone(), model.clone());
         move || {
-            if let Some(w) = weak.upgrade() {
-                if !w.get_rename_busy() {
-                    stop_renaming(&w, &model);
-                }
+            if let Some(w) = weak.upgrade()
+                && !w.get_rename_busy()
+            {
+                stop_renaming(&w, &model);
             }
         }
     });

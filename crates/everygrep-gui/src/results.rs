@@ -570,19 +570,19 @@ impl ResultsModel {
         if store.is_dir(id) || index.is_offline(id) {
             return Cached::default();
         }
-        if let Some(reader) = &*self.hash_reader.borrow() {
-            if self.hash_pending.borrow_mut().insert(id) {
-                let request = HashRequest {
-                    list: reader.list(),
-                    row,
-                    id,
-                    path: store.path(id),
-                    size: store.meta(id).size,
-                    columns: self.hash_columns.get(),
-                };
-                if !reader.ask(request) {
-                    self.hash_pending.borrow_mut().remove(&id);
-                }
+        if let Some(reader) = &*self.hash_reader.borrow()
+            && self.hash_pending.borrow_mut().insert(id)
+        {
+            let request = HashRequest {
+                list: reader.list(),
+                row,
+                id,
+                path: store.path(id),
+                size: store.meta(id).size,
+                columns: self.hash_columns.get(),
+            };
+            if !reader.ask(request) {
+                self.hash_pending.borrow_mut().remove(&id);
             }
         }
         Cached::default()

@@ -156,7 +156,9 @@ fn asks_cut_mark(from: Target, offered: Option<&[Target]>) -> bool {
 /// order, which x11rb makes native).
 fn atoms_in(bytes: &[u8]) -> impl Iterator<Item = Atom> + '_ {
     bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
 }
 

@@ -766,7 +766,7 @@ mod tests {
                 h ^= h >> 7;
                 h ^= h << 17;
                 text.push_str(words[(h % words.len() as u64) as usize]);
-                text.push(if h % 11 == 0 { '\n' } else { ' ' });
+                text.push(if h.is_multiple_of(11) { '\n' } else { ' ' });
             }
             if i % 1000 == 0 {
                 text.push_str("\nthe needle is here\n");

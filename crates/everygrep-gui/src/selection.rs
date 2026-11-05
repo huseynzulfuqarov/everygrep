@@ -172,10 +172,10 @@ impl Selection {
                 ids.iter().copied().filter(|id| set.contains(id)).collect();
             *set = present;
         }
-        if let Some(a) = self.anchor {
-            if !ids.contains(&a) {
-                self.anchor = None;
-            }
+        if let Some(a) = self.anchor
+            && !ids.contains(&a)
+        {
+            self.anchor = None;
         }
     }
 
@@ -190,10 +190,10 @@ impl Selection {
             new.iter().copied().filter(|id| kept.contains(id)).collect()
         };
         self.set = Set::Only(present);
-        if let Some(a) = self.anchor {
-            if !new.contains(&a) {
-                self.anchor = None;
-            }
+        if let Some(a) = self.anchor
+            && !new.contains(&a)
+        {
+            self.anchor = None;
         }
     }
 

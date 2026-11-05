@@ -427,7 +427,9 @@ fn read_block(r: &mut Reader<'_>, c: &Counts, time_size: usize) -> Option<Zone> 
     r.take(c.isutcnt)?;
 
     let offsets_by_type = types
-        .chunks_exact(6)
+        .as_chunks::<6>()
+        .0
+        .iter()
         .map(|t| {
             let off = i32::from_be_bytes(t[..4].try_into().ok()?);
             OFFSET_RANGE.contains(&i64::from(off)).then_some(off)

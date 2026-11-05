@@ -869,10 +869,10 @@ impl Prefs {
             });
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
-                    if p.history_epoch.get() == epoch {
-                        if let Err(e) = result {
-                            p.history_failure(&e);
-                        }
+                    if p.history_epoch.get() == epoch
+                        && let Err(e) = result
+                    {
+                        p.history_failure(&e);
                     }
                 })
             });
@@ -1133,10 +1133,10 @@ impl Prefs {
         if let Some(w) = self.history_window.borrow().as_ref() {
             w.invoke_set_color_scheme(scheme as i32);
         }
-        if let Ok(window) = self.window.try_borrow() {
-            if let Some(w) = window.as_ref() {
-                w.invoke_set_color_scheme(scheme as i32);
-            }
+        if let Ok(window) = self.window.try_borrow()
+            && let Some(w) = window.as_ref()
+        {
+            w.invoke_set_color_scheme(scheme as i32);
         }
     }
 
@@ -1645,10 +1645,10 @@ impl Prefs {
             .borrow()
             .apply_to(&mut self.settings.borrow_mut());
         self.set_error(None);
-        if let Ok(window) = self.window.try_borrow() {
-            if let Some(w) = window.as_ref() {
-                self.fill_rule_texts(w);
-            }
+        if let Ok(window) = self.window.try_borrow()
+            && let Some(w) = window.as_ref()
+        {
+            self.fill_rule_texts(w);
         }
     }
 
@@ -2206,10 +2206,10 @@ impl Prefs {
 
     /// Updates the settings window, if it is open.
     fn refresh(&self) {
-        if let Ok(window) = self.window.try_borrow() {
-            if let Some(w) = window.as_ref() {
-                self.fill(w);
-            }
+        if let Ok(window) = self.window.try_borrow()
+            && let Some(w) = window.as_ref()
+        {
+            self.fill(w);
         }
     }
 

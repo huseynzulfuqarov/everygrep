@@ -3504,10 +3504,10 @@ impl Engine {
             (!threads.is_empty()).then(|| threads.remove(0))
         };
         // A search that waits for the index ends when it gets it.
-        if let Some(search) = search {
-            if retry_until(deadline, || search.is_finished().then_some(())).is_some() {
-                let _ = search.join();
-            }
+        if let Some(search) = search
+            && retry_until(deadline, || search.is_finished().then_some(())).is_some()
+        {
+            let _ = search.join();
         }
         let mut ended = true;
         for scan in scans {

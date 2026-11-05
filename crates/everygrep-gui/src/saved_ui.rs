@@ -681,16 +681,16 @@ impl State {
             });
             w.on_move_entry(|step| {
                 with(|s| {
-                    if let Some(id) = s.current_id() {
-                        if s.change(|l| {
+                    if let Some(id) = s.current_id()
+                        && s.change(|l| {
                             if s.bookmarks.get() {
                                 l.move_bookmark(id, step)
                             } else {
                                 l.move_filter(id, step)
                             }
-                        }) {
-                            s.select_row(id);
-                        }
+                        })
+                    {
+                        s.select_row(id);
                     }
                 });
             });
@@ -784,18 +784,18 @@ impl State {
             });
             *self.window.borrow_mut() = Some(w);
         }
-        if self.bookmarks.replace(bookmarks) != bookmarks {
-            if let Some(w) = self.window.borrow().as_ref() {
-                // The text found among bookmarks is not one to find among
-                // filters.
-                w.set_find_text("".into());
-                w.set_current(-1);
-                w.set_editing(false);
-                w.set_confirming(false);
-                w.set_deleting(false);
-                w.set_resetting(false);
-                w.set_notice("".into());
-            }
+        if self.bookmarks.replace(bookmarks) != bookmarks
+            && let Some(w) = self.window.borrow().as_ref()
+        {
+            // The text found among bookmarks is not one to find among
+            // filters.
+            w.set_find_text("".into());
+            w.set_current(-1);
+            w.set_editing(false);
+            w.set_confirming(false);
+            w.set_deleting(false);
+            w.set_resetting(false);
+            w.set_notice("".into());
         }
         if let Some(w) = self.window.borrow().as_ref() {
             w.set_bookmarks(bookmarks);

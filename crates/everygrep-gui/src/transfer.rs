@@ -450,40 +450,40 @@ fn paste_attempt(
         return Ok(Pasted::Unchanged);
     }
     let target = dest.join(name);
-    if let Some(resolver) = &run.resolver {
-        if let Ok(existing) = fs::symlink_metadata(&target) {
-            if run.skip_all {
+    if let Some(resolver) = &run.resolver
+        && let Ok(existing) = fs::symlink_metadata(&target)
+    {
+        if run.skip_all {
+            return Ok(Pasted::Skipped);
+        }
+        let trash_available = (run.replacement.available)(&target);
+        let can_overwrite = trash_available
+            && meta.is_file()
+            && existing.is_file()
+            && (meta.dev(), meta.ino()) != (existing.dev(), existing.ino());
+        let q = Question {
+            source: src.into(),
+            target: target.clone(),
+            error: None,
+            can_overwrite,
+            source_details: details(&meta),
+            target_details: details(&existing),
+            trash_available,
+        };
+        match resolver(q, progress) {
+            Decision::Overwrite if can_overwrite => {
+                run.replace = Some(Copied::new(&target, &existing))
+            }
+            Decision::KeepBoth => {}
+            Decision::Retry => {
+                return Err(io::Error::other(tr("The destination already exists.")).into());
+            }
+            Decision::SkipAll => {
+                run.skip_all = true;
                 return Ok(Pasted::Skipped);
             }
-            let trash_available = (run.replacement.available)(&target);
-            let can_overwrite = trash_available
-                && meta.is_file()
-                && existing.is_file()
-                && (meta.dev(), meta.ino()) != (existing.dev(), existing.ino());
-            let q = Question {
-                source: src.into(),
-                target: target.clone(),
-                error: None,
-                can_overwrite,
-                source_details: details(&meta),
-                target_details: details(&existing),
-                trash_available,
-            };
-            match resolver(q, progress) {
-                Decision::Overwrite if can_overwrite => {
-                    run.replace = Some(Copied::new(&target, &existing))
-                }
-                Decision::KeepBoth => {}
-                Decision::Retry => {
-                    return Err(io::Error::other(tr("The destination already exists.")).into());
-                }
-                Decision::SkipAll => {
-                    run.skip_all = true;
-                    return Ok(Pasted::Skipped);
-                }
-                Decision::Skip => return Ok(Pasted::Skipped),
-                _ => return Err(Stop::Cancelled),
-            }
+            Decision::Skip => return Ok(Pasted::Skipped),
+            _ => return Err(Stop::Cancelled),
         }
     }
     if progress.is_cancelled() {
@@ -824,12 +824,11 @@ impl Copied {
             if !crate::transfer_metadata::same_attributes(&file, target)? {
                 return Err(source_changed());
             }
-            if let Some(digest) = produced.entry.digest {
-                if everygrep_core::hash::sha256_open_file(&file, &Progress::new()).ok()
+            if let Some(digest) = produced.entry.digest
+                && everygrep_core::hash::sha256_open_file(&file, &Progress::new()).ok()
                     != Some(digest)
-                {
-                    return Err(source_changed());
-                }
+            {
+                return Err(source_changed());
             }
         }
         Ok(())

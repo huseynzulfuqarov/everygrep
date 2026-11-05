@@ -893,9 +893,9 @@ cargo build --release --locked
 ./target/release/everygrep-gui --version
 ```
 
-Requires Rust 1.85 or newer. The window needs the usual libraries of a
-Wayland desktop at run time (fontconfig, freetype, libxkbcommon, Wayland and
-EGL through libglvnd).
+Requires Rust 1.92 or newer (the minimum of Slint 1.18). The window needs
+the usual libraries of a Wayland desktop at run time (fontconfig, freetype,
+libxkbcommon, Wayland and EGL through libglvnd).
 
 ## Documentation
 

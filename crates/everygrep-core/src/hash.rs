@@ -427,7 +427,9 @@ impl Algorithm {
         };
         Ok(value
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| digit(c[0]) * 16 + digit(c[1]))
             .collect())
     }

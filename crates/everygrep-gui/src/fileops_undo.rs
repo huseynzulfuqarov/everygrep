@@ -747,44 +747,41 @@ pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameE
     let before = BeforeRename::read(old).ok();
     let result = actions::rename(old, name)?;
     let mut note = None;
-    if c.enabled {
-        if let Some(to) = &result {
-            let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
-            #[cfg(test)]
-            crate::fileops_test::at("rename-journal", to);
-            match before
-                .as_ref()
-                .ok_or_else(|| {
-                    io::Error::other(tr("The item changed since the recorded operation."))
-                })
-                .and_then(|b| b.after(to))
-            {
-                Ok(expected) => {
-                    journal
-                        .advance_rename(before.as_ref().unwrap().snapshot.0[0].1, expected.0[0].1);
-                    // A rename tree always fits after older steps go.
-                    let _ = journal.push_group(
-                        vec![Entry {
-                            id: 0,
-                            kind: Kind::Rename,
-                            from: old.into(),
-                            to: to.clone(),
-                            expected,
-                            source: None,
-                            applied: true,
-                            skipped: None,
-                        }],
-                        c,
-                    );
-                }
-                Err(_) => {
-                    let what = tr("The rename could not be recorded for undo.");
-                    note = Some(if journal.forget(c) {
-                        format!("{what} {}", tr("Earlier undo steps were removed."))
-                    } else {
-                        what.into()
-                    });
-                }
+    if c.enabled
+        && let Some(to) = &result
+    {
+        let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(test)]
+        crate::fileops_test::at("rename-journal", to);
+        match before
+            .as_ref()
+            .ok_or_else(|| io::Error::other(tr("The item changed since the recorded operation.")))
+            .and_then(|b| b.after(to))
+        {
+            Ok(expected) => {
+                journal.advance_rename(before.as_ref().unwrap().snapshot.0[0].1, expected.0[0].1);
+                // A rename tree always fits after older steps go.
+                let _ = journal.push_group(
+                    vec![Entry {
+                        id: 0,
+                        kind: Kind::Rename,
+                        from: old.into(),
+                        to: to.clone(),
+                        expected,
+                        source: None,
+                        applied: true,
+                        skipped: None,
+                    }],
+                    c,
+                );
+            }
+            Err(_) => {
+                let what = tr("The rename could not be recorded for undo.");
+                note = Some(if journal.forget(c) {
+                    format!("{what} {}", tr("Earlier undo steps were removed."))
+                } else {
+                    what.into()
+                });
             }
         }
     }

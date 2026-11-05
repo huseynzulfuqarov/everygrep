@@ -376,16 +376,16 @@ fn unescape_udev(name: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'\\' && bytes.get(i + 1) == Some(&b'x') {
-            if let Some(v) = bytes
+        if bytes[i] == b'\\'
+            && bytes.get(i + 1) == Some(&b'x')
+            && let Some(v) = bytes
                 .get(i + 2..i + 4)
                 .and_then(|h| std::str::from_utf8(h).ok())
                 .and_then(|h| u8::from_str_radix(h, 16).ok())
-            {
-                out.push(v);
-                i += 4;
-                continue;
-            }
+        {
+            out.push(v);
+            i += 4;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;

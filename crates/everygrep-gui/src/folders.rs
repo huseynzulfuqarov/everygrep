@@ -301,13 +301,13 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>, base: Vec<OsString>) {
 impl State {
     fn capture(&self) -> View {
         let mut view = self.view.borrow().clone();
-        if let Some(w) = self.main.upgrade() {
-            if !self.rows.borrow().is_empty() {
-                view.cursor = usize::try_from(w.get_folder_current())
-                    .ok()
-                    .and_then(|i| self.rows.borrow().get(i).map(|r| r.path.clone()));
-                view.scroll_y = w.get_folders_scroll_y();
-            }
+        if let Some(w) = self.main.upgrade()
+            && !self.rows.borrow().is_empty()
+        {
+            view.cursor = usize::try_from(w.get_folder_current())
+                .ok()
+                .and_then(|i| self.rows.borrow().get(i).map(|r| r.path.clone()));
+            view.scroll_y = w.get_folders_scroll_y();
         }
         view
     }

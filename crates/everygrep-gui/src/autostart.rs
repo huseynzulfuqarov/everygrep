@@ -94,10 +94,10 @@ pub fn disable(path: &Path) -> io::Result<()> {
 /// same place is meant then.
 pub fn current_exe() -> io::Result<PathBuf> {
     let exe = std::env::current_exe()?;
-    if !exe.exists() {
-        if let Some(s) = exe.to_str().and_then(|s| s.strip_suffix(" (deleted)")) {
-            return Ok(PathBuf::from(s));
-        }
+    if !exe.exists()
+        && let Some(s) = exe.to_str().and_then(|s| s.strip_suffix(" (deleted)"))
+    {
+        return Ok(PathBuf::from(s));
     }
     Ok(exe)
 }
