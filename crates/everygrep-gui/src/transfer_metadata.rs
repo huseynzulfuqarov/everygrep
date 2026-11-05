@@ -264,3 +264,9 @@ pub(super) fn age_test_link(path: &Path) {
     // SAFETY: the path and two timespecs remain valid; final link not followed.
     checked(unsafe { utimensat(-100, path.as_ptr(), times.as_ptr(), 0x100) }).unwrap();
 }
+
+/// Compare readable xattrs after a source has been isolated. A rename changes
+/// ctime, so source metadata must not be accepted just from its new timestamp.
+pub(super) fn same_attributes(source: &File, target: &File) -> io::Result<bool> {
+    Ok(Object::File(source).attrs()? == Object::File(target).attrs()?)
+}

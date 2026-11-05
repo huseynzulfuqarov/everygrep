@@ -659,6 +659,8 @@ struct Copied {
     path: PathBuf,
     is_dir: bool,
     metadata_error: Option<io::Error>,
+    anchor: Option<SourceAnchor>,
+    stamp: FileStamp,
     dev: u64,
     ino: u64,
     len: u64,
@@ -672,6 +674,8 @@ impl Copied {
             path: path.to_owned(),
             is_dir: meta.is_dir(),
             metadata_error: None,
+            anchor: None,
+            stamp: FileStamp::of(meta),
             dev: meta.dev(),
             ino: meta.ino(),
             len: meta.len(),
@@ -694,6 +698,217 @@ impl Copied {
     }
 }
 
+#[derive(Debug)]
+struct SourceAnchor {
+    parent: std::sync::Arc<File>,
+    name: OsString,
+    handle: std::sync::Arc<File>,
+}
+impl SourceAnchor {
+    fn path(&self) -> PathBuf {
+        fd_path(&self.parent).join(&self.name)
+    }
+    fn readable(&self) -> io::Result<File> {
+        let path = format!("/proc/self/fd/{}", self.handle.as_raw_fd());
+        match OpenOptions::new()
+            .read(true)
+            .custom_flags(0o1000000 | 0o4000)
+            .open(&path)
+        {
+            Err(e) if e.raw_os_error() == Some(1) => OpenOptions::new()
+                .read(true)
+                .custom_flags(0o4000)
+                .open(path),
+            result => result,
+        }
+    }
+}
+fn source_changed() -> io::Error {
+    io::Error::other(tr("The copy source changed while copying."))
+}
+impl Copied {
+    fn pinned(path: &Path, meta: &Metadata) -> io::Result<Self> {
+        let parent = std::sync::Arc::new(open_dir(
+            path.parent()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
+        )?);
+        let name = path
+            .file_name()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?
+            .to_owned();
+        let handle = std::sync::Arc::new(
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(0o10000000 | 0o400000)
+                .open(fd_path(&parent).join(&name))?,
+        );
+        if FileStamp::of(&handle.metadata()?) != FileStamp::of(meta) {
+            return Err(source_changed());
+        }
+        let mut copied = Self::new(path, meta);
+        copied.anchor = Some(SourceAnchor {
+            parent,
+            name,
+            handle,
+        });
+        Ok(copied)
+    }
+    fn check_before_removal(&self) -> io::Result<()> {
+        let anchor = self.anchor.as_ref().ok_or_else(source_changed)?;
+        let now = fs::symlink_metadata(anchor.path())?;
+        if FileStamp::of(&now) != self.stamp
+            || FileStamp::of(&anchor.handle.metadata()?) != self.stamp
+        {
+            return Err(io::Error::other(fill(
+                tr("“{}” changed after it was copied"),
+                &[&self.path.display()],
+            )));
+        }
+        if now.is_file() && now.nlink() > 1 {
+            return Err(io::Error::other(fill(
+                tr("“{}” changed after it was copied"),
+                &[&self.path.display()],
+            )));
+        }
+        Ok(())
+    }
+    fn check_held(&self, path: &Path, renamed: bool) -> io::Result<()> {
+        let now = FileStamp::of(&fs::symlink_metadata(path)?);
+        let expected = self.stamp;
+        let same = if self.is_dir {
+            (now.dev, now.ino, now.mode, now.uid, now.gid)
+                == (
+                    expected.dev,
+                    expected.ino,
+                    expected.mode,
+                    expected.uid,
+                    expected.gid,
+                )
+        } else if renamed {
+            expected.same_except_ctime(&now)
+        } else {
+            expected == now
+        };
+        if same { Ok(()) } else { Err(source_changed()) }
+    }
+    fn verify_held_bytes(&self, produced: &ProducedNode) -> io::Result<()> {
+        let anchor = self.anchor.as_ref().ok_or_else(source_changed)?;
+        if self.is_dir || produced.entry.digest.is_some() {
+            let file = anchor.readable()?;
+            let target = produced.entry.handle.as_ref().ok_or_else(source_changed)?;
+            if !crate::transfer_metadata::same_attributes(&file, target)? {
+                return Err(source_changed());
+            }
+            if let Some(digest) = produced.entry.digest {
+                if everygrep_core::hash::sha256_open_file(&file, &Progress::new()).ok()
+                    != Some(digest)
+                {
+                    return Err(source_changed());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn source_ancestors(
+    copied: &[Copied],
+    parents: &[Option<usize>],
+    root: &Isolation,
+    index: usize,
+) -> io::Result<()> {
+    if let Some(parent) = parents[index] {
+        source_ancestors(copied, parents, root, parent)?;
+    }
+    let entry = &copied[index];
+    if index == 0 {
+        entry.check_held(&root.path(), true)
+    } else {
+        entry.check_held(
+            &entry.anchor.as_ref().ok_or_else(source_changed)?.path(),
+            false,
+        )
+    }
+}
+
+fn remove_pinned_sources(copied: &[Copied], produced: &Produced) -> io::Result<()> {
+    let Some(first) = copied.first() else {
+        return Ok(());
+    };
+    // Validate the whole selected tree before making even the first change.
+    for entry in copied {
+        entry.check_before_removal()?;
+    }
+    produced.check()?;
+    let mut paths = HashMap::new();
+    let mut parents = Vec::with_capacity(copied.len());
+    for (i, entry) in copied.iter().enumerate() {
+        parents.push(entry.path.parent().and_then(|p| paths.get(p)).copied());
+        if entry.is_dir {
+            paths.insert(entry.path.clone(), i);
+        }
+    }
+    let anchor = first.anchor.as_ref().ok_or_else(source_changed)?;
+    let root = Isolation::take(
+        anchor.parent.clone(),
+        &anchor.name,
+        &first.path,
+        (first.dev, first.ino),
+    )?;
+    let mut root = Some(root);
+    let mut failure = None;
+    for index in (0..copied.len()).rev() {
+        let entry = &copied[index];
+        let checked = source_ancestors(copied, &parents, root.as_ref().unwrap(), index)
+            .and_then(|()| produced.check_node(index))
+            .and_then(|()| produced.nodes[index].entry.verify_bytes())
+            .and_then(|()| produced.check_node(index));
+        if let Err(e) = checked {
+            failure = Some(e);
+            break;
+        }
+        if index == 0 {
+            if let Err(e) = entry.verify_held_bytes(&produced.nodes[index]) {
+                failure = Some(e);
+                break;
+            }
+            let held = root.take().unwrap();
+            held.remove(entry.is_dir)?;
+        } else {
+            let anchor = entry.anchor.as_ref().ok_or_else(source_changed)?;
+            let held = match Isolation::take(
+                anchor.parent.clone(),
+                &anchor.name,
+                &entry.path,
+                (entry.dev, entry.ino),
+            ) {
+                Ok(held) => held,
+                Err(e) => {
+                    failure = Some(e);
+                    break;
+                }
+            };
+            let checked = entry
+                .check_held(&held.path(), true)
+                .and_then(|()| entry.verify_held_bytes(&produced.nodes[index]))
+                .and_then(|()| produced.check_node(index))
+                .and_then(|()| produced.nodes[index].entry.verify_bytes());
+            if let Err(e) = checked {
+                failure = Some(held.restore_error(e));
+                break;
+            }
+            if let Err(e) = held.remove(entry.is_dir) {
+                failure = Some(e);
+                break;
+            }
+        }
+    }
+    if let Some(error) = failure {
+        return Err(root.as_ref().unwrap().restore_error(error));
+    }
+    Ok(())
+}
+
 /// Removes the source entries that were copied, deepest first. A folder
 /// that still holds something (a special file, or a file added meanwhile)
 /// stays, and so does an entry that was changed or replaced after it was
@@ -710,35 +925,7 @@ fn remove_copied(copied: &[Copied], produced: &Produced) -> Option<io::Error> {
     if !produced.durable {
         return Some(unverified_copy());
     }
-    if let Err(e) = produced.check() {
-        return Some(e);
-    }
-    let mut first_error = None;
-    for (index, c) in copied.iter().enumerate().rev() {
-        // Metadata can be coalesced by a filesystem. The held destination
-        // must still contain exactly the bytes written before removing source.
-        if let Err(e) = produced
-            .check_node(index)
-            .and_then(|()| produced.nodes[index].entry.verify_bytes())
-            .and_then(|()| produced.check_node(index))
-        {
-            first_error.get_or_insert(e);
-            break;
-        }
-        let removed = match fs::symlink_metadata(&c.path) {
-            Ok(now) if !c.unchanged(&now) => Err(io::Error::other(fill(
-                tr("“{}” changed after it was copied"),
-                &[&c.path.display()],
-            ))),
-            Ok(_) if c.is_dir => fs::remove_dir(&c.path),
-            Ok(_) => fs::remove_file(&c.path),
-            Err(e) => Err(e),
-        };
-        if let Err(e) = removed {
-            first_error.get_or_insert(e);
-        }
-    }
-    first_error
+    remove_pinned_sources(copied, produced).err()
 }
 
 /// Copies `src` into `dest` under a temporary name, then gives it the first
@@ -1295,12 +1482,30 @@ impl Isolation {
             let path = fd_path(&parent).join(&cell);
             match fs::DirBuilder::new().mode(0o700).create(&path) {
                 Ok(()) => {
+                    #[cfg(test)]
+                    crate::fileops_test::at("holding-created", &path);
                     let made = fs::symlink_metadata(&path)?;
                     let file = std::sync::Arc::new(open_dir(&path)?);
                     if !same_inode(&file.metadata()?, (made.dev(), made.ino())) {
                         return Err(io::Error::other(tr(
                             "The temporary copy changed. Unrecognized items were kept.",
                         )));
+                    }
+                    let opened = file.metadata()?;
+                    // SAFETY: geteuid has no arguments and cannot fail.
+                    let owner = unsafe { geteuid() };
+                    if opened.mode() & 0o077 != 0 || opened.uid() != owner {
+                        if fs::symlink_metadata(&path)
+                            .is_ok_and(|m| same_inode(&m, (made.dev(), made.ino())))
+                        {
+                            let _ = unlink_at(&parent, &cell, true);
+                        }
+                        return Err(io::Error::new(
+                            io::ErrorKind::Unsupported,
+                            tr(
+                                "This filesystem cannot protect a staging folder. The source was kept.",
+                            ),
+                        ));
                     }
                     break (cell, file, (made.dev(), made.ino()));
                 }
@@ -1336,6 +1541,8 @@ impl Isolation {
             let _ = held.clear_folder();
             return Err(e);
         }
+        #[cfg(test)]
+        crate::fileops_test::at("isolate-taken", logical);
         if let Err(e) = held.check() {
             return Err(held.restore_error(e));
         }
@@ -1482,6 +1689,7 @@ impl Copier<'_> {
         if self.progress.is_cancelled() {
             return Err(Stop::Cancelled);
         }
+        let mut source = Copied::pinned(src, meta)?;
         let kind = meta.file_type();
         if kind.is_symlink() {
             let parent = self.output_parent(dst)?;
@@ -1500,15 +1708,13 @@ impl Copier<'_> {
             let made = handle.metadata()?;
             self.created
                 .push(Created::new(dst, parent, &made, Some(handle))?);
-            let mut entry = Copied::new(src, meta);
             if self.sync {
-                entry.metadata_error = crate::transfer_metadata::link(src, &actual, meta).err();
+                source.metadata_error = crate::transfer_metadata::link(src, &actual, meta).err();
             }
-            self.copied.push(entry);
+            self.copied.push(source);
         } else if kind.is_file() {
-            let mut entry = Copied::new(src, meta);
-            entry.metadata_error = self.file(src, meta, dst)?;
-            self.copied.push(entry);
+            source.metadata_error = self.file(src, meta, dst)?;
+            self.copied.push(source);
         } else if kind.is_dir() {
             let parent = self.output_parent(dst)?;
             let actual = fd_path(&parent).join(
@@ -1532,7 +1738,7 @@ impl Copier<'_> {
             #[cfg(test)]
             crate::fileops_test::at("copy-created", &actual);
             let index = self.copied.len();
-            self.copied.push(Copied::new(src, meta));
+            self.copied.push(source);
             for entry in fs::read_dir(src)? {
                 let entry = entry?;
                 let m = entry.metadata()?;
@@ -1753,6 +1959,7 @@ fn temp_name(dir: &Path) -> PathBuf {
 }
 
 unsafe extern "C" {
+    fn geteuid() -> u32;
     fn linkat(
         olddirfd: c_int,
         oldpath: *const c_char,
@@ -2742,7 +2949,7 @@ mod tests {
     }
 
     #[test]
-    fn moving_by_copy_removes_only_what_was_copied() {
+    fn moving_by_copy_keeps_the_whole_source_when_an_entry_is_added() {
         // The fallback for another file system, run directly: the source
         // keeps whatever was not copied.
         let t = TempDir::new("move-copy");
@@ -2768,11 +2975,24 @@ mod tests {
         // A file added after the copy is not in the list and stays.
         write(&src.join("late"), "l");
         assert!(remove_copied(&copied, &produced).is_some());
-        assert_eq!(names(&src), ["late"]);
+        assert_eq!(names(&src), ["f", "late"]);
         assert_eq!(read(&dest.join("tree/f")), "f");
-        // Without it, the whole source goes.
+        // A fresh checked copy can move the unchanged tree normally.
         fs::remove_file(src.join("late")).unwrap();
-        assert!(remove_copied(&copied[..1], &produced).is_none());
+        let next = t.path("next");
+        fs::create_dir(&next).unwrap();
+        let meta = fs::symlink_metadata(&src).unwrap();
+        let (_, fresh, proof) = copy_in(
+            &src,
+            &meta,
+            &next,
+            OsStr::new("tree"),
+            &Progress::new(),
+            true,
+            &mut Run::default(),
+        )
+        .unwrap();
+        assert!(remove_copied(&fresh, &proof).is_none());
         assert!(!src.exists());
     }
 
@@ -2799,11 +3019,11 @@ mod tests {
         // Another program writes a file after it was copied.
         write(&src.join("f"), "v2, longer");
         let e = remove_copied(&copied, &produced).expect("the change is reported");
-        assert!(e.to_string().contains("changed after it was copied"), "{e}");
+        assert!(e.to_string().contains("changed"), "{e}");
         assert_eq!(read(&src.join("f")), "v2, longer");
         assert_eq!(read(&dest.join("tree/f")), "v1");
-        // The unchanged file still goes.
-        assert_eq!(names(&src), ["f"]);
+        // A changed tree is kept in full for another review.
+        assert_eq!(names(&src), ["f", "g"]);
     }
 
     #[test]
@@ -3495,6 +3715,111 @@ mod tests {
         assert!(remove_copied(&copied, &produced).is_some());
         assert_eq!(read(&src), "AAAA");
         assert_eq!(read(&target), "BBBB");
+    }
+
+    #[test]
+    fn source_replacement_in_the_check_to_isolation_gap_is_never_unlinked() {
+        let t = TempDir::new("source-unlink-gap");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "copied old bytes");
+        let spare = t.path("spare");
+        write(&spare, "unique replacement never copied");
+        fs::create_dir(&dest).unwrap();
+        let parked = t.path("saved-original");
+        crate::fileops_test::arm_path("isolate-checked", &src, move |path| {
+            fs::rename(path, &parked).unwrap();
+            fs::rename(&spare, path).unwrap();
+        });
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::NotRemoved(_))]
+        ));
+        assert_eq!(read(&src), "unique replacement never copied");
+        assert_eq!(read(&dest.join("x")), "copied old bytes");
+    }
+
+    #[test]
+    fn a_foreign_object_taken_in_a_cleanup_gap_is_kept_when_its_name_is_occupied() {
+        let t = TempDir::new("source-restore-occupied");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, "copied bytes");
+        fs::create_dir(&dest).unwrap();
+        let parked = t.path("parked");
+        let original = src.clone();
+        crate::fileops_test::arm_path("isolate-checked", &src, move |path| {
+            fs::rename(path, parked).unwrap();
+            write(path, "foreign unique bytes");
+            crate::fileops_test::arm("isolate-taken", move |_| write(&original, "new occupant"));
+        });
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::NotRemoved(_))]
+        ));
+        assert_eq!(read(&src), "new occupant");
+        let cell = fs::read_dir(src.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .as_bytes()
+                    .starts_with(b".everygrep-held-")
+            })
+            .unwrap();
+        assert_eq!(read(&cell.join("item")), "foreign unique bytes");
+        assert!(
+            out.failed[0]
+                .1
+                .to_string()
+                .contains(&cell.display().to_string())
+        );
+    }
+
+    #[test]
+    fn cleanup_rejects_a_filesystem_that_cannot_protect_the_holding_folder() {
+        let t = TempDir::new("holding-permissions");
+        let src = t.path("source");
+        write(&src, "keep bytes");
+        let meta = fs::metadata(&src).unwrap();
+        let parent = std::sync::Arc::new(open_dir(&t.0).unwrap());
+        crate::fileops_test::arm("holding-created", |p| {
+            fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap()
+        });
+        let result = Isolation::take(parent, OsStr::new("source"), &src, (meta.dev(), meta.ino()));
+        crate::fileops_test::fired();
+        assert!(matches!(result,Err(ref e) if e.kind()==io::ErrorKind::Unsupported));
+        assert_eq!(read(&src), "keep bytes");
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn source_child_replacement_after_its_last_check_is_restored_instead_of_deleted() {
+        let t = TempDir::new("source-child-gap");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("x"), "selected bytes");
+        fs::create_dir(&dest).unwrap();
+        let source_dir = std::sync::Arc::new(open_dir(&src).unwrap());
+        let parked = t.path("parked-child");
+        crate::fileops_test::arm_path("isolate-checked", &src.join("x"), move |_| {
+            let actual = fd_path(&source_dir).join("x");
+            fs::rename(&actual, &parked).unwrap();
+            write(&actual, "foreign child bytes");
+        });
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::NotRemoved(_))]
+        ));
+        assert_eq!(read(&src.join("x")), "foreign child bytes");
+        assert_eq!(read(&dest.join("tree/x")), "selected bytes");
     }
 
     #[test]

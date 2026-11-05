@@ -5360,3 +5360,7 @@ msgstr "Tamamlanan kopya doğrulanamadı. Kaynak korundu."
 #: src/transfer.rs
 msgid "The copy at “{}” could not be verified: {}. The source was kept."
 msgstr "“{}” konumundaki kopya doğrulanamadı: {}. Kaynak korundu."
+
+#: src/transfer.rs
+msgid "This filesystem cannot protect a staging folder. The source was kept."
+msgstr "Bu dosya sistemi geçici işlem klasörünü koruyamıyor. Kaynak korundu."
