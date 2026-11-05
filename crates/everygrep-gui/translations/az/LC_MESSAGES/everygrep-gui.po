@@ -5292,3 +5292,7 @@ msgstr "fayl sistemi adı köhnə hərf registrində saxladı"
 #: src/fileops_bulk.rs
 msgid "Another item of the list gets this name in other letter case, and this folder does not tell upper and lower case apart."
 msgstr "Siyahının başqa elementi bu adı başqa hərf registrində alır, bu qovluq isə böyük və kiçik hərfləri fərqləndirmir."
+
+#: src/fileops_drop.rs
+msgid "The results changed under the pointer, so nothing was dropped. Drag the items again."
+msgstr "Nəticələr göstəricinin altında dəyişdi, ona görə heç nə buraxılmadı. Elementləri yenidən sürükləyin."

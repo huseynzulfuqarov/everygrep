@@ -4,7 +4,10 @@
 //! The drag stays inside the window. What is dragged is taken when the
 //! drag starts (the selection, or the pressed row alone); the folder is
 //! checked while the pointer is over it, and once more when the items are
-//! dropped. Ctrl while dropping copies; otherwise the setting decides:
+//! dropped. The drop goes only into the folder that was highlighted: when
+//! the results changed under the pointer meanwhile (the row now shows
+//! another folder, or the folder was replaced), nothing is dropped and the
+//! user is told. Ctrl while dropping copies; otherwise the setting decides:
 //! move on the same drive and copy to another (as file managers do),
 //! always copy, always move, or ask with a menu.
 
@@ -17,6 +20,7 @@ use std::sync::Arc;
 use slint::ComponentHandle;
 
 use crate::engine::Engine;
+use crate::i18n::tr;
 use crate::results::ResultsModel;
 use crate::{AppWindow, clipboard::Operation, prefs};
 
@@ -107,14 +111,93 @@ pub fn can_drop(sources: &[PathBuf], dest: &Path) -> bool {
 /// A marker for drags of result rows; the rows are kept here, not in it.
 struct RowDrag;
 
+/// The folder row checked last while dragging.
+struct Checked {
+    row: usize,
+    /// The folder the row showed then, and its device and inode.
+    dest: PathBuf,
+    id: Option<(u64, u64)>,
+    /// Whether the items may be dropped there (the row is highlighted).
+    ok: bool,
+}
+
+/// Why a drop does nothing.
+#[derive(Debug, PartialEq, Eq)]
+enum Refused {
+    /// No drag of rows, or no folder at the row: nothing to say.
+    Nothing,
+    /// The row no longer shows the folder that was highlighted.
+    Changed,
+}
+
 #[derive(Default)]
 struct State {
     /// The items being dragged.
     sources: Option<Vec<PathBuf>>,
     /// The last folder row checked, and the answer.
-    checked: Option<(usize, bool)>,
+    checked: Option<Checked>,
     /// A drop waiting for the answer of the menu: items and folder.
     asked: Option<(Vec<PathBuf>, PathBuf)>,
+}
+
+/// The device and inode of the folder `dest`.
+fn folder_id(dest: &Path) -> Option<(u64, u64)> {
+    std::fs::metadata(dest).ok().map(|m| (m.dev(), m.ino()))
+}
+
+impl State {
+    /// Whether the dragged items may be dropped onto `row`, which shows
+    /// the folder `dest` now. The answer is kept while the row shows the
+    /// same folder.
+    fn allowed(&mut self, row: usize, dest: Option<PathBuf>) -> bool {
+        let Some(dest) = dest else {
+            self.checked = None;
+            return false;
+        };
+        if let Some(c) = &self.checked
+            && c.row == row
+            && c.dest == dest
+        {
+            return c.ok;
+        }
+        let ok = self
+            .sources
+            .as_deref()
+            .is_some_and(|sources| can_drop(sources, &dest));
+        self.checked = Some(Checked {
+            row,
+            id: folder_id(&dest),
+            dest,
+            ok,
+        });
+        ok
+    }
+
+    /// The items and the folder for a drop on `row`, which shows the
+    /// folder `dest` now: only the folder that was highlighted there, still
+    /// shown by that row and still the same folder on disk.
+    fn take_drop(
+        &mut self,
+        row: usize,
+        dest: Option<PathBuf>,
+    ) -> Result<(Vec<PathBuf>, PathBuf), Refused> {
+        let checked = self.checked.take();
+        let (Some(sources), Some(dest)) = (self.sources.take(), dest) else {
+            return Err(Refused::Nothing);
+        };
+        match checked {
+            Some(c)
+                if c.ok
+                    && c.row == row
+                    && c.dest == dest
+                    && c.id.is_some()
+                    && c.id == folder_id(&dest) =>
+            {
+                Ok((sources, dest))
+            }
+            _ => Err(Refused::Changed),
+        }
+    }
 }
 
 pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
@@ -146,18 +229,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
             let Ok(row) = usize::try_from(row) else {
                 return false;
             };
-            let mut s = state.borrow_mut();
-            if let Some((r, ok)) = s.checked
-                && r == row
-            {
-                return ok;
-            }
-            let ok = match (&s.sources, model.path(row)) {
-                (Some(sources), Some(dest)) => can_drop(sources, &dest),
-                _ => false,
-            };
-            s.checked = Some((row, ok));
-            ok
+            state.borrow_mut().allowed(row, model.path(row))
         }
     });
     w.on_drop_on({
@@ -167,12 +239,20 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
             let Some(w) = weak.upgrade() else {
                 return false;
             };
-            let sources = state.borrow_mut().sources.take();
-            let (Some(sources), Some(dest)) = (
-                sources,
-                usize::try_from(row).ok().and_then(|r| model.path(r)),
-            ) else {
+            let Ok(index) = usize::try_from(row) else {
                 return false;
+            };
+            let taken = state.borrow_mut().take_drop(index, model.path(index));
+            let (sources, dest) = match taken {
+                Ok(drop) => drop,
+                Err(Refused::Nothing) => return false,
+                Err(Refused::Changed) => {
+                    crate::info(
+                        &w,
+                        tr("The results changed under the pointer, so nothing was dropped. Drag the items again.").into(),
+                    );
+                    return false;
+                }
             };
             if model.targets_offline(usize::try_from(row).ok()) {
                 crate::info(&w, crate::labels::offline_refused().into());
@@ -296,6 +376,85 @@ mod tests {
         // Into a folder's own parent is allowed: a move leaves it there,
         // a copy gets a free name.
         assert!(can_drop(std::slice::from_ref(&inner), &a));
+    }
+
+    /// A drag of `file`, with no row checked yet.
+    fn dragging(file: &Path) -> State {
+        State {
+            sources: Some(vec![file.to_path_buf()]),
+            ..State::default()
+        }
+    }
+
+    #[test]
+    fn a_drop_goes_only_into_the_highlighted_folder() {
+        let t = Temp::new("bound");
+        let file = t.0.join("f");
+        fs::write(&file, "x").unwrap();
+        let (a, b) = (t.0.join("a"), t.0.join("b"));
+        fs::create_dir(&a).unwrap();
+        fs::create_dir(&b).unwrap();
+
+        // Over row 7 showing a, dropped while it still does.
+        let mut s = dragging(&file);
+        assert!(s.allowed(7, Some(a.clone())));
+        assert_eq!(
+            s.take_drop(7, Some(a.clone())),
+            Ok((vec![file.clone()], a.clone()))
+        );
+
+        // The results were refreshed under the pointer: row 7 shows b now.
+        let mut s = dragging(&file);
+        assert!(s.allowed(7, Some(a.clone())));
+        assert_eq!(s.take_drop(7, Some(b.clone())), Err(Refused::Changed));
+        assert!(s.sources.is_none(), "the drag is over");
+
+        // A drop on a row that was never checked.
+        let mut s = dragging(&file);
+        assert!(s.allowed(7, Some(a.clone())));
+        assert_eq!(s.take_drop(8, Some(a.clone())), Err(Refused::Changed));
+
+        // Highlighted, but the folder was replaced by another of that name.
+        let mut s = dragging(&file);
+        assert!(s.allowed(3, Some(a.clone())));
+        fs::rename(&a, t.0.join("a-old")).unwrap();
+        fs::create_dir(&a).unwrap();
+        assert_eq!(s.take_drop(3, Some(a.clone())), Err(Refused::Changed));
+
+        // A row that refused the items does not take them at the drop.
+        let mut s = dragging(&a);
+        assert!(!s.allowed(2, Some(a.clone())));
+        assert_eq!(s.take_drop(2, Some(a.clone())), Err(Refused::Changed));
+
+        // No drag, or no folder: nothing happens and nothing is said.
+        let mut s = State::default();
+        assert!(!s.allowed(1, Some(b.clone())));
+        assert_eq!(s.take_drop(1, Some(b.clone())), Err(Refused::Nothing));
+        let mut s = dragging(&file);
+        assert!(!s.allowed(1, None));
+        assert_eq!(s.take_drop(1, None), Err(Refused::Nothing));
+    }
+
+    #[test]
+    fn the_answer_is_kept_only_while_the_row_shows_the_same_folder() {
+        let t = Temp::new("recheck");
+        let file = t.0.join("f");
+        fs::write(&file, "x").unwrap();
+        let a = t.0.join("a");
+        fs::create_dir(&a).unwrap();
+        let mut s = dragging(&a);
+        // Row 4 shows a folder inside the dragged one: refused...
+        let inner = a.join("inner");
+        fs::create_dir(&inner).unwrap();
+        assert!(!s.allowed(4, Some(inner.clone())));
+        // ...and after a refresh it shows another folder: asked again.
+        let other = t.0.join("other");
+        fs::create_dir(&other).unwrap();
+        assert!(s.allowed(4, Some(other.clone())));
+        assert_eq!(
+            s.take_drop(4, Some(other.clone())),
+            Ok((vec![a.clone()], other))
+        );
     }
 
     #[test]
