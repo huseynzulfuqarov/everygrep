@@ -5340,3 +5340,15 @@ msgstr "Korundu {}: {}"
 #: src/transfer.rs
 msgid "Hard-linked files cannot be moved across filesystems safely. Use Copy; the source was kept."
 msgstr "Sabit bağlantılı dosyalar dosya sistemleri arasında güvenle taşınamıyor. Kopyala seçin; kaynak korundu."
+
+#: src/transfer.rs
+msgid "The temporary copy changed. Unrecognized items were kept."
+msgstr "Geçici kopya değişti. Tanınmayan öğeler korundu."
+
+#: src/transfer.rs
+msgid "The temporary copy could not be verified. Source kept."
+msgstr "Geçici kopya doğrulanamadı. Kaynak korundu."
+
+#: src/transfer.rs
+msgid "The partial copy moved; it remains at {}."
+msgstr "Kısmi kopya taşındı; şurada duruyor: {}."

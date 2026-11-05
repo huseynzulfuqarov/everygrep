@@ -5340,3 +5340,15 @@ msgstr "Saxlanıldı {}: {}"
 #: src/transfer.rs
 msgid "Hard-linked files cannot be moved across filesystems safely. Use Copy; the source was kept."
 msgstr "Sərt keçidli faylları fayl sistemləri arasında təhlükəsiz daşımaq mümkün deyil. Kopyala seçin; mənbə saxlanıldı."
+
+#: src/transfer.rs
+msgid "The temporary copy changed. Unrecognized items were kept."
+msgstr "Müvəqqəti nüsxə dəyişib. Tanınmayan elementlər saxlanıldı."
+
+#: src/transfer.rs
+msgid "The temporary copy could not be verified. Source kept."
+msgstr "Müvəqqəti nüsxə yoxlanıla bilmədi. Mənbə saxlanıldı."
+
+#: src/transfer.rs
+msgid "The partial copy moved; it remains at {}."
+msgstr "Yarımçıq nüsxə başqa yerə daşınıb; burada saxlanılır: {}."

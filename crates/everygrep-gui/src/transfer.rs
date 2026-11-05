@@ -18,6 +18,7 @@ use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_uint};
 use std::fmt;
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -578,6 +579,7 @@ const EXDEV: i32 = 18;
 #[cfg(test)]
 thread_local! {
     static FORCE_EXDEV: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static COPY_IO_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn stage_for_replace(src: &Path, folder: &Path) -> io::Result<PathBuf> {
@@ -735,6 +737,7 @@ fn copy_in(
     run: &mut Run,
 ) -> Result<(PathBuf, Vec<Copied>), Stop> {
     let mut copied = Vec::new();
+    let mut created = Vec::new();
     let mut buf = vec![0; CHUNK];
     let mut tries = 0;
     let temp = loop {
@@ -744,6 +747,7 @@ fn copy_in(
             sync,
             buf: &mut buf,
             copied: &mut copied,
+            created: &mut created,
             special: &mut run.special,
             made: false,
         };
@@ -758,14 +762,14 @@ fn copy_in(
             {
                 tries += 1;
             }
-            Err(stop) if copier.made => return Err(cleaned_up(&temp, stop)),
+            Err(stop) if copier.made => return Err(cleaned_up(&temp, &created, stop)),
             Err(stop) => return Err(stop),
         }
     };
     // Cancelled after the last read: the copy is not published (and a
     // move does not remove its source).
     if progress.is_cancelled() {
-        return Err(cleaned_up(&temp, Stop::Cancelled));
+        return Err(cleaned_up(&temp, &created, Stop::Cancelled));
     }
     if let Some(target) = run.exact.take() {
         // Exact-path redo must publish the source that was checked, even
@@ -782,13 +786,14 @@ fn copy_in(
             if !stable {
                 return Err(cleaned_up(
                     &temp,
+                    &created,
                     io::Error::other(tr("The copy source changed while copying.")).into(),
                 ));
             }
         }
         return match rename_strict(&temp, &target) {
             Ok(()) => Ok((target, copied)),
-            Err(e) => Err(cleaned_up(&temp, e.into())),
+            Err(e) => Err(cleaned_up(&temp, &created, e.into())),
         };
     }
     if let Some(expected) = run.replace.take() {
@@ -811,26 +816,30 @@ fn copy_in(
                 run.replaced = true;
                 Ok((expected.path, copied))
             }
-            Err(e) => Err(cleaned_up(&temp, e.into())),
+            Err(e) => Err(cleaned_up(&temp, &created, e.into())),
         };
     }
     loop {
         let target = match run.free_name(dest, name, meta.is_dir()) {
             Ok(t) => t,
-            Err(e) => return Err(cleaned_up(&temp, e.into())),
+            Err(e) => return Err(cleaned_up(&temp, &created, e.into())),
         };
         match rename_noreplace(&temp, &target) {
             Ok(()) => return Ok((target, copied)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(cleaned_up(&temp, e.into())),
+            Err(e) => return Err(cleaned_up(&temp, &created, e.into())),
         }
     }
 }
 
 /// Recreate a recorded copy at its exact path, with no replacement fallback.
 pub fn copy_exact(src: &Path, target: &Path, progress: &Progress) -> io::Result<()> {
-    let parent = target.parent().ok_or(io::ErrorKind::InvalidInput)?;
-    let name = target.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let name = target
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let meta = fs::symlink_metadata(src)?;
     if meta.is_dir() && fs::canonicalize(parent)?.starts_with(fs::canonicalize(src)?) {
         return Err(io::Error::other(tr(
@@ -856,10 +865,255 @@ pub fn copy_exact(src: &Path, target: &Path, progress: &Progress) -> io::Result<
 /// How many hidden temporary names one copy tries before it gives up.
 const TEMP_TRIES: u32 = 100;
 
-/// Removes our partial copy `temp` after the copy stopped for `stop`, and
-/// tells when it could not be removed.
-fn cleaned_up(temp: &Path, stop: Stop) -> Stop {
-    match remove_partial(temp) {
+/// Each entry belongs to this copy only while its device and inode match.
+/// Parent descriptors prevent a renamed/replaced ancestor redirecting cleanup.
+#[derive(Debug)]
+struct Created {
+    path: PathBuf,
+    parent: std::sync::Arc<File>,
+    name: OsString,
+    dev: u64,
+    ino: u64,
+    is_dir: bool,
+    handle: Option<std::sync::Arc<File>>,
+}
+impl Created {
+    fn new(
+        path: &Path,
+        parent: std::sync::Arc<File>,
+        meta: &Metadata,
+        handle: Option<std::sync::Arc<File>>,
+    ) -> io::Result<Self> {
+        Ok(Self {
+            path: path.into(),
+            parent,
+            name: path
+                .file_name()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?
+                .to_owned(),
+            dev: meta.dev(),
+            ino: meta.ino(),
+            is_dir: meta.is_dir(),
+            handle,
+        })
+    }
+    fn anchored(&self) -> PathBuf {
+        fd_path(&self.parent).join(&self.name)
+    }
+    fn check(&self) -> io::Result<()> {
+        let m = fs::symlink_metadata(self.anchored())?;
+        if (m.dev(), m.ino(), m.is_dir()) != (self.dev, self.ino, self.is_dir) {
+            return Err(io::Error::other(tr(
+                "The temporary copy changed. Unrecognized items were kept.",
+            )));
+        }
+        Ok(())
+    }
+    fn unlink(&self) -> io::Result<()> {
+        self.check()?;
+        Isolation::take(
+            self.parent.clone(),
+            &self.name,
+            &self.path,
+            (self.dev, self.ino),
+        )?
+        .remove(self.is_dir)
+    }
+}
+fn fd_path(file: &File) -> PathBuf {
+    PathBuf::from(format!("/proc/self/fd/{}/.", file.as_raw_fd()))
+}
+fn open_dir(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(0o200000 | 0o400000)
+        .open(path)
+}
+
+/// A private holding directory narrows the check-to-unlink window: an entry
+/// taken from the visible name is verified again before it can be removed.
+struct Isolation {
+    parent: std::sync::Arc<File>,
+    name: OsString,
+    folder: std::sync::Arc<File>,
+    folder_name: OsString,
+    folder_id: (u64, u64),
+    logical: PathBuf,
+    expected: (u64, u64),
+}
+fn same_inode(meta: &Metadata, id: (u64, u64)) -> bool {
+    (meta.dev(), meta.ino()) == id
+}
+fn rename_at(from: &File, old: &OsStr, to: &File, new: &OsStr) -> io::Result<()> {
+    let a = CString::new(old.as_bytes())?;
+    let b = CString::new(new.as_bytes())?;
+    rename_noreplace_with(Path::new(old), Path::new(new), |_, _| {
+        // SAFETY: live directory descriptors and valid single-component names.
+        let rc = unsafe {
+            renameat2(
+                from.as_raw_fd(),
+                a.as_ptr(),
+                to.as_raw_fd(),
+                b.as_ptr(),
+                RENAME_NOREPLACE,
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    })
+}
+fn unlink_at(parent: &File, name: &OsStr, directory: bool) -> io::Result<()> {
+    let name = CString::new(name.as_bytes())?;
+    // SAFETY: live directory descriptor, valid name, no recursive removal.
+    let rc = unsafe {
+        unlinkat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            if directory { 0x200 } else { 0 },
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+impl Isolation {
+    fn take(
+        parent: std::sync::Arc<File>,
+        name: &OsStr,
+        logical: &Path,
+        expected: (u64, u64),
+    ) -> io::Result<Self> {
+        use std::hash::BuildHasher;
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let visible = fd_path(&parent).join(name);
+        if !same_inode(&fs::symlink_metadata(&visible)?, expected) {
+            return Err(io::Error::other(tr(
+                "The item changed since the recorded operation.",
+            )));
+        }
+        let mut tries = 0;
+        let (folder_name, folder, folder_id) = loop {
+            if tries >= TEMP_TRIES {
+                return Err(io::ErrorKind::AlreadyExists.into());
+            }
+            tries += 1;
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            let random = std::collections::hash_map::RandomState::new().hash_one(n);
+            let cell = OsString::from(format!(
+                ".everygrep-held-{}-{random:016x}",
+                std::process::id()
+            ));
+            let path = fd_path(&parent).join(&cell);
+            match fs::DirBuilder::new().mode(0o700).create(&path) {
+                Ok(()) => {
+                    let made = fs::symlink_metadata(&path)?;
+                    let file = std::sync::Arc::new(open_dir(&path)?);
+                    if !same_inode(&file.metadata()?, (made.dev(), made.ino())) {
+                        return Err(io::Error::other(tr(
+                            "The temporary copy changed. Unrecognized items were kept.",
+                        )));
+                    }
+                    break (cell, file, (made.dev(), made.ino()));
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        };
+        let held = Self {
+            parent,
+            name: name.into(),
+            folder,
+            folder_name,
+            folder_id,
+            logical: logical.into(),
+            expected,
+        };
+        let checked = fs::symlink_metadata(&visible).and_then(|m| {
+            if same_inode(&m, expected) {
+                Ok(())
+            } else {
+                Err(io::Error::other(tr(
+                    "The item changed since the recorded operation.",
+                )))
+            }
+        });
+        if let Err(e) = checked {
+            let _ = held.clear_folder();
+            return Err(e);
+        }
+        #[cfg(test)]
+        crate::fileops_test::at("isolate-checked", logical);
+        if let Err(e) = rename_at(&held.parent, &held.name, &held.folder, OsStr::new("item")) {
+            let _ = held.clear_folder();
+            return Err(e);
+        }
+        if let Err(e) = held.check() {
+            return Err(held.restore_error(e));
+        }
+        Ok(held)
+    }
+    fn path(&self) -> PathBuf {
+        fd_path(&self.folder).join("item")
+    }
+    fn recovery_path(&self) -> PathBuf {
+        fs::read_link(format!("/proc/self/fd/{}", self.folder.as_raw_fd()))
+            .unwrap_or_else(|_| {
+                self.logical
+                    .parent()
+                    .unwrap_or(Path::new("/"))
+                    .join(&self.folder_name)
+            })
+            .join("item")
+    }
+    fn check(&self) -> io::Result<()> {
+        if !same_inode(&fs::symlink_metadata(self.path())?, self.expected) {
+            return Err(io::Error::other(tr(
+                "The item changed since the recorded operation.",
+            )));
+        }
+        Ok(())
+    }
+    fn clear_folder(&self) -> io::Result<()> {
+        let path = fd_path(&self.parent).join(&self.folder_name);
+        if !same_inode(&fs::symlink_metadata(path)?, self.folder_id) {
+            return Err(io::Error::other(tr(
+                "The temporary copy changed. Unrecognized items were kept.",
+            )));
+        }
+        unlink_at(&self.parent, &self.folder_name, true)
+    }
+    fn restore(&self) -> io::Result<()> {
+        // Even a foreign item accidentally taken in the rename gap is kept.
+        rename_at(&self.folder, OsStr::new("item"), &self.parent, &self.name)?;
+        self.clear_folder()
+    }
+    fn restore_error(&self, error: io::Error) -> io::Error {
+        match self.restore() {
+            Ok(()) => error,
+            Err(restore) => io::Error::other(fill(
+                tr("Could not restore the source; it remains at {0}: {1}"),
+                &[&self.recovery_path().display(), &restore],
+            )),
+        }
+    }
+    fn remove(self, directory: bool) -> io::Result<()> {
+        if let Err(e) = self
+            .check()
+            .and_then(|()| unlink_at(&self.folder, OsStr::new("item"), directory))
+        {
+            return Err(self.restore_error(e));
+        }
+        self.clear_folder()
+    }
+}
+
+fn cleaned_up(temp: &Path, created: &[Created], stop: Stop) -> Stop {
+    match remove_partial(created) {
         Ok(()) => stop,
         Err(error) => Stop::PartLeft {
             cause: Box::new(stop),
@@ -869,38 +1123,43 @@ fn cleaned_up(temp: &Path, stop: Stop) -> Stop {
     }
 }
 
-/// Removes a temporary copy of ours. Its folders are made writable first,
-/// since a copied read-only folder could not be emptied otherwise.
-fn remove_partial(temp: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(temp) {
-        Ok(m) if m.is_dir() => {
-            writable_tree(temp);
-            fs::remove_dir_all(temp)
-        }
-        Ok(_) => fs::remove_file(temp),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e),
-    }
-}
-
-/// Gives the owner full access to the folder `dir` and the folders in it,
-/// links not followed. Errors are left to the removal that follows.
-fn writable_tree(dir: &Path) {
-    let Ok(meta) = fs::symlink_metadata(dir) else {
-        return;
+/// Remove only the recorded entries, never recursively remove a path tree.
+fn remove_partial(created: &[Created]) -> io::Result<()> {
+    let Some(root) = created.first() else {
+        return Ok(());
     };
-    if !meta.is_dir() {
-        return;
+    match root.check() {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if let Some(handle) = &root.handle {
+                if handle.metadata()?.nlink() == 0 {
+                    return Ok(());
+                }
+                let moved = fs::read_link(format!("/proc/self/fd/{}", handle.as_raw_fd()))?;
+                return Err(io::Error::other(fill(
+                    tr("The partial copy moved; it remains at {}."),
+                    &[&moved.display()],
+                )));
+            }
+            return Err(e);
+        }
+        other => other?,
     }
-    let mode = meta.permissions().mode();
-    if mode & 0o700 != 0o700 {
-        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(mode | 0o700));
-    }
-    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        if entry.file_type().is_ok_and(|t| t.is_dir()) {
-            writable_tree(&entry.path());
+    // Read-only modes applied to our directories do not prevent cleanup.
+    // fchmod acts on our descriptor, never on a replacement at its old name.
+    for entry in created.iter().filter(|e| e.is_dir) {
+        entry.check()?;
+        if let Some(dir) = &entry.handle {
+            let mode = dir.metadata()?.mode();
+            dir.set_permissions(fs::Permissions::from_mode(mode | 0o700))?;
         }
     }
+    let mut first_error = None;
+    for entry in created.iter().rev() {
+        if let Err(e) = entry.unlink() {
+            first_error.get_or_insert(e);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 struct Copier<'a> {
@@ -910,6 +1169,7 @@ struct Copier<'a> {
     sync: bool,
     buf: &'a mut Vec<u8>,
     copied: &'a mut Vec<Copied>,
+    created: &'a mut Vec<Created>,
     special: &'a mut u64,
     /// Whether the copy's top entry was made, so there is something of
     /// ours to remove when it stops.
@@ -917,21 +1177,48 @@ struct Copier<'a> {
 }
 
 impl Copier<'_> {
-    /// Copies the entry `src` (described by `meta`, links not followed) to
-    /// `dst`, which must not exist.
+    fn output_parent(&self, dst: &Path) -> io::Result<std::sync::Arc<File>> {
+        let parent = dst
+            .parent()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        if let Some(created) = self.created.iter().find(|e| e.path == parent && e.is_dir) {
+            return created.handle.clone().ok_or_else(|| {
+                io::Error::other(tr("The temporary copy could not be verified. Source kept."))
+            });
+        }
+        if !self.created.is_empty() {
+            return Err(io::Error::other(tr(
+                "The temporary copy could not be verified. Source kept.",
+            )));
+        }
+        Ok(std::sync::Arc::new(open_dir(parent)?))
+    }
+
     fn tree(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
-        // Folders and links read no data, so the read loop alone would not
-        // see a cancel in a tree of them.
         if self.progress.is_cancelled() {
             return Err(Stop::Cancelled);
         }
         let kind = meta.file_type();
         if kind.is_symlink() {
-            std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
+            let parent = self.output_parent(dst)?;
+            let actual = fd_path(&parent).join(
+                dst.file_name()
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
+            );
+            std::os::unix::fs::symlink(fs::read_link(src)?, &actual)?;
             self.made = true;
+            let handle = std::sync::Arc::new(
+                OpenOptions::new()
+                    .read(true)
+                    .custom_flags(0o10000000 | 0o400000)
+                    .open(&actual)?,
+            );
+            let made = handle.metadata()?;
+            self.created
+                .push(Created::new(dst, parent, &made, Some(handle))?);
             let mut entry = Copied::new(src, meta);
             if self.sync {
-                entry.metadata_error = crate::transfer_metadata::link(src, dst, meta).err();
+                entry.metadata_error = crate::transfer_metadata::link(src, &actual, meta).err();
             }
             self.copied.push(entry);
         } else if kind.is_file() {
@@ -939,28 +1226,41 @@ impl Copier<'_> {
             entry.metadata_error = self.file(src, meta, dst)?;
             self.copied.push(entry);
         } else if kind.is_dir() {
-            fs::DirBuilder::new().mode(0o700).create(dst)?;
+            let parent = self.output_parent(dst)?;
+            let actual = fd_path(&parent).join(
+                dst.file_name()
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
+            );
+            fs::DirBuilder::new().mode(0o700).create(&actual)?;
             self.made = true;
+            let made = fs::symlink_metadata(&actual)?;
+            let created_index = self.created.len();
+            self.created.push(Created::new(dst, parent, &made, None)?);
+            let handle = std::sync::Arc::new(open_dir(&actual)?);
+            let opened = handle.metadata()?;
+            if (opened.dev(), opened.ino()) != (made.dev(), made.ino()) {
+                return Err(io::Error::other(tr(
+                    "The temporary copy changed. Unrecognized items were kept.",
+                ))
+                .into());
+            }
+            self.created[created_index].handle = Some(handle.clone());
             #[cfg(test)]
-            crate::fileops_test::at("copy-created", dst);
+            crate::fileops_test::at("copy-created", &actual);
             let index = self.copied.len();
             self.copied.push(Copied::new(src, meta));
             for entry in fs::read_dir(src)? {
                 let entry = entry?;
-                // DirEntry::metadata does not follow links.
                 let m = entry.metadata()?;
                 self.tree(&entry.path(), &m, &dst.join(entry.file_name()))?;
             }
-            // Last, so a read-only folder can still be filled.
             if self.sync {
-                self.copied[index].metadata_error = (|| {
-                    crate::transfer_metadata::file(&File::open(src)?, &File::open(dst)?, meta)
-                })()
-                .err();
+                self.copied[index].metadata_error =
+                    (|| crate::transfer_metadata::file(&File::open(src)?, &handle, meta))().err();
             } else {
-                fs::set_permissions(dst, fs::Permissions::from_mode(mode(meta)))?;
+                handle.set_permissions(fs::Permissions::from_mode(mode(meta)))?;
                 if let Ok(t) = meta.modified() {
-                    let _ = File::open(dst).and_then(|d| d.set_modified(t));
+                    handle.set_modified(t)?;
                 }
             }
         } else {
@@ -979,14 +1279,27 @@ impl Copier<'_> {
             )).into());
         }
         let mut from = File::open(src)?;
-        let mut to = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(dst)?;
+        let parent = self.output_parent(dst)?;
+        let actual = fd_path(&parent).join(
+            dst.file_name()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
+        );
+        let to = std::sync::Arc::new(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&actual)?,
+        );
         self.made = true;
+        self.created.push(Created::new(
+            dst,
+            parent,
+            &to.metadata()?,
+            Some(to.clone()),
+        )?);
         #[cfg(test)]
-        crate::fileops_test::at("copy-created", dst);
+        crate::fileops_test::at("copy-created", &actual);
         loop {
             if self.progress.is_cancelled() {
                 return Err(Stop::Cancelled);
@@ -997,7 +1310,13 @@ impl Copier<'_> {
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e.into()),
             };
-            to.write_all(&self.buf[..n])?;
+            #[cfg(test)]
+            crate::fileops_test::at("copy-read", src);
+            #[cfg(test)]
+            if COPY_IO_ERROR.with(|v| v.replace(false)) {
+                return Err(io::Error::from_raw_os_error(28).into());
+            }
+            (&*to).write_all(&self.buf[..n])?;
             self.progress.add(n as u64);
         }
         let metadata_error = if self.sync {
@@ -1142,6 +1461,7 @@ fn temp_name(dir: &Path) -> PathBuf {
 }
 
 unsafe extern "C" {
+    fn unlinkat(dirfd: c_int, path: *const c_char, flags: c_int) -> c_int;
     fn renameat2(
         olddirfd: c_int,
         oldpath: *const c_char,
@@ -1938,6 +2258,7 @@ mod tests {
         write(&big, &"x".repeat(CHUNK * 2));
         let mut buf = vec![0; CHUNK];
         let (mut copied, mut special) = (Vec::new(), 0);
+        let mut created = Vec::new();
         let meta = fs::symlink_metadata(&big).unwrap();
         let temp = temp_name(&dest);
         progress.cancel();
@@ -1946,6 +2267,7 @@ mod tests {
             sync: false,
             buf: &mut buf,
             copied: &mut copied,
+            created: &mut created,
             special: &mut special,
             made: false,
         };
@@ -1953,7 +2275,7 @@ mod tests {
         // read loop sees the cancel.
         assert!(matches!(c.file(&big, &meta, &temp), Err(Stop::Cancelled)));
         assert!(c.made);
-        remove_partial(&temp).unwrap();
+        remove_partial(&created).unwrap();
         assert!(names(&dest).is_empty());
     }
 
@@ -2000,10 +2322,11 @@ mod tests {
             // Running as root: the folder is writable anyway.
             return;
         }
-        remove_partial(&part).unwrap();
+        let created = created_tree(&part);
+        remove_partial(&created).unwrap();
         assert!(fs::symlink_metadata(&part).is_err(), "partial copy left");
         // Nothing there is not an error.
-        remove_partial(&part).unwrap();
+        remove_partial(&created).unwrap();
     }
 
     #[test]
@@ -2517,6 +2840,199 @@ mod tests {
         let out = paste(Operation::Copy, &[src], &dest, &Progress::new());
         crate::fileops_test::fired();
         assert!(out.failed.is_empty(), "{:?}", out.failed);
+    }
+
+    #[test]
+    fn an_io_error_keeps_a_foreign_replacement_during_cleanup() {
+        let t = TempDir::new("cleanup-io-foreign");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let (d, parked) = (dest.clone(), t.path("parked-output"));
+        crate::fileops_test::arm("copy-read", move |_| {
+            let temp = fs::read_dir(&d).unwrap().next().unwrap().unwrap().path();
+            fs::rename(&temp, parked).unwrap();
+            write(&temp.join("foreign/unique"), "unique bytes");
+            COPY_IO_ERROR.with(|v| v.set(true));
+        });
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        assert!(!out.cancelled);
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::PartLeft { cause: Some(_), .. })]
+        ));
+        let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(read(&temp.join("foreign/unique")), "unique bytes");
+        assert_eq!(fs::metadata(&src).unwrap().len(), (CHUNK * 2) as u64);
+    }
+
+    #[test]
+    fn cleanup_rechecks_the_object_after_isolating_its_name() {
+        let t = TempDir::new("cleanup-isolation-gap");
+        let part = t.path("partial");
+        let parked = t.path("parked");
+        write(&part, "our partial copy");
+        let made = created_tree(&part);
+        let p = parked.clone();
+        crate::fileops_test::arm("isolate-checked", move |path| {
+            fs::rename(path, p).unwrap();
+            write(path, "unique replacement after the check");
+        });
+        assert!(remove_partial(&made).is_err());
+        crate::fileops_test::fired();
+        assert_eq!(read(&part), "unique replacement after the check");
+        assert_eq!(read(&parked), "our partial copy");
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn cancellation_reports_a_partial_copy_moved_out_of_its_temp_name() {
+        let t = TempDir::new("cleanup-relocated");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let progress = std::sync::Arc::new(Progress::new());
+        let parked = t.path("parked-output");
+        let (p, d, to) = (progress.clone(), dest.clone(), parked.clone());
+        crate::fileops_test::arm("copy-read", move |_| {
+            let temp = fs::read_dir(d).unwrap().next().unwrap().unwrap().path();
+            fs::rename(temp, to).unwrap();
+            p.cancel();
+        });
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &progress,
+        );
+        crate::fileops_test::fired();
+        assert!(out.cancelled);
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::PartLeft { .. })]
+        ));
+        assert!(
+            out.failed[0]
+                .1
+                .to_string()
+                .contains(&parked.display().to_string())
+        );
+        assert_eq!(fs::metadata(src).unwrap().len(), (CHUNK * 2) as u64);
+        assert!(parked.exists());
+    }
+
+    fn created_tree(root: &Path) -> Vec<Created> {
+        fn visit(path: &Path, out: &mut Vec<Created>) {
+            let m = fs::symlink_metadata(path).unwrap();
+            let parent = std::sync::Arc::new(open_dir(path.parent().unwrap()).unwrap());
+            let handle = m
+                .is_dir()
+                .then(|| std::sync::Arc::new(open_dir(path).unwrap()));
+            out.push(Created::new(path, parent, &m, handle).unwrap());
+            if m.is_dir() {
+                for entry in fs::read_dir(path).unwrap() {
+                    visit(&entry.unwrap().path(), out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        visit(root, &mut out);
+        out
+    }
+
+    #[test]
+    fn cancel_keeps_a_foreign_directory_replacing_the_partial_file() {
+        let t = TempDir::new("cleanup-foreign-root");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let progress = std::sync::Arc::new(Progress::new());
+        let (p, d, parked) = (progress.clone(), dest.clone(), t.path("our-copy-parked"));
+        crate::fileops_test::arm("copy-read", move |_| {
+            let temp = fs::read_dir(&d).unwrap().next().unwrap().unwrap().path();
+            fs::rename(&temp, parked).unwrap();
+            write(&temp.join("foreign-unique-data"), "never copied");
+            p.cancel();
+        });
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &progress,
+        );
+        crate::fileops_test::fired();
+        assert!(out.cancelled);
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::PartLeft { .. })]
+        ));
+        let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(read(&temp.join("foreign-unique-data")), "never copied");
+        assert_eq!(fs::metadata(&src).unwrap().len(), (CHUNK * 2) as u64);
+    }
+
+    #[test]
+    fn cleanup_never_recurses_into_an_unrecorded_child() {
+        let t = TempDir::new("cleanup-foreign-child");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("x"), &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let progress = std::sync::Arc::new(Progress::new());
+        let (p, d) = (progress.clone(), dest.clone());
+        crate::fileops_test::arm("copy-read", move |_| {
+            let temp = fs::read_dir(&d).unwrap().next().unwrap().unwrap().path();
+            write(&temp.join("foreign/unique"), "keep foreign data");
+            p.cancel();
+        });
+        let out = paste(Operation::Copy, &[src], &dest, &progress);
+        crate::fileops_test::fired();
+        assert!(out.cancelled);
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::PartLeft { .. })]
+        ));
+        let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(read(&temp.join("foreign/unique")), "keep foreign data");
+        assert!(
+            !temp.join("x").exists(),
+            "our recorded partial child can be removed"
+        );
+    }
+
+    #[test]
+    fn cleanup_keeps_a_replacement_at_a_recorded_child_name() {
+        let t = TempDir::new("cleanup-replaced-child");
+        let src = t.path("src/tree");
+        let dest = t.path("dest");
+        write(&src.join("x"), &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let progress = std::sync::Arc::new(Progress::new());
+        let (p, d, parked) = (progress.clone(), dest.clone(), t.path("parked-output"));
+        crate::fileops_test::arm("copy-read", move |_| {
+            let temp = fs::read_dir(&d).unwrap().next().unwrap().unwrap().path();
+            fs::rename(temp.join("x"), parked).unwrap();
+            write(&temp.join("x"), "unique replacement");
+            p.cancel();
+        });
+        let out = paste(Operation::Copy, &[src], &dest, &progress);
+        crate::fileops_test::fired();
+        assert!(out.cancelled);
+        assert!(matches!(
+            out.failed.as_slice(),
+            [(_, Failure::PartLeft { .. })]
+        ));
+        let temp = fs::read_dir(&dest).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(read(&temp.join("x")), "unique replacement");
     }
 
     #[test]
