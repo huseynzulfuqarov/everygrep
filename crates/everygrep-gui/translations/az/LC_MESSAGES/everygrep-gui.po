@@ -5371,3 +5371,9 @@ msgstr "Sistem miniatürləri yoxdur: bubblewrap (bwrap) quraşdırılmayıb."
 
 msgid "No system thumbnails: the thumbnail sandbox (bwrap) cannot start on this system."
 msgstr "Sistem miniatürləri yoxdur: miniatür qum qutusu (bwrap) bu sistemdə başlaya bilmir."
+
+msgid "Cannot open {}: xdg-open cannot be run ({}). It comes with xdg-utils."
+msgstr "{} açıla bilmədi: xdg-open işə salına bilmir ({}). O, xdg-utils paketi ilə gəlir."
+
+msgid "Cannot open {}: xdg-open found no application for it or failed (exit code {})."
+msgstr "{} açıla bilmədi: xdg-open onun üçün proqram tapmadı və ya xəta verdi (çıxış kodu {})."

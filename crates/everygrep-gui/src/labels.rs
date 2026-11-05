@@ -1152,6 +1152,20 @@ pub fn thumbnails_unavailable(why: crate::thumbnailer::Unavailable) -> &'static 
     }
 }
 
+pub fn cannot_run_opener(path: &std::path::Path, e: &std::io::Error) -> String {
+    fill(
+        tr("Cannot open {}: xdg-open cannot be run ({}). It comes with xdg-utils."),
+        &[&path.display(), e],
+    )
+}
+
+pub fn opener_failed(path: &std::path::Path, code: i32) -> String {
+    fill(
+        tr("Cannot open {}: xdg-open found no application for it or failed (exit code {})."),
+        &[&path.display(), &code],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

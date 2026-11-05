@@ -4,10 +4,62 @@
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-/// Opens a file or folder with its default application.
+type Report = Box<dyn Fn(String) + Send>;
+/// Where a failure to open is shown (the window's notice line).
+static REPORT: Mutex<Option<Report>> = Mutex::new(None);
+
+/// Sets where failures to open a file are shown.
+pub fn on_failure(report: impl Fn(String) + Send + 'static) {
+    if let Ok(mut r) = REPORT.lock() {
+        *r = Some(Box::new(report));
+    }
+}
+
+/// Opens a file or folder with its default application. When `xdg-open`
+/// is missing or fails, the reason is shown (see [`on_failure`]).
 pub fn open(path: &Path) {
-    spawn(Command::new("xdg-open").arg(path));
+    open_with(Path::new("xdg-open"), path, |text| {
+        if let Ok(r) = REPORT.lock()
+            && let Some(report) = r.as_ref()
+        {
+            report(text);
+        }
+    });
+}
+
+/// A failing exit within this time is the opener's own (no application for
+/// the type, or it could not start one). Some openers wait for the
+/// application instead, whose exit status says nothing about the opening.
+const OPENER_FAILS_WITHIN: Duration = Duration::from_secs(10);
+
+/// [`open`] with the opener program at `opener`; `report` gets the reason
+/// when it cannot be run or fails.
+fn open_with(opener: &Path, path: &Path, report: impl FnOnce(String) + Send + 'static) {
+    let started = Instant::now();
+    let child = Command::new(opener)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    let path = path.to_path_buf();
+    match child {
+        Err(e) => report(crate::labels::cannot_run_opener(&path, &e)),
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                if let Ok(status) = child.wait()
+                    && let Some(code) = status.code()
+                    && code != 0
+                    && started.elapsed() < OPENER_FAILS_WITHIN
+                {
+                    report(crate::labels::opener_failed(&path, code));
+                }
+            });
+        }
+    }
 }
 
 /// Opens the containing folders in the file manager with the items selected,
@@ -58,17 +110,6 @@ fn show_items(gdbus: &Path, paths: &[PathBuf]) {
 fn uri_list(paths: &[PathBuf]) -> String {
     let uris: Vec<String> = paths.iter().map(|p| format!("'{}'", file_uri(p))).collect();
     format!("[{}]", uris.join(", "))
-}
-
-fn spawn(cmd: &mut Command) {
-    let child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-    if let Ok(child) = child {
-        reap(child);
-    }
 }
 
 /// Waits for `child` on a thread of its own, so it does not stay as a
@@ -124,6 +165,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(took < std::time::Duration::from_millis(500), "{took:?}");
         assert!(answered);
+    }
+
+    #[test]
+    fn a_missing_or_failing_opener_is_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::mpsc;
+        let dir = std::env::temp_dir().join(format!("everygrep-opener-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("some file.txt");
+        let opener = |name: &str, code: i32| {
+            let p = dir.join(name);
+            std::fs::write(&p, format!("#!/bin/sh\nexit {code}\n")).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        // Each run reports at most once; the channel closes when it is done.
+        let run = |program: &Path| {
+            let (send, receive) = mpsc::channel();
+            open_with(program, &target, move |text| {
+                let _ = send.send(text);
+            });
+            let first = receive.recv_timeout(Duration::from_secs(10)).ok();
+            assert!(receive.recv_timeout(Duration::from_secs(10)).is_err());
+            first
+        };
+        let missing = run(&dir.join("no-such-opener")).expect("missing opener reported");
+        assert!(missing.contains("some file.txt"), "{missing}");
+        let failed = run(&opener("fails", 4)).expect("failing opener reported");
+        assert!(
+            failed.contains("some file.txt") && failed.contains('4'),
+            "{failed}"
+        );
+        assert_eq!(run(&opener("works", 0)), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

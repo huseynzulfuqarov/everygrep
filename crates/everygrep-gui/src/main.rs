@@ -213,6 +213,12 @@ fn main() -> Result<(), slint::PlatformError> {
     // before `run()`. Matches the desktop entry, so the shell shows our icon.
     slint::set_xdg_app_id(APP_ID)?;
     let weak = window.as_weak();
+    open::on_failure({
+        let weak = weak.clone();
+        move |text| {
+            let _ = weak.upgrade_in_event_loop(move |w| error(&w, text));
+        }
+    });
 
     let hooks = Hooks {
         on_results: Box::new({
