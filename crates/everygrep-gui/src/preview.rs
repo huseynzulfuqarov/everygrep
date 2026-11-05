@@ -237,7 +237,15 @@ fn load(engine: &Engine, ask: &Ask) -> Option<Answer> {
                 )
             })
             .is_some_and(|b| data::valid(&b, &uri, meta.mtime(), meta.len()));
-        if !cached_failure {
+        if let Some(why) = crate::thumbnailer::unavailable() {
+            // The sandbox itself cannot run: say so once, and record no
+            // failure for this file, so it is tried again once it works.
+            answer.info = format!(
+                "{}\n{}",
+                answer.info,
+                crate::labels::thumbnails_unavailable(why)
+            );
+        } else if !cached_failure {
             let mut attempted = false;
             answer.image = crate::thumbnailer::generate(
                 &path,

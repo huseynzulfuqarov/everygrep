@@ -5365,3 +5365,9 @@ msgstr "Bu dosya sistemi geçici verileri gizli tutamıyor. Kaynak korundu."
 #: src/trashbin.rs
 msgid "A folder cannot be trashed into itself."
 msgstr "Bir klasör kendi içindeki çöp kutusuna taşınamaz."
+
+msgid "No system thumbnails: bubblewrap (bwrap) is not installed."
+msgstr "Sistem küçük resimleri yok: bubblewrap (bwrap) kurulu değil."
+
+msgid "No system thumbnails: the thumbnail sandbox (bwrap) cannot start on this system."
+msgstr "Sistem küçük resimleri yok: küçük resim korumalı alanı (bwrap) bu sistemde başlatılamıyor."

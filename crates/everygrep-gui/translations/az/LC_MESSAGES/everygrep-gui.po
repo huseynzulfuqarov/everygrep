@@ -5365,3 +5365,9 @@ msgstr "Bu fayl sistemi müvəqqəti məlumatı məxfi saxlaya bilmir. Mənbə s
 #: src/trashbin.rs
 msgid "A folder cannot be trashed into itself."
 msgstr "Qovluq öz daxilindəki zibil qutusuna köçürülə bilməz."
+
+msgid "No system thumbnails: bubblewrap (bwrap) is not installed."
+msgstr "Sistem miniatürləri yoxdur: bubblewrap (bwrap) quraşdırılmayıb."
+
+msgid "No system thumbnails: the thumbnail sandbox (bwrap) cannot start on this system."
+msgstr "Sistem miniatürləri yoxdur: miniatür qum qutusu (bwrap) bu sistemdə başlaya bilmir."

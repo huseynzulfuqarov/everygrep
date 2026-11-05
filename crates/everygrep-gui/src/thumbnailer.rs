@@ -8,7 +8,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 struct Definition {
@@ -243,6 +243,65 @@ fn args(
     a
 }
 
+const BWRAP: &str = "/usr/bin/bwrap";
+
+/// Why no system thumbnailer can run at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unavailable {
+    /// `bwrap` is not installed.
+    Missing,
+    /// `bwrap` cannot start a sandbox here (user namespaces denied, or it
+    /// cannot run a program inside).
+    CannotStart,
+}
+
+/// Starts the sandbox once with `/usr/bin/true` inside. A failure there is
+/// the sandbox's own, never one of a file, so it must not be recorded as a
+/// failed thumbnail.
+fn probe(bwrap: &Path, layout: &[OsString]) -> Result<(), Unavailable> {
+    if !bwrap.is_file() {
+        return Err(Unavailable::Missing);
+    }
+    let program = Path::new("/usr/bin/true");
+    if !program.is_file() {
+        return Ok(());
+    }
+    let mut child = Command::new(bwrap)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .args(base_args(layout))
+        .arg(program)
+        .spawn()
+        .map_err(|_| Unavailable::CannotStart)?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Unavailable::CannotStart);
+            }
+        }
+    }
+}
+
+/// Whether system thumbnailers cannot run at all. A missing `bwrap` is
+/// checked each time (it may be installed meanwhile); the start test runs
+/// once per run of the program.
+pub fn unavailable() -> Option<Unavailable> {
+    static STARTS: std::sync::OnceLock<Result<(), Unavailable>> = std::sync::OnceLock::new();
+    if !Path::new(BWRAP).is_file() {
+        return Some(Unavailable::Missing);
+    }
+    STARTS
+        .get_or_init(|| probe(Path::new(BWRAP), &host_layout(Path::new("/"))))
+        .err()
+}
+
 #[repr(C)]
 struct Limit {
     soft: u64,
@@ -429,7 +488,7 @@ pub fn generate(
     attempted: &mut bool,
     nested: bool,
 ) -> Option<Vec<u8>> {
-    if !Path::new("/usr/bin/bwrap").is_file() || progress.is_cancelled() {
+    if unavailable().is_some() || progress.is_cancelled() {
         return None;
     }
     let source = preview::open(path)?;
@@ -482,7 +541,7 @@ pub fn generate(
             .mode(0o600)
             .open(&output)
             .ok()?;
-        let mut command = Command::new("/usr/bin/bwrap");
+        let mut command = Command::new(BWRAP);
         command
             .env_clear()
             .stdin(Stdio::null())
@@ -658,6 +717,41 @@ mod tests {
         }) {
             assert!(nested_allowed(real, true));
         }
+    }
+
+    #[test]
+    fn a_sandbox_that_cannot_start_is_reported_not_recorded_per_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = std::env::temp_dir().join(format!("eg-probe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        let layout = host_layout(Path::new("/"));
+        assert_eq!(
+            probe(&d.join("no-bwrap"), &layout),
+            Err(Unavailable::Missing)
+        );
+        let fake = |name: &str, script: &str| {
+            let p = d.join(name);
+            fs::write(&p, script).unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        // bwrap's own refusal (for example user namespaces denied) exits 1.
+        let refused = fake(
+            "refused",
+            "#!/bin/sh\necho 'bwrap: No permissions' >&2\nexit 1\n",
+        );
+        assert_eq!(probe(&refused, &layout), Err(Unavailable::CannotStart));
+        // A file that cannot be run at all.
+        let broken = fake("broken", "not a program");
+        fs::set_permissions(&broken, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(probe(&broken, &layout), Err(Unavailable::CannotStart));
+        // A sandbox that starts and runs the program inside.
+        let works = fake("works", "#!/bin/sh\nexit 0\n");
+        if Path::new("/usr/bin/true").is_file() {
+            assert_eq!(probe(&works, &layout), Ok(()));
+        }
+        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]

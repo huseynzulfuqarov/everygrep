@@ -1140,6 +1140,18 @@ pub fn pasted(op: Operation, out: &Outcome, folder: &str) -> (String, bool) {
     (parts.join(" "), error)
 }
 
+/// Why the preview shows no thumbnails from system thumbnailers at all.
+pub fn thumbnails_unavailable(why: crate::thumbnailer::Unavailable) -> &'static str {
+    match why {
+        crate::thumbnailer::Unavailable::Missing => {
+            tr("No system thumbnails: bubblewrap (bwrap) is not installed.")
+        }
+        crate::thumbnailer::Unavailable::CannotStart => {
+            tr("No system thumbnails: the thumbnail sandbox (bwrap) cannot start on this system.")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
