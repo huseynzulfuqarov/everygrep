@@ -5280,3 +5280,11 @@ msgstr "HEIC/JXL/SVG önizlemeleri (yardımcı kendi korumalı alanını kullan�
 #: src/actions.rs
 msgid "{} is another drive or file system (a mount point), so nothing was deleted from it"
 msgstr "{} başka bir sürücü veya dosya sistemidir (bağlama noktası), bu yüzden ondan hiçbir şey silinmedi"
+
+#: src/actions.rs
+msgid "the original name could not be restored; the item is now at {0}: {1}"
+msgstr "özgün ad geri yüklenemedi; öğe şimdi {0} konumunda: {1}"
+
+#: src/actions.rs
+msgid "the file system kept the name in its old case"
+msgstr "dosya sistemi adı eski harf büyüklüğünde tuttu"

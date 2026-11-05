@@ -46,6 +46,8 @@ mod labels;
 mod largest_folders;
 mod look;
 mod menus;
+#[cfg(test)]
+mod mount_ns;
 mod name_list_ui;
 mod open;
 mod physical;

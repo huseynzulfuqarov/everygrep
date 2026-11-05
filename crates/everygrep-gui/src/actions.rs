@@ -237,28 +237,74 @@ fn has_entry(path: &Path) -> bool {
 /// The rename never replaces a target that appears after the check, where
 /// the file system can refuse that atomically or a file can get a hard
 /// link; elsewhere (a folder on NFS, SMB, some FUSE file systems) the check
-/// and the rename are two steps. A change of
-/// case on a case-insensitive file system is a plain rename, since the
-/// target found there is the item itself.
+/// and the rename are two steps. A change of case on a case-insensitive
+/// file system goes through a hidden name (see [`rename_case`]).
 pub fn rename(old: &Path, new_name: &str) -> Result<Option<PathBuf>, RenameError> {
     let Some(target) = rename_target(old, new_name)? else {
         return Ok(None);
     };
-    let result = if case_only(old, &target) {
-        std::fs::rename(old, &target)
-    } else {
-        crate::transfer::rename_noreplace(old, &target)
-    };
-    result.map_err(|e| {
-        if e.kind() == io::ErrorKind::AlreadyExists {
-            RenameError::Exists(new_name.to_owned())
-        } else if e.raw_os_error() == Some(36) {
-            RenameError::TooLong
-        } else {
-            RenameError::Io(e)
-        }
-    })?;
+    if case_only(old, &target) {
+        return rename_case(old, &target, new_name).map(Some);
+    }
+    crate::transfer::rename_noreplace(old, &target).map_err(|e| rename_error(e, new_name))?;
     Ok(Some(target))
+}
+
+fn rename_error(e: io::Error, new_name: &str) -> RenameError {
+    if e.kind() == io::ErrorKind::AlreadyExists {
+        RenameError::Exists(new_name.to_owned())
+    } else if e.raw_os_error() == Some(36) {
+        RenameError::TooLong
+    } else {
+        RenameError::Io(e)
+    }
+}
+
+/// Changes only the case of `old`'s name to `target` on a case-insensitive
+/// file system. A plain rename there finds the item itself as the target
+/// and may change nothing while reporting success. So the item first gets
+/// a free hidden name in its folder, then the new spelling; neither step
+/// replaces anything. Afterwards the folder must list exactly the new
+/// name, or the rename is reported as failed.
+fn rename_case(old: &Path, target: &Path, new_name: &str) -> Result<PathBuf, RenameError> {
+    let folder = old
+        .parent()
+        .ok_or_else(|| RenameError::Io(io::ErrorKind::InvalidInput.into()))?;
+    let staged = match crate::transfer::stage_rename(old, folder) {
+        Ok(staged) => staged,
+        // No atomic no-replace rename here (SMB, some FUSE file systems):
+        // a plain rename, which can only find the item itself under the
+        // new spelling, checked below like the two steps.
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
+            std::fs::rename(old, target).map_err(|e| rename_error(e, new_name))?;
+            return kept_new_case(target);
+        }
+        Err(e) => return Err(RenameError::Io(e)),
+    };
+    if let Err(e) = crate::transfer::rename_noreplace(&staged, target) {
+        // The old spelling is free again: nothing else can hold it but an
+        // item made meanwhile, which this never replaces.
+        return Err(match crate::transfer::rename_noreplace(&staged, old) {
+            Ok(()) => rename_error(e, new_name),
+            Err(back) => RenameError::Io(io::Error::other(fill(
+                tr("the original name could not be restored; the item is now at {0}: {1}"),
+                &[&staged.display(), &back],
+            ))),
+        });
+    }
+    kept_new_case(target)
+}
+
+/// `target` when its folder lists exactly that name after a change of
+/// case; otherwise the file system did not take the new spelling.
+fn kept_new_case(target: &Path) -> Result<PathBuf, RenameError> {
+    if has_entry(target) {
+        Ok(target.to_path_buf())
+    } else {
+        Err(RenameError::Io(io::Error::other(tr(
+            "the file system kept the name in its old case",
+        ))))
+    }
 }
 
 /// The `gio trash` commands for `paths`, in batches.
@@ -819,15 +865,11 @@ mod tests {
         assert!(outside.join("keep.txt").is_file());
     }
 
-    /// Set inside the user namespace that [`delete_stops_at_a_real_mount`]
-    /// starts: the scratch folder holding a real mount.
-    const MOUNT_TEST_ENV: &str = "EVERYGREP_TEST_MOUNT_DIR";
-
     #[test]
     fn delete_stops_at_a_real_mount() {
-        if let Some(base) = std::env::var_os(MOUNT_TEST_ENV) {
+        if let Some(base) = crate::mount_ns::inside() {
             // In the namespace: base/victim/inner is a tmpfs of its own.
-            let victim = Path::new(&base).join("victim");
+            let victim = base.join("victim");
             let inner = victim.join("inner");
             assert_ne!(
                 fs::metadata(&inner).unwrap().dev(),
@@ -848,36 +890,84 @@ mod tests {
             assert!(inner.join("data.txt").exists());
             return;
         }
-        // Mount a tmpfs in a user namespace of its own (no root needed),
-        // and run this test again in there.
         let dir = TempDir::new("delete-real-mount");
         fs::create_dir_all(dir.0.join("victim/inner")).unwrap();
         fs::write(dir.0.join("victim/own.txt"), "x").unwrap();
-        let script = "mount -t tmpfs tmpfs \"$1/victim/inner\" || exit 77
-            printf precious > \"$1/victim/inner/data.txt\" || exit 1
-            exec \"$2\" --exact actions::tests::delete_stops_at_a_real_mount --test-threads=1";
-        let run = Command::new("unshare")
-            .args(["-rm", "sh", "-c", script, "sh"])
-            .arg(&dir.0)
-            .arg(std::env::current_exe().unwrap())
-            .env(MOUNT_TEST_ENV, &dir.0)
-            .stdin(Stdio::null())
-            .output();
-        match run {
-            Ok(out) if out.status.success() => {}
-            Ok(out) if matches!(out.status.code(), Some(1 | 77)) && out.stdout.is_empty() => {
-                eprintln!(
-                    "skipped: no user namespace mounts here: {}",
-                    String::from_utf8_lossy(&out.stderr)
-                );
-            }
-            Ok(out) => panic!(
-                "in the namespace: {}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            ),
-            Err(e) => eprintln!("skipped: no unshare: {e}"),
+        crate::mount_ns::run(
+            "actions::tests::delete_stops_at_a_real_mount",
+            &dir.0,
+            "mount -t tmpfs tmpfs \"$1/victim/inner\" || exit 77
+            printf precious > \"$1/victim/inner/data.txt\" || exit 1",
+        );
+    }
+
+    /// The names in `dir`, sorted.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut v: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn case_only_rename_on_a_case_insensitive_folder_changes_the_name() {
+        if let Some(base) = crate::mount_ns::inside() {
+            let d = base.join("cf/d");
+            let abc = d.join("Abc");
+            fs::write(&abc, "abc").unwrap();
+            assert!(
+                fs::symlink_metadata(d.join("ABC")).is_ok(),
+                "case-insensitive"
+            );
+            let new = rename(&abc, "ABC").unwrap().unwrap();
+            assert_eq!(new, d.join("ABC"));
+            assert_eq!(names(&d), ["ABC"]);
+            assert_eq!(fs::read_to_string(&new).unwrap(), "abc");
+            // A folder with contents, and recorded for undo.
+            let _lock = crate::fileops_undo::tests_lock();
+            crate::fileops_undo::with_undo_on(|| {
+                fs::create_dir(d.join("Pics")).unwrap();
+                fs::write(d.join("Pics/x"), "x").unwrap();
+                assert!(crate::fileops_undo::rename(&d.join("Pics"), "PICS").is_ok());
+                assert_eq!(names(&d), ["ABC", "PICS"]);
+                assert_eq!(crate::fileops_undo::step_for_tests(false), (1, 0));
+                assert_eq!(names(&d), ["ABC", "Pics"]);
+            });
+            assert_eq!(fs::read_to_string(d.join("Pics/x")).unwrap(), "x");
+            return;
         }
+        let dir = TempDir::new("rename-casefold");
+        crate::mount_ns::run(
+            "actions::tests::case_only_rename_on_a_case_insensitive_folder_changes_the_name",
+            &dir.0,
+            crate::mount_ns::CASEFOLD_SETUP,
+        );
+    }
+
+    #[test]
+    fn a_case_rename_through_a_hidden_name_keeps_the_item() {
+        // On a case-sensitive folder the two steps work too: the item ends
+        // under the new spelling, and nothing is left behind.
+        let dir = TempDir::new("rename-case-steps");
+        let old = dir.0.join("Notes.txt");
+        fs::write(&old, "n").unwrap();
+        let target = dir.0.join("NOTES.txt");
+        assert_eq!(rename_case(&old, &target, "NOTES.txt").unwrap(), target);
+        assert_eq!(names(&dir.0), ["NOTES.txt"]);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "n");
+        // A target that appears meanwhile is never replaced: the item gets
+        // its old name back.
+        let other = dir.0.join("notes.txt");
+        fs::write(&other, "other").unwrap();
+        assert!(matches!(
+            rename_case(&target, &other, "notes.txt"),
+            Err(RenameError::Exists(_))
+        ));
+        assert_eq!(names(&dir.0), ["NOTES.txt", "notes.txt"]);
+        assert_eq!(fs::read_to_string(&other).unwrap(), "other");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "n");
     }
 
     #[test]

@@ -5280,3 +5280,11 @@ msgstr "HEIC/JXL/SVG önizləmələri (köməkçi öz qum qutusundan istifadə e
 #: src/actions.rs
 msgid "{} is another drive or file system (a mount point), so nothing was deleted from it"
 msgstr "{} başqa disk və ya fayl sistemidir (qoşulma nöqtəsi), ona görə ondan heç nə silinmədi"
+
+#: src/actions.rs
+msgid "the original name could not be restored; the item is now at {0}: {1}"
+msgstr "orijinal ad bərpa edilə bilmədi; element indi {0} yolundadır: {1}"
+
+#: src/actions.rs
+msgid "the file system kept the name in its old case"
+msgstr "fayl sistemi adı köhnə hərf registrində saxladı"
