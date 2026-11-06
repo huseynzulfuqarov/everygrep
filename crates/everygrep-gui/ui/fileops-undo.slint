@@ -1,12 +1,12 @@
 import { Button, ComboBox, StandardTableView, Palette, ScrollView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 export component FileUndoWindow inherits Window {
     title: @tr("File undo history");
     preferred-width: 850px;
     preferred-height: 500px;
     min-width: 650px;
     min-height: 380px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     in property <[[StandardListViewItem]]> rows;
     in property <[string]> operation-ids;
@@ -73,4 +73,5 @@ export component FileUndoWindow inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

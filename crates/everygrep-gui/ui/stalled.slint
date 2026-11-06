@@ -2,14 +2,14 @@
 // before any other window. It closes by itself as soon as the open one is
 // gone.
 import { Button } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component StalledDialog inherits Window {
     title: "EveryGrep";
     icon: @image-url("../../../data/icons/hicolor/scalable/apps/az.huseynz.EveryGrep.svg");
     preferred-width: 440px;
     min-width: 360px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
 
     in property <string> heading;
@@ -59,4 +59,5 @@ export component StalledDialog inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

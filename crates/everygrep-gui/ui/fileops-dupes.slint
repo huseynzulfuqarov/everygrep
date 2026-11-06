@@ -1,5 +1,5 @@
 import { Button, ComboBox, ListView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupCard } from "theme.slint";
 
 // One line of the preview: state 0 a group's heading, 1 kept, 2 to the
 // trash, 3 left as it is.
@@ -30,18 +30,12 @@ export component FileopsDupes inherits Rectangle {
             if (event.text == Key.Escape) { if (!root.busy) { root.cancel(); } return accept; }
             reject
         }
-        Rectangle {
+        PopupCard {
             x: (parent.width - self.width) / 2;
             y: max(0px, (parent.height - self.height) / 2);
             width: min(760px, parent.width - 2 * Theme.s5);
             height: min(640px, parent.height - 2 * Theme.s5);
             clip: true;
-            background: Theme.surface;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-blur: 16px;
-            drop-shadow-color: #00000040;
             VerticalLayout {
                 padding: Theme.dialog-padding;
                 spacing: Theme.s3;

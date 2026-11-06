@@ -1,7 +1,7 @@
 // Index → File list editor: make, open, change and save file lists.
 // Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S and Ctrl+W act in this window only.
 import { Button, Palette, StandardTableView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component FileListEditor inherits Window {
     title: (root.dirty ? "• " : "") + (root.file-name != "" ? root.file-name : @tr("New file list")) + " – " + @tr("File list editor");
@@ -10,7 +10,7 @@ export component FileListEditor inherits Window {
     preferred-height: 600px;
     min-width: 640px;
     min-height: 360px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     forward-focus: keys;
 
@@ -107,4 +107,5 @@ export component FileListEditor inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

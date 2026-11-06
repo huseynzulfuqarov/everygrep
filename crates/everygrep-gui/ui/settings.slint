@@ -2,7 +2,7 @@
 // puts its settings back to the defaults.
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView, StandardTableView } from "std-widgets.slint";
 import { PropertySettings } from "property-settings.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupCard, PopupOutline } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
 import { PreviewSettings } from "preview-settings.slint";
 import { ContentSettings, DuplicateSettings, HashCacheSettings } from "content-settings.slint";
@@ -114,7 +114,7 @@ export component SettingsWindow inherits Window {
     preferred-height: 600px;
     min-width: 520px;
     min-height: 420px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
 
     // 0 indexing, 1 search, 2 appearance, 3 window, 4 keyboard, 5 advanced.
@@ -1808,15 +1808,9 @@ export component SettingsWindow inherits Window {
                 }
                 reject
             }
-            Rectangle {
+            PopupCard {
                 width: min(460px, root.width - 2 * Theme.s5);
                 height: min(dialog-layout.preferred-height, root.height - 2 * Theme.s5);
-                background: Theme.surface;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: Theme.line;
-                drop-shadow-blur: 16px;
-                drop-shadow-color: #00000040;
                 clip: true;
                 dialog-layout := VerticalLayout {
                     padding: Theme.dialog-padding;
@@ -1940,4 +1934,5 @@ export component SettingsWindow inherits Window {
         read-only: true;
         enabled: false;
     }
+    PopupOutline { }
 }

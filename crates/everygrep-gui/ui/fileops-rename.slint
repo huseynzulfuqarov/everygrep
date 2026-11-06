@@ -1,5 +1,5 @@
 import { Button } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupCard } from "theme.slint";
 
 // Modal within the main window: location, editable name and local errors.
 // Like the confirmation dialog, a dimmed backdrop takes all clicks.
@@ -24,7 +24,7 @@ export component FileopsRename inherits Rectangle {
             if (event.text == Key.Return) { if (!root.busy) { root.submit(); } return accept; }
             reject
         }
-        Rectangle {
+        PopupCard {
             x: (parent.width - self.width) / 2;
             y: max(0px, (parent.height - self.height) / 2);
             width: min(480px, parent.width - 2 * Theme.s5);
@@ -32,12 +32,6 @@ export component FileopsRename inherits Rectangle {
             // on screen.
             height: min(layout.preferred-height, parent.height - 2 * Theme.s5);
             clip: true;
-            background: Theme.surface;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-blur: 16px;
-            drop-shadow-color: #00000040;
             layout := VerticalLayout {
                 padding: Theme.dialog-padding;
                 spacing: Theme.s3;

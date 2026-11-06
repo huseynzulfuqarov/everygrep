@@ -96,6 +96,21 @@ mod tests {
     }
 
     #[test]
+    fn floating_edges_stand_out_in_both_themes() {
+        for theme in 0..2 {
+            for bg in ["surface", "surface-alt", "popup-surface"] {
+                let ratio = contrast(token("popup-edge")[theme], token(bg)[theme]);
+                assert!(
+                    ratio >= 3.0,
+                    "popup edge on {bg} (theme {theme}): {ratio:.2}"
+                );
+            }
+            assert!(contrast(token("text")[theme], token("popup-surface")[theme]) >= 7.0);
+            assert!(contrast(token("text-muted")[theme], token("popup-surface")[theme]) >= 4.5);
+        }
+    }
+
+    #[test]
     fn row_text_keeps_its_contrast_in_both_themes() {
         // Body text 7:1, muted text 4.5:1, offline entries 3.9:1, on the
         // backgrounds a row can have.

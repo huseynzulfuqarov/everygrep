@@ -1,5 +1,5 @@
 import { Button, CheckBox, ListView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export struct TabEntry { title: string, checked: bool }
 
@@ -72,7 +72,7 @@ export component TabsWindow inherits Window {
     title: root.multiple ? @tr("Close multiple tabs") : @tr("List all tabs");
     width: 460px;
     height: 440px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     VerticalLayout {
         padding: Theme.margin;
         spacing: Theme.s2;
@@ -92,4 +92,5 @@ export component TabsWindow inherits Window {
             clicked => { root.close-marked(); }
         }
     }
+    PopupOutline { }
 }

@@ -1,5 +1,5 @@
 import { Button, CheckBox, Palette, TextEdit } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component NameListWindow inherits Window {
     title: @tr("Search a list of names");
@@ -8,7 +8,7 @@ export component NameListWindow inherits Window {
     preferred-height: 540px;
     min-width: 600px;
     min-height: 360px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     forward-focus: names;
     in-out property <string> names-text;
@@ -54,4 +54,5 @@ export component NameListWindow inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

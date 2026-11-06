@@ -1,5 +1,5 @@
 import { Button, LineEdit, Palette, StandardTableView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component HistoryWindow inherits Window {
     title: @tr("Organize search history");
@@ -8,7 +8,7 @@ export component HistoryWindow inherits Window {
     preferred-height: 520px;
     min-width: 620px;
     min-height: 380px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     forward-focus: filter;
 
@@ -107,4 +107,5 @@ export component HistoryWindow inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

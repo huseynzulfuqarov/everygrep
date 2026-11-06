@@ -1,7 +1,7 @@
 // Help → Debug log: the last lines of the program's own log, with buttons
 // to copy or save them.
 import { Button, Palette, TextEdit } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component DebugLogWindow inherits Window {
     title: @tr("Debug log");
@@ -10,7 +10,7 @@ export component DebugLogWindow inherits Window {
     preferred-height: 480px;
     min-width: 480px;
     min-height: 300px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
 
     in property <string> log-text;
@@ -80,4 +80,5 @@ export component DebugLogWindow inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

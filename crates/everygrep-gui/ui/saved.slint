@@ -1,5 +1,5 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, StandardTableView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component SavedWindow inherits Window {
     title: root.bookmarks ? @tr("Manage bookmarks") : @tr("Manage filters");
@@ -37,7 +37,7 @@ export component SavedWindow inherits Window {
     preferred-height: 700px;
     min-width: 720px;
     min-height: 480px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     forward-focus: table;
     in property <[[StandardListViewItem]]> rows;
@@ -320,4 +320,5 @@ export component SavedWindow inherits Window {
     m-hidden := Text { visible: false; text: @tr("Hidden files"); }
     m-columns := Text { visible: false; text: @tr("Columns"); }
     m-folder := Text { visible: false; text: @tr("Folder"); }
+    PopupOutline { }
 }

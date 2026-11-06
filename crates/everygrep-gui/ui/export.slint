@@ -1,5 +1,5 @@
 import { Button, CheckBox, ComboBox } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupCard } from "theme.slint";
 
 export component ExportOptions inherits Rectangle {
     in-out property <int> format-index;
@@ -15,15 +15,11 @@ export component ExportOptions inherits Rectangle {
             if (event.text == Key.Return) { root.done(true); return accept; }
             reject
         }
-        Rectangle {
+        PopupCard {
             x: (parent.width - self.width) / 2;
             y: max(0px, (parent.height - self.height) / 2);
             width: min(480px, parent.width - 2 * Theme.s5);
             height: layout.preferred-height;
-            background: Theme.surface;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.line;
             layout := VerticalLayout {
                 padding: Theme.s5;
                 spacing: Theme.s3;

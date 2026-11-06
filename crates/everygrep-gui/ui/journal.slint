@@ -1,7 +1,7 @@
 // Index → Index changes: the last changes applied to the index from file
 // events, kept in memory only.
 import { Button, CheckBox, ComboBox, Palette, StandardTableView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component JournalWindow inherits Window {
     title: @tr("Index changes");
@@ -10,7 +10,7 @@ export component JournalWindow inherits Window {
     preferred-height: 560px;
     min-width: 600px;
     min-height: 320px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
 
     in property <[[StandardListViewItem]]> rows;
@@ -81,4 +81,5 @@ export component JournalWindow inherits Window {
             Text { text: @tr("The list is never written to disk; only Export saves it. Changes found by a catch-up or a new scan are not listed one by one."); color: Theme.text-muted; wrap: word-wrap; }
         }
     }
+    PopupOutline { }
 }

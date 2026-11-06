@@ -1,5 +1,5 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component AdvancedWindow inherits Window {
     title: @tr("Advanced Search");
@@ -10,7 +10,7 @@ export component AdvancedWindow inherits Window {
     preferred-height: 640px;
     min-width: 720px;
     min-height: 360px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     forward-focus: all;
     in-out property <string> all-words;
@@ -269,4 +269,5 @@ export component AdvancedWindow inherits Window {
     m17 := Text { visible: false; text: @tr("Direct child name"); }
     m18 := Text { visible: false; text: @tr("Direct child count from"); }
 
+    PopupOutline { }
 }

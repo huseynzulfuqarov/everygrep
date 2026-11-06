@@ -1,5 +1,5 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, StandardTableView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupOutline } from "theme.slint";
 
 export component LargestFoldersWindow inherits Window {
     title: @tr("Largest folders");
@@ -8,7 +8,7 @@ export component LargestFoldersWindow inherits Window {
     preferred-height: 560px;
     min-width: 680px;
     min-height: 380px;
-    background: Theme.surface;
+    background: Theme.popup-surface;
     default-font-size: Theme.body;
     in property <[[StandardListViewItem]]> rows;
     in-out property <int> current <=> table.current-row;
@@ -79,4 +79,5 @@ export component LargestFoldersWindow inherits Window {
             }
         }
     }
+    PopupOutline { }
 }

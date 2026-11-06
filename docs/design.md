@@ -576,3 +576,12 @@ skip, skip all (this paste), keep both and cancel; errors offer retry. Only a
 regular file can replace another regular file after rechecking the destination.
 Cut on the same filesystem stages and renames the original inode; other cases
 use a complete temporary copy. Publication uses a non-replacing rename. Folders are never merged.
+
+App-drawn dialog cards, history dropdowns, diagnostic/tooltips and floating
+status cards share `Theme.popup-surface`, `Theme.popup-edge` and
+`Theme.popup-shadow`. The opaque 2 px edge keeps at least 3:1 contrast
+against the main and floating surfaces in both themes. Secondary windows
+also draw this edge inside their client area. Ordinary dividers and field
+borders retain their existing colors. Standard menu-bar/context menus and
+ComboBox flyouts retain the toolkit style: Slint 1.18 exposes their color
+scheme, but no public popup border, shadow or placement properties.

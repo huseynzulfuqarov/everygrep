@@ -1,5 +1,5 @@
 import { Button, ScrollView } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupCard } from "theme.slint";
 
 export component FileopsConflict inherits Rectangle {
     in property <string> message;
@@ -14,16 +14,12 @@ export component FileopsConflict inherits Rectangle {
             if (event.text == Key.Escape) { root.answer(5); return accept; }
             reject
         }
-        Rectangle {
+        PopupCard {
             x: (parent.width - self.width) / 2;
             y: max(0px, (parent.height - self.height) / 2);
             width: min(620px, parent.width - 2 * Theme.s5);
             height: min(layout.preferred-height, parent.height - 2 * Theme.s5);
             clip: true;
-            background: Theme.surface;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.line;
             layout := VerticalLayout {
                 padding: Theme.dialog-padding;
                 spacing: Theme.s3;

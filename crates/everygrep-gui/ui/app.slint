@@ -5,7 +5,7 @@ import { FilePropertiesDialog } from "file-properties.slint";
 import { PreviewPanel } from "preview.slint";
 import { FoldersPanel, FolderEntry } from "folders.slint";
 export { FolderEntry } from "folders.slint";
-import { Theme } from "theme.slint";
+import { Theme, PopupCard } from "theme.slint";
 import { FileopsConflict } from "fileops-conflict.slint";
 import { ExportOptions } from "export.slint";
 import { FileopsRename } from "fileops-rename.slint";
@@ -1737,15 +1737,9 @@ component InfoDialog inherits Rectangle {
             accept
         }
     }
-    Rectangle {
+    PopupCard {
         width: min(root.card-width, root.width - 2 * Theme.s5);
         height: min(card-layout.preferred-height, root.height - 2 * Theme.s5);
-        background: Theme.surface;
-        border-radius: 8px;
-        border-width: 1px;
-        border-color: Theme.line;
-        drop-shadow-blur: 16px;
-        drop-shadow-color: #00000040;
         clip: true;
         // Clicks on the card stay on it.
         TouchArea { }
@@ -6096,15 +6090,11 @@ export component AppWindow inherits Window {
 
     if root.history-open: Rectangle {
         TouchArea { clicked => { root.history-open = false; } }
-        Rectangle {
+        PopupCard {
             x: search.absolute-position.x - origin.absolute-position.x;
             y: search.absolute-position.y - origin.absolute-position.y + search.height;
             width: search.width;
             height: min(300px, max(100px, root.height - self.y - Theme.s3));
-            background: Theme.surface;
-            border-color: Theme.line;
-            border-width: 1px;
-            border-radius: Theme.radius;
             VerticalLayout {
                 padding: Theme.s2;
                 spacing: Theme.s1;
@@ -6149,15 +6139,11 @@ export component AppWindow inherits Window {
     property <string> dismissed-notice;
     property <bool> floating-notice: root.notice != "" && root.notice != root.dismissed-notice;
     property <bool> floating-cancel: root.can-cancel && !root.fileops-conflict-open && !root.export-open;
-    if !root.show-status-bar && (root.progress-text != "" || root.floating-cancel || root.floating-notice): Rectangle {
+    if !root.show-status-bar && (root.progress-text != "" || root.floating-cancel || root.floating-notice): PopupCard {
         x: max(Theme.s2, root.width - self.width - Theme.s2);
         y: root.height - self.height - Theme.s2;
         width: min(floating-row.preferred-width, root.width - 2 * Theme.s2);
         height: floating-row.preferred-height;
-        background: Theme.surface;
-        border-radius: Theme.radius;
-        border-width: 1px;
-        border-color: Theme.line;
         drop-shadow-blur: 8px;
         drop-shadow-color: #00000030;
         floating-row := HorizontalLayout {
@@ -6190,15 +6176,11 @@ export component AppWindow inherits Window {
         }
     }
 
-    if notice-hover.has-hover && root.notice != "": Rectangle {
+    if notice-hover.has-hover && root.notice != "": PopupCard {
         x: max(Theme.s2, root.width - self.width - Theme.s2);
         y: root.height - (root.show-status-bar ? Theme.status-height : 0px) - self.height - Theme.s2;
         width: min(620px, root.width - 2 * Theme.s2);
         height: notice-tip.preferred-height + 2 * Theme.s2;
-        background: Theme.surface;
-        border-radius: Theme.radius;
-        border-width: 1px;
-        border-color: Theme.line;
         notice-tip := Text {
             x: Theme.s2;
             y: Theme.s2;
@@ -6210,15 +6192,11 @@ export component AppWindow inherits Window {
         }
     }
 
-    if message-hover.has-hover && root.message-error && root.message-details != "": Rectangle {
+    if message-hover.has-hover && root.message-error && root.message-details != "": PopupCard {
         x: max(Theme.s3, min(message-hover.absolute-position.x - origin.absolute-position.x, root.width - self.width - Theme.s3));
         y: max(Theme.s3, min(message-hover.absolute-position.y - origin.absolute-position.y + message-hover.height + Theme.s2, root.height - self.height - Theme.s3));
         width: min(620px, root.width - 2 * Theme.s3);
         height: diagnostic.preferred-height + 2 * Theme.s2;
-        background: Theme.surface;
-        border-radius: Theme.radius;
-        border-width: 1px;
-        border-color: Theme.line;
         diagnostic := Text {
             x: Theme.s2; y: Theme.s2;
             width: parent.width - 2 * Theme.s2;
@@ -6230,15 +6208,11 @@ export component AppWindow inherits Window {
     }
 
     // Tip of the matching-mode toggle under the mouse.
-    if search.hover-tip != "": Rectangle {
+    if search.hover-tip != "": PopupCard {
         x: min(search.hover-x - origin.absolute-position.x, root.width - self.width - Theme.s2);
         y: search.hover-bottom - origin.absolute-position.y + Theme.s1;
         width: tip-text.preferred-width + 2 * Theme.s2;
         height: tip-text.preferred-height + 2 * Theme.s1;
-        background: Theme.surface;
-        border-radius: 8px;
-        border-width: 1px;
-        border-color: Theme.line;
         drop-shadow-blur: 8px;
         drop-shadow-color: #00000030;
         tip-text := Text {
@@ -6281,17 +6255,11 @@ export component AppWindow inherits Window {
                 accept
             }
         }
-        Rectangle {
+        PopupCard {
             width: min(420px, root.width - 2 * Theme.s5);
             // Never taller than the window, so the buttons stay on screen.
             height: min(dialog-layout.preferred-height, root.height - 2 * Theme.s5);
             clip: true;
-            background: Theme.surface;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.line;
-            drop-shadow-blur: 16px;
-            drop-shadow-color: #00000040;
             dialog-layout := VerticalLayout {
                 padding: Theme.dialog-padding;
                 spacing: Theme.s3;
