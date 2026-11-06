@@ -2,6 +2,7 @@
 use crate::i18n::{fill, tr};
 use crate::{AppWindow, NameListWindow};
 use everygrep_core::namelist::{self, Options};
+use everygrep_core::query::QueryOptions;
 use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::io::Read;
@@ -65,6 +66,24 @@ fn load(path: &Path) -> Result<String, String> {
         .map_err(|_| tr("The name list must be a UTF-8 text file.").to_owned())?;
     namelist::query(&text, Options::default()).map_err(list_error)?;
     Ok(text)
+}
+
+/// The list's matching options are encoded in its query. Preserve the
+/// window's case choice so replacing this query does not change later searches.
+/// Generated query syntax still needs ordinary query parsing, as before.
+fn prepare_search(
+    text: &str,
+    list: Options,
+    window: QueryOptions,
+) -> Result<(String, QueryOptions), namelist::Error> {
+    let query = namelist::query(text, list)?;
+    Ok((
+        query,
+        QueryOptions {
+            regex: false,
+            ..window
+        },
+    ))
 }
 
 impl State {
@@ -149,13 +168,14 @@ impl State {
         if window.get_busy() {
             return;
         }
-        let query = match namelist::query(
+        let (query, options) = match prepare_search(
             &window.get_names_text(),
             Options {
                 case_sensitive: window.get_match_case(),
                 ignore_extension: window.get_ignore_extension(),
                 contains: window.get_contains(),
             },
+            crate::options(&main),
         ) {
             Ok(query) => query,
             Err(e) => {
@@ -164,8 +184,8 @@ impl State {
             }
         };
         main.invoke_history_record();
-        main.set_use_regex(false);
-        main.set_match_case(window.get_match_case());
+        main.set_use_regex(options.regex);
+        main.set_match_case(options.case_sensitive);
         main.set_query(query.as_str().into());
         crate::show_badges(&main);
         main.invoke_generated_query_edited(query.into());
@@ -177,6 +197,56 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn list_case_is_scoped_and_later_plain_searches_keep_the_window_choice() {
+        use everygrep_core::query::{EvalScratch, Query};
+        use everygrep_core::store::{Meta, NodeStore};
+
+        let mut store = NodeStore::new();
+        let root = store.add(None, b"/missing", true, Meta::default());
+        let mixed = store.add(Some(root), b"Report.txt", false, Meta::default());
+        let lower = store.add(Some(root), b"report.txt", false, Meta::default());
+        for window_case in [false, true] {
+            for list_case in [false, true] {
+                for ignore_extension in [false, true] {
+                    for contains in [false, true] {
+                        let window = QueryOptions {
+                            case_sensitive: window_case,
+                            regex: true,
+                            whole_words: true,
+                            ..QueryOptions::default()
+                        };
+                        let list = Options {
+                            case_sensitive: list_case,
+                            ignore_extension,
+                            contains,
+                        };
+                        let (text, after) = prepare_search("Report.txt", list, window).unwrap();
+                        assert_eq!(
+                            after,
+                            QueryOptions {
+                                regex: false,
+                                ..window
+                            }
+                        );
+                        let query = Query::parse(&text, after).unwrap();
+                        assert!(query.matches(&store, mixed, &mut EvalScratch::default()));
+                        assert_eq!(
+                            query.matches(&store, lower, &mut EvalScratch::default()),
+                            !list_case
+                        );
+                        // Replacing the generated query must use the unchanged window choice.
+                        let plain = Query::parse("REPORT", after).unwrap();
+                        assert_eq!(
+                            plain.matches(&store, mixed, &mut EvalScratch::default()),
+                            !window_case
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn imports_validate_utf8_content_and_limits_in_temporary_files() {
         struct Temp(std::path::PathBuf);
