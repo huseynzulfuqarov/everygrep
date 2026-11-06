@@ -432,6 +432,13 @@ impl ResultsModel {
 
     /// Whether `result` answers the newest request. An older one is not
     /// shown: the newer request's result follows.
+    /// Enter must never open rows left over from a previous request.
+    pub fn ready_to_open(&self, query: &str) -> bool {
+        self.engine.is_current(self.generation.get())
+            && self.epoch.get() == self.engine.epoch()
+            && self.query.borrow().as_str() == query
+    }
+
     pub fn is_current(&self, result: &SearchResult) -> bool {
         self.engine.is_current(result.generation)
     }

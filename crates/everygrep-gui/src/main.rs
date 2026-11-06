@@ -532,12 +532,21 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     window.on_search_now({
-        let (engine, weak, pause) = (engine.clone(), weak.clone(), pause.clone());
+        let (engine, weak, pause, delay) =
+            (engine.clone(), weak.clone(), pause.clone(), delay.clone());
         move || {
-            let Some(w) = weak.upgrade() else { return };
-            if typing::with(|t| t.enter()) == typing::Enter::Search {
-                pause.stop();
-                search_now(&w, &engine);
+            let Some(w) = weak.upgrade() else { return true };
+            let mut ready = false;
+            with_model(&w, |m| ready = m.ready_to_open(&w.get_query()));
+            match typing::with(|t| t.enter(ready)) {
+                typing::Enter::Search => {
+                    pause.stop();
+                    delay.stop();
+                    search_now(&w, &engine);
+                    true
+                }
+                typing::Enter::Wait => true,
+                typing::Enter::Open => false,
             }
         }
     });

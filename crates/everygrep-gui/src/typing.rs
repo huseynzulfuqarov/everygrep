@@ -32,6 +32,8 @@ pub fn reads_files(
 pub enum Enter {
     /// Run the search that was waiting for Enter.
     Search,
+    /// The current query has been submitted but its rows have not arrived.
+    Wait,
     /// The results are up to date: open the current row.
     Open,
 }
@@ -81,10 +83,12 @@ impl Typing {
     }
 
     /// Enter was pressed in the search field.
-    pub fn enter(&mut self) -> Enter {
+    pub fn enter(&mut self, results_current: bool) -> Enter {
         let delayed = std::mem::take(&mut self.delayed);
         if std::mem::take(&mut self.waiting) || delayed {
             Enter::Search
+        } else if !results_current {
+            Enter::Wait
         } else {
             Enter::Open
         }
@@ -158,12 +162,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn enter_searches_a_delayed_query_and_blocks_old_rows_until_delivery() {
+        let mut t = Typing::default();
+        t.set_delay(1000);
+        assert!(t.edited(false));
+        assert!(t.hold().is_some());
+        assert_eq!(t.enter(false), Enter::Search);
+        assert!(!t.due(), "Enter cancels the delayed submission");
+        assert_eq!(t.enter(false), Enter::Wait, "old rows cannot open");
+        assert_eq!(t.enter(true), Enter::Open, "new rows may open");
+        // Zero delay still needs to wait for the engine's new rows.
+        t.set_delay(0);
+        assert!(t.edited(false));
+        assert!(t.hold().is_none());
+        assert_eq!(t.enter(false), Enter::Wait);
+        assert_eq!(t.enter(true), Enter::Open);
+    }
+
+    #[test]
     fn as_you_type_searches_at_every_change() {
         let mut t = Typing::default();
         assert!(t.as_you_type());
         assert!(t.edited(false));
         assert!(!t.waiting());
-        assert_eq!(t.enter(), Enter::Open);
+        assert_eq!(t.enter(true), Enter::Open);
     }
 
     #[test]
@@ -174,12 +196,16 @@ mod tests {
         assert!(!t.edited(false), "typing does not search");
         assert!(!t.edited(false));
         assert!(t.waiting());
-        assert_eq!(t.enter(), Enter::Search, "Enter runs the search");
-        assert_eq!(t.enter(), Enter::Open, "then Enter opens the current row");
+        assert_eq!(t.enter(true), Enter::Search, "Enter runs the search");
+        assert_eq!(
+            t.enter(true),
+            Enter::Open,
+            "then Enter opens the current row"
+        );
         // A history step searches, so nothing waits any more.
         t.edited(false);
         t.searched();
-        assert_eq!(t.enter(), Enter::Open);
+        assert_eq!(t.enter(true), Enter::Open);
     }
 
     #[test]
@@ -200,8 +226,8 @@ mod tests {
         assert!(t.waiting());
         // Another setting changing does not run it.
         assert!(!t.set_as_you_type(true, true, true));
-        assert_eq!(t.enter(), Enter::Search, "Enter runs it");
-        assert_eq!(t.enter(), Enter::Open);
+        assert_eq!(t.enter(true), Enter::Search, "Enter runs it");
+        assert_eq!(t.enter(true), Enter::Open);
         // Typing on to a name search runs again without Enter.
         t.edited(true);
         assert!(t.edited(false));
@@ -223,7 +249,7 @@ mod tests {
         assert!(t.edited(false));
         assert_eq!(t.hold(), None);
         assert!(!t.due());
-        assert_eq!(t.enter(), Enter::Open);
+        assert_eq!(t.enter(true), Enter::Open);
     }
 
     #[test]
@@ -237,11 +263,11 @@ mod tests {
         assert_eq!(t.hold(), Some(Duration::from_millis(300)));
         assert!(t.due(), "the delay ran out: search");
         assert!(!t.due(), "only once");
-        assert_eq!(t.enter(), Enter::Open, "nothing held: Enter opens");
+        assert_eq!(t.enter(true), Enter::Open, "nothing held: Enter opens");
         // Enter runs a held search at once; the timer then finds nothing.
         t.edited(false);
         t.hold();
-        assert_eq!(t.enter(), Enter::Search);
+        assert_eq!(t.enter(true), Enter::Search);
         assert!(!t.due());
         // A search for another reason (history, options) drops the held one.
         t.edited(false);
@@ -253,7 +279,7 @@ mod tests {
         t.hold();
         assert!(!t.edited(true));
         assert!(!t.due());
-        assert_eq!(t.enter(), Enter::Search);
+        assert_eq!(t.enter(true), Enter::Search);
         t.set_delay(0);
         assert!(t.edited(false));
         assert_eq!(t.hold(), None);

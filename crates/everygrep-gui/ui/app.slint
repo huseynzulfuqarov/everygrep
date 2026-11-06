@@ -1936,7 +1936,7 @@ export component AppWindow inherits Window {
     // Search as you type is off and the search field changed: Enter runs
     // the search (search-now) instead of opening the current row.
     in property <bool> search-pending;
-    callback search-now();
+    callback search-now() -> bool;
 
     // The settings window, and ending the program (also when closing the
     // window only hides it).
@@ -4434,9 +4434,9 @@ export component AppWindow inherits Window {
                         insert-part(text, anchor, cursor, menu, index) => { root.insert-search-part(text, anchor, cursor, menu, index) }
                         accepted => {
                             root.history-open = false;
-                            if (root.search-pending) {
-                                root.search-now();
-                            } else {
+                            // Rust checks held searches and the generation of
+                            // the displayed rows before any activation.
+                            if (!root.search-now()) {
                                 root.history-record();
                                 if (root.current >= 0) {
                                     root.activate(root.current);
