@@ -87,6 +87,32 @@ export component SavedWindow inherits Window {
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
         Palette.color-scheme = Theme.scheme;
     }
+    // The same window edits bookmarks and filters. No selection means no
+    // editor values, including a filter index from the other kind of list.
+    public function clear-editor() {
+        root.entry-name = "";
+        root.search-text = "";
+        root.kind = -1;
+        root.entry-kind = 0;
+        root.folder-choice = -1;
+        root.sort-column = -1;
+        root.filter-sort = -1;
+        root.column-choice = -1;
+        root.descending = false;
+        root.match-case = false;
+        root.whole-words = false;
+        root.match-path = false;
+        root.diacritics = false;
+        root.prefix = false;
+        root.suffix = false;
+        root.punctuation = false;
+        root.whitespace = false;
+        root.regex = false;
+        root.hidden-mode = -1;
+        root.and-before-or = false;
+        root.literal-operators = false;
+        root.wildcards-anywhere = false;
+    }
     public function focus-name() { name.focus(); }
 
     FocusScope {

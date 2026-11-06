@@ -789,6 +789,15 @@ impl State {
         {
             // The text found among bookmarks is not one to find among
             // filters.
+            self.editing.set(None);
+            self.draft_shortcut.set(None);
+            self.draft_bookmark.borrow_mut().take();
+            self.pending_delete.borrow_mut().take();
+            *self.draft_columns.borrow_mut() = ColumnChoices::default();
+            self.draft_sorts.borrow_mut().clear();
+            *self.draft.borrow_mut() = QueryOptions::default();
+            w.set_shortcut_text("".into());
+            w.invoke_clear_editor();
             w.set_find_text("".into());
             w.set_current(-1);
             w.set_editing(false);
@@ -878,6 +887,10 @@ impl State {
             w.set_rows(ModelRc::new(VecModel::from(rows)));
             if w.get_current() >= values.len() as i32 {
                 w.set_current(-1);
+            }
+            if w.get_current() < 0 && !w.get_editing() {
+                w.invoke_clear_editor();
+                w.set_shortcut_text("".into());
             }
             let mut kinds = if self.bookmarks.get() {
                 l.filters.iter().map(NamedFilter::title).collect::<Vec<_>>()
