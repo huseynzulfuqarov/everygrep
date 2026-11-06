@@ -8552,8 +8552,11 @@ mod tests {
             "{took:?}"
         );
         // Let go, the scan ends (cancelled) before the scratch folder goes.
+        // Quitting's save thread may still run and take what the scan
+        // reports, so the end is seen by the scan thread letting go of the
+        // list it reports to.
         let deadline = Instant::now() + Duration::from_secs(20);
-        while probe.engine.scanned.lock().unwrap().is_empty() {
+        while Arc::strong_count(&probe.engine.scanned) > 1 {
             assert!(Instant::now() < deadline, "the scan never ended");
             std::thread::sleep(Duration::from_millis(5));
         }
