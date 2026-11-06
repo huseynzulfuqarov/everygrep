@@ -309,12 +309,16 @@ fn held(guard: std::sync::MutexGuard<'static, ()>) -> FileGuard {
     crate::fileops_undo_ui::request_refresh();
     FileGuard(std::marker::PhantomData)
 }
-fn try_file_guard() -> Option<FileGuard> {
+/// Takes the slot without telling the UI, recovering it after a worker fault.
+fn try_files() -> Option<std::sync::MutexGuard<'static, ()>> {
     match FILES.try_lock() {
-        Ok(guard) => Some(held(guard)),
-        Err(std::sync::TryLockError::Poisoned(e)) => Some(held(e.into_inner())),
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::Poisoned(e)) => Some(e.into_inner()),
         Err(std::sync::TryLockError::WouldBlock) => None,
     }
+}
+fn try_file_guard() -> Option<FileGuard> {
+    try_files().map(held)
 }
 pub fn queue_notice(weak: slint::Weak<crate::AppWindow>) {
     QUEUED.with(|slot| {
@@ -394,9 +398,11 @@ fn config() -> Config {
     *CONFIG.lock().unwrap_or_else(|e| e.into_inner())
 }
 /// A non-blocking snapshot for menu actions; workers may hold the journal
-/// while reading trees or waiting for a transfer decision.
+/// while reading trees or waiting for a transfer decision. Reading asks for
+/// no refresh: the UI refreshes by calling this, so a request here would
+/// queue refreshes without end.
 pub fn availability() -> (bool, bool) {
-    let Some(_files) = try_file_guard() else {
+    let Some(_files) = try_files() else {
         return (false, false);
     };
     let Ok(mut journal) = JOURNAL.try_lock() else {

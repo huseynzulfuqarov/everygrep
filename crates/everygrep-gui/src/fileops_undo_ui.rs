@@ -14,6 +14,8 @@ thread_local! { static MAIN: RefCell<Vec<slint::Weak<AppWindow>>> = const { RefC
 static CONNECTED: AtomicBool = AtomicBool::new(false);
 
 pub fn request_refresh() {
+    #[cfg(test)]
+    refresh_tests::REQUESTS.with(|n| n.set(n.get() + 1));
     if CONNECTED.load(Ordering::Relaxed) {
         let _ = slint::invoke_from_event_loop(refresh_actions);
     }
@@ -312,5 +314,57 @@ mod key_tests {
             super::history_key(&map, Chord::parse("Ctrl+Shift+Z").unwrap()),
             1
         );
+    }
+}
+#[cfg(test)]
+mod refresh_tests {
+    use crate::fileops_undo;
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Refreshes requested on this thread; each one queues `refresh_actions`.
+        pub(super) static REQUESTS: Cell<usize> = const { Cell::new(0) };
+    }
+    fn requests() -> usize {
+        REQUESTS.with(Cell::get)
+    }
+
+    #[test]
+    fn reading_actions_requests_no_refresh_but_file_work_does() {
+        let _test = fileops_undo::tests_lock();
+        let before = requests();
+        let _ = fileops_undo::availability();
+        super::refresh_actions();
+        assert_eq!(requests(), before, "reading availability queued a refresh");
+        let guard = fileops_undo::file_guard();
+        assert_eq!(requests(), before + 1, "taking the file slot");
+        assert_eq!(fileops_undo::availability(), (false, false));
+        drop(guard);
+        assert_eq!(requests(), before + 2, "releasing the file slot");
+    }
+
+    /// Runs the queue the way the event loop would after `connect`: one
+    /// refresh, then one more for every refresh it requests.
+    fn drain(mut queued: usize) -> Option<usize> {
+        for ran in 0..64 {
+            if queued == 0 {
+                return Some(ran);
+            }
+            queued -= 1;
+            let before = requests();
+            super::refresh_actions();
+            queued += requests() - before;
+        }
+        None
+    }
+
+    #[test]
+    fn startup_refresh_queue_drains() {
+        let _test = fileops_undo::tests_lock();
+        assert_eq!(drain(1), Some(1), "the startup refresh queued more work");
+        let before = requests();
+        drop(fileops_undo::file_guard());
+        let queued = requests() - before;
+        assert_eq!(drain(queued), Some(2), "a file operation's refreshes");
     }
 }

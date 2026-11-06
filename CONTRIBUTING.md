@@ -26,6 +26,12 @@ XDG_CONFIG_HOME=/tmp/eg-config cargo run -p everygrep-gui -- \
     --root ~/some/folder --index-file /tmp/eg-index.bin
 ```
 
+`scripts/smoke-gui.sh [binary] [seconds] [rss-limit-MiB]` starts a built
+window the same way in a scratch folder, leaves it idle and fails if its UI
+thread stays busy or its memory passes the limit (default
+`target/release/everygrep-gui`, 20 s, 600 MiB). It needs a desktop session,
+so `scripts/check.sh` does not run it.
+
 ## Commits
 
 - [Conventional Commits](https://www.conventionalcommits.org/) in English:
