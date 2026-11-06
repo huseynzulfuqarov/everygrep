@@ -6752,11 +6752,18 @@ mod tests {
         );
         assert_eq!(engine.applied.lock().unwrap().text, "duplicates:");
         assert!(engine.settled_search().is_some(), "still complete");
-        // After a file change the tab searches again.
-        let version = engine.index.read().unwrap().version();
+        // After a file change the tab searches again. The new file is added
+        // when it is created, which can be before its text is written, and
+        // an empty file is no duplicate: wait for its size.
+        let written = || {
+            let index = engine.index.read().unwrap();
+            index
+                .find_child(Some(index.roots()[0]), b"c.txt")
+                .is_some_and(|id| index.store().meta(id).size == 5)
+        };
         fs::write(root.join("c.txt"), "same\n").unwrap();
         let deadline = Instant::now() + Duration::from_secs(20);
-        while engine.index.read().unwrap().version() == version {
+        while !written() {
             assert!(Instant::now() < deadline, "change not seen");
             std::thread::sleep(Duration::from_millis(20));
         }
