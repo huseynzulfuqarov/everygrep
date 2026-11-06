@@ -114,11 +114,30 @@ pub fn insert(text: &str, anchor: usize, cursor: usize, part: Part) -> (String, 
         return (out, caret);
     }
     out.push_str(&text[..start]);
+    // With no selection this starts a new term. Preserve modifier chains
+    // and the boundaries provided by a group, OR or NOT operator.
+    let separate = start == end;
+    let new_term = separate
+        && text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace() && !matches!(c, '<' | '|' | '!' | ':'));
+    if new_term {
+        out.push(' ');
+    }
     out.push_str(part.open);
     let inside = out.len();
     out.push_str(&text[start..end]);
     out.push_str(part.close);
     let caret = if start == end { inside } else { out.len() };
+    if new_term
+        && text[end..]
+            .chars()
+            .next()
+            .is_some_and(|c| !c.is_whitespace() && !matches!(c, '>' | '|'))
+    {
+        out.push(' ');
+    }
     out.push_str(&text[end..]);
     (out, caret)
 }
@@ -135,12 +154,35 @@ mod tests {
         // Selected from right to left: the same.
         assert_eq!(insert("a b", 3, 2, group), ("a <b>".into(), 5));
         // No selection: an empty pair with the cursor inside.
-        assert_eq!(insert("ab", 1, 1, group), ("a<>b".into(), 2));
+        assert_eq!(insert("ab", 1, 1, group), ("a <> b".into(), 3));
         assert_eq!(insert("", 0, 0, wrap("case:", "")), ("case:".into(), 5));
         assert_eq!(
             insert("report", 0, 6, wrap("case:", "")),
             ("case:report".into(), 11)
         );
+    }
+
+    #[test]
+    fn inserted_terms_have_boundaries_and_leave_the_caret_in_the_new_term() {
+        assert_eq!(
+            insert("case:beach", 10, 10, FUNCTIONS[0]),
+            ("case:beach ext:".into(), 15)
+        );
+        assert_eq!(
+            insert("case:beach ", 11, 11, FUNCTIONS[0]),
+            ("case:beach ext:".into(), 15)
+        );
+        assert_eq!(insert("əx", 2, 2, FUNCTIONS[0]), ("ə ext: x".into(), 7));
+        assert_eq!(insert("<", 1, 1, MODIFIERS[0]), ("<case:".into(), 6));
+        assert_eq!(insert("case:", 5, 5, FUNCTIONS[0]), ("case:ext:".into(), 9));
+        assert_eq!(insert("x>", 1, 1, FUNCTIONS[0]), ("x ext:>".into(), 6));
+        assert_eq!(insert("a|", 2, 2, FUNCTIONS[0]), ("a|ext:".into(), 6));
+        // A selection is wrapped, retaining its existing term boundaries.
+        assert_eq!(
+            insert("beach", 0, 5, MODIFIERS[0]),
+            ("case:beach".into(), 10)
+        );
+        assert!(Query::parse("case:beach ext:jpg", QueryOptions::default()).is_ok());
     }
 
     #[test]

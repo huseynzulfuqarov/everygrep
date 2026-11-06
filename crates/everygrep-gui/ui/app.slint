@@ -429,6 +429,20 @@ component SearchField inherits Rectangle {
         input.focus();
         input.set-selection-offsets(r.caret, r.caret);
         root.edited(input.text);
+        // Popup dismissal restores the previous focus after activation.
+        // Restore the editor and its byte caret on the following turn.
+        root.insert-caret = r.caret;
+        insert-focus.running = true;
+    }
+    property <int> insert-caret;
+    insert-focus := Timer {
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            input.focus();
+            input.set-selection-offsets(root.insert-caret, root.insert-caret);
+        }
     }
     public function focus-and-select() {
         input.focus();
