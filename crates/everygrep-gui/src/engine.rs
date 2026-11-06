@@ -2170,6 +2170,8 @@ impl Engine {
         let mut values = FileValues::default();
         for (id, path) in files {
             progress.check()?;
+            #[cfg(test)]
+            tests::slow_file(&path);
             if !wanted.is_empty() {
                 values
                     .media
@@ -4463,16 +4465,19 @@ mod tests {
             )
             .unwrap();
         assert!(none.is_none());
-        // A writer waiting for the index gets it while the files are read.
+        // A writer waiting for the index gets it while the files are read:
+        // the first one is read only once it did.
+        let slow = index.store().path(ids[0]);
+        SLOW_FILES.lock().unwrap().push(slow.clone());
         let wrote = Arc::new(AtomicBool::new(false));
         let writer = std::thread::spawn({
             let (engine, wrote) = (engine.clone(), wrote.clone());
             move || {
                 let _index = engine.index.write().unwrap();
                 wrote.store(true, Ordering::SeqCst);
+                SLOW_FILES.lock().unwrap().retain(|p| *p != slow);
             }
         });
-        std::thread::sleep(Duration::from_millis(200));
         let (index, media) = engine
             .media_for_sort(index, &ids, sort, engine.epoch(), &progress, true)
             .unwrap();
@@ -5521,12 +5526,26 @@ mod tests {
         fs::write(b.join("two.txt"), "2").unwrap();
         let probe = Probe::start(vec![a.clone()], Vec::new(), dir.0.join("index.bin"));
         probe.wait_for(IndexState::Watching);
+        // The search asked for at the start is answered and no task runs:
+        // the next task to begin is the scheduled scan.
+        assert!(probe.names("txt").is_empty());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while probe.engine.is_busy() {
+            assert!(Instant::now() < deadline, "a task still runs");
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let (release, wait) = mpsc::channel();
         *probe.hold.lock().unwrap() = Some(wait);
         probe.engine.last_full_scan.store(1, Ordering::SeqCst);
         // Due at the next look of the index thread.
         probe.engine.set_schedule(Schedule::EveryHours(1));
         probe.held.recv_timeout(Duration::from_secs(20)).unwrap();
+        let running = probe.engine.tasks.list.lock().unwrap().clone();
+        assert!(
+            running
+                .iter()
+                .any(|t| *t.kind.lock().unwrap() == TaskKind::Rescanning)
+        );
         assert!(probe.engine.full_pending.load(Ordering::SeqCst));
         probe
             .engine
@@ -7383,6 +7402,18 @@ mod tests {
                 .iter()
                 .any(|p| p == mount_point)
         {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Files whose reading for a sort takes until they are taken off the
+    /// list, as on a slow disk.
+    static SLOW_FILES: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    /// Waits while a test lists `path` as slow (20 s at most).
+    pub(super) fn slow_file(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline && SLOW_FILES.lock().unwrap().iter().any(|p| p == path) {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
