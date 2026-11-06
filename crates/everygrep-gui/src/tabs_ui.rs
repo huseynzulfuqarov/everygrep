@@ -836,7 +836,8 @@ impl State {
             })
             .collect();
         let shown = crate::menus::window(rows.len(), Some(tabs.active), crate::menus::TABS);
-        w.set_tab_items(ModelRc::new(VecModel::from(
+        w.set_tab_items(crate::menus::stable_model(
+            w.get_tab_items(),
             rows[shown.clone()]
                 .iter()
                 .zip(shown)
@@ -846,22 +847,23 @@ impl State {
                     index: i as i32,
                 })
                 .collect::<Vec<_>>(),
-        )));
+        ));
         let search = tabs
             .open
             .get(tabs.active)
             .map(|t| crate::fileops_search::readable(&t.search.query))
             .unwrap_or_default();
         w.set_window_title(window_title(&search, rows.len().saturating_sub(1)).into());
-        w.set_tabs(ModelRc::new(VecModel::from(rows)));
+        w.set_tabs(crate::menus::stable_model(w.get_tabs(), rows));
         w.set_active_tab(tabs.active as i32);
-        w.set_closed_tab_names(ModelRc::new(VecModel::from(
+        w.set_closed_tab_names(crate::menus::stable_model(
+            w.get_closed_tab_names(),
             tabs.closed
                 .iter()
                 .rev()
                 .map(|t| title(t).into())
                 .collect::<Vec<slint::SharedString>>(),
-        )));
+        ));
     }
 
     fn close_picker(&self) {
