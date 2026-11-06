@@ -10,7 +10,8 @@
 use std::cell::Cell;
 
 use i_slint_backend_winit::winit::event::{ElementState, WindowEvent};
-use i_slint_backend_winit::winit::keyboard::{KeyCode, PhysicalKey};
+use i_slint_backend_winit::winit::keyboard::{Key, KeyCode, PhysicalKey};
+use i_slint_backend_winit::winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use i_slint_backend_winit::{EventResult, WinitWindowAccessor};
 
 use crate::commands::Chord;
@@ -18,6 +19,8 @@ use crate::commands::Chord;
 thread_local! {
     /// The US-layout character of the key pressed last, if it has one.
     static LAST: Cell<Option<char>> = const { Cell::new(None) };
+    // The same key without Shift, in the active layout (never a US guess).
+    static LAYOUT: Cell<Option<char>> = const { Cell::new(None) };
     static ENABLED: Cell<bool> = const { Cell::new(true) };
 }
 
@@ -37,6 +40,14 @@ pub fn watch(window: &slint::Window) {
                 PhysicalKey::Unidentified(_) => None,
             };
             LAST.with(|l| l.set(c));
+            let layout = match event.key_without_modifiers() {
+                Key::Character(text) => {
+                    let mut chars = text.chars();
+                    chars.next().filter(|_| chars.next().is_none())
+                }
+                _ => None,
+            };
+            LAYOUT.with(|l| l.set(layout));
         }
         EventResult::Propagate
     });
@@ -109,11 +120,40 @@ fn pick(
 /// chord of its text when that differs, so a key bound by its character
 /// (before matching by position, or one only a layout has) still works.
 pub fn chords(text: &str, ctrl: bool, alt: bool, shift: bool, meta: bool) -> Vec<Chord> {
-    let mut out: Vec<Chord> = chord(text, ctrl, alt, shift, meta).into_iter().collect();
-    if let Some(t) = Chord::from_event(text, ctrl, alt, shift, meta)
-        && !out.contains(&t)
+    candidates(
+        text,
+        (ctrl, alt, shift, meta),
+        LAST.with(Cell::get),
+        LAYOUT.with(Cell::get),
+        ENABLED.with(Cell::get),
+    )
+}
+
+fn candidates(
+    text: &str,
+    (ctrl, alt, shift, meta): (bool, bool, bool, bool),
+    key: Option<char>,
+    layout: Option<char>,
+    enabled: bool,
+) -> Vec<Chord> {
+    let mut out: Vec<Chord> = pick(text, (ctrl, alt, shift, meta), key, enabled)
+        .into_iter()
+        .collect();
+    let mut add = |chord| {
+        if let Some(chord) = chord
+            && !out.contains(&chord)
+        {
+            out.push(chord);
+        }
+    };
+    add(Chord::from_event(text, ctrl, alt, shift, meta));
+    // Keep explicit character bindings first, then accept the unshifted
+    // active-layout key with Shift still held: ')' can match Shift+0.
+    if shift
+        && (ctrl || alt || meta)
+        && let Some(c) = layout
     {
-        out.push(t);
+        add(Chord::from_event(&c.to_string(), ctrl, alt, shift, meta));
     }
     out
 }
@@ -123,6 +163,47 @@ mod tests {
     use super::*;
 
     const CTRL: (bool, bool, bool, bool) = (true, false, false, false);
+
+    #[test]
+    fn shifted_zoom_keys_work_by_active_layout_without_position_matching() {
+        use crate::Command;
+        use crate::commands::{Keymap, Scope};
+        let map = Keymap::default();
+        for (text, layout, expected) in
+            [(")", '0', Command::ZoomReset), ("+", '=', Command::ZoomIn)]
+        {
+            let keys = candidates(
+                text,
+                (true, false, true, false),
+                Some(layout),
+                Some(layout),
+                false,
+            );
+            assert_eq!(
+                keys.iter().find_map(|c| map.resolve(Scope::Global, c)),
+                Some(expected)
+            );
+        }
+        // Layout matching never maps an Azerbaijani letter to its US position.
+        let keys = candidates("Ü", (true, false, true, false), Some('w'), Some('ü'), false);
+        assert!(keys.contains(&Chord::parse("Ctrl+Shift+Ü").unwrap()));
+        assert!(!keys.contains(&Chord::parse("Ctrl+Shift+W").unwrap()));
+        // An explicit binding on the typed symbol retains priority.
+        let keys = candidates("+", (true, false, true, false), Some('='), Some('='), false);
+        assert_eq!(keys[0], Chord::parse("Ctrl+Shift+Plus").unwrap());
+        // Plain typing is never translated to an unshifted character.
+        assert_eq!(
+            candidates(
+                ")",
+                (false, false, true, false),
+                Some('0'),
+                Some('0'),
+                false
+            )
+            .len(),
+            1
+        );
+    }
 
     #[test]
     fn keys_are_named_as_on_a_us_layout() {
