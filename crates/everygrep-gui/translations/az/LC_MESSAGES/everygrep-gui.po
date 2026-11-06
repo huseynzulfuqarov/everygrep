@@ -5380,3 +5380,60 @@ msgstr "{} açıla bilmədi: xdg-open onun üçün proqram tapmadı və ya xəta
 
 msgid "Panels and bars"
 msgstr "Panellər və çubuqlar"
+
+msgid "Clipboard"
+msgstr "Mübadilə buferi"
+
+msgid "Selection"
+msgstr "Seçim"
+
+msgid "File information"
+msgstr "Fayl məlumatı"
+
+msgid "Hashes"
+msgstr "Heşlər"
+
+msgid "Name and path"
+msgstr "Ad və yol"
+
+msgid "Counts"
+msgstr "Saylar"
+
+msgid "Counts and duplicates"
+msgstr "Tezlik və təkrarlar"
+
+msgid "Media details"
+msgstr "Media məlumatları"
+
+msgid "Metadata"
+msgstr "Metaverilənlər"
+
+msgid "Document and camera"
+msgstr "Sənəd və kamera"
+
+msgid "Other columns"
+msgstr "Digər sütunlar"
+
+msgid "Sort direction"
+msgstr "Sıralama istiqaməti"
+
+msgid "Matching"
+msgstr "Uyğunlaşdırma"
+
+msgid "More matching options"
+msgstr "Digər uyğunlaşdırma seçimləri"
+
+msgid "Select filter"
+msgstr "Filtr seç"
+
+msgid "Open bookmark"
+msgstr "Əlfəcini aç"
+
+msgid "Older closed tabs"
+msgstr "Daha əvvəl bağlanan vərəqlər"
+
+msgid "Switch tabs"
+msgstr "Vərəqlər arasında keçid"
+
+msgid "Open tabs"
+msgstr "Açıq vərəqlər"

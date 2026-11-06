@@ -5380,3 +5380,60 @@ msgstr "{} açılamadı: xdg-open bunun için bir uygulama bulamadı veya başar
 
 msgid "Panels and bars"
 msgstr "Paneller ve çubuklar"
+
+msgid "Clipboard"
+msgstr "Pano"
+
+msgid "Selection"
+msgstr "Seçim"
+
+msgid "File information"
+msgstr "Dosya bilgisi"
+
+msgid "Hashes"
+msgstr "Özetler"
+
+msgid "Name and path"
+msgstr "Ad ve yol"
+
+msgid "Counts"
+msgstr "Sayılar"
+
+msgid "Counts and duplicates"
+msgstr "Sıklık ve yinelenenler"
+
+msgid "Media details"
+msgstr "Medya ayrıntıları"
+
+msgid "Metadata"
+msgstr "Üst veriler"
+
+msgid "Document and camera"
+msgstr "Belge ve kamera"
+
+msgid "Other columns"
+msgstr "Diğer sütunlar"
+
+msgid "Sort direction"
+msgstr "Sıralama yönü"
+
+msgid "Matching"
+msgstr "Eşleştirme"
+
+msgid "More matching options"
+msgstr "Diğer eşleştirme seçenekleri"
+
+msgid "Select filter"
+msgstr "Filtre seç"
+
+msgid "Open bookmark"
+msgstr "Yer imini aç"
+
+msgid "Older closed tabs"
+msgstr "Daha önce kapatılan sekmeler"
+
+msgid "Switch tabs"
+msgstr "Sekmeler arasında geçiş"
+
+msgid "Open tabs"
+msgstr "Açık sekmeler"

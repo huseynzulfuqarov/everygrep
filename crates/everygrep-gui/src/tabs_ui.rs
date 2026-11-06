@@ -856,13 +856,15 @@ impl State {
         w.set_window_title(window_title(&search, rows.len().saturating_sub(1)).into());
         w.set_tabs(crate::menus::stable_model(w.get_tabs(), rows));
         w.set_active_tab(tabs.active as i32);
+        let closed: Vec<slint::SharedString> =
+            tabs.closed.iter().rev().map(|t| title(t).into()).collect();
         w.set_closed_tab_names(crate::menus::stable_model(
             w.get_closed_tab_names(),
-            tabs.closed
-                .iter()
-                .rev()
-                .map(|t| title(t).into())
-                .collect::<Vec<slint::SharedString>>(),
+            closed.iter().take(5).cloned().collect(),
+        ));
+        w.set_older_closed_tab_names(crate::menus::stable_model(
+            w.get_older_closed_tab_names(),
+            closed.into_iter().skip(5).collect(),
         ));
     }
 

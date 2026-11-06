@@ -429,23 +429,36 @@ fn menu_entry(l: &Library, i: usize) -> MenuEntry {
 /// Folders become submenus (listed first), the other top-level rows follow
 /// in their order; a long list shows its first part.
 fn bookmark_menu(l: &Library) -> (Vec<BookmarkFolder>, Vec<MenuEntry>, bool) {
+    let limit = crate::menus::SAVED;
+    let folder_count = l
+        .bookmarks
+        .iter()
+        .filter(|b| b.kind == Kind::Folder)
+        .count();
+    let mut more = folder_count > limit;
     let folders = l
         .bookmarks
         .iter()
         .enumerate()
         .filter(|(_, b)| b.kind == Kind::Folder)
+        .take(limit)
         .map(|(index, f)| {
-            let items: Vec<_> = l
+            let all: Vec<_> = l
                 .bookmarks
                 .iter()
                 .enumerate()
                 .filter(|(_, b)| b.folder == f.id)
                 .map(|(i, _)| menu_entry(l, i))
                 .collect();
+            let truncated = all.len() > limit;
+            more |= truncated;
             BookmarkFolder {
                 index: index as i32,
                 title: f.name.as_str().into(),
-                items: ModelRc::new(VecModel::from(items)),
+                more: truncated,
+                items: ModelRc::new(VecModel::from(
+                    all.into_iter().take(limit).collect::<Vec<_>>(),
+                )),
             }
         })
         .collect();
@@ -453,7 +466,7 @@ fn bookmark_menu(l: &Library) -> (Vec<BookmarkFolder>, Vec<MenuEntry>, bool) {
         .filter(|i| l.bookmarks[*i].folder == 0 && l.bookmarks[*i].kind != Kind::Folder)
         .collect();
     let shown = crate::menus::window(top.len(), None, crate::menus::SAVED);
-    let more = shown.len() < top.len();
+    more |= shown.len() < top.len();
     let entries = top[shown].iter().map(|i| menu_entry(l, *i)).collect();
     (folders, entries, more)
 }
@@ -1570,6 +1583,50 @@ impl State {
 #[cfg(test)]
 mod tab_tests {
     use super::*;
+
+    #[test]
+    fn bookmark_quick_lists_bound_every_level_and_keep_original_indices() {
+        use slint::Model;
+        let limit = crate::menus::SAVED;
+        let mut library = Library::default();
+        for i in 0..limit + 2 {
+            let mut folder = Bookmark::group(Kind::Folder, &format!("Folder {i}"), 0);
+            folder.id = i as u64 + 1;
+            library.bookmarks.push(folder);
+        }
+        for i in 0..limit + 3 {
+            library
+                .bookmarks
+                .push(Bookmark::group(Kind::Search, &format!("Child {i}"), 1));
+            library
+                .bookmarks
+                .push(Bookmark::group(Kind::Search, &format!("Top {i}"), 0));
+        }
+        let (folders, top, more) = bookmark_menu(&library);
+        assert!(more);
+        assert_eq!(folders.len(), limit);
+        assert_eq!(top.len(), limit);
+        assert!(folders[0].more);
+        assert_eq!(folders[0].items.row_count(), limit);
+        assert_eq!(
+            folders[0].items.row_data(0).unwrap().index as usize,
+            limit + 2
+        );
+        assert_eq!(top[0].index as usize, limit + 3);
+        assert!(!folders[1].more);
+        // An overflow in a folder alone must also expose the full manager.
+        library
+            .bookmarks
+            .retain(|b| b.kind != Kind::Folder || b.id == 1);
+        library
+            .bookmarks
+            .retain(|b| b.folder != 0 || b.kind == Kind::Folder);
+        let (folders, top, more) = bookmark_menu(&library);
+        assert!(more && folders[0].more && top.is_empty());
+        library.bookmarks.truncate(1);
+        let (folders, _, more) = bookmark_menu(&library);
+        assert!(!more && !folders[0].more);
+    }
 
     #[test]
     fn loaded_saved_shortcut_conflicts_are_visible_in_keyboard_rows() {

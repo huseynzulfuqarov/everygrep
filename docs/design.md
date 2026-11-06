@@ -61,13 +61,18 @@ screen; when a change conflicts with them, the rules win or are changed first.
   state. The result list's context menu keeps
   open, cut, copy, paste, copy full path, rename, trash and delete at its top
   level with the search and copy variants in Search and Copy name or path
-  submenus. Lists inside menus are cut short (`menus.rs`): the Tabs menu shows
-  at most 8 open tabs around the active one, followed by List all tabs, with
-  the bulk close commands in Close tabs, Reopen all closed tabs in Recently
-  closed tabs and the three tab options in Tab options; the Bookmarks menu
-  shows the first 10 bookmarks and Search → Filter 10 filters around the
-  chosen one, each followed by More bookmarks… or More filters… (the
-  organizer) when some are left out. Its item shortcuts are matched before
+  submenus. Menu-bar lists have at most eight actions/submenus per level,
+  including overflow commands, so their standard Fluent frames fit below the
+  bar at 1040 × 320 and the default text size. Edit groups clipboard, copying,
+  selection and file operations; Search groups matching modes and filters.
+  Columns separates file information, hashes and layout commands; Sort by
+  separates the four main columns, optional column categories and direction.
+  Tabs groups navigation and keeps all ten closed tabs in two groups of five.
+  Quick lists show six open tabs around the active one, six filters around
+  the chosen one, and six bookmarks/folders per level. List all tabs and
+  More bookmarks… / More filters… open the full lists; folder Open all in
+  tabs still uses the complete folder, including entries outside the menu.
+  Menu placement and scrolling remain controlled by the toolkit. Its item shortcuts are matched before
   the focused widget sees the key. So a menu item shows a key only when it
   is a global key that edits no text and that the search field or the list
   does not bind otherwise (`Ctrl+N`, `Ctrl+W`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`,

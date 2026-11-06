@@ -7,11 +7,11 @@
 
 use std::ops::Range;
 
-/// Open tabs shown in the Tabs menu. With the menu's other entries this keeps
-/// it below the menu bar at the window's default height (660 px).
-pub const TABS: usize = 8;
+/// Quick-list entries. Six rows leave space for a full-list command even
+/// at a 320 px window height with the standard Fluent menu style.
+pub const TABS: usize = 6;
 /// Bookmarks in the Bookmarks menu and filters in Search → Filter.
-pub const SAVED: usize = 10;
+pub const SAVED: usize = 6;
 
 /// Keep an unchanged model's identity: Slint regenerates the IDs of the
 /// entire menu tree when a repeater's model changes. Open popups still
