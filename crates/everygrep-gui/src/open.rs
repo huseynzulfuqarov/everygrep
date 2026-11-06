@@ -139,21 +139,34 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
 
+    /// Writes an executable shell script with `body` at `path`, from a shell
+    /// of its own. Written by this process, the file would be open for
+    /// writing while another test starts a program, whose new process keeps
+    /// a copy of it until that program runs; running the script then fails
+    /// with "Text file busy".
+    fn write_script(path: &Path, body: &str) {
+        let written = Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+            ])
+            .arg(format!("#!/bin/sh\n{body}"))
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(written.success(), "{}", path.display());
+    }
+
     #[test]
     fn showing_items_does_not_wait_for_the_file_manager() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("everygrep-open-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         // A file manager that takes long to answer, then says it showed them.
         let gdbus = dir.join("gdbus");
         let done = dir.join("answered");
-        std::fs::write(
-            &gdbus,
-            format!("#!/bin/sh\nsleep 1\ntouch '{}'\n", done.display()),
-        )
-        .unwrap();
-        std::fs::set_permissions(&gdbus, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&gdbus, &format!("sleep 1\ntouch '{}'\n", done.display()));
         let start = std::time::Instant::now();
         show_in_folder_with(&gdbus, &[dir.join("item")]);
         let took = start.elapsed();
@@ -169,7 +182,6 @@ mod tests {
 
     #[test]
     fn a_missing_or_failing_opener_is_reported() {
-        use std::os::unix::fs::PermissionsExt;
         use std::sync::mpsc;
         let dir = std::env::temp_dir().join(format!("everygrep-opener-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -177,8 +189,7 @@ mod tests {
         let target = dir.join("some file.txt");
         let opener = |name: &str, code: i32| {
             let p = dir.join(name);
-            std::fs::write(&p, format!("#!/bin/sh\nexit {code}\n")).unwrap();
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            write_script(&p, &format!("exit {code}\n"));
             p
         };
         // Each run reports at most once; the channel closes when it is done.
