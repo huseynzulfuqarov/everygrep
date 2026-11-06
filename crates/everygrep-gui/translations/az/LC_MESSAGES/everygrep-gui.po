@@ -5377,3 +5377,6 @@ msgstr "{} açıla bilmədi: xdg-open işə salına bilmir ({}). O, xdg-utils pa
 
 msgid "Cannot open {}: xdg-open found no application for it or failed (exit code {})."
 msgstr "{} açıla bilmədi: xdg-open onun üçün proqram tapmadı və ya xəta verdi (çıxış kodu {})."
+
+msgid "Panels and bars"
+msgstr "Panellər və çubuqlar"

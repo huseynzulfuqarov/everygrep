@@ -6805,28 +6805,6 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: @tr("View");
-            MenuItem { title: @tr("Preview panel"); shortcut: root.menu-keys.preview-panel; enabled: root.can-run(Command.preview-panel); activated => { root.run(Command.preview-panel); } }
-            MenuItem { title: @tr("Focus preview"); shortcut: root.menu-keys.focus-preview; enabled: root.can-run(Command.focus-preview); activated => { root.run(Command.focus-preview); } }
-            MenuItem { title: @tr("Close preview panel"); shortcut: root.menu-keys.close-preview-panel; enabled: root.can-run(Command.close-preview-panel); activated => { root.run(Command.close-preview-panel); } }
-
-            MenuItem {
-                // Checked while the panel is shown; activating flips the flag.
-                title: @tr("Folders panel"); shortcut: root.menu-keys.folders-panel;
-                enabled: root.can-run(Command.folders-panel);
-                checkable: true;
-                checked <=> root.folders-visible;
-                activated => { root.folders-changed(); }
-            }
-            MenuItem {
-                title: @tr("Focus folders"); shortcut: root.menu-keys.focus-folders;
-                enabled: root.can-run(Command.focus-folders);
-                activated => { root.run(Command.focus-folders); }
-            }
-            MenuItem {
-                title: @tr("Close folders panel"); shortcut: root.menu-keys.close-folders-panel;
-                enabled: root.can-run(Command.close-folders-panel);
-                activated => { root.run(Command.close-folders-panel); }
-            }
             MenuItem {
                 title: @tr("Refresh");
                 shortcut: root.menu-keys.refresh;
@@ -6834,8 +6812,6 @@ export component AppWindow inherits Window {
                 activated => { root.run(Command.refresh); }
             }
             MenuSeparator { }
-            // The optional columns, in a submenu so that the View menu
-            // fits a laptop screen (popups cannot scroll).
             Menu {
                 title: @tr("Columns");
                 MenuItem {
@@ -6915,38 +6891,38 @@ export component AppWindow inherits Window {
                     checked <=> root.show-size-freq;
                     activated => { root.toggled(Command.size-frequency-column); }
                 }
+                MenuSeparator { }
+                MenuItem {
+                    title: @tr("Size all columns to fit");
+                    shortcut: root.menu-keys.fit-columns;
+                    enabled: root.can-run(Command.fit-columns);
+                    activated => { root.run(Command.fit-columns); }
+                }
+                MenuItem {
+                    title: @tr("Fit columns to window");
+                    shortcut: root.menu-keys.fit-columns-to-window;
+                    enabled: root.can-run(Command.fit-columns-to-window);
+                    activated => { root.run(Command.fit-columns-to-window); }
+                }
+                MenuItem {
+                    title: @tr("Organize columns…");
+                    shortcut: root.menu-keys.organize-columns;
+                    enabled: root.can-run(Command.organize-columns);
+                    activated => { root.run(Command.organize-columns); }
+                }
+                MenuItem {
+                    title: @tr("Restore removed column");
+                    shortcut: root.menu-keys.restore-removed-column;
+                    enabled: root.can-run(Command.restore-removed-column);
+                    activated => { root.run(Command.restore-removed-column); }
+                }
+                MenuItem {
+                    title: @tr("Reset columns");
+                    shortcut: root.menu-keys.reset-columns;
+                    enabled: root.can-run(Command.reset-columns);
+                    activated => { root.run(Command.reset-columns); }
+                }
             }
-            MenuItem {
-                title: @tr("Size all columns to fit");
-                shortcut: root.menu-keys.fit-columns;
-                enabled: root.can-run(Command.fit-columns);
-                activated => { root.run(Command.fit-columns); }
-            }
-            MenuItem {
-                title: @tr("Fit columns to window");
-                shortcut: root.menu-keys.fit-columns-to-window;
-                enabled: root.can-run(Command.fit-columns-to-window);
-                activated => { root.run(Command.fit-columns-to-window); }
-            }
-            MenuItem {
-                title: @tr("Organize columns…");
-                shortcut: root.menu-keys.organize-columns;
-                enabled: root.can-run(Command.organize-columns);
-                activated => { root.run(Command.organize-columns); }
-            }
-            MenuItem {
-                title: @tr("Restore removed column");
-                shortcut: root.menu-keys.restore-removed-column;
-                enabled: root.can-run(Command.restore-removed-column);
-                activated => { root.run(Command.restore-removed-column); }
-            }
-            MenuItem {
-                title: @tr("Reset columns");
-                shortcut: root.menu-keys.reset-columns;
-                enabled: root.can-run(Command.reset-columns);
-                activated => { root.run(Command.reset-columns); }
-            }
-            MenuSeparator { }
             Menu {
                 title: @tr("Sort by");
                 for item in root.sort-items: MenuItem {
@@ -6972,12 +6948,71 @@ export component AppWindow inherits Window {
                     activated => { root.run(Command.advanced-sort); }
                 }
             }
-            MenuItem {
-                title: @tr("Largest folders");
-                shortcut: root.menu-keys.largest-folders;
-                checkable: true;
-                checked: root.largest-folders-visible;
-                activated => { root.run(Command.largest-folders); }
+            Menu {
+                title: @tr("Panels and bars");
+                Menu {
+                    title: @tr("Preview panel");
+                    MenuItem { title: @tr("Preview panel"); shortcut: root.menu-keys.preview-panel; checkable: true; checked: root.preview-visible; enabled: root.can-run(Command.preview-panel); activated => { root.run(Command.preview-panel); } }
+                    MenuItem { title: @tr("Focus preview"); shortcut: root.menu-keys.focus-preview; enabled: root.can-run(Command.focus-preview); activated => { root.run(Command.focus-preview); } }
+                    MenuItem { title: @tr("Close preview panel"); shortcut: root.menu-keys.close-preview-panel; enabled: root.can-run(Command.close-preview-panel); activated => { root.run(Command.close-preview-panel); } }
+                }
+                Menu {
+                    title: @tr("Folders panel");
+                    MenuItem {
+                        // Checked while the panel is shown; activating flips the flag.
+                        title: @tr("Folders panel"); shortcut: root.menu-keys.folders-panel;
+                        enabled: root.can-run(Command.folders-panel);
+                        checkable: true;
+                        checked <=> root.folders-visible;
+                        activated => { root.folders-changed(); }
+                    }
+                    MenuItem {
+                        title: @tr("Focus folders"); shortcut: root.menu-keys.focus-folders;
+                        enabled: root.can-run(Command.focus-folders);
+                        activated => { root.run(Command.focus-folders); }
+                    }
+                    MenuItem {
+                        title: @tr("Close folders panel"); shortcut: root.menu-keys.close-folders-panel;
+                        enabled: root.can-run(Command.close-folders-panel);
+                        activated => { root.run(Command.close-folders-panel); }
+                    }
+                }
+                MenuItem {
+                    title: @tr("Largest folders");
+                    shortcut: root.menu-keys.largest-folders;
+                    checkable: true;
+                    checked: root.largest-folders-visible;
+                    activated => { root.run(Command.largest-folders); }
+                }
+                MenuSeparator { }
+                MenuItem {
+                    title: @tr("Selection details");
+                    shortcut: root.menu-keys.selection-details;
+                    checkable: true;
+                    checked <=> root.status-details;
+                    activated => { root.toggled(Command.selection-details); }
+                }
+                MenuItem {
+                    title: @tr("Menu bar");
+                    shortcut: root.menu-keys.menu-bar;
+                    checkable: true;
+                    checked <=> root.show-menu-bar;
+                    activated => { root.toggled(Command.menu-bar); }
+                }
+                MenuItem {
+                    title: @tr("Status bar");
+                    shortcut: root.menu-keys.status-bar;
+                    checkable: true;
+                    checked <=> root.show-status-bar;
+                    activated => { root.toggled(Command.status-bar); }
+                }
+                MenuItem {
+                    title: @tr("Toolbar");
+                    shortcut: root.menu-keys.toolbar;
+                    checkable: true;
+                    checked <=> root.show-toolbar;
+                    activated => { root.toggled(Command.toolbar); }
+                }
             }
             Menu {
                 title: @tr("Folder size");
@@ -6988,6 +7023,7 @@ export component AppWindow inherits Window {
                     activated => { root.choose-folder-size(i); }
                 }
             }
+            MenuSeparator { }
             Menu {
                 title: @tr("Density");
                 for item[i] in root.density-items: MenuItem {
@@ -7005,35 +7041,6 @@ export component AppWindow inherits Window {
                     checked: item.checked;
                     activated => { root.choose-theme(i); }
                 }
-            }
-            MenuSeparator { }
-            MenuItem {
-                title: @tr("Selection details");
-                shortcut: root.menu-keys.selection-details;
-                checkable: true;
-                checked <=> root.status-details;
-                activated => { root.toggled(Command.selection-details); }
-            }
-            MenuItem {
-                title: @tr("Menu bar");
-                shortcut: root.menu-keys.menu-bar;
-                checkable: true;
-                checked <=> root.show-menu-bar;
-                activated => { root.toggled(Command.menu-bar); }
-            }
-            MenuItem {
-                title: @tr("Status bar");
-                shortcut: root.menu-keys.status-bar;
-                checkable: true;
-                checked <=> root.show-status-bar;
-                activated => { root.toggled(Command.status-bar); }
-            }
-            MenuItem {
-                title: @tr("Toolbar");
-                shortcut: root.menu-keys.toolbar;
-                checkable: true;
-                checked <=> root.show-toolbar;
-                activated => { root.toggled(Command.toolbar); }
             }
             Menu {
                 title: @tr("Zoom");

@@ -53,8 +53,12 @@ screen; when a change conflicts with them, the rules win or are changed first.
   key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
   bar inside the window on Linux and cannot scroll a menu: a menu taller than
   the room below the bar is pushed up over the bar and cut off. So long menus
-  are split to fit the window at its default size (660 px): the optional
-  columns are a submenu of View, and the result list's context menu keeps
+  are split to fit the window at its default size (660 px).
+  View groups column toggles, sizing and organization in Columns; panel
+  show/focus/close commands and bar toggles in Panels and bars (with Preview
+  panel and Folders panel submenus); and keeps Sort by, Folder size, Density,
+  Theme and Zoom as submenus alongside Refresh. Check marks show the current
+  state. The result list's context menu keeps
   open, cut, copy, paste, copy full path, rename, trash and delete at its top
   level with the search and copy variants in Search and Copy name or path
   submenus. Lists inside menus are cut short (`menus.rs`): the Tabs menu shows
