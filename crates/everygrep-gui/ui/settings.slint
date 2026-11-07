@@ -79,9 +79,6 @@ component FolderList inherits VerticalLayout {
     Rectangle {
         height: min(168px, max(40px, folder-rows.preferred-height));
         vertical-stretch: 0;
-        border-width: 1px;
-        border-color: Theme.field-line;
-        background: Theme.field;
         folder-focus := FocusScope {
             key-pressed(event) => {
                 if (event.text == Key.DownArrow || event.text == Key.UpArrow) {
