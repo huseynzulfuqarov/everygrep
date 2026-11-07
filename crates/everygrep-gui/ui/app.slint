@@ -500,11 +500,22 @@ component SearchField inherits Rectangle {
             // The field takes the width the layout gives it, not the width of the
             // text: long text scrolls inside the clip instead of pushing the
             // toggles and the filter selector aside.
-            Rectangle {
+            text-viewport := Rectangle {
                 horizontal-stretch: 1;
                 // A TextInput of width 0 cannot take focus.
                 min-width: 1px;
+                // Keep placeholder and typed text before the mode toggles.
                 clip: true;
+                placeholder := Text {
+                    width: parent.width;
+                    overflow: elide;
+                    visible: input.text == "" && root.scope-label == "";
+                    text: @tr("Search files and folders");
+                    color: Theme.text-muted;
+                    font-size: Theme.body;
+                    vertical-alignment: center;
+                    height: parent.height;
+                }
                 input := TextInput {
                     // Scroll offset that keeps the text cursor visible.
                     property <length> scroll-x;
@@ -662,15 +673,7 @@ component SearchField inherits Rectangle {
             clicked => { root.history-requested(); }
         }
     }
-    placeholder := Text {
-        x: Theme.s3 + Theme.icon + Theme.s2;
-        visible: input.text == "" && root.scope-label == "";
-        text: @tr("Search files and folders");
-        color: Theme.text-muted;
-        font-size: Theme.body;
-        vertical-alignment: center;
-        height: parent.height;
-    }
+
 }
 
 component HeaderCell inherits Rectangle {
