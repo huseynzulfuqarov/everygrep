@@ -301,6 +301,11 @@ thread_local! {
     static PREFS: RefCell<Option<Rc<Prefs>>> = RefCell::default();
 }
 
+// A filtered-out command has no selection and must not retain editable keys.
+fn visible_command(chosen: Option<Command>, listed: &[Command]) -> Option<Command> {
+    chosen.filter(|command| listed.contains(command))
+}
+
 /// Whether an outside change of the settings, the `lines` that differ,
 /// is asked about: not when the user turned down these same differences
 /// (a later save in this window keeps them in the file).
@@ -2645,6 +2650,8 @@ impl Prefs {
                     })
                 })
                 .collect();
+            self.key_chosen
+                .set(visible_command(self.key_chosen.get(), &listed));
             let bindings: Vec<StandardListViewItem> = self
                 .key_chosen
                 .get()
@@ -4002,6 +4009,19 @@ mod tests {
         assert!(writer.wait_done(std::time::Duration::from_secs(5)));
     }
     use crate::settings::tests::Scratch;
+
+    #[test]
+    fn filtering_a_selected_command_clears_its_key_selection() {
+        let first = COMMANDS[0].cmd;
+        let second = COMMANDS[1].cmd;
+        let mut chosen = Some(first);
+        chosen = visible_command(chosen, &[first, second]);
+        assert_eq!(chosen, Some(first));
+        chosen = visible_command(chosen, &[second]);
+        assert_eq!(chosen, None);
+        assert_eq!(visible_command(chosen, &[first, second]), None);
+        assert_eq!(visible_command(Some(second), &[]), None);
+    }
 
     #[test]
     fn saves_of_other_everygrep_windows_apply_without_a_question() {
