@@ -384,13 +384,18 @@ pub fn fill_filters(w: &AppWindow) {
         let l = s.library.borrow();
         let snapshot = s.snapshot.borrow();
         let entries: Vec<_> = l.filters.iter().chain(snapshot.iter()).collect();
+        w.set_saved_copy_index(if snapshot.is_some() {
+            l.filters.len() as i32
+        } else {
+            -1
+        });
         w.set_filter_names(ModelRc::new(VecModel::from(
             entries
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
                     if i == l.filters.len() {
-                        fill(tr("{} (snapshot)"), &[&f.title()]).into()
+                        fill(tr("{} (saved copy)"), &[&f.title()]).into()
                     } else {
                         f.title().into()
                     }
@@ -406,7 +411,7 @@ pub fn fill_filters(w: &AppWindow) {
                     let f = entries[i];
                     MenuEntry {
                         title: if i == l.filters.len() {
-                            fill(tr("{} (snapshot)"), &[&f.title()]).into()
+                            fill(tr("{} (saved copy)"), &[&f.title()]).into()
                         } else {
                             item_label(&f.title(), l.shortcut(Target::Filter(f.id))).into()
                         },
@@ -930,7 +935,7 @@ impl State {
             if self.bookmarks.get()
                 && let Some(b) = self.draft_bookmark.borrow().as_ref()
             {
-                kinds.push(fill(tr("{} (snapshot)"), &[&b.filter.title()]));
+                kinds.push(fill(tr("{} (saved copy)"), &[&b.filter.title()]));
             }
             w.set_kinds(ModelRc::new(VecModel::from(
                 kinds.into_iter().map(Into::into).collect::<Vec<_>>(),

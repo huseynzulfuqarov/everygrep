@@ -2527,8 +2527,8 @@ msgstr "Bir ad girin."
 msgid "{} (invalid query)"
 msgstr "{} (geçersiz sorgu)"
 
-msgid "{} (snapshot)"
-msgstr "{} (kayıtlı)"
+msgid "{} (saved copy)"
+msgstr "{} (kaydedilmiş kopya)"
 
 msgid "Using the original built-in filter: {}."
 msgstr "Özgün yerleşik filtre kullanılıyor: {}."
@@ -5452,3 +5452,6 @@ msgstr "Geçersiz sütun adı. Geçerli sütun adları: {}. Standart sütunlar i
 
 msgid "No files were changed."
 msgstr "Hiçbir dosya değiştirilmedi."
+
+msgid "A saved copy of a filter from a bookmark or built-in preset. It keeps those saved settings independently of the current filter list."
+msgstr "Bir yer iminden veya yerleşik hazır filtreden kaydedilmiş filtre kopyası. Bu kopya, kaydedilmiş ayarları geçerli filtre listesinden bağımsız olarak korur."

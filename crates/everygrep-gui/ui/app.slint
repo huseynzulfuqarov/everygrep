@@ -1893,6 +1893,7 @@ export component AppWindow inherits Window {
     in-out property <bool> ignore-punctuation;
     in-out property <bool> ignore-whitespace;
     in property <[string]> filter-names;
+    in property <int> saved-copy-index: -1;
     in-out property <int> filter-index: 0;
     // Words for the modes that are on, shown in the status line.
     in property <[string]> badges;
@@ -4494,13 +4495,17 @@ export component AppWindow inherits Window {
                         current-index <=> root.scope-index;
                         selected => { root.scope-chosen(self.current-index); }
                     }
-                    ComboBox {
+                    filter-hover := TouchArea {
                         width: 160px;
+                        height: filter-box.preferred-height;
                         horizontal-stretch: 0;
-                        accessible-label: @tr("Filter");
-                        model: root.filter-names;
-                        current-index <=> root.filter-index;
-                        selected => { root.options-edited(); }
+                        filter-box := ComboBox {
+                            width: 100%;
+                            accessible-label: @tr("Filter");
+                            model: root.filter-names;
+                            current-index <=> root.filter-index;
+                            selected => { root.options-edited(); }
+                        }
                     }
                     // Overflow menu, in place of the menu bar when that is hidden.
                     if !root.show-menu-bar: more-menu := ContextMenuArea {
@@ -6206,6 +6211,21 @@ export component AppWindow inherits Window {
             color: Theme.text;
             font-size: Theme.small;
             wrap: word-wrap;
+        }
+    }
+
+    if filter-hover.has-hover && root.saved-copy-index >= 0 && root.filter-index == root.saved-copy-index: PopupCard {
+        x: max(Theme.s2, min(filter-hover.absolute-position.x - origin.absolute-position.x, root.width - self.width - Theme.s2));
+        y: filter-hover.absolute-position.y - origin.absolute-position.y + filter-hover.height + Theme.s1;
+        width: min(360px, root.width - 2 * Theme.s2);
+        height: filter-tip.preferred-height + 2 * Theme.s2;
+        filter-tip := Text {
+            x: Theme.s2; y: Theme.s2;
+            width: parent.width - 2 * Theme.s2;
+            text: @tr("A saved copy of a filter from a bookmark or built-in preset. It keeps those saved settings independently of the current filter list.");
+            wrap: word-wrap;
+            font-size: Theme.small;
+            color: Theme.text;
         }
     }
 

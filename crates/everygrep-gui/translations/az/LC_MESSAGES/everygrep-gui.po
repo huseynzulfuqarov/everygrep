@@ -2527,8 +2527,8 @@ msgstr "Ad daxil edin."
 msgid "{} (invalid query)"
 msgstr "{} (yanlış sorğu)"
 
-msgid "{} (snapshot)"
-msgstr "{} (saxlanmış)"
+msgid "{} (saved copy)"
+msgstr "{} (saxlanmış nüsxə)"
 
 msgid "Using the original built-in filter: {}."
 msgstr "İlkin daxili filtr tətbiq edilir: {}."
@@ -5452,3 +5452,6 @@ msgstr "Yanlış sütun adı. Düzgün sütun adları: {}. Standart sütunlar ü
 
 msgid "No files were changed."
 msgstr "Heç bir fayl dəyişdirilmədi."
+
+msgid "A saved copy of a filter from a bookmark or built-in preset. It keeps those saved settings independently of the current filter list."
+msgstr "Əlfəcindən və ya daxili hazır filtrdən saxlanmış filtr nüsxəsi. Bu nüsxə saxlanmış ayarları cari filtr siyahısından asılı olmadan qoruyur."
