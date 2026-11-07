@@ -1559,6 +1559,9 @@ fn reverse_summary(redo: bool, outcomes: &[StepOutcome]) -> String {
             &[&outcome.skipped.len()],
         ));
     }
+    if redo && outcomes.iter().all(|o| o.done == 0) {
+        parts.push(tr("No files were changed.").into());
+    }
     let reasons: Vec<_> = outcomes.iter().flat_map(|o| o.skipped.iter()).collect();
     if !reasons.is_empty() {
         parts.push(skipped_reasons(&reasons));
@@ -1702,6 +1705,25 @@ mod tests {
             reverse_summary(false, &outcomes),
             "Skipped 2 steps. a.txt: Changed externally."
         );
+    }
+
+    #[test]
+    fn redo_over_a_skipped_step_reports_that_no_files_changed() {
+        let t = Temp::new();
+        let a = t.0.join("old");
+        let b = t.0.join("new");
+        fs::write(&b, "recorded").unwrap();
+        let mut j = journal(vec![entry(Kind::Rename, a.clone(), b.clone(), None)]);
+        fs::write(&a, "occupied").unwrap();
+        let p = Progress::new();
+        assert_eq!(j.step(false, &no_trash, &p).unwrap().done, 0);
+        let outcome = j.step(true, &no_trash, &p).unwrap();
+        let text = reverse_summary(true, &[outcome]);
+        assert!(text.contains("Skipped 1 step."), "{text}");
+        assert!(text.contains("No files were changed."), "{text}");
+        assert!(text.contains("The destination already exists."), "{text}");
+        assert_eq!(fs::read(&a).unwrap(), b"occupied");
+        assert_eq!(fs::read(&b).unwrap(), b"recorded");
     }
 
     #[test]

@@ -5449,3 +5449,6 @@ msgstr "Filtreler dışa aktarılamıyor: {}"
 
 msgid "Invalid column name. Valid column names: {}. Use ‘standard’ for the standard columns, or leave empty to keep the current columns."
 msgstr "Geçersiz sütun adı. Geçerli sütun adları: {}. Standart sütunlar için ‘standard’ yazın veya mevcut sütunları korumak için boş bırakın."
+
+msgid "No files were changed."
+msgstr "Hiçbir dosya değiştirilmedi."

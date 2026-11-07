@@ -5449,3 +5449,6 @@ msgstr "Süzgəcləri ixrac etmək olmur: {}"
 
 msgid "Invalid column name. Valid column names: {}. Use ‘standard’ for the standard columns, or leave empty to keep the current columns."
 msgstr "Yanlış sütun adı. Düzgün sütun adları: {}. Standart sütunlar üçün ‘standard’ yazın, cari sütunları saxlamaq üçün boş buraxın."
+
+msgid "No files were changed."
+msgstr "Heç bir fayl dəyişdirilmədi."
