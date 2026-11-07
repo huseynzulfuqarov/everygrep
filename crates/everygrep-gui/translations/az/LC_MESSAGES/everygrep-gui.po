@@ -5500,3 +5500,12 @@ msgstr "Sistem masaüstünün vurğu rəngini kontrasta uyğunlaşdırır; mövc
 
 msgid "Toolbar buttons"
 msgstr "Alətlər panelinin düymələri"
+
+msgid "Light style"
+msgstr "Açıq üslub"
+
+msgid "Cool"
+msgstr "Sərin"
+
+msgid "Neutral"
+msgstr "Neytral"

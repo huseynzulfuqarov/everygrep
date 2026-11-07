@@ -112,16 +112,21 @@ pub fn open() {
     }
     if let Some(w) = window() {
         crate::prefs::with(|p| {
-            w.invoke_set_color_scheme(p.color_scheme(), p.dark_style(), p.accent_colors())
+            w.invoke_set_color_scheme(
+                p.color_scheme(),
+                p.dark_style(),
+                p.light_style(),
+                p.accent_colors(),
+            )
         });
         let _ = w.hide();
         let _ = w.show();
     }
 }
 
-pub fn apply_scheme(scheme: i32, style: i32, accent: crate::AccentColors) {
+pub fn apply_scheme(scheme: i32, style: i32, light_style: i32, accent: crate::AccentColors) {
     if let Some(w) = window() {
-        w.invoke_set_color_scheme(scheme, style, accent);
+        w.invoke_set_color_scheme(scheme, style, light_style, accent);
     }
 }
 

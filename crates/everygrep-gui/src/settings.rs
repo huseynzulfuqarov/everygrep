@@ -151,6 +151,29 @@ impl DarkStyle {
     }
 }
 
+/// App-owned light surfaces; dark colors are independent of this choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LightStyle {
+    #[default]
+    Classic,
+    Cool,
+    Layered,
+    Neutral,
+}
+
+impl LightStyle {
+    pub const ALL: [Self; 4] = [Self::Classic, Self::Cool, Self::Layered, Self::Neutral];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Cool => "cool",
+            Self::Layered => "layered",
+            Self::Neutral => "neutral",
+            Self::Classic => "classic",
+        }
+    }
+}
+
 /// Accent preference; Blue remains the default when importing older settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AccentChoice {
@@ -493,6 +516,7 @@ pub struct Settings {
     pub sizes_largest_first: bool,
     pub theme: ThemeChoice,
     pub dark_style: DarkStyle,
+    pub light_style: LightStyle,
     pub accent: AccentChoice,
     pub density: Density,
     /// Whether every second row of the result list has a slightly
@@ -616,6 +640,7 @@ impl Default for Settings {
             sizes_largest_first: false,
             theme: ThemeChoice::System,
             dark_style: DarkStyle::Slate,
+            light_style: LightStyle::Classic,
             accent: AccentChoice::Blue,
             density: Density::Comfortable,
             alternate_rows: true,
@@ -1000,6 +1025,11 @@ impl Settings {
                 .into_iter()
                 .find(|t| t.id() == value)
                 .map(|t| self.dark_style = t)
+                .is_some(),
+            "light-style" => LightStyle::ALL
+                .into_iter()
+                .find(|t| t.id() == value)
+                .map(|t| self.light_style = t)
                 .is_some(),
             "theme" => ThemeChoice::ALL
                 .into_iter()
@@ -1844,6 +1874,9 @@ impl Settings {
         if all || self.dark_style != d.dark_style {
             line(&mut out, "dark-style", self.dark_style.id());
         }
+        if all || self.light_style != d.light_style {
+            line(&mut out, "light-style", self.light_style.id());
+        }
         if all || self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
@@ -2256,6 +2289,7 @@ impl Settings {
             Page::Appearance => {
                 self.theme = d.theme;
                 self.dark_style = d.dark_style;
+                self.light_style = d.light_style;
                 self.accent = d.accent;
                 self.density = d.density;
                 self.alternate_rows = d.alternate_rows;
@@ -2593,6 +2627,7 @@ fn is_known(key: &str) -> bool {
         "system",
         "compact",
         "slate",
+        "classic",
         "1",
         "100",
         "/",
@@ -3403,6 +3438,39 @@ pub(crate) mod tests {
         }
         let s = Settings::parse("dark-style = graphite\ndark-style = unknown\n");
         assert_eq!(s.dark_style, DarkStyle::Graphite);
+        assert_eq!(s.problems.len(), 1);
+    }
+
+    #[test]
+    fn light_styles_round_trip_reject_unknown_and_reset_only_appearance() {
+        assert_eq!(Settings::default().light_style, LightStyle::Classic);
+        assert!(!Settings::default().to_text().contains("light-style"));
+        assert_eq!(
+            Settings::parse("light-style = unknown\n").light_style,
+            LightStyle::Classic
+        );
+        for style in LightStyle::ALL {
+            let mut s = Settings {
+                light_style: style,
+                theme: ThemeChoice::Light,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).light_style, style);
+            assert_eq!(
+                Settings::default()
+                    .with_raw("light-style", Some(style.id()))
+                    .unwrap()
+                    .light_style,
+                style
+            );
+            assert!(s.with_raw("light-style", Some("unknown")).is_none());
+            s.reset(Page::Search);
+            assert_eq!(s.light_style, style);
+            s.reset(Page::Appearance);
+            assert_eq!(s.light_style, LightStyle::Classic);
+        }
+        let s = Settings::parse("light-style = neutral\nlight-style = unknown\n");
+        assert_eq!(s.light_style, LightStyle::Neutral);
         assert_eq!(s.problems.len(), 1);
     }
 

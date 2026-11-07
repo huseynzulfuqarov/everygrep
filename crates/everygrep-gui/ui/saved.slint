@@ -83,9 +83,10 @@ export component SavedWindow inherits Window {
     callback restore();
     callback close-window();
 
-    public function set-color-scheme(scheme: int, style: int, accent: AccentColors) {
+    public function set-color-scheme(scheme: int, style: int, light-style: int, accent: AccentColors) {
         Theme.accents = accent;
         Theme.dark-style = style;
+        Theme.light-style = light-style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
         if scheme != 0 || Theme.palette-set {
             Palette.color-scheme = Theme.scheme;

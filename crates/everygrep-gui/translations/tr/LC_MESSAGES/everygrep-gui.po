@@ -5500,3 +5500,12 @@ msgstr "Sistem masaüstünün vurgu rengini kontrasta uyarlar; kullanılamadığ
 
 msgid "Toolbar buttons"
 msgstr "Araç çubuğu düğmeleri"
+
+msgid "Light style"
+msgstr "Açık stil"
+
+msgid "Cool"
+msgstr "Serin"
+
+msgid "Neutral"
+msgstr "Nötr"

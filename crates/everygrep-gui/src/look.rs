@@ -125,19 +125,39 @@ mod tests {
     }
 
     fn styled_token(name: &str, style: usize) -> [[u8; 3]; 2] {
+        palette_token(name, style, 0)
+    }
+
+    fn palette_token(name: &str, style: usize, light_style: usize) -> [[u8; 3]; 2] {
         let source = include_str!("../ui/theme.slint");
         let line = source
             .lines()
             .find(|l| l.contains(&format!("<color> {name}:")))
             .unwrap_or_else(|| panic!("no token {name}"));
-        let colors: Vec<[u8; 3]> = line
-            .split('#')
-            .skip(1)
-            .map(|h| {
-                let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).expect("hex color");
-                [byte(0), byte(2), byte(4)]
-            })
-            .collect();
+        let colors = |source: &str| -> Vec<[u8; 3]> {
+            source
+                .split('#')
+                .skip(1)
+                .map(|h| {
+                    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).expect("hex color");
+                    [byte(0), byte(2), byte(4)]
+                })
+                .collect()
+        };
+        if let Some((dark, light)) = line.rsplit_once(" : (light-style") {
+            let dark = colors(dark);
+            let light = colors(light);
+            let dark = match dark[..] {
+                [one] => one,
+                [layered, graphite, classic, slate] => [slate, layered, graphite, classic][style],
+                _ => panic!("{name}: {line}"),
+            };
+            let [cool, layered, neutral, classic] = light[..] else {
+                panic!("{name}: {line}")
+            };
+            return [[classic, cool, layered, neutral][light_style], dark];
+        }
+        let colors = colors(line);
         match colors[..] {
             [one] => [one, one],
             [dark, light] => [light, dark],
@@ -197,7 +217,12 @@ mod tests {
                     "popup-surface",
                 ] {
                     let backgrounds = styled_token(bg, style);
-                    assert!(contrast(rgb(a.light), backgrounds[0]) >= 3.0, "light {bg}");
+                    for light_style in 0..4 {
+                        assert!(
+                            contrast(rgb(a.light), palette_token(bg, style, light_style)[0]) >= 3.0,
+                            "light style {light_style}: {bg}"
+                        );
+                    }
                     assert!(
                         contrast(rgb(a.dark), backgrounds[1]) >= 3.0,
                         "style {style}: {bg}"
@@ -245,6 +270,39 @@ mod tests {
                 );
             }
             assert!(contrast(t("selection-text"), t("selection")) >= 7.0);
+        }
+    }
+
+    #[test]
+    fn every_light_style_keeps_text_and_popup_edges_readable() {
+        for style in 0..4 {
+            let t = |name| palette_token(name, 0, style)[0];
+            for bg in [
+                "surface",
+                "surface-alt",
+                "popup-surface",
+                "hover",
+                "row-alt",
+            ] {
+                assert!(contrast(t("text"), t(bg)) >= 7.0, "style {style}: {bg}");
+                assert!(
+                    contrast(t("text-muted"), t(bg)) >= 4.5,
+                    "style {style}: {bg}"
+                );
+            }
+            for bg in ["surface", "surface-alt", "popup-surface"] {
+                assert!(
+                    contrast(t("popup-edge"), t(bg)) >= 3.0,
+                    "style {style}: {bg}"
+                );
+            }
+            assert!(contrast(t("selection-text"), t("selection")) >= 7.0);
+            for bg in ["surface", "row-alt"] {
+                assert!(
+                    contrast(t("text-offline"), t(bg)) >= 3.9,
+                    "style {style}: {bg}"
+                );
+            }
         }
     }
 
