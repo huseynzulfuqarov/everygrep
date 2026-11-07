@@ -2994,6 +2994,28 @@ mod tests {
         assert_eq!(current_search_error(None, typing.waiting()), None);
     }
 
+    #[test]
+    fn completing_content_classes_repetitions_and_quotes_drops_partial_errors() {
+        use everygrep_core::query::Query;
+        let options = QueryOptions::default();
+        for (partial, complete) in [
+            ("zxqmarke[a-z", "zxqmarke[a-z]"),
+            ("a[a-z][a-z][0-9", "a[a-z][a-z][0-9]"),
+            ("zxqm[a-z]{", "zxqm[a-z]{3}er"),
+            ("a[^0-9]{", "a[^0-9]{40}9"),
+            (r#""a[a-z ]{40}9"#, r#""a[a-z ]{40}9""#),
+        ] {
+            let partial = format!("regex:content:{partial}");
+            let complete = format!("regex:content:{complete}");
+            let error = Query::parse(&partial, options).unwrap_err().to_string();
+            let mut typing = typing::Typing::default();
+            assert!(typing.edited(typing::reads_files(&partial, options, None)));
+            assert!(!typing.edited(typing::reads_files(&complete, options, None)));
+            assert_eq!(current_search_error(Some(&error), typing.waiting()), None);
+            assert!(Query::parse(&complete, options).is_ok(), "{complete}");
+        }
+    }
+
     /// A right-click on the empty area below the rows opens its own menu:
     /// the area is behind the list, which lets right-clicks no row takes
     /// through (a flickable only handles the left button).

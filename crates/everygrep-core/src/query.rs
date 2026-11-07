@@ -5762,6 +5762,30 @@ mod tests {
     }
 
     #[test]
+    fn content_and_name_regexes_accept_classes_and_repetitions() {
+        let options = QueryOptions::default();
+        for pattern in [
+            r"zxqmarke[a-z]",
+            r"a..............................[a-z][a-z][0-9]",
+            r"a..............................[a-z][a-z][0-9].",
+            r"a..............................t[^a-z\x20]",
+            r"zxqm[a-z]{3}er",
+            r"a[^0-9]{40}9",
+            r"a[a-z\x20]{40}9",
+            r#""a[a-z ]{40}9""#,
+        ] {
+            let name = format!("regex:{pattern}");
+            let content = format!("regex:content:{pattern}");
+            assert!(Query::parse(&name, options).is_ok(), "{name}");
+            let query = Query::parse(&content, options).expect(&content);
+            assert!(Query::text_reads_files(&content, options), "{content}");
+            let text = pattern.trim_matches('"');
+            assert_eq!(query.content_terms()[0].key(), format!("Auto/1/0/0/{text}"));
+            assert!(ContentTerm::new(text, true, false, false, ContentEncoding::Auto).is_ok());
+        }
+    }
+
+    #[test]
     fn stage_decides_by_name_and_tables_the_content_terms() {
         let mut s = NodeStore::new();
         let root = s.add(None, b"/nowhere", true, Meta::default());
