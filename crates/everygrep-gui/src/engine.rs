@@ -6476,6 +6476,27 @@ mod tests {
     }
 
     #[test]
+    fn content_regex_accepts_unicode_word_and_space_classes() {
+        let dir = Scratch::new("content-regex-classes");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("zxqşəhər.txt"), "zxqşəhər\nnext").unwrap();
+        fs::write(root.join("other.txt"), "zxq!\nnext").unwrap();
+        let probe = Probe::start_unwatched(vec![root], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        for query in [
+            r"regex:zxq\w+",
+            r"regex:content:zxq\w+",
+            r"case:regex:content:zxq\w+",
+            r"wholeword:regex:content:zxq\w+",
+            r"regex:content:zxq\w+\s+next",
+        ] {
+            assert_eq!(probe.names(query), ["zxqşəhər.txt"], "{query}");
+        }
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn content_search_finds_files_and_follows_the_content_settings() {
         let dir = Scratch::new("content-search");
         let root = dir.0.join("files");

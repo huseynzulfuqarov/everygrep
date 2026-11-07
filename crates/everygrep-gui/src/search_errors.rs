@@ -148,7 +148,8 @@ fn translated(error: &str, tr: impl Fn(&'static str) -> &'static str) -> String 
             "invalid repetition count range, the start must be <= the end" => {
                 tr("The repetition count starts above its end.")
             }
-            _ => return tr("Invalid regular expression.").into(),
+            "" => return tr("Invalid regular expression.").into(),
+            other => other,
         };
         return fill(tr("Invalid regular expression: {}"), &[&localized]);
     }
@@ -160,6 +161,24 @@ mod tests {
     use super::*;
     use crate::i18n::{Lang, tr_in};
     use everygrep_core::query::{Query, QueryOptions};
+
+    #[test]
+    fn unfamiliar_regex_reasons_remain_visible() {
+        let error = "bad regular expression: regex parse error:\n  pattern\n  ^\nerror: Unicode property not found";
+        for lang in [Lang::Az, Lang::Tr] {
+            let text = translated(error, |key| tr_in(lang, key));
+            assert!(text.contains("Unicode property not found"), "{text}");
+            assert!(
+                text.starts_with(
+                    tr_in(lang, "Invalid regular expression: {}")
+                        .split("{}")
+                        .next()
+                        .unwrap()
+                )
+            );
+            assert!(!text.contains("pattern"));
+        }
+    }
 
     #[test]
     fn actual_core_errors_are_translated_in_both_catalogs() {
