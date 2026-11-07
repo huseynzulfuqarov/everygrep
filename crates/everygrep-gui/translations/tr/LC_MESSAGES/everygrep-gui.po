@@ -4988,9 +4988,6 @@ msgstr "İptal edildi. Önceki klasör sonuçları korundu."
 msgid "Status"
 msgstr "Durum"
 
-msgid "Cannot read or write the CSV file: {}"
-msgstr "CSV dosyası okunamıyor veya yazılamıyor: {}"
-
 msgid "Column {}"
 msgstr "Sütun {}"
 
@@ -5437,3 +5434,18 @@ msgstr "Sekmeler arasında geçiş"
 
 msgid "Open tabs"
 msgstr "Açık sekmeler"
+
+msgid "Cannot import bookmarks: {}"
+msgstr "Yer imleri içe aktarılamıyor: {}"
+
+msgid "Cannot import filters: {}"
+msgstr "Filtreler içe aktarılamıyor: {}"
+
+msgid "Cannot export bookmarks: {}"
+msgstr "Yer imleri dışa aktarılamıyor: {}"
+
+msgid "Cannot export filters: {}"
+msgstr "Filtreler dışa aktarılamıyor: {}"
+
+msgid "Invalid column name. Valid column names: {}. Use ‘standard’ for the standard columns, or leave empty to keep the current columns."
+msgstr "Geçersiz sütun adı. Geçerli sütun adları: {}. Standart sütunlar için ‘standard’ yazın veya mevcut sütunları korumak için boş bırakın."

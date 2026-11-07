@@ -4988,9 +4988,6 @@ msgstr "Ləğv edildi. Əvvəlki qovluq nəticələri saxlanıldı."
 msgid "Status"
 msgstr "Vəziyyət"
 
-msgid "Cannot read or write the CSV file: {}"
-msgstr "CSV faylını oxumaq və ya yazmaq olmur: {}"
-
 msgid "Column {}"
 msgstr "Sütun {}"
 
@@ -5437,3 +5434,18 @@ msgstr "Vərəqlər arasında keçid"
 
 msgid "Open tabs"
 msgstr "Açıq vərəqlər"
+
+msgid "Cannot import bookmarks: {}"
+msgstr "Əlfəcinləri idxal etmək olmur: {}"
+
+msgid "Cannot import filters: {}"
+msgstr "Süzgəcləri idxal etmək olmur: {}"
+
+msgid "Cannot export bookmarks: {}"
+msgstr "Əlfəcinləri ixrac etmək olmur: {}"
+
+msgid "Cannot export filters: {}"
+msgstr "Süzgəcləri ixrac etmək olmur: {}"
+
+msgid "Invalid column name. Valid column names: {}. Use ‘standard’ for the standard columns, or leave empty to keep the current columns."
+msgstr "Yanlış sütun adı. Düzgün sütun adları: {}. Standart sütunlar üçün ‘standard’ yazın, cari sütunları saxlamaq üçün boş buraxın."

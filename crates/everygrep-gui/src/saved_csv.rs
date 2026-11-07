@@ -369,7 +369,15 @@ fn columns(text: &str, line: usize) -> io::Result<Option<Vec<String>>> {
         .map(|n| n.trim().to_lowercase())
         .filter(|n| !n.is_empty())
         .collect();
-    saved_searches::check_columns(Some(&names)).map_err(|e| row_error(line, &e.to_string()))?;
+    saved_searches::check_columns(Some(&names)).map_err(|_| {
+        row_error(
+            line,
+            &fill(
+                tr("Invalid column name. Valid column names: {}. Use ‘standard’ for the standard columns, or leave empty to keep the current columns."),
+                &[&crate::session::column_names().join("; ")],
+            ),
+        )
+    })?;
     Ok(Some(names))
 }
 
@@ -845,6 +853,64 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("Row 2"), "{error}");
+    }
+
+    #[test]
+    fn invalid_csv_columns_explain_the_allowed_values_for_both_lists() {
+        let text = "Name,Search,Columns\nTest,image:,size;modified\n";
+        let library = Library::default();
+        for error in [
+            decode_filters(text).unwrap_err(),
+            decode_bookmarks(text, &library).unwrap_err(),
+        ] {
+            let message = error.to_string();
+            assert!(
+                message.starts_with("Row 2: Invalid column name."),
+                "{message}"
+            );
+            for name in crate::session::column_names() {
+                assert!(message.contains(name), "missing {name}: {message}");
+            }
+            assert!(message.contains("standard"));
+            assert!(message.contains("leave empty"));
+        }
+        let all = crate::session::column_names().join(";");
+        for columns in [all.as_str(), "standard", ""] {
+            let text = format!("Name,Search,Columns\nTest,image:,{columns}\n");
+            assert!(decode_filters(&text).is_ok());
+            assert!(decode_bookmarks(&text, &library).is_ok());
+        }
+    }
+
+    #[test]
+    fn rejected_import_can_be_followed_by_a_successful_atomic_import() {
+        let keys = Keymap::default();
+        for bookmarks in [true, false] {
+            let mut library = Library::default();
+            let before = library.text();
+            let decode = |text: &str, library: &Library| {
+                if bookmarks {
+                    decode_bookmarks(text, library)
+                } else {
+                    decode_filters(text)
+                }
+            };
+            let bad = "Name,Search,Columns\nFirst,image:,dimensions\nBad,image:,size;modified\n";
+            let result =
+                decode(bad, &library).and_then(|incoming| import(&mut library, incoming, &keys));
+            assert!(result.is_err());
+            assert_eq!(library.text(), before);
+            let good = "Name,Search,Columns\nFirst,image:,dimensions;length\n";
+            let incoming = decode(good, &library).unwrap();
+            let report = import(&mut library, incoming, &keys).unwrap();
+            assert_eq!(report.added, 1);
+            assert!(report.message().starts_with("Imported 1 entries"));
+            assert_ne!(library.text(), before);
+            let incoming = decode(good, &library).unwrap();
+            let report = import(&mut library, incoming, &keys).unwrap();
+            assert_eq!(report.added, 0);
+            assert_eq!(report.skipped, 1);
+        }
     }
 
     #[test]

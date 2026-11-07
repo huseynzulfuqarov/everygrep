@@ -15,6 +15,20 @@ use crate::i18n::{fill, tr};
 use crate::saved_searches::{self, Bookmark, Kind, Layout, Library, NamedFilter, Target};
 use crate::{AppWindow, BookmarkFolder, MenuEntry, SavedWindow, labels, settings};
 
+enum CsvOutcome {
+    Import(String),
+    Exported,
+}
+
+fn csv_failure(import: bool, bookmarks: bool) -> &'static str {
+    match (import, bookmarks) {
+        (true, true) => tr("Cannot import bookmarks: {}"),
+        (true, false) => tr("Cannot import filters: {}"),
+        (false, true) => tr("Cannot export bookmarks: {}"),
+        (false, false) => tr("Cannot export filters: {}"),
+    }
+}
+
 struct State {
     main: slint::Weak<AppWindow>,
     engine: Arc<Engine>,
@@ -1389,8 +1403,12 @@ impl State {
             w.set_notice(text.clone().into());
             w.set_notice_error(error);
         }
-        if error && let Some(w) = self.main.upgrade() {
-            crate::error(&w, text);
+        if let Some(w) = self.main.upgrade() {
+            if error {
+                crate::error(&w, text);
+            } else {
+                crate::info(&w, text);
+            }
         }
     }
     fn replace(&self, library: Library) {
@@ -1506,14 +1524,14 @@ impl State {
                 name: filter_name,
                 pattern: "*.csv",
             }];
-            // Some(text) = the file read for an import; None = done/cancelled.
-            let result: Result<Option<String>, String> = (|| {
+            // A cancelled chooser leaves the current status alone.
+            let result: Result<Option<CsvOutcome>, String> = (|| {
                 if import {
                     let Some(path) = crate::portal::open_file(title, accept, &filters)? else {
                         return Ok(None);
                     };
                     std::fs::read_to_string(&path)
-                        .map(Some)
+                        .map(|text| Some(CsvOutcome::Import(text)))
                         .map_err(|e| e.to_string())
                 } else {
                     let Some((path, _)) =
@@ -1522,18 +1540,16 @@ impl State {
                         return Ok(None);
                     };
                     settings::write_atomic(&path, snapshot.as_bytes())
-                        .map(|()| None)
+                        .map(|()| Some(CsvOutcome::Exported))
                         .map_err(|e| e.to_string())
                 }
             })();
             let _ = slint::invoke_from_event_loop(move || {
                 with(|s| match result {
-                    Ok(Some(text)) => s.import_text(&text, bookmarks),
+                    Ok(Some(CsvOutcome::Import(text))) => s.import_text(&text, bookmarks),
+                    Ok(Some(CsvOutcome::Exported)) => s.message(String::new(), false),
                     Ok(None) => {}
-                    Err(e) => s.message(
-                        fill(tr("Cannot read or write the CSV file: {}"), &[&e]),
-                        true,
-                    ),
+                    Err(e) => s.message(fill(csv_failure(import, bookmarks), &[&e]), true),
                 });
             });
         });
@@ -1541,7 +1557,7 @@ impl State {
 
     fn import_text(&self, text: &str, bookmarks: bool) {
         let mut report = None;
-        let changed = self.change(|l| {
+        let changed = self.change_with_error(csv_failure(true, bookmarks), |l| {
             let incoming = if bookmarks {
                 crate::saved_csv::decode_bookmarks(text, l)?
             } else {
@@ -1558,8 +1574,19 @@ impl State {
     }
 
     fn change(&self, change: impl FnOnce(&mut Library) -> io::Result<()>) -> bool {
+        self.change_with_error(tr("Cannot save searches: {}"), change)
+    }
+
+    fn change_with_error(
+        &self,
+        failure: &str,
+        change: impl FnOnce(&mut Library) -> io::Result<()>,
+    ) -> bool {
         let Some(path) = &self.path else {
-            self.message(tr("The configuration folder is unavailable.").into(), true);
+            self.message(
+                fill(failure, &[&tr("The configuration folder is unavailable.")]),
+                true,
+            );
             return false;
         };
         match saved_searches::update(path, change) {
@@ -1573,7 +1600,7 @@ impl State {
                 true
             }
             Err(e) => {
-                self.message(fill(tr("Cannot save searches: {}"), &[&e]), true);
+                self.message(fill(failure, &[&e]), true);
                 false
             }
         }
@@ -1583,6 +1610,21 @@ impl State {
 #[cfg(test)]
 mod tab_tests {
     use super::*;
+
+    #[test]
+    fn csv_failures_name_the_operation_and_the_list() {
+        for (import, bookmarks, expected) in [
+            (true, true, "Cannot import bookmarks: bad CSV"),
+            (true, false, "Cannot import filters: bad CSV"),
+            (false, true, "Cannot export bookmarks: bad CSV"),
+            (false, false, "Cannot export filters: bad CSV"),
+        ] {
+            assert_eq!(
+                fill(csv_failure(import, bookmarks), &[&"bad CSV"]),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn bookmark_quick_lists_bound_every_level_and_keep_original_indices() {
