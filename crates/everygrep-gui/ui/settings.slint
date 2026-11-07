@@ -326,6 +326,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> menu-bar;
     in-out property <bool> status-bar;
     in-out property <bool> toolbar;
+    in-out property <[bool]> toolbar-buttons: [true, true, true, true, true, true, true];
     in-out property <int> zoom;
     in-out property <bool> alternate-rows;
     in property <[string]> size-unit-names;
@@ -1354,6 +1355,15 @@ export component SettingsWindow inherits Window {
                                 text: @tr("Show the toolbar");
                                 checked <=> root.toolbar;
                                 toggled => { root.appearance-changed(); }
+                            }
+                            Text { text: @tr("Toolbar buttons"); color: Theme.text; }
+                            for title[i] in [@tr("Back"), @tr("Forward"), @tr("New tab"), @tr("Rescan"), @tr("Filters"), @tr("Preview"), @tr("Settings")]: CheckBox {
+                                text: title;
+                                checked: root.toolbar-buttons[i];
+                                toggled => {
+                                    root.toolbar-buttons[i] = self.checked;
+                                    root.appearance-changed();
+                                }
                             }
                             Note { text: @tr("Buttons for Back, Forward, New tab, Rescan, Filters, Preview and Settings above the search field. They do what the same menu entries do."); }
                         }

@@ -2030,6 +2030,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-menu-bar: true;
     in-out property <bool> show-status-bar: true;
     in-out property <bool> show-toolbar: false;
+    in property <[bool]> toolbar-buttons: [true, true, true, true, true, true, true];
     callback toolbar-changed(bool);
     // The search scope selector: its entries, the chosen one, and whether
     // it is shown (see src/scope_ui.rs).
@@ -4414,14 +4415,14 @@ export component AppWindow inherits Window {
                     padding-bottom: Theme.s1;
                     spacing: Theme.s1;
                     alignment: start;
-                    ToolButton { glyph: "←"; text: @tr("Back"); enabled: root.can-run(Command.previous-search); clicked => { root.run(Command.previous-search); } }
-                    ToolButton { glyph: "→"; text: @tr("Forward"); enabled: root.can-run(Command.next-search); clicked => { root.run(Command.next-search); } }
-                    Rectangle { width: 1px; background: Theme.line; }
-                    ToolButton { glyph: "+"; text: @tr("New tab"); enabled: root.can-run(Command.new-tab); clicked => { root.run(Command.new-tab); } }
-                    ToolButton { glyph: "⟳"; text: @tr("Rescan"); enabled: root.can-run(Command.rebuild-index); clicked => { root.run(Command.rebuild-index); } }
-                    ToolButton { glyph: "≡"; text: @tr("Filters"); enabled: root.can-run(Command.organize-filters); clicked => { root.run(Command.organize-filters); } }
-                    ToolButton { glyph: "▣"; text: @tr("Preview"); checked: root.preview-visible; enabled: root.can-run(Command.preview-panel); clicked => { root.run(Command.preview-panel); } }
-                    ToolButton { glyph: "⚙"; text: @tr("Settings"); enabled: root.can-run(Command.settings); clicked => { root.run(Command.settings); } }
+                    if root.toolbar-buttons[0]: ToolButton { glyph: "←"; text: @tr("Back"); enabled: root.can-run(Command.previous-search); clicked => { root.run(Command.previous-search); } }
+                    if root.toolbar-buttons[1]: ToolButton { glyph: "→"; text: @tr("Forward"); enabled: root.can-run(Command.next-search); clicked => { root.run(Command.next-search); } }
+                    if (root.toolbar-buttons[0] || root.toolbar-buttons[1]) && (root.toolbar-buttons[2] || root.toolbar-buttons[3] || root.toolbar-buttons[4] || root.toolbar-buttons[5] || root.toolbar-buttons[6]): Rectangle { width: 1px; background: Theme.line; }
+                    if root.toolbar-buttons[2]: ToolButton { glyph: "+"; text: @tr("New tab"); enabled: root.can-run(Command.new-tab); clicked => { root.run(Command.new-tab); } }
+                    if root.toolbar-buttons[3]: ToolButton { glyph: "⟳"; text: @tr("Rescan"); enabled: root.can-run(Command.rebuild-index); clicked => { root.run(Command.rebuild-index); } }
+                    if root.toolbar-buttons[4]: ToolButton { glyph: "≡"; text: @tr("Filters"); enabled: root.can-run(Command.organize-filters); clicked => { root.run(Command.organize-filters); } }
+                    if root.toolbar-buttons[5]: ToolButton { glyph: "▣"; text: @tr("Preview"); checked: root.preview-visible; enabled: root.can-run(Command.preview-panel); clicked => { root.run(Command.preview-panel); } }
+                    if root.toolbar-buttons[6]: ToolButton { glyph: "⚙"; text: @tr("Settings"); enabled: root.can-run(Command.settings); clicked => { root.run(Command.settings); } }
                 }
             }
             if root.show-toolbar: Rectangle { height: 1px; background: Theme.line; }

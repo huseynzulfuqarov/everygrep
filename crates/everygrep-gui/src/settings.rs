@@ -513,6 +513,8 @@ pub struct Settings {
     pub status_bar: bool,
     /// Whether the window shows a toolbar below the menu bar.
     pub toolbar: bool,
+    /// Back, Forward, New tab, Rescan, Filters, Preview and Settings.
+    pub toolbar_buttons: [bool; 7],
     /// The size of the result list's text, icons and rows, in percent.
     pub zoom: u32,
     pub folders_visible: bool,
@@ -623,6 +625,7 @@ impl Default for Settings {
             menu_bar: true,
             status_bar: true,
             toolbar: false,
+            toolbar_buttons: [true; 7],
             zoom: crate::zoom::DEFAULT,
             folders_visible: false,
             preview_visible: false,
@@ -1024,6 +1027,13 @@ impl Settings {
             "menu-bar" => put_flag(&mut self.menu_bar),
             "status-bar" => put_flag(&mut self.status_bar),
             "toolbar" => put_flag(&mut self.toolbar),
+            "toolbar-button-back" => put_flag(&mut self.toolbar_buttons[0]),
+            "toolbar-button-forward" => put_flag(&mut self.toolbar_buttons[1]),
+            "toolbar-button-new-tab" => put_flag(&mut self.toolbar_buttons[2]),
+            "toolbar-button-rescan" => put_flag(&mut self.toolbar_buttons[3]),
+            "toolbar-button-filters" => put_flag(&mut self.toolbar_buttons[4]),
+            "toolbar-button-preview" => put_flag(&mut self.toolbar_buttons[5]),
+            "toolbar-button-settings" => put_flag(&mut self.toolbar_buttons[6]),
             "zoom" => value
                 .parse::<u32>()
                 .ok()
@@ -1849,6 +1859,48 @@ impl Settings {
         flag(&mut out, "menu-bar", self.menu_bar, d.menu_bar);
         flag(&mut out, "status-bar", self.status_bar, d.status_bar);
         flag(&mut out, "toolbar", self.toolbar, d.toolbar);
+        flag(
+            &mut out,
+            "toolbar-button-back",
+            self.toolbar_buttons[0],
+            d.toolbar_buttons[0],
+        );
+        flag(
+            &mut out,
+            "toolbar-button-forward",
+            self.toolbar_buttons[1],
+            d.toolbar_buttons[1],
+        );
+        flag(
+            &mut out,
+            "toolbar-button-new-tab",
+            self.toolbar_buttons[2],
+            d.toolbar_buttons[2],
+        );
+        flag(
+            &mut out,
+            "toolbar-button-rescan",
+            self.toolbar_buttons[3],
+            d.toolbar_buttons[3],
+        );
+        flag(
+            &mut out,
+            "toolbar-button-filters",
+            self.toolbar_buttons[4],
+            d.toolbar_buttons[4],
+        );
+        flag(
+            &mut out,
+            "toolbar-button-preview",
+            self.toolbar_buttons[5],
+            d.toolbar_buttons[5],
+        );
+        flag(
+            &mut out,
+            "toolbar-button-settings",
+            self.toolbar_buttons[6],
+            d.toolbar_buttons[6],
+        );
         if all || self.zoom != d.zoom {
             line(&mut out, "zoom", &self.zoom.to_string());
         }
@@ -2213,6 +2265,7 @@ impl Settings {
                 self.menu_bar = d.menu_bar;
                 self.status_bar = d.status_bar;
                 self.toolbar = d.toolbar;
+                self.toolbar_buttons = d.toolbar_buttons;
                 self.zoom = d.zoom;
                 self.language = d.language;
             }
@@ -3372,6 +3425,24 @@ pub(crate) mod tests {
         assert_eq!(s.theme, ThemeChoice::System);
         assert_eq!(s.density, Density::Comfortable);
         assert_eq!(s.options.filter, Filter::Code, "other pages stay");
+    }
+
+    #[test]
+    fn toolbar_buttons_are_independent_persisted_and_reset_with_appearance() {
+        assert_eq!(Settings::default().toolbar_buttons, [true; 7]);
+        for hidden in 0..7 {
+            let mut s = Settings::default();
+            s.toolbar_buttons[hidden] = false;
+            let mut loaded = Settings::parse(&s.to_text());
+            assert_eq!(loaded.toolbar_buttons, s.toolbar_buttons);
+            loaded.reset(Page::Search);
+            assert_eq!(loaded.toolbar_buttons, s.toolbar_buttons);
+            loaded.reset(Page::Appearance);
+            assert_eq!(loaded.toolbar_buttons, [true; 7]);
+        }
+        let s = Settings::parse("toolbar-button-back = false\ntoolbar-button-back = invalid\n");
+        assert!(!s.toolbar_buttons[0]);
+        assert_eq!(s.problems.len(), 1);
     }
 
     #[test]

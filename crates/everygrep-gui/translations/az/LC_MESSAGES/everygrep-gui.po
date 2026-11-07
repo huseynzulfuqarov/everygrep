@@ -5497,3 +5497,6 @@ msgstr "Çəhrayı"
 
 msgid "System follows the desktop accent, adjusted for contrast; blue is used when unavailable."
 msgstr "Sistem masaüstünün vurğu rəngini kontrasta uyğunlaşdırır; mövcud olmayanda mavi işlədilir."
+
+msgid "Toolbar buttons"
+msgstr "Alətlər panelinin düymələri"

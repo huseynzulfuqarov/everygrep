@@ -5497,3 +5497,6 @@ msgstr "Pembe"
 
 msgid "System follows the desktop accent, adjusted for contrast; blue is used when unavailable."
 msgstr "Sistem masaüstünün vurgu rengini kontrasta uyarlar; kullanılamadığında mavi kullanılır."
+
+msgid "Toolbar buttons"
+msgstr "Araç çubuğu düğmeleri"
