@@ -4504,9 +4504,20 @@ export component AppWindow inherits Window {
                         selected => { root.scope-chosen(self.current-index); }
                     }
                     filter-hover := TouchArea {
-                        width: 160px;
+                        // Leave room for the search field and scope selector.
+                        // Measuring every entry also keeps saved copies readable
+                        // in the popup before they have been selected.
+                        min-width: 160px;
+                        preferred-width: max(160px, filter-labels.preferred-width + 48px);
                         height: filter-box.preferred-height;
                         horizontal-stretch: 0;
+                        filter-labels := VerticalLayout {
+                            visible: false;
+                            for name in root.filter-names: Text {
+                                text: name;
+                                wrap: no-wrap;
+                            }
+                        }
                         filter-box := ComboBox {
                             width: 100%;
                             accessible-label: @tr("Filter");
