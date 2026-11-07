@@ -1,5 +1,5 @@
 import { Button, CheckBox, ComboBox, LineEdit, Palette, StandardTableView } from "std-widgets.slint";
-import { Theme, PopupOutline } from "theme.slint";
+import { AccentColors, Theme, PopupOutline } from "theme.slint";
 
 export component LargestFoldersWindow inherits Window {
     title: @tr("Largest folders");
@@ -23,7 +23,8 @@ export component LargestFoldersWindow inherits Window {
     callback cancel();
     callback close-window();
 
-    public function set-color-scheme(scheme: int, style: int) {
+    public function set-color-scheme(scheme: int, style: int, accent: AccentColors) {
+        Theme.accents = accent;
         Theme.dark-style = style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
         if scheme != 0 || Theme.palette-set {

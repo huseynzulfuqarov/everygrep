@@ -1,7 +1,20 @@
 // Design tokens (see docs/design.md). Components use only these values.
 import { Palette } from "std-widgets.slint";
 
+export struct AccentColors {
+    light: color,
+    dark: color,
+    light-selection: color,
+    dark-selection: color,
+    custom-selection: bool,
+}
+
 export global Theme {
+    in-out property <AccentColors> accents: {
+        light: #1f5fd6, dark: #70a6ff,
+        light-selection: #d3e2fd, dark-selection: #2b4a80,
+        custom-selection: false,
+    };
     // The colors the program chose: light or dark. Unknown follows the
     // toolkit's own reading of the desktop setting, which is used until the
     // program knows it (see set-color-scheme in the windows).
@@ -25,9 +38,9 @@ export global Theme {
     out property <color> text: dark ? #ecedf0 : #16171a;
     out property <color> text-muted: dark ? (dark-style == 1 ? #b0b7c4 : dark-style == 2 ? #a3a6ad : dark-style == 3 ? #a3a6ad : #b1becd) : #545862;
     out property <color> line: dark ? (dark-style == 1 ? #555e6c : dark-style == 2 ? #50545d : dark-style == 3 ? #33353b : #495e76) : #dfe2e7;
-    out property <color> accent: dark ? #6aa1ff : #1f5fd6;
-    out property <color> accent-text: #ffffff;
-    out property <color> selection: dark ? (dark-style == 1 ? #2f5087 : dark-style == 2 ? #2b4a80 : dark-style == 3 ? #2b4a80 : #315580) : #d3e2fd;
+    out property <color> accent: dark ? accents.dark : accents.light;
+    out property <color> accent-text: dark ? #08121c : #ffffff;
+    out property <color> selection: accents.custom-selection ? (dark ? accents.dark-selection : accents.light-selection) : dark ? (dark-style == 1 ? #2f5087 : dark-style == 2 ? #2b4a80 : dark-style == 3 ? #2b4a80 : #315580) : #d3e2fd;
     out property <color> selection-text: dark ? #ffffff : #0b1b3d;
     out property <color> hover: dark ? (dark-style == 1 ? #353c47 : dark-style == 2 ? #34373d : dark-style == 3 ? #26282d : #304159) : #eef1f5;
     // Every second row, when alternate row colors are on: text keeps

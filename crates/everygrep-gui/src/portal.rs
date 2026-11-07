@@ -50,25 +50,61 @@ pub fn color_scheme(value: &Value) -> Option<ColorScheme> {
     }
 }
 
-/// Reports the desktop's color scheme to `changed`: once at the start and
-/// again whenever it changes. Runs until the session bus goes away; `Err`
-/// when the portal cannot be reached.
-pub fn watch_color_scheme(changed: impl Fn(ColorScheme)) -> Result<(), String> {
+/// A desktop appearance update. An absent accent restores the blue fallback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppearanceChange {
+    Scheme(ColorScheme),
+    Accent(Option<[u8; 3]>),
+}
+
+/// Portal RGB values are an sRGB tuple in [0, 1]; invalid values mean unset.
+pub fn accent_color(value: &Value) -> Option<[u8; 3]> {
+    match value {
+        Value::Value(inner) => accent_color(inner),
+        Value::Structure(rgb) => match rgb.fields() {
+            [Value::F64(r), Value::F64(g), Value::F64(b)]
+                if [*r, *g, *b]
+                    .iter()
+                    .all(|v| v.is_finite() && (0.0..=1.0).contains(v)) =>
+            {
+                Some([*r, *g, *b].map(|v| (v * 255.0).round() as u8))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn appearance_change(key: &str, value: &Value) -> Option<AppearanceChange> {
+    match key {
+        COLOR_SCHEME => color_scheme(value).map(AppearanceChange::Scheme),
+        "accent-color" => Some(AppearanceChange::Accent(accent_color(value))),
+        _ => None,
+    }
+}
+
+/// Reads both appearance keys and follows changes on the existing portal
+/// connection. A missing key does not prevent following the other one.
+pub fn watch_appearance(changed: impl Fn(AppearanceChange)) -> Result<(), String> {
     let conn = Connection::session().map_err(|e| e.to_string())?;
     let settings = Proxy::new(&conn, DESTINATION, PATH, SETTINGS).map_err(|e| e.to_string())?;
-    // Listen before reading, so a change in between is not missed.
     let signals = settings
         .receive_signal("SettingChanged")
         .map_err(|e| e.to_string())?;
-    let args = (APPEARANCE, COLOR_SCHEME);
-    // Portals before version 2 only have the deprecated `Read`.
-    let reply = settings
-        .call_method("ReadOne", &args)
-        .or_else(|_| settings.call_method("Read", &args))
-        .map_err(|e| e.to_string())?;
-    let value: OwnedValue = reply.body().deserialize().map_err(|e| e.to_string())?;
-    if let Some(scheme) = color_scheme(&value) {
-        changed(scheme);
+    for key in [COLOR_SCHEME, "accent-color"] {
+        let args = (APPEARANCE, key);
+        let Ok(reply) = settings
+            .call_method("ReadOne", &args)
+            .or_else(|_| settings.call_method("Read", &args))
+        else {
+            continue;
+        };
+        let Ok(value) = reply.body().deserialize::<OwnedValue>() else {
+            continue;
+        };
+        if let Some(update) = appearance_change(key, &value) {
+            changed(update);
+        }
     }
     for message in signals {
         let Ok((namespace, key, value)) =
@@ -77,10 +113,9 @@ pub fn watch_color_scheme(changed: impl Fn(ColorScheme)) -> Result<(), String> {
             continue;
         };
         if namespace == APPEARANCE
-            && key == COLOR_SCHEME
-            && let Some(scheme) = color_scheme(&value)
+            && let Some(update) = appearance_change(&key, &value)
         {
-            changed(scheme);
+            changed(update);
         }
     }
     Ok(())
@@ -419,6 +454,35 @@ mod tests {
         assert!(!ticked(None, false));
         assert!(ticked(None, true));
         assert!(!ticked(Some(&other), false));
+    }
+
+    #[test]
+    fn accent_tuples_wrappers_and_unset_values() {
+        let rgb = Value::from((0.25, 0.5, 1.0));
+        assert_eq!(accent_color(&rgb), Some([64, 128, 255]));
+        assert_eq!(
+            accent_color(&Value::Value(Box::new(rgb))),
+            Some([64, 128, 255])
+        );
+        for bad in [
+            Value::from((-0.1, 0.5, 0.5)),
+            Value::from((0.5, 1.1, 0.5)),
+            Value::from((f64::NAN, 0.5, 0.5)),
+            Value::from((f64::INFINITY, 0.5, 0.5)),
+            Value::from((1u32, 2u32, 3u32)),
+            Value::from("blue"),
+        ] {
+            assert_eq!(accent_color(&bad), None);
+            assert_eq!(
+                appearance_change("accent-color", &bad),
+                Some(AppearanceChange::Accent(None))
+            );
+        }
+        assert_eq!(appearance_change("unknown", &Value::U32(1)), None);
+        assert_eq!(
+            appearance_change("color-scheme", &Value::U32(1)),
+            Some(AppearanceChange::Scheme(ColorScheme::Dark))
+        );
     }
 
     #[test]

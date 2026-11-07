@@ -151,6 +151,43 @@ impl DarkStyle {
     }
 }
 
+/// Accent preference; Blue remains the default when importing older settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AccentChoice {
+    System,
+    #[default]
+    Blue,
+    Green,
+    Teal,
+    Purple,
+    Orange,
+    Pink,
+}
+
+impl AccentChoice {
+    pub const ALL: [Self; 7] = [
+        Self::System,
+        Self::Blue,
+        Self::Green,
+        Self::Teal,
+        Self::Purple,
+        Self::Orange,
+        Self::Pink,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Blue => "blue",
+            Self::Green => "green",
+            Self::Teal => "teal",
+            Self::Purple => "purple",
+            Self::Orange => "orange",
+            Self::Pink => "pink",
+        }
+    }
+}
+
 /// How tightly the result list is packed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Density {
@@ -456,6 +493,7 @@ pub struct Settings {
     pub sizes_largest_first: bool,
     pub theme: ThemeChoice,
     pub dark_style: DarkStyle,
+    pub accent: AccentChoice,
     pub density: Density,
     /// Whether every second row of the result list has a slightly
     /// different background.
@@ -576,6 +614,7 @@ impl Default for Settings {
             sizes_largest_first: false,
             theme: ThemeChoice::System,
             dark_style: DarkStyle::Slate,
+            accent: AccentChoice::Blue,
             density: Density::Comfortable,
             alternate_rows: true,
             size_unit: SizeUnit::Auto,
@@ -949,6 +988,11 @@ impl Settings {
             "focus-search-on-show" => put_flag(&mut self.focus_on_show),
             "sort-dates-newest-first" => put_flag(&mut self.dates_newest_first),
             "sort-sizes-largest-first" => put_flag(&mut self.sizes_largest_first),
+            "accent-color" => AccentChoice::ALL
+                .into_iter()
+                .find(|a| a.id() == value)
+                .map(|a| self.accent = a)
+                .is_some(),
             "dark-style" => DarkStyle::ALL
                 .into_iter()
                 .find(|t| t.id() == value)
@@ -1784,6 +1828,9 @@ impl Settings {
             self.sizes_largest_first,
             d.sizes_largest_first,
         );
+        if all || self.accent != d.accent {
+            line(&mut out, "accent-color", self.accent.id());
+        }
         if all || self.dark_style != d.dark_style {
             line(&mut out, "dark-style", self.dark_style.id());
         }
@@ -2157,6 +2204,7 @@ impl Settings {
             Page::Appearance => {
                 self.theme = d.theme;
                 self.dark_style = d.dark_style;
+                self.accent = d.accent;
                 self.density = d.density;
                 self.alternate_rows = d.alternate_rows;
                 self.size_unit = d.size_unit;
@@ -3264,6 +3312,25 @@ pub(crate) mod tests {
         assert_eq!(s.folder_size, FolderSize::None);
         assert_eq!(s.problems.len(), 1, "a bad value is reported, not kept");
         assert!(!s.to_text().contains("bytes"));
+    }
+
+    #[test]
+    fn accents_round_trip_reject_unknown_and_reset_with_appearance() {
+        assert_eq!(Settings::default().accent, AccentChoice::Blue);
+        for accent in AccentChoice::ALL {
+            let mut s = Settings {
+                accent,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).accent, accent);
+            s.reset(Page::Search);
+            assert_eq!(s.accent, accent);
+            s.reset(Page::Appearance);
+            assert_eq!(s.accent, AccentChoice::Blue);
+        }
+        let s = Settings::parse("accent-color = green\naccent-color = unknown\n");
+        assert_eq!(s.accent, AccentChoice::Green);
+        assert_eq!(s.problems.len(), 1);
     }
 
     #[test]

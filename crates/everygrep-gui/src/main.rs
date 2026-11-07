@@ -398,9 +398,12 @@ fn main() -> Result<(), slint::PlatformError> {
     prefs.apply_schedule();
     // Follows the desktop's light or dark setting for the System theme.
     std::thread::spawn(|| {
-        let _ = portal::watch_color_scheme(|scheme| {
+        let _ = portal::watch_appearance(|update| {
             let _ = slint::invoke_from_event_loop(move || {
-                prefs::with(|p| p.set_desktop_scheme(scheme));
+                prefs::with(|p| match update {
+                    portal::AppearanceChange::Scheme(scheme) => p.set_desktop_scheme(scheme),
+                    portal::AppearanceChange::Accent(accent) => p.set_desktop_accent(accent),
+                });
             });
         });
     });

@@ -2,7 +2,7 @@
 // puts its settings back to the defaults.
 import { Button, CheckBox, ComboBox, LineEdit, Palette, ScrollView, SpinBox, StandardListView, StandardTableView } from "std-widgets.slint";
 import { PropertySettings } from "property-settings.slint";
-import { Theme, PopupCard, PopupOutline } from "theme.slint";
+import { AccentColors, Theme, PopupCard, PopupOutline } from "theme.slint";
 import { FileopsSettings } from "fileops-settings.slint";
 import { PreviewSettings } from "preview-settings.slint";
 import { ContentSettings, DuplicateSettings, HashCacheSettings } from "content-settings.slint";
@@ -319,6 +319,7 @@ export component SettingsWindow inherits Window {
     in property <[string]> theme-names;
     in-out property <int> theme;
     in-out property <int> dark-style;
+    in-out property <int> accent: 1;
     in property <[string]> density-names;
     in-out property <int> density;
     in-out property <bool> status-details;
@@ -478,7 +479,8 @@ export component SettingsWindow inherits Window {
 
     // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
     // setting. Sets the palette of the standard widgets too.
-    public function set-color-scheme(scheme: int, style: int) {
+    public function set-color-scheme(scheme: int, style: int, accent: AccentColors) {
+        Theme.accents = accent;
         Theme.dark-style = style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
         if scheme != 0 || Theme.palette-set {
@@ -1236,6 +1238,19 @@ export component SettingsWindow inherits Window {
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Rectangle { height: Theme.s2; }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text { text: @tr("Accent colour"); color: Theme.text; vertical-alignment: center; }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Accent colour");
+                                    model: [@tr("System"), @tr("Blue"), @tr("Green"), @tr("Teal"), @tr("Purple"), @tr("Orange"), @tr("Pink")];
+                                    current-index <=> root.accent;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Note { text: @tr("System follows the desktop accent, adjusted for contrast; blue is used when unavailable."); }
                             Heading { text: @tr("Result list"); }
                             HorizontalLayout {
                                 spacing: Theme.s3;

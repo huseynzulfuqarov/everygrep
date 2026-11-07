@@ -33,10 +33,10 @@ pub fn connect(main: &AppWindow) {
     main.on_search_name_list(|| with(State::open));
 }
 
-pub fn apply_scheme(scheme: i32, style: i32) {
+pub fn apply_scheme(scheme: i32, style: i32, accent: crate::AccentColors) {
     with(|state| {
         if let Some(window) = state.window.borrow().as_ref() {
-            window.invoke_set_color_scheme(scheme, style);
+            window.invoke_set_color_scheme(scheme, style, accent);
         }
     });
 }
@@ -149,7 +149,7 @@ impl State {
             });
             *self.window.borrow_mut() = Some(window);
         }
-        crate::prefs::with(|p| apply_scheme(p.color_scheme(), p.dark_style()));
+        crate::prefs::with(|p| apply_scheme(p.color_scheme(), p.dark_style(), p.accent_colors()));
         if let Some(window) = self.window.borrow().as_ref() {
             window.set_notice("".into());
             let _ = window.hide();

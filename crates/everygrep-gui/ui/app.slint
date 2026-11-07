@@ -5,7 +5,8 @@ import { FilePropertiesDialog } from "file-properties.slint";
 import { PreviewPanel } from "preview.slint";
 import { FoldersPanel, FolderEntry } from "folders.slint";
 export { FolderEntry } from "folders.slint";
-import { Theme, PopupCard } from "theme.slint";
+import { AccentColors, Theme, PopupCard } from "theme.slint";
+export { AccentColors } from "theme.slint";
 import { FileopsConflict } from "fileops-conflict.slint";
 import { ExportOptions } from "export.slint";
 import { FileopsRename } from "fileops-rename.slint";
@@ -4263,7 +4264,8 @@ export component AppWindow inherits Window {
 
     // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
     // setting. Sets the palette of the standard widgets too.
-    public function set-color-scheme(scheme: int, style: int) {
+    public function set-color-scheme(scheme: int, style: int, accent: AccentColors) {
+        Theme.accents = accent;
         Theme.dark-style = style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
         if scheme != 0 || Theme.palette-set {

@@ -5470,3 +5470,30 @@ msgstr "Qrafit"
 
 msgid "Classic"
 msgstr "Klassik"
+
+msgid "Accent colour"
+msgstr "Vurğu rəngi"
+
+msgid "System"
+msgstr "Sistem"
+
+msgid "Blue"
+msgstr "Mavi"
+
+msgid "Green"
+msgstr "Yaşıl"
+
+msgid "Teal"
+msgstr "Firuzəyi"
+
+msgid "Purple"
+msgstr "Bənövşəyi"
+
+msgid "Orange"
+msgstr "Narıncı"
+
+msgid "Pink"
+msgstr "Çəhrayı"
+
+msgid "System follows the desktop accent, adjusted for contrast; blue is used when unavailable."
+msgstr "Sistem masaüstünün vurğu rəngini kontrasta uyğunlaşdırır; mövcud olmayanda mavi işlədilir."

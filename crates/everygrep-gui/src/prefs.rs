@@ -34,8 +34,8 @@ use crate::portal::ColorScheme;
 use crate::schedule::{self, Schedule};
 use crate::search_history::{self, Order, Searches};
 use crate::settings::{
-    self, Columns, DarkStyle, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings,
-    ThemeChoice,
+    self, AccentChoice, Columns, DarkStyle, Density, LanguageChoice, MAX_HISTORY, OnClose, Page,
+    Settings, ThemeChoice,
 };
 use crate::{AppWindow, Command, DriveRow, HistoryWindow, SettingsWindow, ShortcutCommand, labels};
 
@@ -261,8 +261,7 @@ pub struct Prefs {
     history_busy: Cell<bool>,
     /// The desktop's light or dark setting, once the portal told it.
     desktop_scheme: Cell<Option<ColorScheme>>,
-    /// Whether the windows were given colors; until then they follow the
-    /// toolkit's own reading of the desktop setting.
+    desktop_accent: Cell<Option<[u8; 3]>>,
     /// Whether the language was given to the `.slint` texts.
     language_set: Cell<bool>,
     /// UUIDs of the drives in the settings window's list, in its order.
@@ -433,6 +432,7 @@ impl Prefs {
             history_order: Cell::new((Order::Date, true)),
             history_busy: Cell::new(false),
             desktop_scheme: Cell::new(None),
+            desktop_accent: Cell::new(None),
             language_set: Cell::new(false),
             listed_drives: RefCell::default(),
             key_filter: RefCell::default(),
@@ -947,7 +947,7 @@ impl Prefs {
         self.change_searches(|_| {});
         let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
         if let Some(w) = self.history_window.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme as i32, self.dark_style());
+            w.invoke_set_color_scheme(scheme as i32, self.dark_style(), self.accent_colors());
             // An open window may be behind the main window; showing it again
             // gives a new surface, which GNOME brings to the front (see `raise`
             // in main.rs).
@@ -1127,24 +1127,36 @@ impl Prefs {
         let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
         // Until the desktop's setting is known the toolkit's own reading of
         // it stays in place, so the first frame has the right colors.
-        crate::saved_ui::apply_scheme(scheme as i32, self.dark_style());
-        crate::advanced::apply_scheme(scheme as i32, self.dark_style());
-        crate::name_list_ui::apply_scheme(scheme as i32, self.dark_style());
-        crate::largest_folders::apply_scheme(scheme as i32, self.dark_style());
-        crate::fileops_undo_ui::apply_scheme(scheme as i32, self.dark_style());
-        crate::debug_log_ui::apply_scheme(scheme as i32, self.dark_style());
-        crate::filelist_editor_ui::apply_scheme(scheme as i32, self.dark_style());
-        crate::journal_ui::apply_scheme(scheme as i32, self.dark_style());
+        crate::saved_ui::apply_scheme(scheme as i32, self.dark_style(), self.accent_colors());
+        crate::advanced::apply_scheme(scheme as i32, self.dark_style(), self.accent_colors());
+        crate::name_list_ui::apply_scheme(scheme as i32, self.dark_style(), self.accent_colors());
+        crate::largest_folders::apply_scheme(
+            scheme as i32,
+            self.dark_style(),
+            self.accent_colors(),
+        );
+        crate::fileops_undo_ui::apply_scheme(
+            scheme as i32,
+            self.dark_style(),
+            self.accent_colors(),
+        );
+        crate::debug_log_ui::apply_scheme(scheme as i32, self.dark_style(), self.accent_colors());
+        crate::filelist_editor_ui::apply_scheme(
+            scheme as i32,
+            self.dark_style(),
+            self.accent_colors(),
+        );
+        crate::journal_ui::apply_scheme(scheme as i32, self.dark_style(), self.accent_colors());
         if let Some(m) = self.main.upgrade() {
-            m.invoke_set_color_scheme(scheme as i32, self.dark_style());
+            m.invoke_set_color_scheme(scheme as i32, self.dark_style(), self.accent_colors());
         }
         if let Some(w) = self.history_window.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme as i32, self.dark_style());
+            w.invoke_set_color_scheme(scheme as i32, self.dark_style(), self.accent_colors());
         }
         if let Ok(window) = self.window.try_borrow()
             && let Some(w) = window.as_ref()
         {
-            w.invoke_set_color_scheme(scheme as i32, self.dark_style());
+            w.invoke_set_color_scheme(scheme as i32, self.dark_style(), self.accent_colors());
         }
     }
 
@@ -2431,6 +2443,7 @@ impl Prefs {
             .map(|&t| labels::theme(t).into())
             .collect();
         w.set_dark_style(s.dark_style as i32);
+        w.set_accent(s.accent as i32);
         w.set_theme_names(ModelRc::new(VecModel::from(themes)));
         w.set_theme(
             ThemeChoice::ALL
@@ -3459,6 +3472,10 @@ impl Prefs {
             .ok()
             .and_then(|i| ThemeChoice::ALL.get(i).copied())
             .unwrap_or_default();
+        let accent = usize::try_from(w.get_accent())
+            .ok()
+            .and_then(|i| AccentChoice::ALL.get(i).copied())
+            .unwrap_or_default();
         let dark_style = usize::try_from(w.get_dark_style())
             .ok()
             .and_then(|i| DarkStyle::ALL.get(i).copied())
@@ -3491,6 +3508,7 @@ impl Prefs {
         self.change(move |s| {
             s.theme = theme;
             s.dark_style = dark_style;
+            s.accent = accent;
             s.density = density;
             s.status_details = details;
             s.menu_bar = menu_bar;
@@ -3507,6 +3525,15 @@ impl Prefs {
     }
 
     /// Applies the settings of the Appearance page to the windows.
+    pub fn set_desktop_accent(&self, accent: Option<[u8; 3]>) {
+        self.desktop_accent.set(accent);
+        self.apply_theme();
+    }
+
+    pub fn accent_colors(&self) -> crate::AccentColors {
+        look::accents(self.settings.borrow().accent, self.desktop_accent.get())
+    }
+
     pub fn dark_style(&self) -> i32 {
         self.settings.borrow().dark_style as i32
     }

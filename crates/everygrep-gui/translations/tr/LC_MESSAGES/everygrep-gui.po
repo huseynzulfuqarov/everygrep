@@ -5470,3 +5470,30 @@ msgstr "Grafit"
 
 msgid "Classic"
 msgstr "Klasik"
+
+msgid "Accent colour"
+msgstr "Vurgu rengi"
+
+msgid "System"
+msgstr "Sistem"
+
+msgid "Blue"
+msgstr "Mavi"
+
+msgid "Green"
+msgstr "Yeşil"
+
+msgid "Teal"
+msgstr "Turkuaz"
+
+msgid "Purple"
+msgstr "Mor"
+
+msgid "Orange"
+msgstr "Turuncu"
+
+msgid "Pink"
+msgstr "Pembe"
+
+msgid "System follows the desktop accent, adjusted for contrast; blue is used when unavailable."
+msgstr "Sistem masaüstünün vurgu rengini kontrasta uyarlar; kullanılamadığında mavi kullanılır."

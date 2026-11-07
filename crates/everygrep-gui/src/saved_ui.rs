@@ -603,10 +603,10 @@ pub fn shortcut_rows() -> Vec<crate::ShortcutRow> {
     .unwrap_or_default()
 }
 
-pub fn apply_scheme(scheme: i32, style: i32) {
+pub fn apply_scheme(scheme: i32, style: i32, accent: crate::AccentColors) {
     with(|s| {
         if let Some(w) = s.window.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme, style);
+            w.invoke_set_color_scheme(scheme, style, accent);
         }
     });
 }
@@ -858,7 +858,7 @@ impl State {
             }
         }
         self.fill();
-        crate::prefs::with(|p| apply_scheme(p.color_scheme(), p.dark_style()));
+        crate::prefs::with(|p| apply_scheme(p.color_scheme(), p.dark_style(), p.accent_colors()));
         if let Some(w) = self.window.borrow().as_ref() {
             // An open window may be behind the main window; showing it again
             // gives a new surface, which GNOME brings to the front (see `raise`

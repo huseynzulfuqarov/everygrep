@@ -174,8 +174,11 @@ pub fn open(main: slint::Weak<AppWindow>, engine: &Arc<Engine>) {
     STATE.with(|s| {
         if let Some(s) = s.borrow().as_ref() {
             crate::prefs::with(|p| {
-                s.window
-                    .invoke_set_color_scheme(p.color_scheme(), p.dark_style())
+                s.window.invoke_set_color_scheme(
+                    p.color_scheme(),
+                    p.dark_style(),
+                    p.accent_colors(),
+                )
             });
             s.window.set_notice("".into());
             s.timer.start(
@@ -190,10 +193,10 @@ pub fn open(main: slint::Weak<AppWindow>, engine: &Arc<Engine>) {
     fill_window();
 }
 
-pub fn apply_scheme(scheme: i32, style: i32) {
+pub fn apply_scheme(scheme: i32, style: i32, accent: crate::AccentColors) {
     STATE.with(|s| {
         if let Some(s) = s.borrow().as_ref() {
-            s.window.invoke_set_color_scheme(scheme, style);
+            s.window.invoke_set_color_scheme(scheme, style, accent);
         }
     });
 }

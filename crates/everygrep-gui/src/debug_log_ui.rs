@@ -61,7 +61,9 @@ pub fn open(main: Weak<AppWindow>) {
             *slot.borrow_mut() = Some(w);
         }
         if let Some(w) = slot.borrow().as_ref() {
-            crate::prefs::with(|p| w.invoke_set_color_scheme(p.color_scheme(), p.dark_style()));
+            crate::prefs::with(|p| {
+                w.invoke_set_color_scheme(p.color_scheme(), p.dark_style(), p.accent_colors())
+            });
             fill_window(w);
             w.set_notice("".into());
             // Shown again for a new surface, which GNOME brings to the front.
@@ -109,10 +111,10 @@ fn save(text: &str) -> Result<Option<std::path::PathBuf>, String> {
     Ok(Some(path))
 }
 
-pub fn apply_scheme(scheme: i32, style: i32) {
+pub fn apply_scheme(scheme: i32, style: i32, accent: crate::AccentColors) {
     WINDOW.with(|slot| {
         if let Some(w) = slot.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme, style);
+            w.invoke_set_color_scheme(scheme, style, accent);
         }
     });
 }

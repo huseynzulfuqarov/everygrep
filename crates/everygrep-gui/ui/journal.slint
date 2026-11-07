@@ -1,7 +1,7 @@
 // Index → Index changes: the last changes applied to the index from file
 // events, kept in memory only.
 import { Button, CheckBox, ComboBox, Palette, StandardTableView } from "std-widgets.slint";
-import { Theme, PopupOutline } from "theme.slint";
+import { AccentColors, Theme, PopupOutline } from "theme.slint";
 
 export component JournalWindow inherits Window {
     title: @tr("Index changes");
@@ -30,7 +30,8 @@ export component JournalWindow inherits Window {
     callback clear();
     callback close-window();
 
-    public function set-color-scheme(scheme: int, style: int) {
+    public function set-color-scheme(scheme: int, style: int, accent: AccentColors) {
+        Theme.accents = accent;
         Theme.dark-style = style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
         if scheme != 0 || Theme.palette-set {
