@@ -44,6 +44,8 @@ export component FileUndoWindow inherits Window {
                 selected => { root.filter-changed(); }
             }
             table := StandardTableView {
+                vertical-stretch: 1;
+                min-height: 100px;
                 enabled: !root.busy;
                 rows: root.rows;
                 columns: [
@@ -57,6 +59,7 @@ export component FileUndoWindow inherits Window {
             // the complete selected paths in a scrollable details area.
             ScrollView {
                 height: 64px;
+                vertical-stretch: 0;
                 VerticalLayout {
                     Text { text: root.current >= 0 ? root.path-details[root.current] : ""; color: Theme.text; wrap: word-wrap; }
                 }
