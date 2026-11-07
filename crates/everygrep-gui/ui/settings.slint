@@ -472,7 +472,11 @@ export component SettingsWindow inherits Window {
         pages.focus();
     }
 
-    changed page => { pages.set-current-item(root.page); }
+    changed page => {
+        pages.set-current-item(root.page);
+        page-scroll.content-y = 0px;
+        page-scroll.content-x = 0px;
+    }
 
     // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
     // setting. Sets the palette of the standard widgets too.
@@ -530,7 +534,7 @@ export component SettingsWindow inherits Window {
             VerticalLayout {
                 // The page scrolls when it is taller than the window (longer
                 // translations wrap to more lines); Reset stays in view.
-                ScrollView {
+                page-scroll := ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
                         padding: Theme.dialog-padding;
