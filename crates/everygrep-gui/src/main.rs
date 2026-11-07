@@ -2713,6 +2713,10 @@ fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
 /// off).
 fn wait_for_enter(w: &AppWindow) {
     w.set_search_pending(true);
+    // The message belongs to the submitted query, which the field replaced.
+    w.set_message("".into());
+    w.set_message_details("".into());
+    w.set_message_error(false);
     w.set_notice_error(false);
     // Searching as you type, only a search that reads files waits.
     let notice = if typing::with(|t| t.as_you_type()) {
@@ -2887,6 +2891,11 @@ fn with_model(w: &AppWindow, f: impl FnOnce(&ResultsModel)) {
     }
 }
 
+// A result can arrive after the field changed to a query waiting for Enter.
+fn current_search_error(error: Option<&str>, waiting: bool) -> Option<&str> {
+    error.filter(|_| !waiting)
+}
+
 fn show_results(w: &AppWindow, result: SearchResult) {
     let mut current = false;
     with_model(w, |m| current = m.is_current(&result));
@@ -2914,10 +2923,11 @@ fn show_results(w: &AppWindow, result: SearchResult) {
     } else if w.get_current() < 0 || w.get_current() as usize >= count {
         w.set_current(0);
     }
-    w.set_message_details(result.error.as_deref().unwrap_or_default().into());
-    w.set_message_error(result.error.is_some());
-    w.set_message(match result.error {
-        Some(e) => fill(tr("Cannot search: {}"), &[&search_errors::message(&e)]).into(),
+    let error = current_search_error(result.error.as_deref(), w.get_search_pending());
+    w.set_message_details(error.unwrap_or_default().into());
+    w.set_message_error(error.is_some());
+    w.set_message(match error {
+        Some(e) => fill(tr("Cannot search: {}"), &[&search_errors::message(e)]).into(),
         None => "".into(),
     });
     refresh_status(w);
@@ -2962,6 +2972,27 @@ fn is_loading_message(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completing_a_content_regex_drops_the_incomplete_escape_error() {
+        use everygrep_core::query::Query;
+        let options = QueryOptions::default();
+        let partial = r"regex:content:zxq\";
+        let complete = r"regex:content:zxq\w+";
+        let error = Query::parse(partial, options).unwrap_err().to_string();
+        let mut typing = typing::Typing::default();
+        assert!(typing.edited(typing::reads_files(partial, options, None)));
+        assert_eq!(
+            current_search_error(Some(&error), typing.waiting()),
+            Some(error.as_str())
+        );
+        assert!(!typing.edited(typing::reads_files(complete, options, None)));
+        assert_eq!(current_search_error(Some(&error), typing.waiting()), None);
+        // A late response to the partial query must stay hidden too.
+        assert_eq!(typing.enter(false), typing::Enter::Search);
+        assert!(Query::parse(complete, options).is_ok());
+        assert_eq!(current_search_error(None, typing.waiting()), None);
+    }
 
     /// A right-click on the empty area below the rows opens its own menu:
     /// the area is behind the list, which lets right-clicks no row takes
