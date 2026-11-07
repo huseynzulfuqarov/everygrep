@@ -3,7 +3,7 @@
 //! written to disk except by Export.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use everygrep_core::watch::ChangeKind;
@@ -213,6 +213,17 @@ fn row_path(i: i32) -> Option<PathBuf> {
     })
 }
 
+/// Put the identifying name first so the table's trailing ellipsis only
+/// hides the containing folder. Copy, open and export keep the full path.
+fn display_path(path: &Path) -> String {
+    match (path.file_name(), path.parent()) {
+        (Some(name), Some(parent)) if !parent.as_os_str().is_empty() => {
+            format!("{} — {}", name.to_string_lossy(), parent.display())
+        }
+        _ => path.to_string_lossy().into_owned(),
+    }
+}
+
 fn fill_window() {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
@@ -240,12 +251,12 @@ fn fill_window() {
                     } else {
                         tr("File")
                     }),
-                    StandardListViewItem::from(r.change.path.to_string_lossy().as_ref()),
+                    StandardListViewItem::from(display_path(&r.change.path).as_str()),
                     StandardListViewItem::from(
                         r.change
                             .old_path
                             .as_ref()
-                            .map(|p| p.to_string_lossy().into_owned())
+                            .map(|p| display_path(p))
                             .unwrap_or_default()
                             .as_str(),
                     ),
@@ -318,6 +329,17 @@ mod tests {
                 old_path: (kind == ChangeKind::Renamed).then(|| PathBuf::from("/a/old,\"x\"")),
             },
         }
+    }
+
+    #[test]
+    fn journal_paths_start_with_the_name_and_keep_the_folder() {
+        assert_eq!(
+            display_path(Path::new("/a/long/folder/report.txt")),
+            "report.txt — /a/long/folder"
+        );
+        assert_eq!(display_path(Path::new("/")), "/");
+        assert_eq!(display_path(Path::new("report.txt")), "report.txt");
+        assert_eq!(display_path(Path::new("")), "");
     }
 
     #[test]
