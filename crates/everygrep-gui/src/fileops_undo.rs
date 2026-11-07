@@ -159,9 +159,15 @@ impl Snapshot {
         Ok((before, held, ready))
     }
     fn rename_checked(&self, from: &Path, to: &Path) -> Result<Self, String> {
+        let source = self.0[0].1;
+        let same_item = Stamp::read(to)
+            .is_ok_and(|target| (target.dev, target.ino) == (source.dev, source.ino));
+        if !same_item {
+            ensure_absent(to)?;
+        }
         let (before, held, ready) = self.isolate(from)?;
         if let Err(e) = transfer::rename_expected(&held.path(), to, ready.0[0].1) {
-            return Err(held.restore_error(e).to_string());
+            return Err(undo_io_error(held.restore_error(e)));
         }
         let result = before.after(to).map_err(|e| e.to_string());
         if let Err(e) = held.clear_folder() {
@@ -441,9 +447,23 @@ impl Journal {
     }
     fn availability(&self, enabled: bool) -> (bool, bool) {
         (
-            enabled && self.cursor > 0,
+            enabled && (self.cursor > 0 || self.retryable_undo_end().is_some()),
             enabled && self.cursor < self.entries.len(),
         )
+    }
+
+    // A failed undo remains applied. Retrying the adjacent group repeats
+    // the original identity, snapshot and no-replace checks for each item.
+    fn retryable_undo_end(&self) -> Option<usize> {
+        let id = self.entries.get(self.cursor)?.id;
+        let end = self.entries[self.cursor..]
+            .iter()
+            .position(|e| e.id != id)
+            .map_or(self.entries.len(), |n| self.cursor + n);
+        self.entries[self.cursor..end]
+            .iter()
+            .any(|e| e.applied && e.skipped.is_some())
+            .then_some(end)
     }
 
     fn sync(&mut self, c: Config) {
@@ -530,6 +550,34 @@ impl Journal {
         trash: &impl Fn(&Path, &Path, Stamp) -> Result<(), String>,
         progress: &Progress,
     ) -> Option<StepOutcome> {
+        if !redo && let Some(end) = self.retryable_undo_end() {
+            let cursor = self.cursor;
+            let mut outcome = StepOutcome::default();
+            for index in (cursor..end).rev() {
+                if progress.is_cancelled() {
+                    break;
+                }
+                let e = &mut self.entries[index];
+                if !e.applied || e.skipped.is_none() {
+                    continue;
+                }
+                let name = crate::format::visible_name(
+                    &e.to
+                        .file_name()
+                        .unwrap_or(e.to.as_os_str())
+                        .to_string_lossy(),
+                )
+                .into_owned();
+                e.skipped = None;
+                self.cursor = index + 1;
+                match self.step_one(false, trash, progress)? {
+                    Ok(()) => outcome.done += 1,
+                    Err(reason) => outcome.skipped.push(SkippedItem { name, reason }),
+                }
+            }
+            self.cursor = cursor;
+            return Some(outcome);
+        }
         let index = if redo {
             self.cursor
         } else {
@@ -733,6 +781,14 @@ fn reverse_rename(
         ));
     }
     result
+}
+
+fn undo_io_error(error: io::Error) -> String {
+    if error.kind() == io::ErrorKind::AlreadyExists {
+        tr("The destination already exists.").into()
+    } else {
+        error.to_string()
+    }
 }
 
 fn ensure_absent(path: &Path) -> Result<(), String> {
@@ -1333,7 +1389,7 @@ fn view_in(filter: i32, localized: bool) -> View {
     let mut j = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
     j.sync(c);
     View {
-        can_undo: c.enabled && j.cursor > 0,
+        can_undo: c.enabled && (j.cursor > 0 || j.retryable_undo_end().is_some()),
         can_redo: c.enabled && j.cursor < j.entries.len(),
         rows: j
             .entries
@@ -1931,6 +1987,38 @@ mod tests {
             epoch: before.epoch.wrapping_add(2),
             ..before
         };
+    }
+
+    #[test]
+    fn undo_collision_can_be_retried_without_overwriting_or_losing_identity_checks() {
+        let t = Temp::new();
+        let a = t.0.join("old");
+        let b = t.0.join("new");
+        fs::write(&b, "recorded").unwrap();
+        let mut j = journal(vec![entry(Kind::Rename, a.clone(), b.clone(), None)]);
+        fs::write(&a, "occupied").unwrap();
+        let p = Progress::new();
+        let refused = j.step(false, &no_trash, &p).unwrap();
+        assert_eq!(refused.skipped[0].reason, "The destination already exists.");
+        assert_eq!(j.availability(true), (true, true));
+        assert_eq!(j.step(false, &no_trash, &p).unwrap().done, 0);
+        assert_eq!(fs::read(&a).unwrap(), b"occupied");
+        assert_eq!(fs::read(&b).unwrap(), b"recorded");
+        fs::remove_file(&a).unwrap();
+        assert_eq!(j.step(false, &no_trash, &p).unwrap().done, 1);
+        assert_eq!(fs::read(&a).unwrap(), b"recorded");
+        assert!(!b.exists());
+        assert_eq!(j.availability(true), (false, true));
+        assert_eq!(j.step(true, &no_trash, &p).unwrap().done, 1);
+        fs::write(&b, "external change").unwrap();
+        assert_eq!(j.step(false, &no_trash, &p).unwrap().done, 0);
+        assert_eq!(j.step(false, &no_trash, &p).unwrap().done, 0);
+        assert_eq!(fs::read(&b).unwrap(), b"external change");
+        assert!(!a.exists());
+        assert_eq!(
+            undo_io_error(io::ErrorKind::AlreadyExists.into()),
+            "The destination already exists."
+        );
     }
 
     #[test]
