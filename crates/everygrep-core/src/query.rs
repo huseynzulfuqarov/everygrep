@@ -814,7 +814,7 @@ fn eval_pred(pred: &Pred, store: &NodeStore, id: NodeId, scratch: &mut EvalScrat
                 }
                 NumberField::NameLength => {
                     // Count Unicode scalar values; each invalid byte counts once.
-                    eval_name(store, id, false, scratch.relative_name)
+                    eval_name(store, id, false, true)
                         .utf8_chunks()
                         .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())
                         .sum::<usize>() as u64
@@ -5939,6 +5939,36 @@ mod tests {
             Query::parse("len:3", QueryOptions::default())
                 .unwrap()
                 .matches(&s, invalid, &mut EvalScratch::default())
+        );
+    }
+
+    #[test]
+    fn root_name_length_counts_only_its_last_component() {
+        let mut store = NodeStore::new();
+        let root = store.add(None, "/long/parent/şəkil".as_bytes(), true, Meta::default());
+        let child = store.add(Some(root), "şəkil".as_bytes(), false, Meta::default());
+        let slash = store.add(None, b"/", true, Meta::default());
+        for id in [root, child] {
+            assert!(
+                Query::parse("len:5", QueryOptions::default())
+                    .unwrap()
+                    .matches(&store, id, &mut EvalScratch::default())
+            );
+            assert!(
+                !Query::parse("len:18", QueryOptions::default())
+                    .unwrap()
+                    .matches(&store, id, &mut EvalScratch::default())
+            );
+        }
+        assert!(
+            Query::parse("len:1", QueryOptions::default())
+                .unwrap()
+                .matches(&store, slash, &mut EvalScratch::default())
+        );
+        assert!(
+            Query::parse("path:parent", QueryOptions::default())
+                .unwrap()
+                .matches(&store, root, &mut EvalScratch::default())
         );
     }
 
