@@ -2504,6 +2504,8 @@ export component AppWindow inherits Window {
     // Created, Accessed, Attributes, a hash or a frequency column was shown
     // or hidden: their values are read (or counted) only while shown.
     callback detail-columns-changed();
+    // ColumnSource in Rust: 0 defaults, 1 saved layout, 2 explicit user edit.
+    in-out property <int> column-source;
     changed show-created => { root.detail-columns-changed(); }
     changed show-accessed => { root.detail-columns-changed(); }
     changed show-attrs => { root.detail-columns-changed(); }
@@ -3001,6 +3003,7 @@ export component AppWindow inherits Window {
 
     // Sizes one column to fit the rows on screen.
     function fit-column(c: int) {
+        root.column-source = 2;
         root.set-width(c, root.fit-width(c));
     }
 
@@ -3068,6 +3071,7 @@ export component AppWindow inherits Window {
     // Sizes every shown column to fit, then widens or narrows all of them
     // by the same factor so together they fill the window.
     function fit-columns-to-window() {
+        root.column-source = 2;
         let w0 = root.fit-width(0);
         let w1 = root.fit-width(1);
         let w2 = root.fit-width(2);
@@ -3312,6 +3316,7 @@ export component AppWindow inherits Window {
     // the columns fit, and past that they get wider than the window (or
     // narrower again). See src/columns.rs.
     function drag-boundary(boundary: int, delta: length) {
+        if (delta != 0px) { root.column-source = 2; }
         let left = boundary <= 2 ? boundary : boundary == 99 ? root.last-shown() : root.left-of(boundary);
         let right = boundary <= 2 ? boundary + 1 : boundary == 99 ? -1 : boundary;
         let next = root.drag-columns({
@@ -3363,6 +3368,7 @@ export component AppWindow inherits Window {
     // After an optional column (4 to 14, see sort-column) was shown or hidden:
     // hiding the sorted column sorts by name again.
     function column-shown(column: int, shown: bool) {
+        root.column-source = 2;
         if (!shown) {
             root.last-removed-column = column;
         } else if (root.last-removed-column == column) {
@@ -3518,6 +3524,7 @@ export component AppWindow inherits Window {
     // Back to the columns of a first start: only Name, Folder, Size and
     // Modified, at their default widths, Name at its share of the window.
     function reset-columns() {
+        root.column-source = 2;
         let next = root.reset-sort-columns({
             column: root.sort-column, descending: root.sort-descending,
             then1: root.sort-then1-column, then1-descending: root.sort-then1-descending,

@@ -283,6 +283,7 @@ fn read(w: &AppWindow) -> SearchState {
         sort_column: w.get_sort_column(),
         descending: w.get_sort_descending(),
         columns: read_columns(w),
+        column_source: crate::settings::ColumnSource::from_index(w.get_column_source()),
         within: crate::scope_ui::current(),
     }
 }
@@ -677,6 +678,7 @@ impl State {
     }
 
     fn store(&self, w: &AppWindow) {
+        self.prefs.save_columns(w);
         // End a rename and flush the old tab's delayed history record before leaving.
         self.pause.stop();
         w.invoke_history_record();
@@ -720,6 +722,7 @@ impl State {
         w.set_sort_descending(search.descending);
         crate::sort_dialog::clear_then(w);
         install_columns(w, &search.columns);
+        w.set_column_source(search.column_source as i32);
         let counted = self.model.frequency_columns().any();
         crate::apply_detail_columns(w);
         // A frequency column shown now needs a search to count the index.

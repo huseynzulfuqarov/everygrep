@@ -1522,9 +1522,12 @@ impl Prefs {
 
     /// Keeps the main window's columns, when they are remembered.
     pub fn save_columns(&self, w: &AppWindow) {
-        if !self.settings.borrow().remember_columns {
+        let source = settings::ColumnSource::from_index(w.get_column_source());
+        let s = self.settings.borrow();
+        if !s.can_remember_view_columns(source) {
             return;
         }
+        drop(s);
         let differs = |v: f32, default: f32| ((v - default).abs() >= 0.5).then_some(v.round());
         let columns = Columns {
             show_type: w.get_show_type(),
@@ -1639,7 +1642,10 @@ impl Prefs {
             size_freq: differs(w.get_size_freq_want(), SIZE_FREQ_WIDTH),
         };
         if self.settings.borrow().columns != columns {
-            self.change(move |s| s.columns = columns.clone());
+            self.change(move |s| s.remember_view_columns(columns.clone(), source));
+        }
+        if source == settings::ColumnSource::Edited {
+            w.set_column_source(settings::ColumnSource::Defaults as i32);
         }
     }
 
@@ -2471,6 +2477,7 @@ impl Prefs {
         w.set_switch_to_new_tab(s.switch_to_new_tab);
         w.set_restore_session(s.restore_session);
         w.set_remember_columns(s.remember_columns);
+        w.set_saved_columns_as_defaults(s.saved_columns_as_defaults);
         w.set_rename_name_only(s.rename_name_only);
         s.fileops.fill_window(w);
         w.set_path_click_opens_folder(s.path_click_opens_folder);
@@ -3736,6 +3743,7 @@ impl Prefs {
             w.set_session_confirm(true);
         }
         let remember = w.get_remember_columns();
+        let saved_defaults = w.get_saved_columns_as_defaults();
         let name_only = w.get_rename_name_only();
         let fileops = crate::fileops_settings::Settings::from_window(&w);
         let path_click = w.get_path_click_opens_folder();
@@ -3762,6 +3770,7 @@ impl Prefs {
             s.on_close = on_close;
             s.folder_size = folder_size;
             s.remember_columns = remember;
+            s.saved_columns_as_defaults = saved_defaults;
             s.rename_name_only = name_only;
             s.fileops = fileops.clone();
             s.path_click_opens_folder = path_click;

@@ -31,6 +31,8 @@ pub struct SearchState {
     pub sort_column: i32,
     pub descending: bool,
     pub columns: Columns,
+    /// Saved search layout, kept out of the user's defaults until edited.
+    pub column_source: crate::settings::ColumnSource,
     /// The search scope: only entries below this folder are listed.
     pub within: Option<std::path::PathBuf>,
 }
@@ -57,6 +59,7 @@ impl SearchState {
         self.options = tab_options(b.options);
         self.filter = Some(b.filter.clone());
         self.filter_snapshot = true;
+        self.column_source = crate::settings::ColumnSource::Saved;
         self.sort_column = b.sort_column;
         self.descending = b.descending;
         // A bookmark does not keep a scope: it lists all locations.
@@ -89,6 +92,14 @@ impl SearchState {
         if !keep_filter {
             self.filter = None;
             self.filter_snapshot = false;
+        }
+        if columns.show_type
+            || columns.show_ext
+            || columns.show_created
+            || columns.show_accessed
+            || columns.show_attrs
+        {
+            self.column_source = crate::settings::ColumnSource::Edited;
         }
         self.columns.show_type |= columns.show_type;
         self.columns.show_ext |= columns.show_ext;
@@ -336,6 +347,77 @@ mod tests {
         assert_eq!((s.sort_column, s.descending), (5, true));
         assert!(s.columns.show_ext, "the sort column is shown");
         assert!(!s.columns.show_type);
+    }
+
+    #[test]
+    fn bookmark_columns_do_not_replace_defaults_on_quit() {
+        let mut settings = crate::settings::Settings::default();
+        settings.columns.show_ext = true;
+        settings.columns.name = Some(333.0);
+        let defaults = settings.columns.clone();
+        let mut bookmark = crate::saved_searches::Bookmark::group(Default::default(), "Media", 0);
+        bookmark.columns = Some(vec!["dimensions".into(), "length".into()]);
+        let view = SearchState {
+            columns: defaults.clone(),
+            ..Default::default()
+        }
+        .of_bookmark(&bookmark);
+        assert!(view.columns.show_dimensions && view.columns.show_length);
+        settings.remember_view_columns(view.columns.clone(), view.column_source);
+        let saved = crate::settings::Settings::parse(&settings.to_text());
+        assert_eq!(saved.columns, defaults);
+        // Explicit user edits make the current layout eligible again.
+        settings.remember_view_columns(view.columns.clone(), crate::settings::ColumnSource::Edited);
+        assert_eq!(
+            crate::settings::Settings::parse(&settings.to_text()).columns,
+            view.columns
+        );
+    }
+
+    #[test]
+    fn unchanged_tab_does_not_overwrite_newer_defaults() {
+        let mut settings = crate::settings::Settings::default();
+        let old_tab = settings.columns.clone();
+        let changed = Columns {
+            show_dimensions: true,
+            show_length: true,
+            ..Default::default()
+        };
+        settings.remember_view_columns(changed.clone(), crate::settings::ColumnSource::Edited);
+        settings.remember_view_columns(old_tab, crate::settings::ColumnSource::Defaults);
+        assert_eq!(settings.columns, changed);
+    }
+
+    #[test]
+    fn bookmark_sort_column_also_stays_out_of_defaults() {
+        let mut settings = crate::settings::Settings::default();
+        let defaults = settings.columns.clone();
+        let mut bookmark = crate::saved_searches::Bookmark::group(Default::default(), "By type", 0);
+        bookmark.sort_column = 4;
+        let view = SearchState::default().of_bookmark(&bookmark);
+        assert!(view.columns.show_type);
+        settings.remember_view_columns(view.columns, view.column_source);
+        assert_eq!(settings.columns, defaults);
+    }
+
+    #[test]
+    fn saved_columns_defaults_opt_in_round_trips_and_respects_remember_switch() {
+        let mut settings = crate::settings::Settings::parse("saved-columns-as-defaults = true\n");
+        assert!(settings.saved_columns_as_defaults);
+        settings = crate::settings::Settings::parse(&settings.to_text());
+        assert!(settings.saved_columns_as_defaults);
+        let columns = Columns {
+            show_dimensions: true,
+            show_length: true,
+            ..Default::default()
+        };
+        settings.remember_view_columns(columns.clone(), crate::settings::ColumnSource::Saved);
+        assert_eq!(settings.columns, columns);
+        settings.remember_columns = false;
+        settings.remember_view_columns(Columns::default(), crate::settings::ColumnSource::Edited);
+        assert_eq!(settings.columns, columns);
+        settings.reset(crate::settings::Page::Window);
+        assert!(!settings.saved_columns_as_defaults);
     }
 
     #[test]

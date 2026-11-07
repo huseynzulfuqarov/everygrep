@@ -349,6 +349,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> on-close;
     in property <string> on-close-note;
     in-out property <bool> remember-columns;
+    in-out property <bool> saved-columns-as-defaults;
     in-out property <bool> rename-name-only;
     in-out property <bool> fileops-rename-dialog;
     in-out property <bool> fileops-conflict-ask;
@@ -1478,6 +1479,13 @@ export component SettingsWindow inherits Window {
                                 checked <=> root.remember-columns;
                                 toggled => { root.window-changed(); }
                             }
+                            CheckBox {
+                                text: @tr("Use bookmark and filter columns as defaults");
+                                checked <=> root.saved-columns-as-defaults;
+                                enabled: root.remember-columns;
+                                toggled => { root.window-changed(); }
+                            }
+                            Note { text: @tr("Off: saved columns apply only to their view. Changing columns yourself makes that layout the default."); }
                             Note { text: @tr("Right-click the column headers to show the Type, Extension, Created, Accessed and Attributes columns; drag the header borders to resize."); }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Sorting"); }

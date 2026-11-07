@@ -134,7 +134,7 @@ impl Session {
                     ));
                 }
                 "query" | "options" | "match-options" | "filter" | "filter-snapshot" | "sort"
-                | "columns" | "widths" | "within" => {
+                | "columns" | "widths" | "within" | "column-source" => {
                     let search = &mut current
                         .as_mut()
                         .ok_or_else(|| invalid("tab field without tab"))?
@@ -158,6 +158,14 @@ impl Session {
                             )?);
                         }
                         "filter-snapshot" => search.filter_snapshot = boolean(value)?,
+                        "column-source" => {
+                            search.column_source = match value {
+                                "0" => crate::settings::ColumnSource::Defaults,
+                                "1" => crate::settings::ColumnSource::Saved,
+                                "2" => crate::settings::ColumnSource::Edited,
+                                _ => return Err(invalid("invalid column source")),
+                            }
+                        }
                         "filter" => {
                             if value == "none" {
                                 search.filter = None;
@@ -249,8 +257,9 @@ impl Session {
                 u8::from(search.descending)
             ));
             text.push_str(&format!(
-                "filter-snapshot = {}\n",
-                u8::from(search.filter_snapshot)
+                "filter-snapshot = {}\ncolumn-source = {}\n",
+                u8::from(search.filter_snapshot),
+                search.column_source as i32
             ));
             if let Some(f) = &search.filter {
                 text.push_str(&format!(
@@ -879,6 +888,11 @@ mod tests {
                         layout: Default::default(),
                     }),
                     filter_snapshot: i % 2 == 0,
+                    column_source: match i % 3 {
+                        0 => crate::settings::ColumnSource::Saved,
+                        1 => crate::settings::ColumnSource::Edited,
+                        _ => crate::settings::ColumnSource::Defaults,
+                    },
                     sort_column: 7,
                     descending: true,
                     columns: Columns {
@@ -1129,6 +1143,7 @@ mod tests {
             "EveryGrep session 1\n",
             "EveryGrep session 2\n",
             "EveryGrep session 2\nscope = a\ntab = open\noptions = invalid\n",
+            "EveryGrep session 2\nscope = a\ntab = open\ncolumn-source = 3\n",
             "EveryGrep session 2\nscope = a\ntab = open\nsort = 9999\t1\n",
             "EveryGrep session 2\nscope = a\ntab = open\nwidths = name:NaN\n",
             "EveryGrep session 2\nscope = a\ntab = open\nwidths = name\n",

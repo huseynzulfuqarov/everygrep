@@ -472,6 +472,8 @@ pub struct Settings {
     /// Whether the optional columns and the column widths are kept between
     /// sessions.
     pub remember_columns: bool,
+    /// Whether saved search layouts may replace the user's column defaults.
+    pub saved_columns_as_defaults: bool,
     pub columns: Columns,
     /// Whether renaming preselects the name without its extension; off
     /// selects the whole name.
@@ -620,6 +622,7 @@ impl Default for Settings {
             on_close: OnClose::Quit,
             folder_size: FolderSize::Total,
             remember_columns: true,
+            saved_columns_as_defaults: false,
             columns: Columns::default(),
             rename_name_only: true,
             fileops: crate::fileops_settings::Settings::default(),
@@ -720,7 +723,40 @@ pub enum Page {
     Window,
 }
 
+/// Where the current column layout came from. Unedited defaults never
+/// overwrite newer choices made in another tab.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ColumnSource {
+    #[default]
+    Defaults = 0,
+    Saved = 1,
+    Edited = 2,
+}
+
+impl ColumnSource {
+    pub fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::Saved,
+            2 => Self::Edited,
+            _ => Self::Defaults,
+        }
+    }
+}
+
 impl Settings {
+    pub fn can_remember_view_columns(&self, source: ColumnSource) -> bool {
+        self.remember_columns
+            && (source == ColumnSource::Edited
+                || (source == ColumnSource::Saved && self.saved_columns_as_defaults))
+    }
+
+    /// Saved layouts belong to their views unless explicitly allowed as defaults.
+    pub fn remember_view_columns(&mut self, columns: Columns, source: ColumnSource) {
+        if self.can_remember_view_columns(source) {
+            self.columns = columns;
+        }
+    }
+
     /// The index file of the window over the default index: `index.bin`
     /// in the chosen folder, or the default file in the cache folder.
     pub fn index_file(&self) -> Option<PathBuf> {
@@ -988,6 +1024,7 @@ impl Settings {
                 .map(|f| self.folder_size = f)
                 .is_some(),
             "remember-columns" => put_flag(&mut self.remember_columns),
+            "saved-columns-as-defaults" => put_flag(&mut self.saved_columns_as_defaults),
             "rename-select-name-only" => put_flag(&mut self.rename_name_only),
             "open-folder-on-path-double-click" => put_flag(&mut self.path_click_opens_folder),
             "copy-full-path-quotes" => put_flag(&mut self.copy_full_path_quotes),
@@ -1786,6 +1823,12 @@ impl Settings {
         }
         flag(
             &mut out,
+            "saved-columns-as-defaults",
+            self.saved_columns_as_defaults,
+            d.saved_columns_as_defaults,
+        );
+        flag(
+            &mut out,
             "remember-columns",
             self.remember_columns,
             d.remember_columns,
@@ -2318,6 +2361,7 @@ impl Settings {
                 self.on_close = d.on_close;
                 self.folder_size = d.folder_size;
                 self.remember_columns = d.remember_columns;
+                self.saved_columns_as_defaults = d.saved_columns_as_defaults;
                 self.columns = d.columns;
                 self.rename_name_only = d.rename_name_only;
                 self.fileops = d.fileops;

@@ -502,6 +502,10 @@ pub fn apply_filter_layout(w: &AppWindow) {
 }
 
 fn apply_layout(w: &AppWindow, layout: &Layout) {
+    if layout.columns.is_some() || layout.sort.is_some() {
+        crate::prefs::with(|p| p.save_columns(w));
+        w.set_column_source(crate::settings::ColumnSource::Saved as i32);
+    }
     if let Some(columns) = &layout.columns {
         show_columns(w, columns);
     }
@@ -1372,6 +1376,8 @@ impl State {
     }
     fn activate(&self, b: &Bookmark) {
         let Some(w) = self.main.upgrade() else { return };
+        crate::prefs::with(|p| p.save_columns(&w));
+        w.set_column_source(crate::settings::ColumnSource::Saved as i32);
         w.invoke_history_record();
         w.set_query(b.search.as_str().into());
         w.set_hidden_files(

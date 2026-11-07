@@ -382,6 +382,10 @@ fn main() -> Result<(), slint::PlatformError> {
         &window,
     );
     prefs.restore_columns(&window);
+    if args.show_type || args.show_ext || args.show_created || args.show_accessed || args.show_attrs
+    {
+        window.set_column_source(settings::ColumnSource::Edited as i32);
+    }
     apply_detail_columns(&window);
     window.on_detail_columns_changed({
         let weak = weak.clone();

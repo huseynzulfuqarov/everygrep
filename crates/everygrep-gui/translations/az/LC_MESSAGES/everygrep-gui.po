@@ -5513,3 +5513,9 @@ msgstr "Sərin"
 
 msgid "Neutral"
 msgstr "Neytral"
+
+msgid "Use bookmark and filter columns as defaults"
+msgstr "Əlfəcin və filtr sütunlarını standart olaraq istifadə et"
+
+msgid "Off: saved columns apply only to their view. Changing columns yourself makes that layout the default."
+msgstr "Sönülü: saxlanmış sütunlar yalnız öz görünüşünə tətbiq olunur. Sütunları özünüz dəyişəndə həmin düzülüş standart olur."
