@@ -75,6 +75,7 @@ export global Theme {
     // Type
     out property <length> body: 13px;
     out property <length> small: 12px;
+    out property <length> header-text: round(small * zoom / 1px) * 1px;
     // Text in the rows.
     out property <length> list-text: round((compact ? 12px : 13px) * zoom / 1px) * 1px;
 }

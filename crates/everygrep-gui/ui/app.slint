@@ -678,7 +678,7 @@ component HeaderCell inherits Rectangle {
     callback right-pressed(length, length);
 
     property <bool> right: root.align == TextHorizontalAlignment.right;
-    property <length> arrow-space: root.sorted ? Theme.icon : 0px;
+    property <length> arrow-space: root.sorted ? Theme.row-icon : 0px;
     property <length> label-width: min(label-text.preferred-width, label-text.width);
 
     background: touch.has-hover ? Theme.hover : transparent;
@@ -696,7 +696,7 @@ component HeaderCell inherits Rectangle {
         width: parent.width - 2 * Theme.s2 - root.arrow-space;
         height: parent.height;
         text: root.label;
-        font-size: Theme.small;
+        font-size: Theme.header-text;
         font-weight: 600;
         color: root.sorted ? Theme.text : Theme.text-muted;
         vertical-alignment: center;
@@ -710,8 +710,8 @@ component HeaderCell inherits Rectangle {
             ? parent.width - Theme.s2 - root.label-width - self.width
             : Theme.s2 + root.label-width;
         y: (parent.height - self.height) / 2;
-        width: Theme.icon;
-        height: Theme.icon;
+        width: Theme.row-icon;
+        height: Theme.row-icon;
         source: root.descending ? @image-url("icons/sort-down.svg") : @image-url("icons/sort-up.svg");
         colorize: Theme.accent;
     }
@@ -2972,7 +2972,7 @@ export component AppWindow inherits Window {
         // and its bold marks, Folder its bold marks.
         let room = c == 0 ? Theme.s3 + Theme.row-icon + 2 * Theme.s2 + Theme.s1
             : c == 1 ? 2 * Theme.s2 + Theme.s1 : 2 * Theme.s2;
-        let label = fit-label-probe.preferred-width + 2 * Theme.s2 + Theme.icon;
+        let label = fit-label-probe.preferred-width + 2 * Theme.s2 + Theme.row-icon;
         return max(root.any-min(c), max(text + room, label));
     }
 
@@ -5513,7 +5513,7 @@ export component AppWindow inherits Window {
                             fit-a-probe := Text { text: root.fit-a; font-size: Theme.list-text; }
                             fit-b-probe := Text { text: root.fit-b; font-size: Theme.list-text; }
                             fit-c-probe := Text { text: root.fit-c; font-size: Theme.list-text; }
-                            fit-label-probe := Text { text: root.fit-label; font-size: Theme.small; font-weight: 600; }
+                            fit-label-probe := Text { text: root.fit-label; font-size: Theme.header-text; font-weight: 600; }
                         }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
