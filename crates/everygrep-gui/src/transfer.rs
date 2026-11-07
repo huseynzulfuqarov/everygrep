@@ -1883,6 +1883,12 @@ impl Copier<'_> {
             )).into());
         }
         let mut from = File::open(src)?;
+        // The bytes must all come from one version of the source: the one
+        // that was looked at, opened, and still the same once read in full.
+        let seen = Copied::new(src, meta);
+        if !seen.unchanged(&from.metadata()?) {
+            return Err(source_changed().into());
+        }
         let parent = self.output_parent(dst)?;
         let actual = fd_path(&parent).join(
             dst.file_name()
@@ -1909,6 +1915,7 @@ impl Copier<'_> {
         require_private(&to)?;
         let created_index = self.created.len() - 1;
         let mut digest = everygrep_core::hash::Sha256Stream::default();
+        let mut total = 0u64;
         loop {
             if self.progress.is_cancelled() {
                 return Err(Stop::Cancelled);
@@ -1928,6 +1935,10 @@ impl Copier<'_> {
             (&*to).write_all(&self.buf[..n])?;
             digest.update(&self.buf[..n]);
             self.progress.add(n as u64);
+            total += n as u64;
+        }
+        if total != seen.len || !seen.unchanged(&from.metadata()?) {
+            return Err(source_changed().into());
         }
         self.created[created_index].digest = Some(digest.finish());
         #[cfg(test)]
@@ -4144,5 +4155,146 @@ mod tests {
                 .to_string()
                 .ends_with("; the partial copy “/d/.p” could not be removed: permission denied")
         );
+    }
+
+    #[test]
+    fn a_copy_never_publishes_bytes_from_two_versions_of_the_source() {
+        let t = TempDir::new("torn-copy");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let s = src.clone();
+        crate::fileops_test::arm("copy-read", move |_| write(&s, &"B".repeat(CHUNK * 2)));
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        assert!(out.done.is_empty(), "{:?}", out.done);
+        assert_eq!(out.failed.len(), 1);
+        assert!(
+            out.failed[0]
+                .1
+                .to_string()
+                .contains("The copy source changed while copying."),
+            "{}",
+            out.failed[0].1
+        );
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&src), "B".repeat(CHUNK * 2));
+    }
+
+    #[test]
+    fn a_move_keeps_a_source_rewritten_while_it_is_read() {
+        let t = TempDir::new("torn-move");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 2));
+        fs::create_dir(&dest).unwrap();
+        let s = src.clone();
+        crate::fileops_test::arm("copy-read", move |_| write(&s, &"B".repeat(CHUNK * 2)));
+        let out = move_across_devices(&src, &dest);
+        crate::fileops_test::fired();
+        assert!(out.done.is_empty(), "{:?}", out.done);
+        assert_eq!(out.failed.len(), 1);
+        assert!(
+            out.failed[0]
+                .1
+                .to_string()
+                .contains("The copy source changed while copying.")
+        );
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&src), "B".repeat(CHUNK * 2));
+    }
+
+    #[test]
+    fn a_source_that_shrinks_while_it_is_read_is_not_copied() {
+        let t = TempDir::new("torn-shrink");
+        let src = t.path("src/x");
+        let dest = t.path("dest");
+        write(&src, &"A".repeat(CHUNK * 3));
+        fs::create_dir(&dest).unwrap();
+        let s = src.clone();
+        crate::fileops_test::arm("copy-read", move |_| {
+            File::options()
+                .write(true)
+                .open(&s)
+                .unwrap()
+                .set_len(CHUNK as u64)
+                .unwrap()
+        });
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&src),
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        assert!(out.done.is_empty(), "{:?}", out.done);
+        assert_eq!(out.failed.len(), 1);
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(fs::metadata(&src).unwrap().len(), CHUNK as u64);
+    }
+
+    #[test]
+    fn a_folder_with_a_file_changed_while_read_leaves_no_partial_copy() {
+        let t = TempDir::new("torn-tree");
+        let tree = t.path("src/tree");
+        let other = t.path("src/other");
+        let changing = tree.join("b");
+        write(&tree.join("a"), "first");
+        write(&changing, &"A".repeat(CHUNK * 2));
+        write(&other, "unrelated");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let s = changing.clone();
+        crate::fileops_test::arm_path("copy-read", &changing, move |_| {
+            write(&s, &"B".repeat(CHUNK * 2))
+        });
+        let out = paste(
+            Operation::Copy,
+            &[tree.clone(), other.clone()],
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        // The changed item fails as a whole; the other item of the batch
+        // is still copied.
+        assert_eq!(out.done, [dest.join("other")]);
+        assert_eq!(out.failed.len(), 1);
+        assert_eq!(out.failed[0].0, tree);
+        assert_eq!(names(&dest), ["other"]);
+        assert_eq!(read(&tree.join("a")), "first");
+        assert_eq!(read(&changing), "B".repeat(CHUNK * 2));
+    }
+
+    #[test]
+    fn a_source_replaced_before_it_is_opened_is_not_copied() {
+        let t = TempDir::new("swapped-before-open");
+        let src = t.path("src/x");
+        write(&src, "selected bytes");
+        let meta = fs::symlink_metadata(&src).unwrap();
+        fs::remove_file(&src).unwrap();
+        write(&src, "another file at the same name");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let mut buf = vec![0; CHUNK];
+        let (mut copied, mut created, mut special) = (Vec::new(), Vec::new(), 0);
+        let mut c = Copier {
+            progress: &Progress::new(),
+            sync: false,
+            buf: &mut buf,
+            copied: &mut copied,
+            created: &mut created,
+            special: &mut special,
+            made: false,
+        };
+        let temp = temp_name(&dest);
+        assert!(matches!(c.file(&src, &meta, &temp), Err(Stop::Io(_))));
+        assert!(!c.made);
+        assert!(names(&dest).is_empty());
     }
 }
