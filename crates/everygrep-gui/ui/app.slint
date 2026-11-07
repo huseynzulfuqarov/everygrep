@@ -7311,31 +7311,6 @@ export component AppWindow inherits Window {
             }
         }
         Menu {
-            title: @tr("History");
-            MenuItem {
-                title: @tr("Back");
-                shortcut: root.menu-keys.previous-search;
-                enabled: root.can-run(Command.previous-search);
-                activated => { root.run(Command.previous-search); }
-            }
-            MenuItem {
-                title: @tr("Forward");
-                shortcut: root.menu-keys.next-search;
-                enabled: root.can-run(Command.next-search);
-                activated => { root.run(Command.next-search); }
-            }
-            MenuItem {
-                title: @tr("Show search history");
-                shortcut: root.menu-keys.show-history;
-                activated => { root.run(Command.show-history); }
-            }
-            MenuItem {
-                title: @tr("Organize search history…");
-                shortcut: root.menu-keys.organize-history;
-                activated => { root.run(Command.organize-history); }
-            }
-        }
-        Menu {
             title: @tr("Tabs");
             MenuItem { title: @tr("New tab"); shortcut: root.menu-keys.new-tab; enabled: root.can-run(Command.new-tab); activated => { root.run(Command.new-tab); } }
             MenuItem { title: @tr("Duplicate tab"); shortcut: root.menu-keys.duplicate-tab; enabled: root.can-run(Command.duplicate-tab); activated => { root.run(Command.duplicate-tab); } }
@@ -7371,6 +7346,31 @@ export component AppWindow inherits Window {
                 MenuItem { title: @tr("Open searches in tabs instead of new windows"); checkable: true; checked <=> root.open-searches-in-tabs; activated => { root.tab-preference-changed(0, self.checked); } }
                 MenuItem { title: @tr("Switch to new tabs immediately"); checkable: true; checked <=> root.switch-to-new-tab; activated => { root.tab-preference-changed(1, self.checked); } }
                 MenuItem { title: @tr("Restore the last window's tabs at startup"); checkable: true; checked <=> root.restore-session; activated => { root.tab-preference-changed(2, self.checked); } }
+            }
+        }
+        Menu {
+            title: @tr("History");
+            MenuItem {
+                title: @tr("Back");
+                shortcut: root.menu-keys.previous-search;
+                enabled: root.can-run(Command.previous-search);
+                activated => { root.run(Command.previous-search); }
+            }
+            MenuItem {
+                title: @tr("Forward");
+                shortcut: root.menu-keys.next-search;
+                enabled: root.can-run(Command.next-search);
+                activated => { root.run(Command.next-search); }
+            }
+            MenuItem {
+                title: @tr("Show search history");
+                shortcut: root.menu-keys.show-history;
+                activated => { root.run(Command.show-history); }
+            }
+            MenuItem {
+                title: @tr("Organize search history…");
+                shortcut: root.menu-keys.organize-history;
+                activated => { root.run(Command.organize-history); }
             }
         }
         Menu {
