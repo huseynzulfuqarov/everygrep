@@ -1,0 +1,188 @@
+import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export global DropdownLogic {
+    pure callback step-index(int, int, int) -> int;
+}
+
+// The two search selectors share this small, client-area-bounded dropdown.
+// All painting is local; popup lifetime and focus restoration use the toolkit.
+export component SearchDropdown inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    in property <bool> below: true;
+    in property <length> client-top;
+    in property <length> client-height;
+    in property <string> label;
+    callback selected();
+    out property <bool> is-open: popup.is-open;
+    property <length> row-height: Theme.field-height;
+    property <length> above: max(0px, root.absolute-position.y - root.client-top - Theme.s1);
+    property <length> below-room: max(0px, root.client-height - root.above - root.height - 2 * Theme.s1);
+    property <length> wanted-height: min(320px, root.model.length * root.row-height + 2 * Theme.s1);
+    property <bool> opens-below: root.below-room >= root.wanted-height || root.below-room >= root.above;
+    property <length> popup-height: min(root.wanted-height, root.opens-below ? root.below-room : root.above);
+    property <length> popup-y: root.opens-below ? root.height + Theme.s1 : -root.popup-height - Theme.s1;
+    property <length> scroll-y;
+    property <string> value: root.current-index >= 0 && root.current-index < root.model.length ? root.model[root.current-index] : "";
+
+    height: Theme.field-height;
+    background: !root.below ? transparent : touch.pressed ? Theme.selection : touch.has-hover ? Theme.hover : Theme.field;
+    border-width: root.below ? 1px : 0px;
+    border-color: Theme.field-line;
+    border-radius: Theme.radius;
+    forward-focus: button-keys;
+
+
+    function reveal(index: int) {
+        let view = max(0px, root.popup-height - 2 * Theme.s1);
+        let top = index * root.row-height;
+        if top + root.scroll-y < 0px {
+            root.scroll-y = -top;
+        } else if top + root.row-height + root.scroll-y > view {
+            root.scroll-y = view - top - root.row-height;
+        }
+        root.scroll-y = clamp(root.scroll-y, min(0px, view - root.model.length * root.row-height), 0px);
+    }
+
+    changed model => {
+        root.current-index = root.model.length == 0 ? 0 : clamp(root.current-index, 0, root.model.length - 1);
+        root.reveal(root.current-index);
+    }
+
+    function choose(index: int) {
+        if index >= 0 && index < root.model.length {
+            root.current-index = index;
+            root.reveal(index);
+            root.selected();
+        }
+    }
+
+    function open() {
+        if root.model.length > 0 && root.below {
+            button-keys.focus();
+            root.reveal(root.current-index);
+            popup.show();
+        }
+    }
+
+    function handle-key(event: KeyEvent) -> EventResult {
+        if event.text == Key.UpArrow || event.text == Key.DownArrow {
+            root.choose(DropdownLogic.step-index(root.current-index, root.model.length, event.text == Key.UpArrow ? -1 : 1));
+            return accept;
+        }
+        if event.text == Key.Return {
+            if popup.is-open { popup.close(); } else { root.open(); }
+            return accept;
+        }
+        if event.text == Key.Escape && popup.is-open {
+            popup.close();
+            return accept;
+        }
+        return reject;
+    }
+
+    if !root.below: ComboBox {
+        width: 100%; height: 100%;
+        accessible-label: root.label;
+        model: root.model;
+        current-index <=> root.current-index;
+        selected => { root.selected(); }
+    }
+    if root.below: Text {
+        x: Theme.s3; width: max(0px, root.width - 40px); height: root.height;
+        text: root.value;
+        font-size: Theme.body;
+        color: Theme.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.below: Text {
+        x: root.width - 26px; width: 16px; height: root.height;
+        text: popup.is-open ? "⌃" : "⌄";
+        color: Theme.text-muted;
+        font-size: Theme.body;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        accessible-role: none;
+    }
+    if root.below && (button-keys.has-focus || popup.is-open): Rectangle {
+        x: 2px; y: 2px; width: root.width - 4px; height: root.height - 4px;
+        background: transparent;
+        border-width: 2px; border-color: Theme.accent;
+        border-radius: Theme.radius - 2px;
+    }
+    button-keys := FocusScope {
+        visible: root.below;
+        enabled: root.below;
+        accessible-role: combobox;
+        accessible-label: root.label;
+        accessible-value: root.value;
+        accessible-expanded: popup.is-open;
+        accessible-action-default => { root.open(); }
+        key-pressed(event) => { root.handle-key(event) }
+        touch := TouchArea {
+            enabled: root.below;
+            clicked => { root.open(); }
+            scroll-event(event) => {
+                if button-keys.has-focus && abs(event.delta-y) > 2px {
+                    root.choose(DropdownLogic.step-index(root.current-index, root.model.length, event.delta-y < 0px ? 1 : -1));
+                    return accept;
+                }
+                reject
+            }
+        }
+    }
+    popup := PopupWindow {
+        x: 0px;
+        y: root.popup-y;
+        width: root.width;
+        height: root.popup-height;
+        close-policy: close-on-click-outside;
+        forward-focus: popup-keys;
+        popup-keys := FocusScope {
+            key-pressed(event) => { root.handle-key(event) }
+            Rectangle {
+                background: Theme.popup-surface;
+                border-width: 1px; border-color: Theme.popup-edge;
+                border-radius: Theme.radius;
+                scroller := ScrollView {
+                    accessible-role: list;
+                    x: Theme.s1; y: Theme.s1;
+                    width: parent.width - 2 * Theme.s1;
+                    height: parent.height - 2 * Theme.s1;
+                    content-y <=> root.scroll-y;
+                    content-width: self.visible-width;
+                    content-height: root.model.length * root.row-height;
+                    for value[index] in root.model: Rectangle {
+                        y: index * root.row-height;
+                        width: scroller.visible-width;
+                        height: root.row-height;
+                        border-radius: Theme.radius - 2px;
+                        background: index == root.current-index ? Theme.selection : row-touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: list-item;
+                        accessible-item-index: index;
+                        accessible-item-selectable: true;
+                        accessible-label: value;
+                        accessible-item-selected: index == root.current-index;
+                        accessible-action-default => { root.choose(index); popup.close(); }
+                        if index == root.current-index: Rectangle {
+                            x: 2px; y: Theme.s2; width: 3px; height: parent.height - 2 * Theme.s2;
+                            border-radius: 2px; background: Theme.accent;
+                        }
+                        Text {
+                            x: Theme.s3; width: parent.width - 2 * Theme.s3; height: parent.height;
+                            text: value; overflow: elide;
+                            font-size: Theme.body;
+                            color: index == root.current-index ? Theme.selection-text : Theme.text;
+                            vertical-alignment: center;
+                        }
+                        row-touch := TouchArea {
+                            clicked => { root.choose(index); popup.close(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

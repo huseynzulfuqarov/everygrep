@@ -1,4 +1,6 @@
 import { AboutSlint, Button, CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView } from "std-widgets.slint";
+import { SearchDropdown } from "dropdown.slint";
+export { DropdownLogic } from "dropdown.slint";
 import { TabStrip, TabEntry } from "tabs.slint";
 export { TabEntry, TabsWindow } from "tabs.slint";
 import { FilePropertiesDialog } from "file-properties.slint";
@@ -2038,6 +2040,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-status-bar: true;
     in-out property <bool> show-toolbar: false;
     in property <bool> toolbar-navigation-labels;
+    in property <bool> dropdown-below: true;
     in property <[bool]> toolbar-buttons: [true, true, true, true, true, true, true];
     callback toolbar-changed(bool);
     // The search scope selector: its entries, the chosen one, and whether
@@ -4515,11 +4518,14 @@ export component AppWindow inherits Window {
                             root.query-edited("");
                         }
                     }
-                    if root.show-scope: ComboBox {
+                    if root.show-scope: SearchDropdown {
                         width: 170px;
                         height: Theme.field-height;
                         horizontal-stretch: 0;
-                        accessible-label: @tr("Search in");
+                        label: @tr("Search in");
+                        below: root.dropdown-below;
+                        client-top: origin.absolute-position.y;
+                        client-height: root.height;
                         model: root.scope-names;
                         current-index <=> root.scope-index;
                         selected => { root.scope-chosen(self.current-index); }
@@ -4539,10 +4545,13 @@ export component AppWindow inherits Window {
                                 wrap: no-wrap;
                             }
                         }
-                        filter-box := ComboBox {
+                        filter-box := SearchDropdown {
                             width: 100%;
                             height: 100%;
-                            accessible-label: @tr("Filter");
+                            label: @tr("Filter");
+                            below: root.dropdown-below;
+                            client-top: origin.absolute-position.y;
+                            client-height: root.height;
                             model: root.filter-names;
                             current-index <=> root.filter-index;
                             selected => { root.options-edited(); }

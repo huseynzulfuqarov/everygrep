@@ -543,6 +543,8 @@ pub struct Settings {
     pub toolbar_buttons: [bool; 7],
     /// Show words beside the Back and Forward arrows.
     pub toolbar_navigation_labels: bool,
+    /// Open the two search selector lists below their buttons.
+    pub dropdown_below: bool,
     /// The size of the result list's text, icons and rows, in percent.
     pub zoom: u32,
     pub folders_visible: bool,
@@ -657,6 +659,7 @@ impl Default for Settings {
             toolbar: false,
             toolbar_buttons: [true; 7],
             toolbar_navigation_labels: false,
+            dropdown_below: true,
             zoom: crate::zoom::DEFAULT,
             folders_visible: false,
             preview_visible: false,
@@ -1097,6 +1100,7 @@ impl Settings {
             "menu-bar" => put_flag(&mut self.menu_bar),
             "status-bar" => put_flag(&mut self.status_bar),
             "toolbar" => put_flag(&mut self.toolbar),
+            "dropdown-below" => put_flag(&mut self.dropdown_below),
             "toolbar-navigation-labels" => put_flag(&mut self.toolbar_navigation_labels),
             "toolbar-button-back" => put_flag(&mut self.toolbar_buttons[0]),
             "toolbar-button-forward" => put_flag(&mut self.toolbar_buttons[1]),
@@ -1941,6 +1945,12 @@ impl Settings {
         flag(&mut out, "toolbar", self.toolbar, d.toolbar);
         flag(
             &mut out,
+            "dropdown-below",
+            self.dropdown_below,
+            d.dropdown_below,
+        );
+        flag(
+            &mut out,
             "toolbar-navigation-labels",
             self.toolbar_navigation_labels,
             d.toolbar_navigation_labels,
@@ -2354,6 +2364,7 @@ impl Settings {
                 self.toolbar = d.toolbar;
                 self.toolbar_buttons = d.toolbar_buttons;
                 self.toolbar_navigation_labels = d.toolbar_navigation_labels;
+                self.dropdown_below = d.dropdown_below;
                 self.zoom = d.zoom;
                 self.language = d.language;
             }
@@ -3548,6 +3559,22 @@ pub(crate) mod tests {
         assert_eq!(s.theme, ThemeChoice::System);
         assert_eq!(s.density, Density::Comfortable);
         assert_eq!(s.options.filter, Filter::Code, "other pages stay");
+    }
+
+    #[test]
+    fn dropdown_placement_defaults_below_persists_and_resets_with_appearance() {
+        assert!(Settings::default().dropdown_below);
+        let mut s = Settings::parse("dropdown-below = false\n");
+        assert!(!s.dropdown_below);
+        s = Settings::parse(&s.to_text());
+        assert!(!s.dropdown_below);
+        s.reset(Page::Search);
+        assert!(!s.dropdown_below);
+        s.reset(Page::Appearance);
+        assert!(s.dropdown_below);
+        let s = Settings::parse("dropdown-below = false\ndropdown-below = invalid\n");
+        assert!(!s.dropdown_below);
+        assert_eq!(s.problems.len(), 1);
     }
 
     #[test]

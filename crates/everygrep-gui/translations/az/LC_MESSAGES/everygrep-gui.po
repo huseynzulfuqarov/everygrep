@@ -5522,3 +5522,6 @@ msgstr "Sönülü: saxlanmış sütunlar yalnız öz görünüşünə tətbiq ol
 
 msgid "Show labels on Back and Forward"
 msgstr "Geri və İrəli düymələrində adları göstər"
+
+msgid "Open location and filter lists below their buttons"
+msgstr "Məkan və filtr siyahılarını düymələrinin altında aç"

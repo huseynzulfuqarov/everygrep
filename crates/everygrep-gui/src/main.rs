@@ -12,6 +12,7 @@ mod csv;
 mod debug_log;
 mod debug_log_ui;
 mod diagnostics;
+mod dropdown;
 mod engine;
 mod export;
 mod file_properties;
@@ -205,6 +206,9 @@ fn main() -> Result<(), slint::PlatformError> {
         settings.options
     };
     let window = AppWindow::new()?;
+    window
+        .global::<DropdownLogic>()
+        .on_step_index(dropdown::step_index);
     physical::set_enabled(settings.shortcuts_by_position);
     physical::watch(window.window());
     window.on_reset_sort_columns(sort_dialog::reset_columns_sort);

@@ -5522,3 +5522,6 @@ msgstr "Kapalı: kayıtlı sütunlar yalnızca kendi görünümüne uygulanır. 
 
 msgid "Show labels on Back and Forward"
 msgstr "Geri ve İleri düğmelerinde etiketleri göster"
+
+msgid "Open location and filter lists below their buttons"
+msgstr "Konum ve filtre listelerini düğmelerinin altında aç"
