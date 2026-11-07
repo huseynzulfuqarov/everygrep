@@ -673,4 +673,103 @@ mod tests {
         assert!(out.trashed.is_empty());
         assert!(a.exists());
     }
+
+    #[test]
+    fn a_copy_stays_when_the_kept_copy_is_gone_just_before_the_trash() {
+        let _lock = crate::fileops_undo::tests_lock();
+        let t = Temp::new();
+        let keep = t.file("keep", "same", 0);
+        let copy = t.file("copy", "same", 100);
+        let p = plan(&[vec![keep.clone(), copy.clone()]], &Keep::Newest);
+        assert_eq!(p.files, 1);
+        let k = keep.clone();
+        crate::fileops_test::arm_path("trash-checked", &copy, move |_| fs::remove_file(k).unwrap());
+        let out = run(&p);
+        crate::fileops_test::fired();
+        assert!(out.trashed.is_empty(), "{:?}", out.trashed);
+        assert_eq!(out.kept.len(), 1);
+        assert_eq!(out.kept[0].0, copy);
+        assert_eq!(fs::read(&copy).unwrap(), b"same");
+        assert_eq!(t.trashed(), 0);
+    }
+
+    #[test]
+    fn a_copy_replaced_after_the_last_check_is_not_what_goes_to_the_trash() {
+        let _lock = crate::fileops_undo::tests_lock();
+        let t = Temp::new();
+        let keep = t.file("keep", "same", 0);
+        let copy = t.file("copy", "same", 100);
+        let p = plan(&[vec![keep.clone(), copy.clone()]], &Keep::Newest);
+        crate::fileops_test::arm_path("trash-checked", &copy, |path| {
+            fs::write(path, "unique uncopied data").unwrap()
+        });
+        let out = run(&p);
+        crate::fileops_test::fired();
+        assert_eq!(out.trashed, std::slice::from_ref(&copy));
+        assert_eq!(fs::read(&copy).unwrap(), b"unique uncopied data");
+        assert_eq!(fs::read(t.0.join("Trash/files/copy")).unwrap(), b"same");
+        assert_eq!(fs::read(&keep).unwrap(), b"same");
+    }
+
+    #[test]
+    fn a_copy_stays_when_the_kept_copy_is_rewritten_just_before_the_trash() {
+        let _lock = crate::fileops_undo::tests_lock();
+        let t = Temp::new();
+        let keep = t.file("keep", "same", 0);
+        let copy = t.file("copy", "same", 100);
+        let p = plan(&[vec![keep.clone(), copy.clone()]], &Keep::Newest);
+        let k = keep.clone();
+        crate::fileops_test::arm_path("trash-checked", &copy, move |_| {
+            fs::write(k, "edited").unwrap()
+        });
+        let out = run(&p);
+        crate::fileops_test::fired();
+        assert!(out.trashed.is_empty(), "{:?}", out.trashed);
+        assert_eq!(
+            out.kept,
+            [(
+                copy.clone(),
+                "The copy to keep changed or is gone, so this copy was kept.".to_owned()
+            )]
+        );
+        assert_eq!(fs::read(&copy).unwrap(), b"same");
+        assert_eq!(fs::read(&keep).unwrap(), b"edited");
+        assert_eq!(t.trashed(), 0);
+        assert_eq!(fs::read_dir(t.0.join("work")).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn every_later_copy_stays_once_the_kept_copy_is_gone() {
+        let _lock = crate::fileops_undo::tests_lock();
+        let t = Temp::new();
+        let keep = t.file("keep", "same", 0);
+        let first = t.file("first", "same", 100);
+        let second = t.file("second", "same", 200);
+        let other_keep = t.file("other/keep", "other", 0);
+        let other_copy = t.file("other/copy", "other", 100);
+        let p = plan(
+            &[
+                vec![keep.clone(), first.clone(), second.clone()],
+                vec![other_keep.clone(), other_copy.clone()],
+            ],
+            &Keep::Newest,
+        );
+        assert_eq!(p.files, 3);
+        let k = keep.clone();
+        let doomed = p.groups[0].trash[0].path.clone();
+        crate::fileops_test::arm_path("trash-checked", &doomed, move |_| {
+            fs::remove_file(k).unwrap()
+        });
+        let out = run(&p);
+        crate::fileops_test::fired();
+        // The group that lost its kept copy keeps both copies; the other
+        // group is cleaned up as usual.
+        assert_eq!(out.trashed, std::slice::from_ref(&other_copy));
+        assert_eq!(out.kept.len(), 2);
+        assert_eq!(fs::read(&first).unwrap(), b"same");
+        assert_eq!(fs::read(&second).unwrap(), b"same");
+        assert_eq!(fs::read(&other_keep).unwrap(), b"other");
+        assert!(!other_copy.exists());
+        assert_eq!(t.trashed(), 1);
+    }
 }

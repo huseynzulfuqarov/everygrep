@@ -4490,6 +4490,10 @@ msgstr "Sona ulaşmadan durdu."
 msgid "The copy to keep changed or is gone since the preview."
 msgstr "Tutulacak kopya önizlemeden sonra değişti veya yok."
 
+#: src/fileops_undo.rs
+msgid "The copy to keep changed or is gone, so this copy was kept."
+msgstr "Tutulacak kopya değişti veya yok, bu yüzden bu kopya tutuldu."
+
 #: src/fileops_dupes.rs
 msgid "The files are not the same size."
 msgstr "Dosyaların boyutu aynı değil."

@@ -87,6 +87,16 @@ pub struct OpenFile {
     ctime: (i64, i64),
 }
 
+impl OpenFile {
+    /// Whether the opened file still has the key and change time it had
+    /// when it was opened.
+    pub fn unchanged(&self) -> bool {
+        self.file.metadata().is_ok_and(|meta| {
+            FileKey::of(&meta) == self.key && (meta.ctime(), meta.ctime_nsec()) == self.ctime
+        })
+    }
+}
+
 /// Opens `path` for hashing (see the module notes).
 pub fn open(path: &Path) -> Result<OpenFile, HashError> {
     let file = open_regular(path)?;
@@ -327,12 +337,7 @@ pub(crate) fn same_contents_with_read(
         equal = x[..n] == y[..n];
         at += n as u64;
     }
-    let unchanged = |file: &OpenFile| {
-        file.file.metadata().is_ok_and(|meta| {
-            FileKey::of(&meta) == file.key && (meta.ctime(), meta.ctime_nsec()) == file.ctime
-        })
-    };
-    let (first, second) = (!unchanged(a), !unchanged(b));
+    let (first, second) = (!a.unchanged(), !b.unchanged());
     if first || second {
         return Err(CompareError::Unreadable { first, second });
     }

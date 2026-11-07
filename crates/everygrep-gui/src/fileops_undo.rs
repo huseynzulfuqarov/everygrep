@@ -971,8 +971,9 @@ fn opened_as_seen(
 /// group, and records them as one undo step. A copy goes only when, just
 /// before: the group's first kept copy is still the file of the preview
 /// and at its place, the copy is too, it is not the same file (a hard
-/// link), and both hold the same bytes. Anything else leaves the copy
-/// where it is, with the reason.
+/// link), and both hold the same bytes. The kept copy is checked once
+/// more while the copy is held aside, right before it is sent. Anything
+/// else leaves the copy where it is, with the reason.
 pub fn trash_duplicates(
     groups: &[crate::fileops_dupes::Group],
     trash: &dyn Fn(&Path, &Path, Stamp) -> Result<(), String>,
@@ -1072,7 +1073,19 @@ pub fn trash_duplicates(
                 );
                 continue;
             };
-            match expected.trash_checked(&t.path, trash) {
+            // The copy is held aside now. Right before it leaves, the
+            // copy that stays must still be there, as it was compared;
+            // otherwise this one goes back to its place.
+            let guarded = |actual: &Path, original: &Path, stamp: Stamp| {
+                if !kept_file.unchanged() || !keeper.unchanged() {
+                    return Err(
+                        tr("The copy to keep changed or is gone, so this copy was kept.")
+                            .to_owned(),
+                    );
+                }
+                trash(actual, original, stamp)
+            };
+            match expected.trash_checked(&t.path, &guarded) {
                 Ok(stamp) => expected.0[0].1 = stamp,
                 Err(e) => {
                     left(&mut out, &t.path, &e);
