@@ -10,34 +10,38 @@ export global Theme {
         ? Palette.color-scheme == ColorScheme.dark
         : scheme == ColorScheme.dark;
 
+    in-out property <int> dark-style: 0;
+    // Preserve the initial desktop binding until an explicit scheme is known.
+    in-out property <bool> palette-set: false;
+
     // Colors. Light: text is 17.9:1 on the surface and muted text 7.1:1
     // (6.3:1 on hover); the selection keeps dark text (13:1), and the accent
     // marks focus and the sort column. The search field is white with a
     // visible border, since the surface is white too.
-    out property <color> surface: dark ? #1c1d20 : #ffffff;
-    out property <color> surface-alt: dark ? #232428 : #f5f6f8;
-    out property <color> field: dark ? #2a2b30 : #ffffff;
-    out property <color> field-line: dark ? #33353b : #c5cad2;
+    out property <color> surface: dark ? (dark-style == 1 ? #17191d : dark-style == 2 ? #202124 : dark-style == 3 ? #1c1d20 : #1c2430) : #ffffff;
+    out property <color> surface-alt: dark ? (dark-style == 1 ? #292c32 : dark-style == 2 ? #2b2d31 : dark-style == 3 ? #232428 : #263244) : #f5f6f8;
+    out property <color> field: dark ? (dark-style == 1 ? #22262d : dark-style == 2 ? #191a1d : dark-style == 3 ? #2a2b30 : #16202d) : #ffffff;
+    out property <color> field-line: dark ? (dark-style == 1 ? #747c89 : dark-style == 2 ? #656a74 : dark-style == 3 ? #33353b : #637992) : #c5cad2;
     out property <color> text: dark ? #ecedf0 : #16171a;
-    out property <color> text-muted: dark ? #a3a6ad : #545862;
-    out property <color> line: dark ? #33353b : #dfe2e7;
+    out property <color> text-muted: dark ? (dark-style == 1 ? #b0b7c4 : dark-style == 2 ? #a3a6ad : dark-style == 3 ? #a3a6ad : #b1becd) : #545862;
+    out property <color> line: dark ? (dark-style == 1 ? #555e6c : dark-style == 2 ? #50545d : dark-style == 3 ? #33353b : #495e76) : #dfe2e7;
     out property <color> accent: dark ? #6aa1ff : #1f5fd6;
     out property <color> accent-text: #ffffff;
-    out property <color> selection: dark ? #2b4a80 : #d3e2fd;
+    out property <color> selection: dark ? (dark-style == 1 ? #2f5087 : dark-style == 2 ? #2b4a80 : dark-style == 3 ? #2b4a80 : #315580) : #d3e2fd;
     out property <color> selection-text: dark ? #ffffff : #0b1b3d;
-    out property <color> hover: dark ? #26282d : #eef1f5;
+    out property <color> hover: dark ? (dark-style == 1 ? #353c47 : dark-style == 2 ? #34373d : dark-style == 3 ? #26282d : #304159) : #eef1f5;
     // Every second row, when alternate row colors are on: text keeps
     // 17.0:1 (13.6:1 dark), muted text 6.8:1 (6.5:1) and offline text
     // 3.9:1 (4.1:1) on it.
-    out property <color> row-alt: dark ? #212226 : #f8f9fb;
+    out property <color> row-alt: dark ? (dark-style == 1 ? #20242b : dark-style == 2 ? #26282c : dark-style == 3 ? #212226 : #222d3d) : #f8f9fb;
     out property <color> danger: dark ? #ff8080 : #b42323;
     // Entries of a drive that is not connected: dimmer than muted text,
     // still readable (4.1:1 on the light surface, 4.3:1 on the dark one).
     out property <color> text-offline: dark ? #7d8189 : #787d87;
 
     // Floating surfaces keep an opaque edge in both schemes.
-    out property <color> popup-surface: dark ? #272930 : #ffffff;
-    out property <color> popup-edge: dark ? #858b98 : #77808e;
+    out property <color> popup-surface: dark ? (dark-style == 1 ? #343a45 : dark-style == 2 ? #2c2e33 : dark-style == 3 ? #272930 : #2b394b) : #ffffff;
+    out property <color> popup-edge: dark ? (dark-style == 1 ? #a1adbe : dark-style == 2 ? #8d949f : dark-style == 3 ? #858b98 : #8ba2bc) : #77808e;
     out property <color> popup-shadow: dark ? #00000080 : #00000040;
 
     // Spacing

@@ -111,15 +111,15 @@ pub fn open() {
         refresh();
     }
     if let Some(w) = window() {
-        crate::prefs::with(|p| w.invoke_set_color_scheme(p.color_scheme()));
+        crate::prefs::with(|p| w.invoke_set_color_scheme(p.color_scheme(), p.dark_style()));
         let _ = w.hide();
         let _ = w.show();
     }
 }
 
-pub fn apply_scheme(scheme: i32) {
+pub fn apply_scheme(scheme: i32, style: i32) {
     if let Some(w) = window() {
-        w.invoke_set_color_scheme(scheme);
+        w.invoke_set_color_scheme(scheme, style);
     }
 }
 

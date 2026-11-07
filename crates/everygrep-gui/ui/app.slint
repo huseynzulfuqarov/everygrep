@@ -4263,9 +4263,13 @@ export component AppWindow inherits Window {
 
     // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
     // setting. Sets the palette of the standard widgets too.
-    public function set-color-scheme(scheme: int) {
+    public function set-color-scheme(scheme: int, style: int) {
+        Theme.dark-style = style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
-        Palette.color-scheme = Theme.scheme;
+        if scheme != 0 || Theme.palette-set {
+            Palette.color-scheme = Theme.scheme;
+            Theme.palette-set = true;
+        }
     }
 
     // Density of the list: compact or comfortable.

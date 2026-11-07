@@ -29,12 +29,13 @@ use crate::format::{self, SizeStandard, SizeUnit};
 use crate::history::History;
 use crate::history_csv;
 use crate::i18n;
-use crate::look::{self, Scheme};
+use crate::look;
 use crate::portal::ColorScheme;
 use crate::schedule::{self, Schedule};
 use crate::search_history::{self, Order, Searches};
 use crate::settings::{
-    self, Columns, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings, ThemeChoice,
+    self, Columns, DarkStyle, Density, LanguageChoice, MAX_HISTORY, OnClose, Page, Settings,
+    ThemeChoice,
 };
 use crate::{AppWindow, Command, DriveRow, HistoryWindow, SettingsWindow, ShortcutCommand, labels};
 
@@ -262,7 +263,6 @@ pub struct Prefs {
     desktop_scheme: Cell<Option<ColorScheme>>,
     /// Whether the windows were given colors; until then they follow the
     /// toolkit's own reading of the desktop setting.
-    scheme_set: Cell<bool>,
     /// Whether the language was given to the `.slint` texts.
     language_set: Cell<bool>,
     /// UUIDs of the drives in the settings window's list, in its order.
@@ -433,7 +433,6 @@ impl Prefs {
             history_order: Cell::new((Order::Date, true)),
             history_busy: Cell::new(false),
             desktop_scheme: Cell::new(None),
-            scheme_set: Cell::new(false),
             language_set: Cell::new(false),
             listed_drives: RefCell::default(),
             key_filter: RefCell::default(),
@@ -948,7 +947,7 @@ impl Prefs {
         self.change_searches(|_| {});
         let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
         if let Some(w) = self.history_window.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme as i32);
+            w.invoke_set_color_scheme(scheme as i32, self.dark_style());
             // An open window may be behind the main window; showing it again
             // gives a new surface, which GNOME brings to the front (see `raise`
             // in main.rs).
@@ -1128,28 +1127,24 @@ impl Prefs {
         let scheme = look::resolve(self.settings.borrow().theme, self.desktop_scheme.get());
         // Until the desktop's setting is known the toolkit's own reading of
         // it stays in place, so the first frame has the right colors.
-        if scheme == Scheme::Toolkit && !self.scheme_set.get() {
-            return;
-        }
-        self.scheme_set.set(true);
-        crate::saved_ui::apply_scheme(scheme as i32);
-        crate::advanced::apply_scheme(scheme as i32);
-        crate::name_list_ui::apply_scheme(scheme as i32);
-        crate::largest_folders::apply_scheme(scheme as i32);
-        crate::fileops_undo_ui::apply_scheme(scheme as i32);
-        crate::debug_log_ui::apply_scheme(scheme as i32);
-        crate::filelist_editor_ui::apply_scheme(scheme as i32);
-        crate::journal_ui::apply_scheme(scheme as i32);
+        crate::saved_ui::apply_scheme(scheme as i32, self.dark_style());
+        crate::advanced::apply_scheme(scheme as i32, self.dark_style());
+        crate::name_list_ui::apply_scheme(scheme as i32, self.dark_style());
+        crate::largest_folders::apply_scheme(scheme as i32, self.dark_style());
+        crate::fileops_undo_ui::apply_scheme(scheme as i32, self.dark_style());
+        crate::debug_log_ui::apply_scheme(scheme as i32, self.dark_style());
+        crate::filelist_editor_ui::apply_scheme(scheme as i32, self.dark_style());
+        crate::journal_ui::apply_scheme(scheme as i32, self.dark_style());
         if let Some(m) = self.main.upgrade() {
-            m.invoke_set_color_scheme(scheme as i32);
+            m.invoke_set_color_scheme(scheme as i32, self.dark_style());
         }
         if let Some(w) = self.history_window.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme as i32);
+            w.invoke_set_color_scheme(scheme as i32, self.dark_style());
         }
         if let Ok(window) = self.window.try_borrow()
             && let Some(w) = window.as_ref()
         {
-            w.invoke_set_color_scheme(scheme as i32);
+            w.invoke_set_color_scheme(scheme as i32, self.dark_style());
         }
     }
 
@@ -2435,6 +2430,7 @@ impl Prefs {
             .iter()
             .map(|&t| labels::theme(t).into())
             .collect();
+        w.set_dark_style(s.dark_style as i32);
         w.set_theme_names(ModelRc::new(VecModel::from(themes)));
         w.set_theme(
             ThemeChoice::ALL
@@ -3463,6 +3459,10 @@ impl Prefs {
             .ok()
             .and_then(|i| ThemeChoice::ALL.get(i).copied())
             .unwrap_or_default();
+        let dark_style = usize::try_from(w.get_dark_style())
+            .ok()
+            .and_then(|i| DarkStyle::ALL.get(i).copied())
+            .unwrap_or_default();
         let density = usize::try_from(w.get_density())
             .ok()
             .and_then(|i| Density::ALL.get(i).copied())
@@ -3490,6 +3490,7 @@ impl Prefs {
             .unwrap_or_default();
         self.change(move |s| {
             s.theme = theme;
+            s.dark_style = dark_style;
             s.density = density;
             s.status_details = details;
             s.menu_bar = menu_bar;
@@ -3506,6 +3507,10 @@ impl Prefs {
     }
 
     /// Applies the settings of the Appearance page to the windows.
+    pub fn dark_style(&self) -> i32 {
+        self.settings.borrow().dark_style as i32
+    }
+
     pub fn color_scheme(&self) -> i32 {
         look::resolve(self.settings.borrow().theme, self.desktop_scheme.get()) as i32
     }

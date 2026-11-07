@@ -318,6 +318,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> language;
     in property <[string]> theme-names;
     in-out property <int> theme;
+    in-out property <int> dark-style;
     in property <[string]> density-names;
     in-out property <int> density;
     in-out property <bool> status-details;
@@ -477,9 +478,13 @@ export component SettingsWindow inherits Window {
 
     // Colors: 1 light, 2 dark, 0 the toolkit's reading of the desktop
     // setting. Sets the palette of the standard widgets too.
-    public function set-color-scheme(scheme: int) {
+    public function set-color-scheme(scheme: int, style: int) {
+        Theme.dark-style = style;
         Theme.scheme = scheme == 1 ? ColorScheme.light : scheme == 2 ? ColorScheme.dark : ColorScheme.unknown;
-        Palette.color-scheme = Theme.scheme;
+        if scheme != 0 || Theme.palette-set {
+            Palette.color-scheme = Theme.scheme;
+            Theme.palette-set = true;
+        }
     }
 
     // Puts text on the clipboard through a hidden text field.
@@ -1218,6 +1223,18 @@ export component SettingsWindow inherits Window {
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Note { text: @tr("Same as the desktop follows the light or dark style chosen in the desktop's settings, also when it changes."); }
+                            HorizontalLayout {
+                                spacing: Theme.s3;
+                                Text { text: @tr("Dark style"); color: Theme.text; vertical-alignment: center; }
+                                ComboBox {
+                                    width: 200px;
+                                    accessible-label: @tr("Dark style");
+                                    model: [@tr("Slate"), @tr("Layered"), @tr("Graphite"), @tr("Classic")];
+                                    current-index <=> root.dark-style;
+                                    selected => { root.appearance-changed(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
                             Rectangle { height: Theme.s2; }
                             Heading { text: @tr("Result list"); }
                             HorizontalLayout {

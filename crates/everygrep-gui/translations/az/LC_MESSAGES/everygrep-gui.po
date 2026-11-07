@@ -5455,3 +5455,18 @@ msgstr "Heç bir fayl dəyişdirilmədi."
 
 msgid "A saved copy of a filter from a bookmark or built-in preset. It keeps those saved settings independently of the current filter list."
 msgstr "Əlfəcindən və ya daxili hazır filtrdən saxlanmış filtr nüsxəsi. Bu nüsxə saxlanmış ayarları cari filtr siyahısından asılı olmadan qoruyur."
+
+msgid "Dark style"
+msgstr "Tünd üslub"
+
+msgid "Slate"
+msgstr "Şifer"
+
+msgid "Layered"
+msgstr "Qatlı"
+
+msgid "Graphite"
+msgstr "Qrafit"
+
+msgid "Classic"
+msgstr "Klassik"

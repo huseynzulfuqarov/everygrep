@@ -29,10 +29,10 @@ pub fn connect(main: &AppWindow) {
     });
     main.on_advanced_search(|| with(State::open));
 }
-pub fn apply_scheme(scheme: i32) {
+pub fn apply_scheme(scheme: i32, style: i32) {
     with(|s| {
         if let Some(w) = s.window.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme);
+            w.invoke_set_color_scheme(scheme, style);
         }
     });
 }
@@ -103,7 +103,7 @@ impl State {
             w.set_notice("".into());
         }
         *self.filters.borrow_mut() = filters;
-        crate::prefs::with(|p| apply_scheme(p.color_scheme()));
+        crate::prefs::with(|p| apply_scheme(p.color_scheme(), p.dark_style()));
         if let Some(w) = self.window.borrow().as_ref() {
             // An open window may be behind the main window. As for the main
             // window (see `raise` in main.rs), showing it again gives a new

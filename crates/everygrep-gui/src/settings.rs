@@ -128,6 +128,29 @@ impl ThemeChoice {
     }
 }
 
+/// App-owned dark surfaces; light colors are independent of this choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DarkStyle {
+    #[default]
+    Slate,
+    Layered,
+    Graphite,
+    Classic,
+}
+
+impl DarkStyle {
+    pub const ALL: [Self; 4] = [Self::Slate, Self::Layered, Self::Graphite, Self::Classic];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Slate => "slate",
+            Self::Layered => "layered",
+            Self::Graphite => "graphite",
+            Self::Classic => "classic",
+        }
+    }
+}
+
 /// How tightly the result list is packed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Density {
@@ -432,6 +455,7 @@ pub struct Settings {
     /// Whether the first click on the Size header sorts the largest first.
     pub sizes_largest_first: bool,
     pub theme: ThemeChoice,
+    pub dark_style: DarkStyle,
     pub density: Density,
     /// Whether every second row of the result list has a slightly
     /// different background.
@@ -551,6 +575,7 @@ impl Default for Settings {
             dates_newest_first: false,
             sizes_largest_first: false,
             theme: ThemeChoice::System,
+            dark_style: DarkStyle::Slate,
             density: Density::Comfortable,
             alternate_rows: true,
             size_unit: SizeUnit::Auto,
@@ -924,6 +949,11 @@ impl Settings {
             "focus-search-on-show" => put_flag(&mut self.focus_on_show),
             "sort-dates-newest-first" => put_flag(&mut self.dates_newest_first),
             "sort-sizes-largest-first" => put_flag(&mut self.sizes_largest_first),
+            "dark-style" => DarkStyle::ALL
+                .into_iter()
+                .find(|t| t.id() == value)
+                .map(|t| self.dark_style = t)
+                .is_some(),
             "theme" => ThemeChoice::ALL
                 .into_iter()
                 .find(|t| t.id() == value)
@@ -1754,6 +1784,9 @@ impl Settings {
             self.sizes_largest_first,
             d.sizes_largest_first,
         );
+        if all || self.dark_style != d.dark_style {
+            line(&mut out, "dark-style", self.dark_style.id());
+        }
         if all || self.theme != d.theme {
             line(&mut out, "theme", self.theme.id());
         }
@@ -2123,6 +2156,7 @@ impl Settings {
             }
             Page::Appearance => {
                 self.theme = d.theme;
+                self.dark_style = d.dark_style;
                 self.density = d.density;
                 self.alternate_rows = d.alternate_rows;
                 self.size_unit = d.size_unit;
@@ -2457,6 +2491,7 @@ fn is_known(key: &str) -> bool {
         "total",
         "system",
         "compact",
+        "slate",
         "1",
         "100",
         "/",
@@ -3229,6 +3264,26 @@ pub(crate) mod tests {
         assert_eq!(s.folder_size, FolderSize::None);
         assert_eq!(s.problems.len(), 1, "a bad value is reported, not kept");
         assert!(!s.to_text().contains("bytes"));
+    }
+
+    #[test]
+    fn dark_styles_round_trip_reject_unknown_and_reset_only_appearance() {
+        assert_eq!(Settings::default().dark_style, DarkStyle::Slate);
+        for style in DarkStyle::ALL {
+            let mut s = Settings {
+                dark_style: style,
+                theme: ThemeChoice::Dark,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::parse(&s.to_text()).dark_style, style);
+            s.reset(Page::Search);
+            assert_eq!(s.dark_style, style);
+            s.reset(Page::Appearance);
+            assert_eq!(s.dark_style, DarkStyle::Slate);
+        }
+        let s = Settings::parse("dark-style = graphite\ndark-style = unknown\n");
+        assert_eq!(s.dark_style, DarkStyle::Graphite);
+        assert_eq!(s.problems.len(), 1);
     }
 
     #[test]

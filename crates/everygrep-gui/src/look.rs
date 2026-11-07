@@ -58,6 +58,10 @@ mod tests {
 
     /// The light and dark value of a color token in `ui/theme.slint`.
     fn token(name: &str) -> [[u8; 3]; 2] {
+        styled_token(name, 3)
+    }
+
+    fn styled_token(name: &str, style: usize) -> [[u8; 3]; 2] {
         let source = include_str!("../ui/theme.slint");
         let line = source
             .lines()
@@ -74,6 +78,9 @@ mod tests {
         match colors[..] {
             [one] => [one, one],
             [dark, light] => [light, dark],
+            [layered, graphite, classic, slate, light] => {
+                [light, [slate, layered, graphite, classic][style]]
+            }
             _ => panic!("{name}: {line}"),
         }
     }
@@ -93,6 +100,33 @@ mod tests {
         };
         let (x, y) = (luminance(a), luminance(b));
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn every_dark_style_keeps_text_and_popup_edges_readable() {
+        for style in 0..4 {
+            let t = |name| styled_token(name, style)[1];
+            for bg in [
+                "surface",
+                "surface-alt",
+                "popup-surface",
+                "hover",
+                "row-alt",
+            ] {
+                assert!(contrast(t("text"), t(bg)) >= 7.0, "style {style}: {bg}");
+                assert!(
+                    contrast(t("text-muted"), t(bg)) >= 4.5,
+                    "style {style}: {bg}"
+                );
+            }
+            for bg in ["surface", "surface-alt", "popup-surface"] {
+                assert!(
+                    contrast(t("popup-edge"), t(bg)) >= 3.0,
+                    "style {style}: {bg}"
+                );
+            }
+            assert!(contrast(t("selection-text"), t("selection")) >= 7.0);
+        }
     }
 
     #[test]

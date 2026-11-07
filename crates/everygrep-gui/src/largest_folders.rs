@@ -182,10 +182,10 @@ pub fn connect(main: &AppWindow, engine: &Arc<Engine>) {
     });
 }
 
-pub fn apply_scheme(scheme: i32) {
+pub fn apply_scheme(scheme: i32, style: i32) {
     with(|state| {
         if let Some(window) = state.window.borrow().as_ref() {
-            window.invoke_set_color_scheme(scheme);
+            window.invoke_set_color_scheme(scheme, style);
         }
     });
 }
@@ -212,7 +212,7 @@ impl State {
             });
             *self.window.borrow_mut() = Some(window);
         }
-        crate::prefs::with(|p| apply_scheme(p.color_scheme()));
+        crate::prefs::with(|p| apply_scheme(p.color_scheme(), p.dark_style()));
         main.set_largest_folders_visible(true);
         if let Some(window) = self.window.borrow().as_ref() {
             let _ = window.show();

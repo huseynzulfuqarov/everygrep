@@ -244,7 +244,7 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
             *slot.borrow_mut() = Some(w);
         }
         if let Some(w) = slot.borrow().as_ref() {
-            crate::prefs::with(|p| w.invoke_set_color_scheme(p.color_scheme()));
+            crate::prefs::with(|p| w.invoke_set_color_scheme(p.color_scheme(), p.dark_style()));
             refresh(w);
             w.set_busy(BUSY.load(Ordering::SeqCst));
             // An open window may be behind the main window; showing it again
@@ -283,10 +283,10 @@ pub fn refresh_open() {
     });
 }
 
-pub fn apply_scheme(scheme: i32) {
+pub fn apply_scheme(scheme: i32, style: i32) {
     WINDOW.with(|slot| {
         if let Some(w) = slot.borrow().as_ref() {
-            w.invoke_set_color_scheme(scheme);
+            w.invoke_set_color_scheme(scheme, style);
         }
     });
 }
