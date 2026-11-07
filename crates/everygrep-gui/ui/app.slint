@@ -513,7 +513,7 @@ component SearchField inherits Rectangle {
                     width: max(parent.width - self.text-cursor-width, self.preferred-width);
                     height: 100%;
                     vertical-alignment: center;
-                    font-size: Theme.body + 1px;
+                    font-size: Theme.body;
                     color: Theme.text;
                     selection-background-color: Theme.selection;
                     selection-foreground-color: Theme.selection-text;
@@ -667,7 +667,7 @@ component SearchField inherits Rectangle {
         visible: input.text == "" && root.scope-label == "";
         text: @tr("Search files and folders");
         color: Theme.text-muted;
-        font-size: Theme.body + 1px;
+        font-size: Theme.body;
         vertical-alignment: center;
         height: parent.height;
     }
@@ -4509,6 +4509,7 @@ export component AppWindow inherits Window {
                     }
                     if root.show-scope: ComboBox {
                         width: 170px;
+                        height: Theme.field-height;
                         horizontal-stretch: 0;
                         accessible-label: @tr("Search in");
                         model: root.scope-names;
@@ -4521,7 +4522,7 @@ export component AppWindow inherits Window {
                         // in the popup before they have been selected.
                         min-width: 160px;
                         preferred-width: max(160px, filter-labels.preferred-width + 48px);
-                        height: filter-box.preferred-height;
+                        height: Theme.field-height;
                         horizontal-stretch: 0;
                         filter-labels := VerticalLayout {
                             visible: false;
@@ -4532,6 +4533,7 @@ export component AppWindow inherits Window {
                         }
                         filter-box := ComboBox {
                             width: 100%;
+                            height: 100%;
                             accessible-label: @tr("Filter");
                             model: root.filter-names;
                             current-index <=> root.filter-index;
