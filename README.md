@@ -284,7 +284,8 @@ list is selected, the save dialog has a check box "Export only the N
 selected results" (not ticked at the start). The file is written to
 a temporary file and renamed into place.
 
-The menu bar (File, Edit, View, Search, Index, Tools, Help) holds the same actions,
+The menu bar (File, Edit, View, Search, Bookmarks, Tabs, History, Index, Tools,
+Help) holds the same actions,
 File → Close window (`Ctrl+W`, as the close button: hide or quit as set),
 the appearance choices (optional columns, sort by a column and direction,
 folder size, density, theme, selection details, the menu bar itself), the

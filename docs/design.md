@@ -28,7 +28,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Search  Tools  Help                        │  menu bar 40 px
+│ File Edit View Search Bookmarks Tabs History Index Tools Help│  menu bar 40 px
 │ [ search field ............ Aa ab a/b é .* ] [filter ▾]      │  top bar 48 px
 ├──────────────────────────────────────────────────────────────┤
 │ Name ▲               │ Folder                │ Size │ Modified│  header 30 px
@@ -47,7 +47,9 @@ screen; when a change conflicts with them, the rules win or are changed first.
   (folders panel, refresh, a Columns submenu with the optional columns, size columns to fit, sort by column and direction, folder size, density,
   theme, selection details, menu bar), Search (matching modes, including
   prefix, suffix, ignore punctuation and ignore whitespace, filters,
-  previous and next filter), History (back, forward, search history), Tools (settings,
+  previous and next filter), Bookmarks (save, manage and open searches), Tabs
+  (open, close and switch tabs), History (back, forward, search history), Index
+  (rebuild, pause updates, file lists and journal), Tools (settings,
   keyboard shortcuts settings, open the settings file), Help (search syntax, regular expressions, command line options, copy troubleshooting information, debug log, keyboard shortcuts, about). Only
   features that exist get an entry. Every entry runs the same command as its
   key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
@@ -520,7 +522,7 @@ filters above the existing choices. The organizer uses a table and an editor
 with a name, query, kind and matching modes. New starts from the current field.
 Alt+Up/Down moves the selected item when the editor is closed. Restore asks
 first and keeps custom entries. Bookmarks has its own menu between Search and
-History, with Save bookmark (Ctrl+D), Manage bookmarks and the saved names.
+Tabs, with Save bookmark (Ctrl+D), Manage bookmarks and the saved names.
 Its organizer also edits the filter and sort. Opening restores the text, all
 matching modes, frozen filter and sort, revealing the sort column if needed.
 A frozen filter that differs from the live one is available in the same
