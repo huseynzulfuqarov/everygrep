@@ -4344,15 +4344,20 @@ export component AppWindow inherits Window {
     }
 
     // Opens the context menu next to the current row.
+    function show-row-menu(x: length, y: length) {
+        menu-area.show({
+            x: list.absolute-position.x - menu-area.absolute-position.x + x,
+            y: list.absolute-position.y - menu-area.absolute-position.y + y,
+        });
+    }
+
     function show-menu-at-current() {
         if (root.current >= 0) {
             root.value-column = 0;
             root.value-available = root.fileops-prepare-value(root.current, 0);
             root.copy-column = 0;
-            menu-area.show({
-                x: Theme.s3 + Theme.icon,
-                y: (root.current + 1) * Theme.row-height + list.content-y,
-            });
+            root.show-row-menu(Theme.s3 + Theme.icon,
+                (root.current + 1) * Theme.row-height + list.content-y);
         }
     }
 
@@ -5613,182 +5618,6 @@ export component AppWindow inherits Window {
                             reject
                         }
 
-                        menu-area := ContextMenuArea {
-                            // Opened only by `show` (row right-click, menu key), which
-                            // first freezes the row's values for the menu items; on
-                            // its own it would open with the values of an older menu.
-                            enabled: false;
-                            // The most used actions stay at the top level; the
-                            // search and copy variants are grouped so that the
-                            // menu fits a laptop screen (popups cannot scroll).
-                            Menu {
-                                if root.hash-value != "": MenuItem {
-                                    title: @tr("Copy hash value");
-                                    activated => { root.copy-text(root.hash-value); }
-                                }
-                                if root.value-available: MenuItem {
-                                    title: root.value-column == 3 || root.value-column == 6 || root.value-column == 7 ? @tr("Search this day") : @tr("Search this value");
-                                    enabled: root.can-run(Command.search-property-value);
-                                    activated => { root.run(Command.search-property-value); }
-                                }
-                                MenuItem {
-                                    title: @tr("Open");
-                                    enabled: root.can-run(Command.open);
-                                    activated => { root.run(Command.open); }
-                                }
-                                MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
-                                MenuItem { title: @tr("Load file details"); enabled: root.can-run(Command.read-extended); activated => { root.run(Command.read-extended); } }
-                                MenuItem {
-                                    title: @tr("Open with…");
-                                    enabled: root.can-run(Command.open-with);
-                                    activated => { root.run(Command.open-with); }
-                                }
-                                MenuItem {
-                                    title: @tr("Open containing folder");
-                                    enabled: root.can-run(Command.open-folder);
-                                    activated => { root.run(Command.open-folder); }
-                                }
-                                MenuSeparator { }
-                                Menu {
-                                    title: @tr("Search");
-                                    MenuItem {
-                                        title: @tr("Search for this name");
-                                        enabled: root.can-run(Command.search-filename);
-                                        activated => { root.fileops-search-filename(-1, false, false); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Search for this exact name");
-                                        enabled: root.can-run(Command.search-exact-name);
-                                        activated => { root.fileops-search-filename(-1, true, false); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Search name without extension");
-                                        enabled: root.can-run(Command.search-stem);
-                                        activated => { root.fileops-search-filename(-1, false, true); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Search whole name without extension");
-                                        enabled: root.can-run(Command.search-whole-stem);
-                                        activated => { root.fileops-search-filename(-1, true, true); }
-                                    }
-                                    MenuSeparator { }
-                                    MenuItem {
-                                        title: @tr("Search in EveryGrep");
-                                        enabled: root.can-run(Command.search-in-program);
-                                        activated => { root.run(Command.search-in-program); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Search path in EveryGrep");
-                                        enabled: root.can-run(Command.search-containing-folder);
-                                        activated => { root.run(Command.search-containing-folder); }
-                                    }
-                                }
-                                MenuSeparator { }
-                                MenuItem {
-                                    title: @tr("Cut");
-                                    enabled: root.can-run(Command.cut);
-                                    activated => { root.run(Command.cut); }
-                                }
-                                MenuItem {
-                                    title: @tr("Copy");
-                                    enabled: root.can-run(Command.copy);
-                                    activated => { root.run(Command.copy); }
-                                }
-                                MenuItem {
-                                    title: @tr("Paste into folder");
-                                    enabled: root.can-run(Command.paste);
-                                    activated => { root.run(Command.paste); }
-                                }
-                                Menu {
-                                    title: @tr("Copy or move to");
-                                    MenuItem {
-                                        title: @tr("Copy to folder…");
-                                        enabled: root.can-run(Command.copy-to-folder);
-                                        activated => { root.run(Command.copy-to-folder); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Move to folder…");
-                                        enabled: root.can-run(Command.move-to-folder);
-                                        activated => { root.run(Command.move-to-folder); }
-                                    }
-                                }
-                                MenuItem {
-                                    title: @tr("Copy full path");
-                                    enabled: root.can-run(Command.copy-full-path);
-                                    activated => { root.run(Command.copy-full-path); }
-                                }
-                                Menu {
-                                    title: @tr("Copy name or path");
-                                    MenuItem {
-                                        title: @tr("Copy name");
-                                        enabled: root.can-run(Command.copy-name);
-                                        activated => { root.run(Command.copy-name); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Copy path");
-                                        enabled: root.can-run(Command.copy-path);
-                                        activated => { root.run(Command.copy-path); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Copy path with quotes");
-                                        enabled: root.can-run(Command.copy-path-quoted);
-                                        activated => { root.run(Command.copy-path-quoted); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Copy full path with quotes");
-                                        enabled: root.can-run(Command.copy-full-path-quoted);
-                                        activated => { root.run(Command.copy-full-path-quoted); }
-                                    }
-                                    MenuSeparator { }
-                                    MenuItem {
-                                        title: @tr("Copy “{}”", root.col-label(root.copy-column));
-                                        enabled: root.can-run(Command.copy-column-value);
-                                        activated => { root.run(Command.copy-column-value); }
-                                    }
-                                    MenuItem {
-                                        title: @tr("Copy all properties (TSV)");
-                                        enabled: root.can-run(Command.copy-properties);
-                                        activated => { root.run(Command.copy-properties); }
-                                    }
-                                }
-                                MenuSeparator { }
-                                MenuItem {
-                                    title: @tr("Rename");
-                                    enabled: root.can-run(Command.rename);
-                                    activated => { root.run(Command.rename); }
-                                }
-                                MenuItem {
-                                    title: @tr("Rename several items…");
-                                    enabled: root.can-run(Command.bulk-rename);
-                                    activated => { root.run(Command.bulk-rename); }
-                                }
-                                if root.results[root.current].group > 0: MenuItem {
-                                    title: @tr("Clean up duplicates…");
-                                    enabled: root.can-run(Command.clean-duplicates);
-                                    activated => { root.run(Command.clean-duplicates); }
-                                }
-                                MenuItem {
-                                    title: @tr("Create shortcuts…");
-                                    enabled: root.can-run(Command.create-shortcut);
-                                    activated => { root.run(Command.create-shortcut); }
-                                }
-                                MenuItem {
-                                    title: @tr("New folder…");
-                                    enabled: root.can-run(Command.new-folder);
-                                    activated => { root.run(Command.new-folder); }
-                                }
-                                MenuItem {
-                                    title: @tr("Move to trash");
-                                    enabled: root.can-run(Command.trash);
-                                    activated => { root.run(Command.trash); }
-                                }
-                                MenuItem {
-                                    title: @tr("Delete permanently…");
-                                    enabled: root.can-run(Command.delete-permanently);
-                                    activated => { root.run(Command.delete-permanently); }
-                                }
-                            }
-
                         // Asked after a drop when the setting says so.
                         drop-menu := ContextMenuArea {
                             enabled: false;
@@ -5944,7 +5773,7 @@ export component AppWindow inherits Window {
                                     root.copy-column = max(0, root.column-at-x(root.all-col-widths(), x));
                                     keys.focus();
                                     if (!root.is-selected(i)) { root.select(i, 0); }
-                                    menu-area.show({ x: x + list.content-x, y: i * Theme.row-height + list.content-y + y });
+                                    root.show-row-menu(x + list.content-x, i * Theme.row-height + list.content-y + y);
                                 }
                                 // In the Folder column it opens the containing
                                 // folder, when the setting says so.
@@ -5963,7 +5792,7 @@ export component AppWindow inherits Window {
                                 edit-cancel => { root.rename-cancel(); }
                             }
                         }
-                        }
+
 
                         Rectangle {
                             property <bool> empty-feedback: !root.show-status-bar && root.results.length == 0
@@ -6117,6 +5946,185 @@ export component AppWindow inherits Window {
                         vertical-alignment: center;
                         horizontal-alignment: right;
                     }
+                }
+            }
+        }
+    }
+
+    // Outside-menu pointer events return through this host. It contains
+    // no rows, so the popup clears row hover instead of hit-testing the
+    // list with coordinates relative to an offset menu parent.
+    menu-host := Rectangle {
+        width: 0px;
+        height: 0px;
+        clip: true;
+        menu-area := ContextMenuArea {
+            enabled: false;
+            Menu {
+                if root.hash-value != "": MenuItem {
+                    title: @tr("Copy hash value");
+                    activated => { root.copy-text(root.hash-value); }
+                }
+                if root.value-available: MenuItem {
+                    title: root.value-column == 3 || root.value-column == 6 || root.value-column == 7 ? @tr("Search this day") : @tr("Search this value");
+                    enabled: root.can-run(Command.search-property-value);
+                    activated => { root.run(Command.search-property-value); }
+                }
+                MenuItem {
+                    title: @tr("Open");
+                    enabled: root.can-run(Command.open);
+                    activated => { root.run(Command.open); }
+                }
+                MenuItem { title: @tr("Properties"); enabled: root.can-run(Command.properties); activated => { root.run(Command.properties); } }
+                MenuItem { title: @tr("Load file details"); enabled: root.can-run(Command.read-extended); activated => { root.run(Command.read-extended); } }
+                MenuItem {
+                    title: @tr("Open with…");
+                    enabled: root.can-run(Command.open-with);
+                    activated => { root.run(Command.open-with); }
+                }
+                MenuItem {
+                    title: @tr("Open containing folder");
+                    enabled: root.can-run(Command.open-folder);
+                    activated => { root.run(Command.open-folder); }
+                }
+                MenuSeparator { }
+                Menu {
+                    title: @tr("Search");
+                    MenuItem {
+                        title: @tr("Search for this name");
+                        enabled: root.can-run(Command.search-filename);
+                        activated => { root.fileops-search-filename(-1, false, false); }
+                    }
+                    MenuItem {
+                        title: @tr("Search for this exact name");
+                        enabled: root.can-run(Command.search-exact-name);
+                        activated => { root.fileops-search-filename(-1, true, false); }
+                    }
+                    MenuItem {
+                        title: @tr("Search name without extension");
+                        enabled: root.can-run(Command.search-stem);
+                        activated => { root.fileops-search-filename(-1, false, true); }
+                    }
+                    MenuItem {
+                        title: @tr("Search whole name without extension");
+                        enabled: root.can-run(Command.search-whole-stem);
+                        activated => { root.fileops-search-filename(-1, true, true); }
+                    }
+                    MenuSeparator { }
+                    MenuItem {
+                        title: @tr("Search in EveryGrep");
+                        enabled: root.can-run(Command.search-in-program);
+                        activated => { root.run(Command.search-in-program); }
+                    }
+                    MenuItem {
+                        title: @tr("Search path in EveryGrep");
+                        enabled: root.can-run(Command.search-containing-folder);
+                        activated => { root.run(Command.search-containing-folder); }
+                    }
+                }
+                MenuSeparator { }
+                MenuItem {
+                    title: @tr("Cut");
+                    enabled: root.can-run(Command.cut);
+                    activated => { root.run(Command.cut); }
+                }
+                MenuItem {
+                    title: @tr("Copy");
+                    enabled: root.can-run(Command.copy);
+                    activated => { root.run(Command.copy); }
+                }
+                MenuItem {
+                    title: @tr("Paste into folder");
+                    enabled: root.can-run(Command.paste);
+                    activated => { root.run(Command.paste); }
+                }
+                Menu {
+                    title: @tr("Copy or move to");
+                    MenuItem {
+                        title: @tr("Copy to folder…");
+                        enabled: root.can-run(Command.copy-to-folder);
+                        activated => { root.run(Command.copy-to-folder); }
+                    }
+                    MenuItem {
+                        title: @tr("Move to folder…");
+                        enabled: root.can-run(Command.move-to-folder);
+                        activated => { root.run(Command.move-to-folder); }
+                    }
+                }
+                MenuItem {
+                    title: @tr("Copy full path");
+                    enabled: root.can-run(Command.copy-full-path);
+                    activated => { root.run(Command.copy-full-path); }
+                }
+                Menu {
+                    title: @tr("Copy name or path");
+                    MenuItem {
+                        title: @tr("Copy name");
+                        enabled: root.can-run(Command.copy-name);
+                        activated => { root.run(Command.copy-name); }
+                    }
+                    MenuItem {
+                        title: @tr("Copy path");
+                        enabled: root.can-run(Command.copy-path);
+                        activated => { root.run(Command.copy-path); }
+                    }
+                    MenuItem {
+                        title: @tr("Copy path with quotes");
+                        enabled: root.can-run(Command.copy-path-quoted);
+                        activated => { root.run(Command.copy-path-quoted); }
+                    }
+                    MenuItem {
+                        title: @tr("Copy full path with quotes");
+                        enabled: root.can-run(Command.copy-full-path-quoted);
+                        activated => { root.run(Command.copy-full-path-quoted); }
+                    }
+                    MenuSeparator { }
+                    MenuItem {
+                        title: @tr("Copy “{}”", root.col-label(root.copy-column));
+                        enabled: root.can-run(Command.copy-column-value);
+                        activated => { root.run(Command.copy-column-value); }
+                    }
+                    MenuItem {
+                        title: @tr("Copy all properties (TSV)");
+                        enabled: root.can-run(Command.copy-properties);
+                        activated => { root.run(Command.copy-properties); }
+                    }
+                }
+                MenuSeparator { }
+                MenuItem {
+                    title: @tr("Rename");
+                    enabled: root.can-run(Command.rename);
+                    activated => { root.run(Command.rename); }
+                }
+                MenuItem {
+                    title: @tr("Rename several items…");
+                    enabled: root.can-run(Command.bulk-rename);
+                    activated => { root.run(Command.bulk-rename); }
+                }
+                if root.results[root.current].group > 0: MenuItem {
+                    title: @tr("Clean up duplicates…");
+                    enabled: root.can-run(Command.clean-duplicates);
+                    activated => { root.run(Command.clean-duplicates); }
+                }
+                MenuItem {
+                    title: @tr("Create shortcuts…");
+                    enabled: root.can-run(Command.create-shortcut);
+                    activated => { root.run(Command.create-shortcut); }
+                }
+                MenuItem {
+                    title: @tr("New folder…");
+                    enabled: root.can-run(Command.new-folder);
+                    activated => { root.run(Command.new-folder); }
+                }
+                MenuItem {
+                    title: @tr("Move to trash");
+                    enabled: root.can-run(Command.trash);
+                    activated => { root.run(Command.trash); }
+                }
+                MenuItem {
+                    title: @tr("Delete permanently…");
+                    enabled: root.can-run(Command.delete-permanently);
+                    activated => { root.run(Command.delete-permanently); }
                 }
             }
         }
