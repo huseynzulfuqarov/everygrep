@@ -67,20 +67,66 @@ component FolderList inherits VerticalLayout {
     in property <int> keep: 0;
     callback add();
     callback remove(int);
-    out property <int> current: list.current-item;
+    in-out property <int> current: -1;
 
     spacing: Theme.s2;
+    vertical-stretch: 0;
     HorizontalLayout {
         spacing: Theme.s2;
         Heading { text: root.title; }
         Note { text: root.count; vertical-alignment: center; horizontal-stretch: 1; }
     }
     Rectangle {
-        min-height: 92px;
-        vertical-stretch: 1;
-        list := StandardListView {
-            accessible-label: root.title;
-            model: root.model;
+        height: min(168px, max(40px, folder-rows.preferred-height));
+        vertical-stretch: 0;
+        border-width: 1px;
+        border-color: Theme.field-line;
+        background: Theme.field;
+        folder-focus := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.DownArrow || event.text == Key.UpArrow) {
+                    root.current = max(0, min(root.model.length - 1, root.current + (event.text == Key.DownArrow ? 1 : -1)));
+                    return accept;
+                }
+                if (event.text == Key.Home || event.text == Key.End) {
+                    root.current = event.text == Key.Home ? 0 : root.model.length - 1;
+                    return accept;
+                }
+                reject
+            }
+            list := ScrollView {
+                x: 1px; y: 1px;
+                width: parent.width - 2px; height: parent.height - 2px;
+                accessible-role: AccessibleRole.list;
+                accessible-label: root.title;
+                folder-rows := VerticalLayout {
+                    alignment: start;
+                    for item[i] in root.model: Rectangle {
+                        accessible-role: AccessibleRole.list-item;
+                        accessible-label: item.text;
+                        property <bool> selected: root.current == i;
+                        height: row-text.preferred-height + 2 * Theme.s2;
+                        background: self.selected ? Theme.selection : row-touch.has-hover ? Theme.hover : transparent;
+                        changed selected => {
+                            if (self.selected) {
+                                list.content-y = min(0px, max(list.visible-height - list.content-height,
+                                    self.y + list.content-y < 0px ? -self.y :
+                                    self.y + self.height + list.content-y > list.visible-height ? list.visible-height - self.y - self.height : list.content-y));
+                            }
+                        }
+                        row-text := Text {
+                            x: Theme.s2; y: Theme.s2;
+                            width: parent.width - 2 * Theme.s2;
+                            text: item.text;
+                            wrap: word-wrap;
+                            color: parent.selected ? Theme.selection-text : Theme.text;
+                        }
+                        row-touch := TouchArea {
+                            clicked => { root.current = i; folder-focus.focus(); }
+                        }
+                    }
+                }
+            }
         }
         if root.model.length == 0: Note {
             text: root.empty-text;
@@ -97,11 +143,11 @@ component FolderList inherits VerticalLayout {
         }
         Button {
             text: @tr("Remove");
-            enabled: list.current-item >= 0 && list.current-item < root.model.length
+            enabled: root.current >= 0 && root.current < root.model.length
                 && root.model.length > root.keep;
             clicked => {
-                root.remove(list.current-item);
-                list.current-item = -1;
+                root.remove(root.current);
+                root.current = -1;
             }
         }
     }
