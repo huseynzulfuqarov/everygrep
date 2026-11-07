@@ -5925,14 +5925,16 @@ export component AppWindow inherits Window {
                         }
 
                         Rectangle {
-                            visible: root.message != "";
+                            property <bool> empty-feedback: !root.show-status-bar && root.results.length == 0
+                                && root.query != "" && !root.search-pending && !root.can-cancel;
+                            visible: root.message != "" || self.empty-feedback;
                             width: min(message-text.preferred-width, parent.width - 2 * Theme.s3);
                             height: message-text.preferred-height;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                             message-text := Text {
                                 width: parent.width;
-                                text: root.message;
+                                text: root.message != "" ? root.message : root.status-count;
                                 color: root.message-error ? Theme.danger : Theme.text-muted;
                                 font-size: Theme.body;
                                 horizontal-alignment: center;
