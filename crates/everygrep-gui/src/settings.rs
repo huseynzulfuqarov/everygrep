@@ -541,6 +541,8 @@ pub struct Settings {
     pub toolbar: bool,
     /// Back, Forward, New tab, Rescan, Filters, Preview and Settings.
     pub toolbar_buttons: [bool; 7],
+    /// Show words beside the Back and Forward arrows.
+    pub toolbar_navigation_labels: bool,
     /// The size of the result list's text, icons and rows, in percent.
     pub zoom: u32,
     pub folders_visible: bool,
@@ -654,6 +656,7 @@ impl Default for Settings {
             status_bar: true,
             toolbar: false,
             toolbar_buttons: [true; 7],
+            toolbar_navigation_labels: false,
             zoom: crate::zoom::DEFAULT,
             folders_visible: false,
             preview_visible: false,
@@ -1094,6 +1097,7 @@ impl Settings {
             "menu-bar" => put_flag(&mut self.menu_bar),
             "status-bar" => put_flag(&mut self.status_bar),
             "toolbar" => put_flag(&mut self.toolbar),
+            "toolbar-navigation-labels" => put_flag(&mut self.toolbar_navigation_labels),
             "toolbar-button-back" => put_flag(&mut self.toolbar_buttons[0]),
             "toolbar-button-forward" => put_flag(&mut self.toolbar_buttons[1]),
             "toolbar-button-new-tab" => put_flag(&mut self.toolbar_buttons[2]),
@@ -1937,6 +1941,12 @@ impl Settings {
         flag(&mut out, "toolbar", self.toolbar, d.toolbar);
         flag(
             &mut out,
+            "toolbar-navigation-labels",
+            self.toolbar_navigation_labels,
+            d.toolbar_navigation_labels,
+        );
+        flag(
+            &mut out,
             "toolbar-button-back",
             self.toolbar_buttons[0],
             d.toolbar_buttons[0],
@@ -2343,6 +2353,7 @@ impl Settings {
                 self.status_bar = d.status_bar;
                 self.toolbar = d.toolbar;
                 self.toolbar_buttons = d.toolbar_buttons;
+                self.toolbar_navigation_labels = d.toolbar_navigation_labels;
                 self.zoom = d.zoom;
                 self.language = d.language;
             }
@@ -3537,6 +3548,24 @@ pub(crate) mod tests {
         assert_eq!(s.theme, ThemeChoice::System);
         assert_eq!(s.density, Density::Comfortable);
         assert_eq!(s.options.filter, Filter::Code, "other pages stay");
+    }
+
+    #[test]
+    fn navigation_labels_default_off_persist_and_reset_with_appearance() {
+        assert!(!Settings::default().toolbar_navigation_labels);
+        let mut s = Settings::parse("toolbar-navigation-labels = true\n");
+        assert!(s.toolbar_navigation_labels);
+        s = Settings::parse(&s.to_text());
+        assert!(s.toolbar_navigation_labels);
+        s.reset(Page::Search);
+        assert!(s.toolbar_navigation_labels);
+        s.reset(Page::Appearance);
+        assert!(!s.toolbar_navigation_labels);
+        let s = Settings::parse(
+            "toolbar-navigation-labels = true\ntoolbar-navigation-labels = invalid\n",
+        );
+        assert!(s.toolbar_navigation_labels);
+        assert_eq!(s.problems.len(), 1);
     }
 
     #[test]

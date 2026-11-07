@@ -5519,3 +5519,6 @@ msgstr "Əlfəcin və filtr sütunlarını standart olaraq istifadə et"
 
 msgid "Off: saved columns apply only to their view. Changing columns yourself makes that layout the default."
 msgstr "Sönülü: saxlanmış sütunlar yalnız öz görünüşünə tətbiq olunur. Sütunları özünüz dəyişəndə həmin düzülüş standart olur."
+
+msgid "Show labels on Back and Forward"
+msgstr "Geri və İrəli düymələrində adları göstər"

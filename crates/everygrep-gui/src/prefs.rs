@@ -1216,6 +1216,7 @@ impl Prefs {
             m.set_show_status_bar(s.status_bar);
             m.set_show_toolbar(s.toolbar);
             m.set_toolbar_buttons(ModelRc::new(VecModel::from(s.toolbar_buttons.to_vec())));
+            m.set_toolbar_navigation_labels(s.toolbar_navigation_labels);
         }
     }
 
@@ -1325,6 +1326,7 @@ impl Prefs {
         m.set_show_status_bar(s.status_bar);
         m.set_show_toolbar(s.toolbar);
         m.set_toolbar_buttons(ModelRc::new(VecModel::from(s.toolbar_buttons.to_vec())));
+        m.set_toolbar_navigation_labels(s.toolbar_navigation_labels);
         m.set_preview_visible(s.preview_visible);
         m.set_preview_width(s.preview_width);
         m.set_folders_visible(s.folders_visible);
@@ -2518,6 +2520,7 @@ impl Prefs {
         w.set_status_bar(s.status_bar);
         w.set_toolbar(s.toolbar);
         w.set_toolbar_buttons(ModelRc::new(VecModel::from(s.toolbar_buttons.to_vec())));
+        w.set_toolbar_navigation_labels(s.toolbar_navigation_labels);
         w.set_zoom(s.zoom as i32);
         w.set_alternate_rows(s.alternate_rows);
         w.set_size_unit_names(ModelRc::new(VecModel::from(
@@ -3551,6 +3554,7 @@ impl Prefs {
         let menu_bar = w.get_menu_bar();
         let status_bar = w.get_status_bar();
         let toolbar = w.get_toolbar();
+        let toolbar_navigation_labels = w.get_toolbar_navigation_labels();
         let buttons = w.get_toolbar_buttons();
         let toolbar_buttons = std::array::from_fn(|i| buttons.row_data(i).unwrap_or(true));
         let zoom = u32::try_from(w.get_zoom())
@@ -3580,6 +3584,7 @@ impl Prefs {
             s.menu_bar = menu_bar;
             s.status_bar = status_bar;
             s.toolbar = toolbar;
+            s.toolbar_navigation_labels = toolbar_navigation_labels;
             s.toolbar_buttons = toolbar_buttons;
             s.zoom = zoom;
             s.alternate_rows = alternate_rows;

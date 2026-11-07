@@ -242,8 +242,10 @@ component StatusButton inherits Rectangle {
     }
 }
 
-// A button of the toolbar: a symbol and a word, flat until hovered.
+// A button of the toolbar: a symbol and an optional word, flat until hovered.
 component ToolButton inherits Rectangle {
+    in property <bool> show-label: true;
+    in property <bool> show-tooltip;
     in property <string> glyph;
     in property <string> text;
     in property <bool> enabled: true;
@@ -271,13 +273,15 @@ component ToolButton inherits Rectangle {
             color: root.enabled ? Theme.text : Theme.text-muted;
             vertical-alignment: center;
         }
-        Text {
+        if root.show-label: Text {
             text: root.text;
             font-size: Theme.small;
             color: root.enabled ? Theme.text : Theme.text-muted;
             vertical-alignment: center;
         }
     }
+    property <string> tooltip-text: root.show-tooltip ? root.text : "";
+    Tooltip { text: @markdown("\{root.tooltip-text}"); }
     touch := TouchArea {
         enabled: root.enabled;
         clicked => { root.clicked(); }
@@ -2030,6 +2034,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show-menu-bar: true;
     in-out property <bool> show-status-bar: true;
     in-out property <bool> show-toolbar: false;
+    in property <bool> toolbar-navigation-labels;
     in property <[bool]> toolbar-buttons: [true, true, true, true, true, true, true];
     callback toolbar-changed(bool);
     // The search scope selector: its entries, the chosen one, and whether
@@ -4423,8 +4428,8 @@ export component AppWindow inherits Window {
                     padding-bottom: Theme.s1;
                     spacing: Theme.s1;
                     alignment: start;
-                    if root.toolbar-buttons[0]: ToolButton { glyph: "←"; text: @tr("Back"); enabled: root.can-run(Command.previous-search); clicked => { root.run(Command.previous-search); } }
-                    if root.toolbar-buttons[1]: ToolButton { glyph: "→"; text: @tr("Forward"); enabled: root.can-run(Command.next-search); clicked => { root.run(Command.next-search); } }
+                    if root.toolbar-buttons[0]: ToolButton { show-tooltip: true; show-label: root.toolbar-navigation-labels; glyph: "←"; text: @tr("Back"); enabled: root.can-run(Command.previous-search); clicked => { root.run(Command.previous-search); } }
+                    if root.toolbar-buttons[1]: ToolButton { show-tooltip: true; show-label: root.toolbar-navigation-labels; glyph: "→"; text: @tr("Forward"); enabled: root.can-run(Command.next-search); clicked => { root.run(Command.next-search); } }
                     if (root.toolbar-buttons[0] || root.toolbar-buttons[1]) && (root.toolbar-buttons[2] || root.toolbar-buttons[3] || root.toolbar-buttons[4] || root.toolbar-buttons[5] || root.toolbar-buttons[6]): Rectangle { width: 1px; background: Theme.line; }
                     if root.toolbar-buttons[2]: ToolButton { glyph: "+"; text: @tr("New tab"); enabled: root.can-run(Command.new-tab); clicked => { root.run(Command.new-tab); } }
                     if root.toolbar-buttons[3]: ToolButton { glyph: "⟳"; text: @tr("Rescan"); enabled: root.can-run(Command.rebuild-index); clicked => { root.run(Command.rebuild-index); } }

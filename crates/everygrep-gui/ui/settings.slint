@@ -327,6 +327,7 @@ export component SettingsWindow inherits Window {
     in-out property <bool> menu-bar;
     in-out property <bool> status-bar;
     in-out property <bool> toolbar;
+    in-out property <bool> toolbar-navigation-labels;
     in-out property <[bool]> toolbar-buttons: [true, true, true, true, true, true, true];
     in-out property <int> zoom;
     in-out property <bool> alternate-rows;
@@ -1369,6 +1370,11 @@ export component SettingsWindow inherits Window {
                             CheckBox {
                                 text: @tr("Show the toolbar");
                                 checked <=> root.toolbar;
+                                toggled => { root.appearance-changed(); }
+                            }
+                            CheckBox {
+                                text: @tr("Show labels on Back and Forward");
+                                checked <=> root.toolbar-navigation-labels;
                                 toggled => { root.appearance-changed(); }
                             }
                             Text { text: @tr("Toolbar buttons"); color: Theme.text; }
