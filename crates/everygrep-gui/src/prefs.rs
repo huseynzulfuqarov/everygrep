@@ -325,11 +325,18 @@ fn ask_about(
 
 /// Chooses the settings to apply after a file reload.
 fn reload_candidate(
-    read: Settings,
+    mut read: Settings,
     current: &Settings,
     declined: &std::collections::BTreeSet<String>,
     preserve_declined: bool,
+    index_saved: bool,
 ) -> Settings {
+    // A command-line window owns this value; it was deliberately not saved.
+    // Reading an unrelated local save must neither reset it nor report it
+    // as a change made outside the window.
+    if !index_saved {
+        read.index_file_details = current.index_file_details;
+    }
     if preserve_declined && !declined.is_empty() {
         read.keeping_declined(current, declined)
     } else {
@@ -525,6 +532,7 @@ impl Prefs {
             &self.settings.borrow(),
             &self.reload_declined.borrow(),
             preserve_declined,
+            self.index.borrow().saved,
         );
         if read.to_text() == self.settings.borrow().to_text() {
             return;
@@ -4011,6 +4019,25 @@ mod tests {
     use crate::settings::tests::Scratch;
 
     #[test]
+    fn own_save_keeps_command_line_index_details_and_has_no_outside_change() {
+        let dir = Scratch::new("reload-window-details");
+        let path = dir.0.join("settings");
+        Settings::default().save(&path).unwrap();
+        let mut running = Settings::default();
+        running.index_file_details = false;
+        running.read_extended_auto = true;
+        settings::update(&path, |s| s.read_extended_auto = true).unwrap();
+        let (read, own, local) = settings::load_marked(&path).unwrap();
+        assert!(own && local);
+        assert!(read.index_file_details);
+        let declined = Default::default();
+        let kept = reload_candidate(read.clone(), &running, &declined, local, false);
+        assert_eq!(kept.to_text(), running.to_text());
+        let normal = reload_candidate(read, &running, &declined, local, true);
+        assert!(normal.index_file_details);
+    }
+
+    #[test]
     fn filtering_a_selected_command_clears_its_key_selection() {
         let first = COMMANDS[0].cmd;
         let second = COMMANDS[1].cmd;
@@ -4067,14 +4094,14 @@ mod tests {
         settings::update(&path, |s| s.menu_bar = false).unwrap();
         let (read, own, local) = settings::load_marked(&path).unwrap();
         assert!(own && local);
-        let applied = reload_candidate(read, &running, &declined, local);
+        let applied = reload_candidate(read, &running, &declined, local, true);
         assert_eq!(applied.history_size, running.history_size);
         assert!(!applied.menu_bar);
         // Declined values must survive more than one local save/reload.
         running.status_details = false;
         settings::update(&path, |s| s.status_details = false).unwrap();
         let (read, _, local) = settings::load_marked(&path).unwrap();
-        let applied = reload_candidate(read, &running, &declined, local);
+        let applied = reload_candidate(read, &running, &declined, local, true);
         assert_eq!(applied.history_size, running.history_size);
         assert!(!applied.menu_bar && !applied.status_details);
     }
@@ -4085,7 +4112,7 @@ mod tests {
         let read = Settings::parse("history-size = 7\n");
         let declined = read.differing_lines(&running);
         // Another instance's save, or a user-approved reload, is not filtered.
-        let applied = reload_candidate(read, &running, &declined, false);
+        let applied = reload_candidate(read, &running, &declined, false, true);
         assert_eq!(applied.history_size, 7);
     }
 
