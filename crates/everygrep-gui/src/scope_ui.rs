@@ -24,6 +24,14 @@ pub struct Choice {
     pub folder: Option<PathBuf>,
 }
 
+// Keep the distinctive folder name visible when a combo elides the end.
+fn folder_label(path: &Path) -> String {
+    match path.file_name() {
+        Some(name) => format!("{} ({})", name.to_string_lossy(), path.display()),
+        None => path.display().to_string(),
+    }
+}
+
 /// The entries: all locations, the home folder when it is indexed (inside
 /// or equal to a root), every root, and `current` when it is none of
 /// these (a tab's scope whose root went away). Drive roots show their
@@ -51,7 +59,7 @@ pub fn choices(
         }
         let label = match labels.get(root.as_os_str().as_bytes()) {
             Some(name) => format!("{name} ({})", root.display()),
-            None => root.display().to_string(),
+            None => folder_label(root),
         };
         out.push(Choice {
             label,
@@ -62,7 +70,7 @@ pub fn choices(
         && !out.iter().any(|c| c.folder.as_deref() == Some(current))
     {
         out.push(Choice {
-            label: current.display().to_string(),
+            label: folder_label(current),
             folder: Some(current.to_path_buf()),
         });
     }
@@ -180,6 +188,22 @@ pub fn set_shown(w: &AppWindow, shown: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn roots_under_a_long_shared_parent_start_with_distinct_names() {
+        let roots = [
+            PathBuf::from("/home/me/a-very-long-shared-parent/alpha"),
+            PathBuf::from("/home/me/a-very-long-shared-parent/beta"),
+        ];
+        let c = choices(&roots, None, &HashMap::new(), None);
+        assert!(c[1].label.starts_with("alpha ("));
+        assert!(c[2].label.starts_with("beta ("));
+        for (choice, root) in c[1..].iter().zip(&roots) {
+            assert!(choice.label.contains(&root.display().to_string()));
+            assert_eq!(choice.folder.as_ref(), Some(root));
+        }
+        assert_eq!(folder_label(Path::new("/")), "/");
+    }
 
     #[test]
     fn the_selector_lists_all_home_and_every_root() {
