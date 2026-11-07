@@ -711,8 +711,8 @@ msgid "Indexing your files. This happens once; later starts are instant."
 msgstr "Dosyalarınızın dizini oluşturuluyor. Bu bir kez olur; sonraki açılışlar anında olur."
 
 #: src/labels.rs
-msgid "This window was started with --root or --index-file. Changes here apply to this window only and are not saved."
-msgstr "Bu pencere --root veya --index-file ile açıldı. Buradaki değişiklikler yalnızca bu pencere için geçerlidir ve kaydedilmez."
+msgid "This window was started with --root or --index-file. Folders, exclusion rules and indexing of file sizes and dates apply only to this window and are not saved. Other settings are saved normally."
+msgstr "Bu pencere --root veya --index-file ile açıldı. Klasörler, dışlama kuralları ve dosya boyutları ile tarihlerinin dizine alınması yalnızca bu pencere için geçerlidir ve kaydedilmez. Diğer ayarlar normal şekilde kaydedilir."
 
 #: src/labels.rs
 msgid "Add folders to index"

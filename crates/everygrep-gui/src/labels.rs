@@ -701,7 +701,7 @@ pub fn loading_message(state: IndexState) -> Option<&'static str> {
 /// folders or index file.
 pub fn index_from_command_line() -> &'static str {
     tr(
-        "This window was started with --root or --index-file. Changes here apply to this window only and are not saved.",
+        "This window was started with --root or --index-file. Folders, exclusion rules and indexing of file sizes and dates apply only to this window and are not saved. Other settings are saved normally.",
     )
 }
 

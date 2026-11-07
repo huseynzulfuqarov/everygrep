@@ -711,8 +711,8 @@ msgid "Indexing your files. This happens once; later starts are instant."
 msgstr "Fayllarınız indekslənir. Bu bir dəfə olur; sonrakı açılışlar dərhal olacaq."
 
 #: src/labels.rs
-msgid "This window was started with --root or --index-file. Changes here apply to this window only and are not saved."
-msgstr "Bu pəncərə --root və ya --index-file ilə açılıb. Buradakı dəyişikliklər yalnız bu pəncərəyə aiddir və saxlanmır."
+msgid "This window was started with --root or --index-file. Folders, exclusion rules and indexing of file sizes and dates apply only to this window and are not saved. Other settings are saved normally."
+msgstr "Bu pəncərə --root və ya --index-file ilə açılıb. Qovluqlar, istisna qaydaları və fayl ölçüləri ilə tarixlərinin indekslənməsi yalnız bu pəncərəyə aiddir və saxlanmır. Digər ayarlar adi qaydada saxlanır."
 
 #: src/labels.rs
 msgid "Add folders to index"
