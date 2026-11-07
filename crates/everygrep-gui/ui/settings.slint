@@ -99,11 +99,17 @@ component FolderList inherits VerticalLayout {
                 width: parent.width - 2px; height: parent.height - 2px;
                 accessible-role: AccessibleRole.list;
                 accessible-label: root.title;
+                accessible-item-count: root.model.length;
+                accessible-delegate-focus: max(0, root.current);
                 folder-rows := VerticalLayout {
                     alignment: start;
                     for item[i] in root.model: Rectangle {
                         accessible-role: AccessibleRole.list-item;
                         accessible-label: item.text;
+                        accessible-item-index: i;
+                        accessible-item-selectable: true;
+                        accessible-item-selected: self.selected;
+                        accessible-action-default => { row-touch.clicked(); }
                         property <bool> selected: root.current == i;
                         height: row-text.preferred-height + 2 * Theme.s2;
                         background: self.selected ? Theme.selection : row-touch.has-hover ? Theme.hover : transparent;
