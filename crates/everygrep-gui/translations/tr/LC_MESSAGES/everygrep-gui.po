@@ -3201,8 +3201,8 @@ msgstr "Dosya işlemini geri al"
 msgid "Redo file operation"
 msgstr "Dosya işlemini yinele"
 
-msgid "Session history only. Trash, permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."
-msgstr "Yalnızca oturum geçmişi. Çöpe taşıma, kalıcı silme, üzerine yazma ve dosya sistemleri arası taşıma kaydedilmez. Kopyayı geri almak onu çöpe gönderir; yineleme değişmemiş kaynağı yeniden kopyalar."
+msgid "Session history only. Permanent deletion, overwrites and moves across filesystems are not recorded. Undoing a copy sends it to the trash; redo copies the unchanged source again."
+msgstr "Yalnızca oturum geçmişi. Kalıcı silme, üzerine yazma ve dosya sistemleri arası taşıma kaydedilmez. Kopyayı geri almak onu çöpe gönderir; yineleme değişmemiş kaynağı yeniden kopyalar."
 
 msgid "Undo through a selected step also undoes every newer step, including actions hidden by the filter."
 msgstr "Seçili adıma kadar geri alma, filtrenin gizlediği işlemler dahil daha yeni tüm adımları da geri alır."
