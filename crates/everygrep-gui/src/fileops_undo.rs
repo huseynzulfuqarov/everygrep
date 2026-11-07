@@ -572,7 +572,12 @@ impl Journal {
                 self.cursor = index + 1;
                 match self.step_one(false, trash, progress)? {
                     Ok(()) => outcome.done += 1,
-                    Err(reason) => outcome.skipped.push(SkippedItem { name, reason }),
+                    Err(reason) => {
+                        // Cancellation returns before step_one records a skip.
+                        // Preserve the applied entry so another Undo can retry.
+                        self.entries[index].skipped = Some(reason.clone());
+                        outcome.skipped.push(SkippedItem { name, reason });
+                    }
                 }
             }
             self.cursor = cursor;
@@ -2009,6 +2014,34 @@ mod tests {
             epoch: before.epoch.wrapping_add(2),
             ..before
         };
+    }
+
+    #[test]
+    fn cancelling_a_retry_preserves_the_applied_entry_and_retry_availability() {
+        let t = Temp::new();
+        let copy = t.0.join("copy");
+        fs::write(&copy, "unchanged").unwrap();
+        let mut e = entry(Kind::Copy, t.0.join("source"), copy.clone(), None);
+        e.skipped = Some("Temporary failure.".into());
+        let mut j = journal(vec![e]);
+        j.cursor = 0;
+        let p = Progress::new();
+        let cancelled = j
+            .step(
+                false,
+                &|_, _, _| {
+                    p.cancel();
+                    Err("Operation cancelled.".into())
+                },
+                &p,
+            )
+            .unwrap();
+        assert_eq!(cancelled.done, 0);
+        assert_eq!(cancelled.skipped.len(), 1);
+        assert!(j.entries[0].applied);
+        assert!(j.entries[0].skipped.is_some());
+        assert_eq!(j.availability(true), (true, true));
+        assert_eq!(fs::read(copy).unwrap(), b"unchanged");
     }
 
     #[test]
