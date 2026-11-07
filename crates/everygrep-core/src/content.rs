@@ -668,7 +668,7 @@ fn answer(
     Ok(outcome.is_match())
 }
 
-/// Most answers a [`ContentCache`] keeps (about 100 bytes each with the path).
+/// Maximum number of file answers a [`ContentCache`] keeps across all terms.
 pub const CACHE_ENTRIES: usize = 200_000;
 /// Most terms a [`ContentCache`] keeps answers for.
 const CACHE_TERMS: usize = 8;
@@ -677,8 +677,9 @@ const CACHE_TERMS: usize = 8;
 /// path and live file identity, size, modification and change times, so a search of the same
 /// terms again (another order, file changes elsewhere) does not read the
 /// files again. Answers for other [`ContentOptions`] are dropped. The terms
-/// used longest ago are dropped first; when one term has
-/// [`CACHE_ENTRIES`], all of its answers go.
+/// used longest ago are dropped first. At the shared [`CACHE_ENTRIES`] limit,
+/// the oldest term is dropped.
+/// A single term at the limit starts a fresh set of answers.
 #[derive(Debug, Default)]
 pub struct ContentCache {
     options: Option<ContentOptions>,
@@ -744,6 +745,21 @@ impl ContentCache {
     }
 
     fn put(&mut self, term: &ContentTerm, entry: &Pending, key: ContentKey, matched: bool) {
+        // Updating a live answer costs no extra entry and must not evict it.
+        if let Some(answer) = self
+            .terms
+            .iter_mut()
+            .find(|(k, _)| k == term.key())
+            .and_then(|(_, answers)| answers.get_mut(entry.path.as_slice()))
+        {
+            *answer = (key, matched);
+            return;
+        }
+        // The budget is shared by all terms: paths and metadata are copied
+        // for each answer, so a per-term limit multiplied memory use by eight.
+        if self.len() >= CACHE_ENTRIES {
+            self.terms.pop_front();
+        }
         let at = match self.terms.iter().position(|(k, _)| k == term.key()) {
             Some(at) => at,
             None => {
@@ -756,9 +772,6 @@ impl ContentCache {
             }
         };
         let answers = &mut self.terms[at].1;
-        if answers.len() >= CACHE_ENTRIES {
-            answers.clear();
-        }
         answers.insert(entry.path.clone(), (key, matched));
     }
 }
@@ -1654,6 +1667,46 @@ mod tests {
         // !a
         assert_eq!(decide(0b01, 1, |_| Ok(false)), Ok(true));
         assert_eq!(decide(0b01, 1, |_| Err(Cancelled)), Err(Cancelled));
+    }
+
+    #[test]
+    fn the_cache_budget_is_shared_by_terms_and_updates_keep_answers() {
+        let dir = Dir::new("cache-budget");
+        let path = dir.file("a.txt", b"text");
+        let key = live_key(&path).unwrap();
+        let mut cache = ContentCache::new();
+        let terms = [term("one"), term("two"), term("three")];
+        let mut entry = Pending {
+            path: Vec::new(),
+            size: 4,
+            mtime_ns: 0,
+            table: 0b10,
+        };
+        for term in &terms {
+            for i in 0..=CACHE_ENTRIES / 2 {
+                entry.path = format!("/scratch/{i}").into_bytes();
+                cache.put(term, &entry, key, true);
+            }
+            assert!(cache.len() <= CACHE_ENTRIES);
+        }
+        assert_eq!(cache.len(), CACHE_ENTRIES / 2 + 1);
+        assert!(cache.get(&terms[0], &entry, key).is_none());
+        assert!(cache.get(&terms[1], &entry, key).is_none());
+        assert_eq!(cache.get(&terms[2], &entry, key), Some(true));
+        let kept = cache.len();
+        cache.put(&terms[2], &entry, key, false);
+        assert_eq!(cache.len(), kept);
+        assert_eq!(cache.get(&terms[2], &entry, key), Some(false));
+        // Small terms still share the cache; the oldest of nine is evicted.
+        cache.clear();
+        for i in 0..=CACHE_TERMS {
+            cache.put(&term(&i.to_string()), &entry, key, true);
+        }
+        assert_eq!(cache.len(), CACHE_TERMS);
+        assert_eq!(cache.get(&term("0"), &entry, key), None);
+        assert_eq!(cache.get(&term("8"), &entry, key), Some(true));
+        cache.clear();
+        assert!(cache.is_empty());
     }
 
     #[test]
