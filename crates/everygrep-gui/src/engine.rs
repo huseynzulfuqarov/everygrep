@@ -6029,6 +6029,39 @@ mod tests {
     }
 
     #[test]
+    fn table_copy_uses_data_values_while_single_columns_keep_display_text() {
+        let dir = Scratch::new("table-copy-data");
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("report.txt"), vec![b'x'; 2048]).unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("report", QueryOptions::default());
+        let result = loop {
+            let result = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if result.query == "report" && result.ids.len() == 1 {
+                break result;
+            }
+        };
+        let mut model = crate::results::ResultsModel::new(probe.engine.clone());
+        model.set_test_home(&dir.0);
+        model.set_result(&result);
+        let copied = model.data_texts(&[0], &[0, 1, 2, 3]);
+        assert_eq!(copied[0][0], "report.txt");
+        assert_eq!(copied[0][1], root.to_string_lossy());
+        assert_eq!(copied[0][2], "2048");
+        assert!(copied[0][3].contains('T'));
+        assert!(copied[0][3].len() >= 25, "{}", copied[0][3]);
+        assert_eq!(model.cell_texts(&[0], &[1])[0][0], "~/files");
+        let display = model.cell_texts(&[0], &[2, 3]);
+        assert_ne!(display[0][0], copied[0][2]);
+        assert!(!display[0][1].contains('T'));
+        assert!(model.data_texts(&[usize::MAX], &[0]).is_empty());
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn column_value_queries_use_visible_cached_details_and_the_shared_hash_store() {
         use crate::hash_columns::{HashColumns, HashReader};
         use crate::results::{DetailColumns, DetailReader, ResultsModel};

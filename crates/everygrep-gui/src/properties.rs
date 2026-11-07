@@ -10,7 +10,7 @@ pub struct Batch {
     pub serial: u64,
     pub row: usize,
     pub id: NodeId,
-    pub values: Vec<String>,
+    pub values: Vec<property::Value>,
 }
 struct Request {
     serial: u64,
@@ -44,7 +44,7 @@ impl Reader {
                     if r.epoch != engine.epoch() {
                         continue;
                     }
-                    let mut values = vec![String::new(); Property::ALL.len()];
+                    let mut values = vec![property::Value::Empty; Property::ALL.len()];
                     let path = index.store().path(r.id);
                     let online = !index.is_offline(r.id);
                     let online_file = online && !index.store().is_dir(r.id);
@@ -57,21 +57,19 @@ impl Reader {
                             } else if property.external() {
                                 external.push(*property);
                             } else {
-                                values[i] = property::read(&index, r.id, *property, &p)
-                                    .unwrap_or_default()
-                                    .to_string();
+                                values[i] =
+                                    property::read(&index, r.id, *property, &p).unwrap_or_default();
                             }
                         }
                     }
                     drop(index);
                     // Filesystem reads run after the index lock is released.
                     for property in external.into_iter().filter(|_| online) {
-                        values[property as usize] =
-                            property.display(&property::read_path(&path, property, &p));
+                        values[property as usize] = property::read_path(&path, property, &p);
                     }
                     if online_file && !media.is_empty() {
                         for (property, value) in engine.properties.read(&path, &media, &p) {
-                            values[property as usize] = property.display(&value);
+                            values[property as usize] = value;
                         }
                     }
                     if r.serial == serial.load(Ordering::SeqCst) {
@@ -271,5 +269,35 @@ mod tests {
         // With an unchanged index, this revision difference is what requests
         // a new pass instead of treating the new rules as already completed.
         assert_ne!((7, 9, first.1), (7, 9, next.1));
+    }
+}
+
+/// Numeric properties keep their data units (duration in milliseconds).
+/// Dimensions are a width/height pair, never the internal packed integer.
+pub fn data_text(property: Property, value: &property::Value) -> String {
+    match (property, value) {
+        (Property::Dimensions, property::Value::Number(n)) => {
+            format!("{}x{}", n >> 32, n & u64::from(u32::MAX))
+        }
+        _ => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    use super::*;
+    #[test]
+    fn copied_properties_preserve_numeric_units_and_logical_dimensions() {
+        assert_eq!(
+            data_text(Property::Length, &property::Value::Number(1234)),
+            "1234"
+        );
+        assert_eq!(
+            data_text(
+                Property::Dimensions,
+                &property::Value::Number((1920 << 32) | 1080)
+            ),
+            "1920x1080"
+        );
     }
 }

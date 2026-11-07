@@ -1512,7 +1512,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                         .unwrap_or_default()
                 })
                 .collect();
-            let cells = model.cell_texts(&rows, &columns);
+            let cells = model.data_texts(&rows, &columns);
             let mut protect = true;
             prefs::with(|p| protect = p.export_protect_formulas());
             w.invoke_copy_text(export::tsv_table(&header, &cells, protect).into());

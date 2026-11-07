@@ -228,6 +228,31 @@ pub fn date(mtime_ns: i64, now_ns: i64, zone: &Zone) -> String {
     }
 }
 
+/// ISO 8601 local date-time, with seconds and the applicable UTC offset.
+pub fn iso_timestamp(ns: i64, zone: &Zone) -> String {
+    if ns == 0 {
+        return String::new();
+    }
+    let secs = ns.div_euclid(1_000_000_000);
+    let (y, m, d) = zone.local_date(secs);
+    let time = zone.to_local(secs).rem_euclid(86_400);
+    let offset = zone.offset_at_utc(secs);
+    let sign = if offset < 0 { '-' } else { '+' };
+    let offset = offset.unsigned_abs();
+    let mut text = format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}{sign}{:02}:{:02}",
+        time / 3600,
+        time % 3600 / 60,
+        time % 60,
+        offset / 3600,
+        offset % 3600 / 60
+    );
+    if !offset.is_multiple_of(60) {
+        text.push_str(&format!(":{:02}", offset % 60));
+    }
+    text
+}
+
 /// Full local timestamp for tooltips: `2026-10-25 22:41`.
 pub fn timestamp(mtime_ns: i64, zone: &Zone) -> String {
     if mtime_ns == 0 {
@@ -456,6 +481,20 @@ mod tests {
             size_in(u64::MAX, style(Bytes, Jedec)),
             "18\u{2009}446\u{2009}744\u{2009}073\u{2009}709\u{2009}551\u{2009}615 B"
         );
+    }
+
+    #[test]
+    fn copied_dates_include_seconds_and_the_local_offset() {
+        let zone = Zone::from_posix_tz("AZT-4").unwrap();
+        assert_eq!(
+            iso_timestamp(1_000_000_000, &zone),
+            "1970-01-01T04:00:01+04:00"
+        );
+        assert_eq!(
+            iso_timestamp(-1_000_000_000, &Zone::utc()),
+            "1969-12-31T23:59:59+00:00"
+        );
+        assert_eq!(iso_timestamp(0, &zone), "");
     }
 
     #[test]

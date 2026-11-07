@@ -91,7 +91,7 @@ pub struct ResultsModel {
     /// Which frequency columns are shown.
     frequency_columns: Cell<FrequencyColumns>,
     property_columns: RefCell<Vec<bool>>,
-    property_cache: RefCell<HashMap<NodeId, Vec<String>>>,
+    property_cache: RefCell<HashMap<NodeId, Vec<everygrep_core::property::Value>>>,
     property_pending: RefCell<HashSet<NodeId>>,
     property_reader: RefCell<Option<crate::properties::Reader>>,
     notify: ModelNotify,
@@ -383,7 +383,11 @@ impl ResultsModel {
     }
     fn properties_of(&self, id: NodeId, row: usize) -> Vec<SharedString> {
         if let Some(values) = self.property_cache.borrow().get(&id) {
-            return values.iter().map(|v| v.as_str().into()).collect();
+            return values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| everygrep_core::property::Property::ALL[i].display(v).into())
+                .collect();
         }
         if self.property_columns.borrow().iter().any(|v| *v)
             && let Some(reader) = self.property_reader.borrow().as_ref()
@@ -1166,6 +1170,102 @@ impl ResultsModel {
             .enumerate()
             .filter(|(_, id)| picked.contains(id))
             .map(|(r, _)| r)
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_home(&mut self, home: &Path) {
+        self.home = Some(home.as_os_str().as_bytes().to_vec());
+    }
+
+    /// Data values for a table copy. No disk reads are added here: optional
+    /// details and properties use the same caches as the visible columns.
+    pub fn data_texts(&self, rows: &[usize], columns: &[i32]) -> Vec<Vec<String>> {
+        rows.iter()
+            .filter_map(|&row| {
+                let display = self.row_data(row)?;
+                let id = self.id(row)?;
+                let index = self.engine.index.read().ok()?;
+                let store = index.store();
+                if self.engine.epoch() != self.epoch.get()
+                    || id.index() >= store.len()
+                    || !store.is_live(id)
+                {
+                    return None;
+                }
+                let mut meta = store.meta(id);
+                let mut known = self.sizes_known.get();
+                if let Some(read) = self.extended_of(id) {
+                    meta.mtime_ns = read.mtime_ns;
+                    if !store.is_dir(id) {
+                        meta.size = read.size;
+                        known = true;
+                    }
+                }
+                let details = self.detail_cache.borrow();
+                let properties = self.property_cache.borrow();
+                let frequencies = index.last_frequencies();
+                Some(
+                    columns
+                        .iter()
+                        .map(|&column| match column {
+                            0 => String::from_utf8_lossy(store.name(id)).into_owned(),
+                            1 => store
+                                .parent(id)
+                                .map(|p| store.path(p).to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            2 => {
+                                if known {
+                                    meta.size.to_string()
+                                } else {
+                                    String::new()
+                                }
+                            }
+                            3 => format::iso_timestamp(meta.mtime_ns, &self.zone),
+                            6 | 7 => details
+                                .get(&id)
+                                .and_then(|d| {
+                                    if column == 6 {
+                                        d.created_ns
+                                    } else {
+                                        d.accessed_ns
+                                    }
+                                })
+                                .map(|ns| format::iso_timestamp(ns, &self.zone))
+                                .unwrap_or_default(),
+                            12..=14 => frequencies
+                                .as_ref()
+                                .map(|f| match column {
+                                    12 => f.name(id),
+                                    13 => f.extension(id),
+                                    _ => f.size(id),
+                                })
+                                .filter(|&n| n > 0)
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                            15..=51 => properties
+                                .get(&id)
+                                .and_then(|v| v.get((column - 15) as usize))
+                                .map(|v| {
+                                    crate::properties::data_text(
+                                        everygrep_core::property::Property::from_column(column)
+                                            .expect("property column"),
+                                        v,
+                                    )
+                                })
+                                .unwrap_or_default(),
+                            56 => self
+                                .group_ids
+                                .borrow()
+                                .get(row)
+                                .filter(|&&n| n > 0)
+                                .map(ToString::to_string)
+                                .unwrap_or_default(),
+                            _ => cell_text(&display, column),
+                        })
+                        .collect(),
+                )
+            })
             .collect()
     }
 
