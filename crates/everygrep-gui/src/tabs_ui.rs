@@ -610,6 +610,9 @@ fn title(tab: &Tab) -> String {
         tr("New tab").into()
     } else {
         crate::fileops_search::readable(&tab.search.query)
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect()
     }
 }
 
@@ -976,7 +979,15 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::window_title;
+    use super::{title, window_title};
+
+    #[test]
+    fn tab_labels_keep_control_characters_on_one_line() {
+        let mut tab = crate::tabs::Tab::default();
+        tab.search.query = "Name\tFolder\nSize\rModified".into();
+        assert_eq!(title(&tab), "Name Folder Size Modified");
+        assert_eq!(tab.search.query, "Name\tFolder\nSize\rModified");
+    }
 
     #[test]
     fn the_window_title_names_the_search_and_the_other_tabs() {
