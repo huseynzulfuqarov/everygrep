@@ -30,6 +30,14 @@ export { DebugLogWindow } from "debuglog.slint";
 export { FileListEditor } from "filelist-editor.slint";
 export { JournalWindow } from "journal.slint";
 
+export struct SearchRowGeometry {
+    stacked: bool,
+    search-width: length,
+    selectors-x: length,
+    selectors-width: length,
+    selector-width: length,
+}
+
 // A text with up to four highlighted runs: plain and bold pieces in turn,
 // p0 b0 p1 b1 ... p4. Without a highlight all of it is in p0; runs after the
 // fourth stay plain in p4.
@@ -1798,6 +1806,8 @@ component ColumnGrip inherits TouchArea {
 }
 
 export component AppWindow inherits Window {
+    // One calculation owns both the editor width and the selector positions.
+    pure callback search-row-layout(length, length, length, bool, bool, length, length) -> SearchRowGeometry;
     // The search of the shown tab and the number of other tabs (see
     // tabs_ui.rs).
     in property <string> window-title: "EveryGrep";
@@ -4457,69 +4467,79 @@ export component AppWindow inherits Window {
                 closed(i) => { root.tab-closed(i); }
                 list => { root.tab-command(Command.list-tabs); }
             }
-            // Top bar
-            Rectangle {
-                height: Theme.top-bar-height;
+            // Keep 200px of editable text after the search icon and toggles.
+            // Measure the selectors before deciding whether they need a row
+            // of their own; saved filter names can be wider than the defaults.
+            search-bar := Rectangle {
+                property <SearchRowGeometry> geometry: root.search-row-layout(self.width,
+                    search.min-width, filter-hover.preferred-width, root.show-scope, root.show-menu-bar,
+                    Theme.margin, Theme.s2);
+                property <bool> stacked: self.geometry.stacked;
+                height: Theme.top-bar-height + (self.stacked ? Theme.field-height + Theme.s2 : 0px);
                 background: Theme.surface;
-                HorizontalLayout {
-                    padding-left: Theme.margin;
-                    padding-right: Theme.margin;
-                    padding-top: (Theme.top-bar-height - Theme.field-height) / 2;
-                    padding-bottom: (Theme.top-bar-height - Theme.field-height) / 2;
-                    spacing: Theme.s2;
-                    search := SearchField {
-                        horizontal-stretch: 1;
-                        select-on-click: root.select-search-on-click;
-                        scope-label: root.scope-label;
-                        scope-detail: root.scope-detail;
-                        scope-cleared => {
-                            root.scope = "";
-                            root.scope-label = "";
-                            root.query = self.text;
-                            self.edited(self.text);
-                        }
-                        edited(text) => {
-                            root.query = root.compose(text);
-                            root.current = root.results.length > 0 ? 0 : -1;
-                            list.content-y = 0;
-                            root.history-full = false;
-                            root.history-current = -1;
-                            root.query-edited(root.query);
-                            root.history-open = root.history-suggestions && root.history-rows.length > 0;
-                        }
-                        modes-changed => { root.options-edited(); }
-                        history-requested => { root.run(Command.show-history); }
-                        shortcut(event) => { root.history-key(event) || root.dispatch(1, event) }
-                        insert-part(text, anchor, cursor, menu, index) => { root.insert-search-part(text, anchor, cursor, menu, index) }
-                        accepted => {
-                            root.history-open = false;
-                            // Rust checks held searches and the generation of
-                            // the displayed rows before any activation.
-                            if (!root.search-now()) {
-                                root.history-record();
-                                if (root.current >= 0) {
-                                    root.activate(root.current);
-                                }
+                search := SearchField {
+                    x: Theme.margin;
+                    y: (Theme.top-bar-height - Theme.field-height) / 2;
+                    width: search-bar.geometry.search-width;
+                    select-on-click: root.select-search-on-click;
+                    scope-label: root.scope-label;
+                    scope-detail: root.scope-detail;
+                    scope-cleared => {
+                        root.scope = "";
+                        root.scope-label = "";
+                        root.query = self.text;
+                        self.edited(self.text);
+                    }
+                    edited(text) => {
+                        root.query = root.compose(text);
+                        root.current = root.results.length > 0 ? 0 : -1;
+                        list.content-y = 0;
+                        root.history-full = false;
+                        root.history-current = -1;
+                        root.query-edited(root.query);
+                        root.history-open = root.history-suggestions && root.history-rows.length > 0;
+                    }
+                    modes-changed => { root.options-edited(); }
+                    history-requested => { root.run(Command.show-history); }
+                    shortcut(event) => { root.history-key(event) || root.dispatch(1, event) }
+                    insert-part(text, anchor, cursor, menu, index) => { root.insert-search-part(text, anchor, cursor, menu, index) }
+                    accepted => {
+                        root.history-open = false;
+                        // Rust checks held searches and the generation of
+                        // the displayed rows before any activation.
+                        if (!root.search-now()) {
+                            root.history-record();
+                            if (root.current >= 0) {
+                                root.activate(root.current);
                             }
                         }
-                        down-pressed => {
-                            keys.focus();
-                            // The current row is not shown while the search
-                            // field has the focus: an unselected one (as after
-                            // a new search) is where Down lands; from a kept
-                            // selection Down goes on to the next row.
-                            root.move-to(root.current < 0 ? 0 : root.is-selected(root.current) ? root.current + 1 : root.current, 0);
-                        }
-                        escape-pressed => {
-                            root.scope = "";
-                            root.scope-label = "";
-                            self.text = "";
-                            root.query = "";
-                            root.query-edited("");
-                        }
                     }
+                    down-pressed => {
+                        keys.focus();
+                        // The current row is not shown while the search
+                        // field has the focus: an unselected one (as after
+                        // a new search) is where Down lands; from a kept
+                        // selection Down goes on to the next row.
+                        root.move-to(root.current < 0 ? 0 : root.is-selected(root.current) ? root.current + 1 : root.current, 0);
+                    }
+                    escape-pressed => {
+                        root.scope = "";
+                        root.scope-label = "";
+                        self.text = "";
+                        root.query = "";
+                        root.query-edited("");
+                    }
+                }
+                selectors := HorizontalLayout {
+                    x: search-bar.geometry.selectors-x;
+                    y: (Theme.top-bar-height - Theme.field-height) / 2
+                        + (search-bar.stacked ? Theme.field-height + Theme.s2 : 0px);
+                    width: search-bar.geometry.selectors-width;
+                    height: Theme.field-height;
+                    spacing: Theme.s2;
+                    property <length> shared-width: search-bar.geometry.selector-width;
                     if root.show-scope: SearchDropdown {
-                        width: 170px;
+                        width: search-bar.stacked ? selectors.shared-width : 170px;
                         height: Theme.field-height;
                         horizontal-stretch: 0;
                         label: @tr("Search in");
@@ -4531,11 +4551,11 @@ export component AppWindow inherits Window {
                         selected => { root.scope-chosen(self.current-index); }
                     }
                     filter-hover := TouchArea {
-                        // Leave room for the search field and scope selector.
                         // Measuring every entry also keeps saved copies readable
-                        // in the popup before they have been selected.
-                        min-width: 160px;
+                        // in the popup before they have been selected. In the
+                        // second row both selectors share the available width.
                         preferred-width: max(160px, filter-labels.preferred-width + 48px);
+                        width: search-bar.stacked ? selectors.shared-width : self.preferred-width;
                         height: Theme.field-height;
                         horizontal-stretch: 0;
                         filter-labels := VerticalLayout {

@@ -67,6 +67,7 @@ mod schedule;
 mod scope_ui;
 mod search_errors;
 mod search_history;
+mod search_layout;
 mod selection;
 mod session;
 mod settings;
@@ -206,6 +207,7 @@ fn main() -> Result<(), slint::PlatformError> {
         settings.options
     };
     let window = AppWindow::new()?;
+    window.on_search_row_layout(search_layout::calculate);
     window
         .global::<DropdownLogic>()
         .on_step_index(dropdown::step_index);
