@@ -38,6 +38,8 @@ impl Snapshot {
             } else {
                 root.join(rel)
             };
+            #[cfg(test)]
+            crate::fileops_test::at("snapshot-entry", &path);
             let stamp = Stamp::read(&path)?;
             let is_dir = fs::symlink_metadata(&path)?.is_dir();
             out.push((rel.into(), stamp));
@@ -822,12 +824,33 @@ pub fn rename_chosen(
     let _files = try_file_guard().ok_or_else(|| {
         actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
     })?;
-    let now = fs::symlink_metadata(old).map_err(actions::RenameError::Io)?;
-    chosen
-        .check(&now, false)
-        .map_err(actions::RenameError::Io)?;
+    let still_chosen = || -> Result<fs::Metadata, actions::RenameError> {
+        let now = fs::symlink_metadata(old).map_err(actions::RenameError::Io)?;
+        chosen
+            .check(&now, false)
+            .map_err(actions::RenameError::Io)?;
+        Ok(now)
+    };
+    still_chosen()?;
     let c = config();
-    let before = BeforeRename::read(old).ok();
+    let before = BeforeRename::read(old);
+    // Looked at again after the undo snapshot, which can take long for a
+    // big folder: an item put in place meanwhile is refused, also when it
+    // made the snapshot fail. The snapshot must be of the item renamed.
+    let now = still_chosen()?;
+    let before = match before {
+        Ok(b) => {
+            let pinned = Stamp::of(&b.root.metadata().map_err(actions::RenameError::Io)?);
+            let now = Stamp::of(&now);
+            if (pinned.dev, pinned.ino) != (now.dev, now.ino) {
+                return Err(actions::RenameError::Io(actions::changed_since_chosen()));
+            }
+            Some(b)
+        }
+        // Still the item chosen (a file inside could not be read, or the
+        // folder is too large): renamed without undo, and the user is told.
+        Err(_) => None,
+    };
     let result = actions::rename(old, name)?;
     let mut note = None;
     if c.enabled
@@ -1941,6 +1964,31 @@ mod tests {
         assert!(error.to_string().contains("nothing was done"), "{error}");
         assert_eq!(fs::read(&path).unwrap(), b"never chosen");
         assert!(!t.0.join("renamed.txt").exists());
+    }
+
+    #[test]
+    fn rename_keeps_a_folder_replaced_while_its_undo_snapshot_is_read() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let folder = t.0.join("chosen");
+        fs::create_dir(&folder).unwrap();
+        for n in ["a", "b"] {
+            fs::write(folder.join(n), n).unwrap();
+        }
+        let chosen = actions::Chosen::of(std::slice::from_ref(&folder));
+        // A sync puts another folder in place while the snapshot is read.
+        let (swap, old) = (folder.clone(), t.0.join("chosen-old"));
+        crate::fileops_test::arm_path("snapshot-entry", &folder.join("a"), move |_| {
+            fs::rename(&swap, &old).unwrap();
+            fs::create_dir(&swap).unwrap();
+            fs::write(swap.join("new"), "never chosen").unwrap();
+        });
+        let error = rename_chosen(&folder, "renamed", &chosen).unwrap_err();
+        crate::fileops_test::fired();
+        assert!(error.to_string().contains("nothing was done"), "{error}");
+        assert!(folder.join("new").is_file());
+        assert!(!t.0.join("renamed").exists());
+        assert!(t.0.join("chosen-old/a").is_file());
     }
 
     #[test]
