@@ -322,7 +322,33 @@ pub fn paste_chosen(
             .collect();
         return out;
     }
-    let dest_dev = fs::metadata(&dest).map(|m| m.dev()).ok();
+    // The destination as it is now, held open: it must still be the folder
+    // at its path after the size count and before each item.
+    let pinned = match open_dir(&dest).and_then(|d| d.metadata()) {
+        Ok(m) => (m.dev(), m.ino()),
+        Err(e) => {
+            out.failed = sources
+                .iter()
+                .map(|s| {
+                    (
+                        s.clone(),
+                        Failure::Io(io::Error::new(e.kind(), e.to_string())),
+                    )
+                })
+                .collect();
+            return out;
+        }
+    };
+    let same_dest = || -> io::Result<()> {
+        let m = fs::metadata(&dest)?;
+        if (m.dev(), m.ino()) != pinned {
+            return Err(io::Error::other(tr(
+                "the destination folder changed after you chose it; nothing was done",
+            )));
+        }
+        chosen.map_or(Ok(()), |c| c.check_folder(&dest))
+    };
+    let dest_dev = Some(pinned.0);
     let total: u64 = sources
         .iter()
         .filter(|s| {
@@ -338,9 +364,18 @@ pub fn paste_chosen(
         chosen: chosen.cloned(),
         ..Run::default()
     };
-    for src in sources {
+    for (i, src) in sources.iter().enumerate() {
         if progress.is_cancelled() {
             out.cancelled = true;
+            break;
+        }
+        if let Err(e) = same_dest() {
+            out.failed.extend(sources[i..].iter().map(|s| {
+                (
+                    s.clone(),
+                    Failure::Io(io::Error::new(e.kind(), e.to_string())),
+                )
+            }));
             break;
         }
         match paste_one(op, src, &dest, progress, &mut run) {
@@ -4846,6 +4881,43 @@ mod tests {
             let _ = worker.join();
         }
         None
+    }
+
+    #[test]
+    fn a_destination_replaced_while_the_paste_is_measured_is_refused() {
+        for (op, chosen) in [(Operation::Copy, false), (Operation::Copy, true)] {
+            let t = TempDir::new(&format!("dest-swap-scan-{op:?}-{chosen}"));
+            fs::create_dir_all(t.path("src/tree")).unwrap();
+            fs::write(t.path("src/tree/f"), "bytes").unwrap();
+            let dest = t.path("dest");
+            fs::create_dir(&dest).unwrap();
+            let mut picked = crate::actions::Chosen::of(&[t.path("src/tree")]);
+            let m = fs::metadata(&dest).unwrap();
+            picked.set_folder((m.dev(), m.ino()));
+            // The size count looks at the copied folder: meanwhile another
+            // folder takes the destination's name.
+            let (d, old) = (dest.clone(), t.path("dest-old"));
+            crate::fileops_test::arm_path("size-folder", &t.path("src/tree"), move |_| {
+                fs::rename(&d, &old).unwrap();
+                fs::create_dir(&d).unwrap();
+            });
+            let out = paste_chosen(
+                op,
+                &[t.path("src/tree")],
+                chosen.then_some(&picked),
+                &dest,
+                &Progress::new(),
+                None,
+                Replacement::default(),
+                |_| {},
+            );
+            crate::fileops_test::fired();
+            assert!(out.done.is_empty(), "{op:?} {chosen}: {out:?}");
+            assert_eq!(out.failed.len(), 1, "{op:?} {chosen}: {out:?}");
+            assert_eq!(fs::read_dir(&dest).unwrap().count(), 0, "{op:?} {chosen}");
+            assert_eq!(fs::read_dir(t.path("dest-old")).unwrap().count(), 0);
+            assert_eq!(fs::read(t.path("src/tree/f")).unwrap(), b"bytes");
+        }
     }
 
     #[test]
