@@ -4614,7 +4614,9 @@ mod tests {
     }
 
     /// Runs `work` on its own thread. `None` when it is still blocked after
-    /// two seconds; a writer is then opened at `unblock` so it can end.
+    /// two seconds; a writer is then opened at `unblock` so it can end. A
+    /// worker still blocked after that is left behind (never joined), so
+    /// the test fails instead of hanging.
     fn within_deadline(
         unblock: PathBuf,
         work: impl FnOnce() -> Outcome + Send + 'static,
@@ -4638,9 +4640,23 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
-        let _ = worker.join();
+        if rx.recv_timeout(std::time::Duration::from_secs(5)).is_ok() {
+            let _ = worker.join();
+        }
         None
+    }
+
+    #[test]
+    fn the_deadline_gives_up_on_a_worker_that_stays_blocked() {
+        let t = TempDir::new("deadline");
+        let start = std::time::Instant::now();
+        let out = within_deadline(t.path("no-reader"), || {
+            let (_keep, never) = std::sync::mpsc::channel::<()>();
+            let _ = never.recv();
+            Outcome::default()
+        });
+        assert!(out.is_none());
+        assert!(start.elapsed() < std::time::Duration::from_secs(30));
     }
 
     fn copy(src: &Path, dest: &Path) -> Outcome {
