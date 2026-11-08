@@ -424,6 +424,14 @@ impl Chosen {
         })
     }
 
+    /// How many of the chosen items are names of the file (device, inode).
+    fn names_of(&self, dev: u64, ino: u64) -> usize {
+        self.items
+            .iter()
+            .filter(|c| (c.dev, c.ino) == (dev, ino))
+            .count()
+    }
+
     /// [`holds`](Self::holds) as a result: the error says the item changed.
     pub(crate) fn check(&self, m: &std::fs::Metadata, unchanged: bool) -> io::Result<()> {
         if self.holds(m, unchanged) {
@@ -496,8 +504,74 @@ fn open_parent(path: &Path) -> io::Result<(OwnedFd, CString)> {
 /// (device, inode). Removing one name of a file with more names sets its
 /// change time and lowers its link count; another chosen name of the same
 /// file is still deleted when exactly that, and nothing else, happened.
+///
+/// The change time alone cannot tell this delete's own removal from a
+/// write by another program right after it (both set it, and two changes
+/// close together may even get the same time). So the file's bytes are
+/// read before the name is removed and again after the change time is
+/// looked at: a write before that look shows in the bytes, a write after
+/// it in the change time, so a file another program wrote to is kept.
 #[derive(Default)]
-struct Unlinked(std::collections::HashMap<(u64, u64), Removed>);
+struct Unlinked {
+    files: std::collections::HashMap<(u64, u64), Removed>,
+    /// Keys for the digests of the bytes, the same for the whole delete.
+    keys: std::hash::RandomState,
+}
+
+/// A chosen file with another chosen name, held open while one of its
+/// names is removed, with a digest of its bytes from before.
+struct Held {
+    fd: OwnedFd,
+    digest: u64,
+}
+
+impl Held {
+    /// Opens `name` in `parent` for reading (never a link, never waiting
+    /// on a pipe put there) when it is still the file `m` describes, and
+    /// reads its bytes.
+    fn open(
+        parent: &OwnedFd,
+        name: &CStr,
+        m: &std::fs::Metadata,
+        keys: &std::hash::RandomState,
+    ) -> Option<Self> {
+        let fd = rustix::fs::openat(
+            parent,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()?;
+        let st = rustix::fs::fstat(&fd).ok()?;
+        if (st.st_dev, st.st_ino) != (m.dev(), m.ino()) || st.st_mode & S_IFMT != S_IFREG {
+            return None;
+        }
+        let digest = digest(fd.as_fd(), keys).ok()?;
+        Some(Self { fd, digest })
+    }
+}
+
+/// A keyed digest of all the bytes of the open file `fd`.
+fn digest(fd: BorrowedFd<'_>, keys: &std::hash::RandomState) -> io::Result<u64> {
+    use std::hash::{BuildHasher, Hasher};
+    use std::os::unix::fs::FileExt;
+    let file = std::fs::File::from(fd.try_clone_to_owned()?);
+    let mut hasher = keys.build_hasher();
+    let mut buf = vec![0u8; 1 << 16];
+    let mut at = 0u64;
+    loop {
+        let n = match file.read_at(&mut buf, at) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        hasher.write(&buf[..n]);
+        at += n as u64;
+    }
+    hasher.write_u64(at);
+    Ok(hasher.finish())
+}
 
 struct Removed {
     /// Names removed here.
@@ -514,7 +588,7 @@ impl Unlinked {
     /// Whether `m` is a chosen file, as confirmed, except for what removing
     /// its other names here did to it.
     fn explains(&self, m: &std::fs::Metadata, confirmed: &Chosen) -> bool {
-        let Some(r) = self.0.get(&(m.dev(), m.ino())) else {
+        let Some(r) = self.files.get(&(m.dev(), m.ino())) else {
             return false;
         };
         let mut was = Identity::of(m);
@@ -532,7 +606,7 @@ impl Unlinked {
     /// file now as `after` describes it.
     fn note(&mut self, before: &std::fs::Metadata, after: &rustix::fs::Stat) {
         let r = self
-            .0
+            .files
             .entry((before.dev(), before.ino()))
             .or_insert(Removed {
                 count: 0,
@@ -558,6 +632,12 @@ fn delete_one(path: &Path, confirmed: &Chosen, unlinked: &mut Unlinked) -> io::R
     // Looked at again through the open folder, so the entry removed is the
     // one checked even when a folder above was renamed meanwhile.
     let (parent, name) = open_parent(path)?;
+    // A file with another chosen name stays after this name goes: held
+    // open, its bytes read before the check below, to see afterwards that
+    // only the removal changed it.
+    let held = (m.is_file() && m.nlink() > 1 && confirmed.names_of(m.dev(), m.ino()) > 1)
+        .then(|| Held::open(&parent, &name, &m, &unlinked.keys))
+        .flatten();
     let st = rustix::fs::statat(&parent, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW)?;
     let content = (st.st_mode & S_IFMT == S_IFREG).then_some((
         st.st_size as u64,
@@ -573,23 +653,17 @@ fn delete_one(path: &Path, confirmed: &Chosen, unlinked: &mut Unlinked) -> io::R
     if now != Identity::of(&m) {
         return Err(changed_since_chosen());
     }
-    // A file with other names stays: held open to see what the removal
-    // did to it.
-    let other_names = (m.is_file() && m.nlink() > 1)
-        .then(|| {
-            rustix::fs::openat(
-                &parent,
-                name.as_c_str(),
-                OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .ok()
-        })
-        .flatten();
     rustix::fs::unlinkat(&parent, name.as_c_str(), AtFlags::empty())?;
-    if let Some(fd) = other_names
-        && let Ok(after) = rustix::fs::fstat(&fd)
+    #[cfg(test)]
+    crate::fileops_test::at("name-unlinked", path);
+    // The change time is looked at first, then the bytes are read again:
+    // a write by another program before the look changed the bytes, one
+    // after it changes the change time again (checked before the next
+    // name goes).
+    if let Some(held) = held
+        && let Ok(after) = rustix::fs::fstat(&held.fd)
         && (after.st_dev, after.st_ino) == (m.dev(), m.ino())
+        && digest(held.fd.as_fd(), &unlinked.keys).ok() == Some(held.digest)
     {
         unlinked.note(&m, &after);
     }
@@ -1395,6 +1469,59 @@ mod tests {
         let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
         assert_eq!(paths, std::slice::from_ref(&d));
         assert!(!c.exists() && d.exists());
+    }
+
+    #[test]
+    fn a_confirmed_delete_keeps_a_second_name_of_a_file_rewritten_right_after_the_first_name_went()
+    {
+        let dir = TempDir::new("delete-hard-links-rewritten");
+        let a = dir.0.join("a");
+        fs::write(&a, "shared").unwrap();
+        let b = dir.0.join("b");
+        fs::hard_link(&a, &b).unwrap();
+        let asked = [a.clone(), b.clone()];
+        let confirmed = Chosen::of(&asked);
+        // Right after the first name is removed, before anything else is
+        // looked at, another program rewrites the file through the second
+        // name: same size, modification time set back.
+        let other = b.clone();
+        crate::fileops_test::arm_path("name-unlinked", &a, move |_| {
+            use std::io::Write;
+            let mtime = fs::metadata(&other).unwrap().modified().unwrap();
+            let mut f = fs::OpenOptions::new().write(true).open(&other).unwrap();
+            f.write_all(b"SHARED").unwrap();
+            f.set_modified(mtime).unwrap();
+        });
+        let failed = delete_permanently(&asked, &confirmed);
+        crate::fileops_test::fired();
+        let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, std::slice::from_ref(&b));
+        assert!(!a.exists());
+        assert_eq!(fs::read(&b).unwrap(), b"SHARED");
+        // The same rewrite later, after the first name went and was looked
+        // at, before the second name is deleted.
+        let c = dir.0.join("c");
+        fs::write(&c, "shared").unwrap();
+        let d = dir.0.join("d");
+        fs::hard_link(&c, &d).unwrap();
+        let asked = [c.clone(), d.clone()];
+        let confirmed = Chosen::of(&asked);
+        let other = d.clone();
+        DELETE_NEXT.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                use std::io::Write;
+                let mtime = fs::metadata(&other).unwrap().modified().unwrap();
+                let mut f = fs::OpenOptions::new().write(true).open(&other).unwrap();
+                f.write_all(b"SHARED").unwrap();
+                f.set_modified(mtime).unwrap();
+            }))
+        });
+        let failed = delete_permanently(&asked, &confirmed);
+        DELETE_NEXT.with(|h| h.borrow_mut().take());
+        let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, std::slice::from_ref(&d));
+        assert!(!c.exists());
+        assert_eq!(fs::read(&d).unwrap(), b"SHARED");
     }
 
     #[test]
