@@ -784,29 +784,41 @@ impl Copied {
     }
 }
 
+/// A source entry held while it is copied: its folder's descriptor, its
+/// name there, and the entry itself, pinned. For a move, a file or link
+/// below the top entry is let go once copied (so a big tree never needs a
+/// descriptor per file); its device and inode stay in [`Copied`], and it is
+/// opened again, checked against them, when it is verified for removal.
 #[derive(Debug)]
 struct SourceAnchor {
     parent: std::sync::Arc<File>,
     name: OsString,
-    handle: std::sync::Arc<File>,
+    handle: Option<std::sync::Arc<File>>,
 }
 impl SourceAnchor {
     fn path(&self) -> PathBuf {
         fd_path(&self.parent).join(&self.name)
     }
+    fn handle(&self) -> io::Result<&std::sync::Arc<File>> {
+        self.handle.as_ref().ok_or_else(source_changed)
+    }
     fn readable(&self) -> io::Result<File> {
-        let path = format!("/proc/self/fd/{}", self.handle.as_raw_fd());
-        match OpenOptions::new()
+        open_readable(&format!("/proc/self/fd/{}", self.handle()?.as_raw_fd()), 0)
+    }
+}
+/// Opens `path` for reading without waiting (O_NONBLOCK) and without
+/// changing its access time where allowed; `extra` flags are added.
+fn open_readable(path: &str, extra: i32) -> io::Result<File> {
+    match OpenOptions::new()
+        .read(true)
+        .custom_flags(0o1000000 | 0o4000 | extra)
+        .open(path)
+    {
+        Err(e) if e.raw_os_error() == Some(1) => OpenOptions::new()
             .read(true)
-            .custom_flags(0o1000000 | 0o4000)
-            .open(&path)
-        {
-            Err(e) if e.raw_os_error() == Some(1) => OpenOptions::new()
-                .read(true)
-                .custom_flags(0o4000)
-                .open(path),
-            result => result,
-        }
+            .custom_flags(0o4000 | extra)
+            .open(path),
+        result => result,
     }
 }
 fn source_changed() -> io::Error {
@@ -840,16 +852,18 @@ impl Copied {
         copied.anchor = Some(SourceAnchor {
             parent,
             name,
-            handle,
+            handle: Some(handle),
         });
         Ok(copied)
     }
     fn check_before_removal(&self) -> io::Result<()> {
         let anchor = self.anchor.as_ref().ok_or_else(source_changed)?;
         let now = fs::symlink_metadata(anchor.path())?;
-        if FileStamp::of(&now) != self.stamp
-            || FileStamp::of(&anchor.handle.metadata()?) != self.stamp
-        {
+        let held = match &anchor.handle {
+            Some(handle) => FileStamp::of(&handle.metadata()?),
+            None => self.stamp,
+        };
+        if FileStamp::of(&now) != self.stamp || held != self.stamp {
             return Err(io::Error::other(fill(
                 tr("“{}” changed after it was copied"),
                 &[&self.path.display()],
@@ -882,12 +896,26 @@ impl Copied {
         };
         if same { Ok(()) } else { Err(source_changed()) }
     }
-    fn verify_held_bytes(&self, produced: &ProducedNode) -> io::Result<()> {
+    /// Checks the source entry, held aside at `held`, against its copy.
+    fn verify_held_bytes(&self, produced: &ProducedNode, held: &Path) -> io::Result<()> {
         let anchor = self.anchor.as_ref().ok_or_else(source_changed)?;
         if self.is_dir || produced.entry.digest.is_some() {
-            let file = anchor.readable()?;
-            let target = produced.entry.handle.as_ref().ok_or_else(source_changed)?;
-            if !crate::transfer_metadata::same_attributes(&file, target)? {
+            let file = match &anchor.handle {
+                Some(_) => anchor.readable()?,
+                None => {
+                    // Let go after it was copied: opened again (never
+                    // through a link) and checked to be the same inode.
+                    let path = held.to_str().ok_or_else(source_changed)?;
+                    let file = open_readable(path, 0o400000)?;
+                    let m = file.metadata()?;
+                    if (m.dev(), m.ino()) != (self.dev, self.ino) {
+                        return Err(source_changed());
+                    }
+                    file
+                }
+            };
+            let target = produced.entry.open().map_err(|_| source_changed())?;
+            if !crate::transfer_metadata::same_attributes(&file, &target)? {
                 return Err(source_changed());
             }
             if let Some(digest) = produced.entry.digest
@@ -958,7 +986,10 @@ fn remove_pinned_sources(copied: &[Copied], produced: &Produced) -> io::Result<(
             break;
         }
         if index == 0 {
-            if let Err(e) = entry.verify_held_bytes(&produced.nodes[index]) {
+            if let Err(e) = entry.verify_held_bytes(
+                &produced.nodes[index],
+                &root.as_ref().ok_or_else(source_changed)?.path(),
+            ) {
                 failure = Some(e);
                 break;
             }
@@ -980,7 +1011,7 @@ fn remove_pinned_sources(copied: &[Copied], produced: &Produced) -> io::Result<(
             };
             let checked = entry
                 .check_held(&held.path(), true)
-                .and_then(|()| entry.verify_held_bytes(&produced.nodes[index]))
+                .and_then(|()| entry.verify_held_bytes(&produced.nodes[index], &held.path()))
                 .and_then(|()| produced.check_node(index))
                 .and_then(|()| produced.nodes[index].entry.verify_bytes());
             if let Err(e) = checked {
@@ -1205,6 +1236,10 @@ const TEMP_TRIES: u32 = 100;
 
 /// Each entry belongs to this copy only while its device and inode match.
 /// Parent descriptors prevent a renamed/replaced ancestor redirecting cleanup.
+/// Folders and the top entry stay open while the copy lives; a file or link
+/// below is let go once written ([`release`](Self::release)) and opened
+/// again through its folder's descriptor when it is checked, so a big tree
+/// never needs a descriptor per file.
 #[derive(Clone, Debug)]
 struct Created {
     path: PathBuf,
@@ -1213,7 +1248,10 @@ struct Created {
     dev: u64,
     ino: u64,
     is_dir: bool,
+    is_link: bool,
     handle: Option<std::sync::Arc<File>>,
+    /// Whether [`handle`](Self::handle) was let go: it is opened again.
+    released: bool,
     digest: Option<[u8; 32]>,
 }
 impl Created {
@@ -1233,12 +1271,56 @@ impl Created {
             dev: meta.dev(),
             ino: meta.ino(),
             is_dir: meta.is_dir(),
+            is_link: meta.is_symlink(),
             handle,
+            released: false,
             digest: None,
         })
     }
     fn anchored(&self) -> PathBuf {
         fd_path(&self.parent).join(&self.name)
+    }
+    /// Lets the descriptor of a written file or link go (not of a folder,
+    /// which holds others, and not of a file its owner could not open
+    /// again for reading).
+    fn release(&mut self) {
+        let readable = self
+            .handle
+            .as_ref()
+            .and_then(|h| h.metadata().ok())
+            .is_some_and(|m| self.is_link || m.mode() & 0o400 != 0);
+        if !self.is_dir && readable {
+            self.handle = None;
+            self.released = true;
+        }
+    }
+    /// The entry, open: the held descriptor, or once let go, the entry of
+    /// that name in the held folder, which must still be the same inode.
+    fn open(&self) -> io::Result<std::sync::Arc<File>> {
+        if let Some(handle) = &self.handle {
+            return Ok(handle.clone());
+        }
+        if !self.released {
+            return Err(unverified_copy());
+        }
+        // O_PATH | O_NOFOLLOW for a link; O_NOFOLLOW | O_NONBLOCK |
+        // O_NOATIME for a file, so nothing else is followed or waited on.
+        let flags = if self.is_link {
+            0o10000000 | 0o400000
+        } else {
+            0o400000 | 0o4000 | 0o1000000
+        };
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .open(self.anchored())?;
+        let m = file.metadata()?;
+        if (m.dev(), m.ino(), m.is_dir()) != (self.dev, self.ino, self.is_dir) {
+            return Err(io::Error::other(tr(
+                "The temporary copy changed. Unrecognized items were kept.",
+            )));
+        }
+        Ok(std::sync::Arc::new(file))
     }
     fn check(&self) -> io::Result<()> {
         let m = fs::symlink_metadata(self.anchored())?;
@@ -1250,25 +1332,42 @@ impl Created {
         Ok(())
     }
     fn verify_bytes(&self) -> io::Result<()> {
-        if let Some(digest) = self.digest {
-            let handle = self.handle.as_ref().ok_or_else(unverified_copy)?;
-            if everygrep_core::hash::sha256_open_file(handle, &Progress::new()).ok() != Some(digest)
-            {
-                return Err(unverified_copy());
-            }
+        if self.digest.is_none() {
+            return Ok(());
+        }
+        let handle = self.open()?;
+        self.verify_bytes_of(&handle)
+    }
+    /// [`verify_bytes`](Self::verify_bytes) through `handle`, this entry
+    /// open.
+    fn verify_bytes_of(&self, handle: &File) -> io::Result<()> {
+        if let Some(digest) = self.digest
+            && everygrep_core::hash::sha256_open_file(handle, &Progress::new()).ok() != Some(digest)
+        {
+            return Err(unverified_copy());
         }
         Ok(())
     }
     fn unlink(&self) -> io::Result<()> {
         self.check()?;
-        self.verify_bytes()?;
+        // Opened before it is moved aside, so it is checked again as the
+        // same inode wherever its name is then.
+        let handle = match self.digest {
+            Some(_) => Some(self.open()?),
+            None => None,
+        };
+        if let Some(handle) = &handle {
+            self.verify_bytes_of(handle)?;
+        }
         let held = Isolation::take(
             self.parent.clone(),
             &self.name,
             &self.path,
             (self.dev, self.ino),
         )?;
-        if let Err(e) = self.verify_bytes() {
+        if let Some(handle) = &handle
+            && let Err(e) = self.verify_bytes_of(handle)
+        {
             return Err(held.restore_error(e));
         }
         held.remove(self.is_dir)
@@ -1386,11 +1485,11 @@ impl Produced {
         let mut directories = HashMap::new();
         for entry in created {
             entry.check()?;
-            let handle = entry.handle.as_ref().ok_or_else(unverified_copy)?;
+            let handle = entry.open()?;
             let meta = handle.metadata()?;
             let expected = FileStamp::of(&meta);
             if let Some(digest) = entry.digest {
-                if everygrep_core::hash::sha256_open_file(handle, progress).ok() != Some(digest) {
+                if everygrep_core::hash::sha256_open_file(&handle, progress).ok() != Some(digest) {
                     return Err(unverified_copy());
                 }
                 // A verification read must not change the preserved access time
@@ -1447,7 +1546,7 @@ impl Produced {
             return Err(io::Error::from_raw_os_error(5));
         }
         for node in self.nodes.iter().rev() {
-            let handle = node.entry.handle.as_ref().ok_or_else(unverified_copy)?;
+            let handle = node.entry.open()?;
             if !handle.metadata()?.is_symlink() {
                 handle.sync_all()?;
             }
@@ -1896,7 +1995,7 @@ impl Copier<'_> {
         let kind = meta.file_type();
         if kind.is_symlink() {
             // The target is read from the link that was pinned.
-            let target = rustix::fs::readlinkat(&*anchor.handle, c"", Vec::new())
+            let target = rustix::fs::readlinkat(&**anchor.handle()?, c"", Vec::new())
                 .map_err(io::Error::from)?;
             let parent = self.output_parent(dst)?;
             let actual = fd_path(&parent).join(
@@ -1918,15 +2017,17 @@ impl Copier<'_> {
                 source.metadata_error =
                     crate::transfer_metadata::link(&anchor.path(), &actual, meta).err();
             }
+            self.release_last();
             self.keep(source);
         } else if kind.is_file() {
             let from = anchor.readable()?;
             source.metadata_error = self.file(src, meta, dst, from)?;
+            self.release_last();
             self.keep(source);
         } else if kind.is_dir() {
             // The folder that was pinned, opened for reading through the
             // held descriptor: the name may point elsewhere by now.
-            let dir = std::sync::Arc::new(open_dir(&fd_path(&anchor.handle))?);
+            let dir = std::sync::Arc::new(open_dir(&fd_path(anchor.handle()?))?);
             let opened = dir.metadata()?;
             if !opened.is_dir() || (opened.dev(), opened.ino()) != (meta.dev(), meta.ino()) {
                 return Err(source_changed().into());
@@ -1979,12 +2080,27 @@ impl Copier<'_> {
         Ok(())
     }
 
+    /// Lets go of the descriptor of the file or link just written, unless it
+    /// is the top entry (see [`Created::release`]).
+    fn release_last(&mut self) {
+        if self.created.len() > 1
+            && let Some(last) = self.created.last_mut()
+        {
+            last.release();
+        }
+    }
+
     /// Records a copied source entry. Only a move needs the entry held
     /// until its source is removed; a copy lets it go, so a big tree does
     /// not keep a descriptor open per source entry.
     fn keep(&mut self, mut source: Copied) {
         if !self.sync {
             source.anchor = None;
+        } else if !self.copied.is_empty()
+            && !source.is_dir
+            && let Some(anchor) = &mut source.anchor
+        {
+            anchor.handle = None;
         }
         self.copied.push(source);
     }
@@ -4845,6 +4961,80 @@ mod tests {
         for root in [dest.join("wide"), moved.join("wide")] {
             assert_eq!(fs::read_dir(&root).unwrap().count(), 20_000);
             assert_eq!(read(&root.join("19999")), "19999");
+        }
+    }
+
+    /// The open file limit for [`copy_and_move_with_few_descriptors`].
+    const FEW_DESCRIPTORS: u64 = 256;
+    const FEW_DESCRIPTORS_CHILD: &str = "EVERYGREP_TEST_FEW_DESCRIPTORS";
+
+    #[test]
+    fn a_tree_of_five_thousand_files_copies_and_moves_with_256_open_files() {
+        // The limit is lowered in a child run of this test binary, never in
+        // the binary running the other tests.
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "transfer::tests::copy_and_move_with_few_descriptors",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(FEW_DESCRIPTORS_CHILD, "1")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned()
+            + &String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{text}");
+        assert!(text.contains("1 passed"), "{text}");
+    }
+
+    #[test]
+    #[ignore = "run in a child process by a_tree_of_five_thousand_files_copies_and_moves_with_256_open_files"]
+    fn copy_and_move_with_few_descriptors() {
+        assert!(std::env::var_os(FEW_DESCRIPTORS_CHILD).is_some());
+        #[repr(C)]
+        struct Rlimit {
+            current: u64,
+            maximum: u64,
+        }
+        unsafe extern "C" {
+            fn getrlimit(resource: c_int, limit: *mut Rlimit) -> c_int;
+            fn setrlimit(resource: c_int, limit: *const Rlimit) -> c_int;
+        }
+        const RLIMIT_NOFILE: c_int = 7;
+        let t = TempDir::new("few-descriptors");
+        let tree = t.path("src/tree");
+        for d in 0..5 {
+            let folder = tree.join(format!("d{d}"));
+            fs::create_dir_all(&folder).unwrap();
+            for i in 0..1000 {
+                fs::write(folder.join(i.to_string()), format!("{d}/{i}")).unwrap();
+            }
+        }
+        let mut limit = Rlimit {
+            current: 0,
+            maximum: 0,
+        };
+        // SAFETY: plain calls with a valid pointer to a C `struct rlimit`.
+        assert_eq!(unsafe { getrlimit(RLIMIT_NOFILE, &mut limit) }, 0);
+        limit.current = FEW_DESCRIPTORS.min(limit.maximum);
+        assert_eq!(unsafe { setrlimit(RLIMIT_NOFILE, &limit) }, 0);
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let out = copy(&tree, &dest);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let moved = t.path("moved");
+        fs::create_dir(&moved).unwrap();
+        let out = move_across_devices(&tree, &moved);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!tree.exists());
+        for root in [dest.join("tree"), moved.join("tree")] {
+            for d in 0..5 {
+                let folder = root.join(format!("d{d}"));
+                assert_eq!(fs::read_dir(&folder).unwrap().count(), 1000);
+                assert_eq!(read(&folder.join("999")), format!("{d}/999"));
+            }
         }
     }
 }
