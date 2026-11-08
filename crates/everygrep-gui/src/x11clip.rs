@@ -408,11 +408,41 @@ struct Read {
     files: Option<Vec<PathBuf>>,
     /// What this program held when it answered the type asked for itself
     /// (it owned the clipboard); `None` when another program answered.
-    served: Option<Held>,
+    served: Option<Served>,
     /// [`served`](Self::served) for `files`.
     files_served: Option<Held>,
     /// Content received so far in `INCR` steps.
     incr: Option<Vec<u8>>,
+}
+
+impl Read {
+    /// Notes an answer of this program to a request for `target_asked`
+    /// (whether it is the type this read asked for), from this program
+    /// itself (`from_us`) or another, with what was served (`served`).
+    /// Only an answer to this program's own request counts: a request of
+    /// another program never takes away what this program served itself.
+    fn note_answer(&mut self, target_asked: bool, from_us: bool, served: Option<Served>) {
+        if target_asked && from_us {
+            self.served = served;
+        }
+    }
+
+    /// What this program served for `content`, when `content` is exactly
+    /// the bytes it served; anything else came from another program.
+    fn take_served(&mut self, content: &[u8]) -> Option<Held> {
+        self.served
+            .take()
+            .filter(|s| s.bytes == content)
+            .map(|s| s.held)
+    }
+}
+
+/// What this program served for its own request: the bytes and the
+/// payload they came from.
+#[derive(Clone, Debug)]
+struct Served {
+    bytes: Vec<u8>,
+    held: Held,
 }
 
 struct Worker {
@@ -546,8 +576,11 @@ impl Worker {
         let ok = match (active, self.atoms.target(e.target)) {
             (Some(held), Some(target)) if e.selection == self.atoms.clipboard => {
                 let ok = self.write(e.requestor, property, e.target, target, held)?;
-                if ok && e.requestor == self.window {
-                    served = Some(held.clone());
+                if ok {
+                    served = Some(Served {
+                        bytes: payload(target, held).unwrap_or_default(),
+                        held: held.clone(),
+                    });
                 }
                 ok
             }
@@ -564,10 +597,9 @@ impl Worker {
             }
             _ => false,
         };
-        if let Some(read) = self.read.as_mut()
-            && self.atoms.atom(read.asked) == e.target
-        {
-            read.served = served;
+        if let Some(read) = self.read.as_mut() {
+            let asked = self.atoms.atom(read.asked) == e.target;
+            read.note_answer(asked, e.requestor == self.window, served);
         }
         let notify = SelectionNotifyEvent {
             response_type: SELECTION_NOTIFY_EVENT,
@@ -794,11 +826,11 @@ impl Worker {
             asked => match read_payload(asked, content) {
                 Some((_, paths)) if asks_cut_mark(asked, read.offered.as_deref()) => {
                     read.files = Some(paths);
-                    read.files_served = read.served.take();
+                    read.files_served = read.take_served(content);
                     self.ask(Target::KdeCutSelection)
                 }
                 Some(found) => {
-                    let served = read.served.take();
+                    let served = read.take_served(content);
                     self.finish(Some((found, served)))
                 }
                 None => self.ask_next(),
@@ -1089,6 +1121,71 @@ mod tests {
         assert_eq!(atoms_in(&bytes).collect::<Vec<_>>(), atoms);
         // A cut-off last value is left out.
         assert_eq!(atoms_in(&bytes[..10]).count(), 2);
+    }
+
+    fn reading(asked: Target) -> Read {
+        let (reply, _) = std::sync::mpsc::channel();
+        Read {
+            then: Then::Reply(reply),
+            offered: None,
+            left: VecDeque::new(),
+            asked,
+            files: None,
+            served: None,
+            files_served: None,
+            incr: None,
+        }
+    }
+
+    #[test]
+    fn a_request_of_another_program_keeps_what_this_program_served_itself() {
+        let cut = held(Operation::Cut);
+        let bytes = payload(Target::UriList, &cut).unwrap();
+        let mut read = reading(Target::UriList);
+        // This program answers its own read of the files...
+        read.note_answer(
+            true,
+            true,
+            Some(Served {
+                bytes: bytes.clone(),
+                held: cut.clone(),
+            }),
+        );
+        // ...then another program asks for the same type before the reply
+        // arrives.
+        read.note_answer(
+            true,
+            false,
+            Some(Served {
+                bytes: bytes.clone(),
+                held: cut.clone(),
+            }),
+        );
+        read.note_answer(true, false, None);
+        // The Cut read back is still known as this program's own.
+        assert_eq!(read.take_served(&bytes), Some(cut.clone()));
+        // Content this program did not serve is never taken for its own.
+        let mut read = reading(Target::UriList);
+        read.note_answer(
+            true,
+            true,
+            Some(Served {
+                bytes: bytes.clone(),
+                held: cut.clone(),
+            }),
+        );
+        assert_eq!(read.take_served(b"file:///elsewhere\r\n"), None);
+        // An answer for another type than the one asked is not this read's.
+        let mut read = reading(Target::UriList);
+        read.note_answer(
+            false,
+            true,
+            Some(Served {
+                bytes: bytes.clone(),
+                held: cut,
+            }),
+        );
+        assert_eq!(read.take_served(&bytes), None);
     }
 
     #[test]
