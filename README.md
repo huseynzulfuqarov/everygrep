@@ -52,6 +52,7 @@ After `cargo build --release --locked` in the checkout:
 ```sh
 install -Dm755 target/release/everygrep target/release/everygrep-gui -t ~/.local/bin/
 install -Dm644 data/az.huseynz.EveryGrep.desktop -t ~/.local/share/applications/
+install -Dm644 data/az.huseynz.EveryGrep.metainfo.xml -t ~/.local/share/metainfo/
 for icon in data/icons/hicolor/*/apps/az.huseynz.EveryGrep.*; do
     install -Dm644 "$icon" ~/.local/share/"${icon#data/}"
 done
@@ -66,9 +67,10 @@ are separate and can be deleted too.
 
 `packaging/arch/PKGBUILD` builds a package from a git checkout (by default
 the one it lives in, at branch `main`): `cd packaging/arch && makepkg -si`.
-It installs both programs to `/usr/bin`, the desktop entry, the icons, the
-licenses (including `THIRD-PARTY-LICENSES.md`) and the documentation. The
-project's public URL is not set yet; the PKGBUILD has a placeholder for it.
+It installs both programs to `/usr/bin`, the desktop entry, the AppStream
+metadata (`/usr/share/metainfo`), the icons, the licenses (including
+`THIRD-PARTY-LICENSES.md`) and the documentation. The project's public URL
+is not set yet; the PKGBUILD has a placeholder for it.
 
 ## Quick start
 

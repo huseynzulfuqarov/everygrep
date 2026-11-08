@@ -29,11 +29,12 @@ depends=(
 )
 makedepends=('cargo' 'git')
 optdepends=(
-  'glib2: Move to trash (runs gio trash)'
+  'glib2: Overwrite in paste conflicts (gio checks that the old file can go to the trash)'
   'xdg-desktop-portal: folder chooser and following the light or dark style'
   'dbus: one window per index (session bus)'
   'bubblewrap: thumbnails from system thumbnailers (each runs in a sandbox)'
   'xdg-utils: Open with the default application (runs xdg-open)'
+  'xorg-xwayland: files on the clipboard for other programs'
   'shared-mime-info: file types for choosing a system thumbnailer'
   'poppler: searching PDF contents and PDF page counts (pdftotext, pdfinfo)'
 )
@@ -73,6 +74,8 @@ package() {
 
   install -Dm644 data/az.huseynz.EveryGrep.desktop \
     "$pkgdir/usr/share/applications/az.huseynz.EveryGrep.desktop"
+  install -Dm644 data/az.huseynz.EveryGrep.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/az.huseynz.EveryGrep.metainfo.xml"
   local icon
   for icon in data/icons/hicolor/*/apps/az.huseynz.EveryGrep.*; do
     install -Dm644 "$icon" "$pkgdir/usr/share/${icon#data/}"

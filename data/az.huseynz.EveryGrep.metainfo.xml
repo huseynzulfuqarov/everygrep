@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Before the first release: add <url type="homepage"> once the public
+     address is known, <releases> with the version and date, and
+     <screenshots>. -->
+<component type="desktop-application">
+  <id>az.huseynz.EveryGrep</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+
+  <name>EveryGrep</name>
+  <summary>Find files and folders by name as you type</summary>
+  <developer id="az.huseynz">
+    <name>Huseyn Zulfuqarov</name>
+  </developer>
+
+  <description>
+    <p>
+      EveryGrep keeps an index of the file and folder names below the folders
+      you choose and lists the names that contain what you type, anywhere in
+      the name, on every key press.
+    </p>
+    <ul>
+      <li>A query language with AND, OR, NOT, wildcards, regular expressions,
+        extensions, sizes, dates and file contents</li>
+      <li>Case and diacritics are ignored by default</li>
+      <li>The index follows file changes while the program runs and catches
+        up with changes made while it was closed</li>
+      <li>Folder sizes, removable drives that stay searchable while unplugged,
+        and file lists of disks that are not connected</li>
+      <li>Duplicate search by contents, name or size</li>
+      <li>Tabs, filters, bookmarks and search history</li>
+      <li>Copy, move, rename and trash files, with optional undo</li>
+      <li>Available in English, Azerbaijani and Turkish</li>
+    </ul>
+    <p>
+      All data stays on this computer: EveryGrep makes no network connections.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">az.huseynz.EveryGrep.desktop</launchable>
+  <provides>
+    <binary>everygrep-gui</binary>
+    <binary>everygrep</binary>
+  </provides>
+
+  <categories>
+    <category>Utility</category>
+    <category>FileTools</category>
+  </categories>
+  <keywords>
+    <keyword>search</keyword>
+    <keyword>find</keyword>
+    <keyword>file</keyword>
+    <keyword>folder</keyword>
+    <keyword>filename</keyword>
+  </keywords>
+
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+</component>
