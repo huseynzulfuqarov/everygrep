@@ -324,7 +324,7 @@ pub fn paste_chosen(
     }
     // The destination as it is now, held open: it must still be the folder
     // at its path after the size count and before each item.
-    let pinned = match open_dir(&dest).and_then(|d| d.metadata()) {
+    let pinned = match open_dir_handle(&dest).and_then(|d| d.metadata()) {
         Ok(m) => (m.dev(), m.ino()),
         Err(e) => {
             out.failed = sources
@@ -1484,6 +1484,25 @@ pub(crate) fn pin_path(path: &Path) -> io::Result<File> {
         .custom_flags(0o10000000 | 0o400000)
         .open(path)
 }
+/// The folder `path` (not a link) held as a handle only (`O_PATH`): good
+/// for its identity and as the folder of names opened, made, renamed or
+/// removed in it, not for listing it. So a folder that may be written to
+/// but not listed (mode `0300`, a drop box) works.
+pub(crate) fn open_dir_handle(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(0o10000000 | 0o200000 | 0o400000)
+        .open(path)
+}
+/// Flushes the open folder `dir`; one held as a handle only is opened for
+/// reading through it first (a folder that cannot be listed cannot be
+/// flushed, and that is an error).
+fn sync_dir(dir: &File) -> io::Result<()> {
+    match dir.sync_all() {
+        Err(e) if e.raw_os_error() == Some(9) => open_dir(&fd_path(dir))?.sync_all(),
+        other => other,
+    }
+}
 pub(crate) fn open_dir(path: &Path) -> io::Result<File> {
     // Path::parent normalizes the trailing dot in our descriptor paths. Only
     // this process's numeric fd links may be followed to reopen the held dir.
@@ -1648,7 +1667,7 @@ impl Produced {
                 );
             }
         }
-        self.nodes[0].entry.parent.sync_all()?;
+        sync_dir(&self.nodes[0].entry.parent)?;
         #[cfg(test)]
         crate::fileops_test::note("fsync", &fd_target(&self.nodes[0].entry.parent));
         self.check()?;
@@ -1680,7 +1699,7 @@ fn publish_created(
 ) -> io::Result<Produced> {
     let mut produced = Produced::before_publication(created, progress)?;
     let root = produced.nodes.first_mut().ok_or_else(unverified_copy)?;
-    let target_parent = std::sync::Arc::new(open_dir(
+    let target_parent = std::sync::Arc::new(open_dir_handle(
         target
             .parent()
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
@@ -2109,7 +2128,7 @@ impl Copier<'_> {
                 "The temporary copy could not be verified. Source kept.",
             )));
         }
-        Ok(std::sync::Arc::new(open_dir(parent)?))
+        Ok(std::sync::Arc::new(open_dir_handle(parent)?))
     }
 
     fn tree(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
@@ -3029,6 +3048,65 @@ mod tests {
                 ("source-cleanup", src.clone()),
             ]
         );
+    }
+
+    #[test]
+    fn a_folder_that_may_be_written_to_but_not_listed_takes_a_move_and_a_copy() {
+        let t = TempDir::new("write-only-dest");
+        let moved = t.path("moved.txt");
+        write(&moved, "moved");
+        let tree = t.path("tree");
+        write(&tree.join("inner.txt"), "inner");
+        let copied = t.path("copied.txt");
+        write(&copied, "copied");
+        let dest = t.path("drop");
+        fs::create_dir(&dest).unwrap();
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o300)).unwrap();
+        let moves = paste_with(
+            Operation::Cut,
+            &[moved.clone(), tree.clone()],
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        let copies = paste_with(
+            Operation::Copy,
+            std::slice::from_ref(&copied),
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(moves.failed.is_empty(), "{:?}", moves.failed);
+        assert!(copies.failed.is_empty(), "{:?}", copies.failed);
+        assert_eq!(moves.done, [dest.join("moved.txt"), dest.join("tree")]);
+        assert_eq!(copies.done, [dest.join("copied.txt")]);
+        assert!(!moved.exists() && !tree.exists());
+        assert_eq!(read(&dest.join("moved.txt")), "moved");
+        assert_eq!(read(&dest.join("tree/inner.txt")), "inner");
+        assert_eq!(read(&dest.join("copied.txt")), "copied");
+        assert_eq!(read(&copied), "copied");
+        // A move from another file system must flush the folder before the
+        // source goes, which a folder that cannot be read does not allow:
+        // the source stays (the copy made is left, as for any flush error).
+        let far = t.path("far.txt");
+        write(&far, "far");
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o300)).unwrap();
+        FORCE_EXDEV.with(|f| f.set(true));
+        let out = paste_with(
+            Operation::Cut,
+            std::slice::from_ref(&far),
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        FORCE_EXDEV.with(|f| f.set(false));
+        fs::set_permissions(&dest, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(out.failed.len(), 1, "{out:?}");
+        assert!(out.done.is_empty());
+        assert!(out.failed[0].1.to_string().contains("source was kept"));
+        assert_eq!(read(&far), "far");
+        assert_eq!(read(&dest.join("far.txt")), "far");
     }
 
     #[test]
