@@ -45,3 +45,21 @@ pub(crate) fn at(event: &'static str, path: &Path) {
 pub(crate) fn fired() {
     HOOK.with(|h| assert!(h.borrow().is_none(), "filesystem hook was not reached"));
 }
+
+thread_local! { static LOG: RefCell<Option<Vec<(&'static str, PathBuf)>>> = const { RefCell::new(None) }; }
+/// Starts recording the [`note`]d steps of this thread.
+pub(crate) fn start_log() {
+    LOG.with(|l| *l.borrow_mut() = Some(Vec::new()));
+}
+/// Stops recording and returns the steps noted since [`start_log`].
+pub(crate) fn take_log() -> Vec<(&'static str, PathBuf)> {
+    LOG.with(|l| l.borrow_mut().take().unwrap_or_default())
+}
+/// Notes a step (an fsync, a removal) for a test that checks their order.
+pub(crate) fn note(event: &'static str, path: &Path) {
+    LOG.with(|l| {
+        if let Some(log) = l.borrow_mut().as_mut() {
+            log.push((event, path.to_owned()));
+        }
+    });
+}

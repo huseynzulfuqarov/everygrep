@@ -953,6 +953,8 @@ fn remove_pinned_sources(copied: &[Copied], produced: &Produced) -> io::Result<(
     let Some(first) = copied.first() else {
         return Ok(());
     };
+    #[cfg(test)]
+    crate::fileops_test::note("source-cleanup", &first.path);
     // Validate the whole selected tree before making even the first change.
     for entry in copied {
         entry.check_before_removal()?;
@@ -1545,17 +1547,31 @@ impl Produced {
         if COPY_SYNC_ERROR.with(|v| v.replace(false)) {
             return Err(io::Error::from_raw_os_error(5));
         }
+        // Deepest first: each folder is flushed after every entry in it,
+        // and the folder holding the published name last.
         for node in self.nodes.iter().rev() {
             let handle = node.entry.open()?;
             if !handle.metadata()?.is_symlink() {
                 handle.sync_all()?;
+                #[cfg(test)]
+                crate::fileops_test::note(
+                    "fsync",
+                    &fd_target(&node.entry.parent).join(&node.entry.name),
+                );
             }
         }
         self.nodes[0].entry.parent.sync_all()?;
+        #[cfg(test)]
+        crate::fileops_test::note("fsync", &fd_target(&self.nodes[0].entry.parent));
         self.check()?;
         self.durable = true;
         Ok(())
     }
+}
+/// Where an open descriptor's entry is now, for test logs.
+#[cfg(test)]
+fn fd_target(file: &File) -> PathBuf {
+    fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).unwrap_or_default()
 }
 fn unverified_copy() -> io::Error {
     io::Error::other(tr(
@@ -2792,6 +2808,94 @@ mod tests {
         assert_eq!(read(&dest.join("tree (2)/sub/b.txt")), "beta");
         assert_eq!(read(&dest.join("tree/keep")), "existing");
         assert!(!src.exists());
+    }
+
+    /// The flushes of a move across file systems, in order, up to the
+    /// removal of its source.
+    fn flushes_of_a_move(src: &Path, dest: &Path) -> Vec<(&'static str, PathBuf)> {
+        FORCE_EXDEV.with(|f| f.set(true));
+        crate::fileops_test::start_log();
+        let out = paste_with(
+            Operation::Cut,
+            &[src.to_path_buf()],
+            dest,
+            &Progress::new(),
+            None,
+        );
+        let log = crate::fileops_test::take_log();
+        FORCE_EXDEV.with(|f| f.set(false));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!src.exists());
+        log
+    }
+
+    #[test]
+    fn a_move_across_file_systems_flushes_every_copied_folder_before_removing_the_source() {
+        let t = TempDir::new("move-exdev-flush");
+        let src = t.path("tree");
+        write(&src.join("a.txt"), "alpha");
+        write(&src.join("sub/b.txt"), "beta");
+        write(&src.join("sub/deep/c.txt"), "gamma");
+        fs::create_dir(src.join("empty")).unwrap();
+        symlink("a.txt", src.join("link")).unwrap();
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let log = flushes_of_a_move(&src, &dest);
+        let dest = fs::canonicalize(&dest).unwrap();
+        let top = dest.join("tree");
+        let cleanup = log
+            .iter()
+            .position(|(event, _)| *event == "source-cleanup")
+            .expect("the source is removed");
+        let flushed = |path: &Path| {
+            log.iter()
+                .position(|(event, p)| *event == "fsync" && p == path)
+                .unwrap_or_else(|| panic!("{} is never flushed: {log:?}", path.display()))
+        };
+        let folders = ["", "sub", "sub/deep", "empty"];
+        let files = ["a.txt", "sub/b.txt", "sub/deep/c.txt"];
+        for rel in folders.iter().chain(&files) {
+            let path = if rel.is_empty() {
+                top.clone()
+            } else {
+                top.join(rel)
+            };
+            let at = flushed(&path);
+            assert!(at < cleanup, "{rel} flushed after the source went");
+            // A folder is flushed after every entry in it.
+            if let Some(parent) = path.parent().filter(|p| p.starts_with(&top)) {
+                assert!(at < flushed(parent), "{rel} flushed after its folder");
+            }
+        }
+        // The folder that holds the published name comes last.
+        let last = flushed(&dest);
+        assert!(last > flushed(&top) && last < cleanup);
+        assert_eq!(
+            log[..cleanup].iter().filter(|(e, _)| *e == "fsync").count(),
+            folders.len() + files.len() + 1,
+            "{log:?}"
+        );
+        assert_eq!(read(&top.join("sub/deep/c.txt")), "gamma");
+    }
+
+    #[test]
+    fn a_file_moved_across_file_systems_and_its_new_folder_are_flushed_before_the_source_goes() {
+        let t = TempDir::new("move-exdev-flush-file");
+        let src = t.path("a.txt");
+        write(&src, "alpha");
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let log = flushes_of_a_move(&src, &dest);
+        let dest = fs::canonicalize(&dest).unwrap();
+        let events: Vec<_> = log.iter().map(|(e, p)| (*e, p.clone())).collect();
+        assert_eq!(
+            events,
+            [
+                ("fsync", dest.join("a.txt")),
+                ("fsync", dest.clone()),
+                ("source-cleanup", src.clone()),
+            ]
+        );
     }
 
     #[test]
