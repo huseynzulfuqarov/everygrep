@@ -31,7 +31,7 @@ use crate::i18n::{fill, tr};
 use crate::transfer::{fd_path, open_dir};
 
 /// The first line of every record.
-const HEADER: &str = "everygrep interrupted operation 1";
+const HEADER: &str = "everygrep interrupted operation 2";
 /// Records are small; a bigger file is not one of ours.
 const MAX_RECORD: u64 = 64 << 10;
 
@@ -153,6 +153,9 @@ struct Record {
     staging: PathBuf,
     /// Where the item was going; empty for the trash.
     target: PathBuf,
+    /// The device and inode of the folder of `original`: the item goes
+    /// back only into that same folder.
+    parent: (u64, u64),
     identity: Identity,
     /// The reason the user was last told the item was kept, so a later
     /// start does not tell it again.
@@ -201,7 +204,7 @@ impl Record {
         let i = &self.identity;
         let mut text = format!(
             "{HEADER}\nowner {} {}\nkind {}\nstep {}\noriginal {}\nstaging {}\ntarget {}\n\
-             dev {}\nino {}\ntype {}\nsize {}\nmtime {}\nctime {}\n",
+             parent {} {}\ndev {}\nino {}\ntype {}\nsize {}\nmtime {}\nctime {}\n",
             self.owner.0,
             self.owner.1,
             self.kind.code(),
@@ -209,6 +212,8 @@ impl Record {
             encode(&self.original),
             encode(&self.staging),
             encode(&self.target),
+            self.parent.0,
+            self.parent.1,
             i.dev,
             i.ino,
             i.kind as char,
@@ -244,6 +249,8 @@ impl Record {
         let original = decode(field("original")?)?;
         let staging = decode(field("staging")?)?;
         let target = decode(field("target")?).unwrap_or_default();
+        let parent = field("parent")?.split_once(' ')?;
+        let parent = (parent.0.parse().ok()?, parent.1.parse().ok()?);
         let dev = field("dev")?.parse().ok()?;
         let ino = field("ino")?.parse().ok()?;
         let kind_byte = match field("type")?.as_bytes() {
@@ -277,6 +284,7 @@ impl Record {
             original,
             staging,
             target,
+            parent,
             identity: Identity {
                 dev,
                 ino,
@@ -607,13 +615,18 @@ pub(crate) fn begin(
     } else {
         real(target).map_err(not_recorded)?
     };
+    let original = real(original).map_err(not_recorded)?;
+    let parent = fs::metadata(original.parent().unwrap_or(Path::new("/")))
+        .map(|m| (m.dev(), m.ino()))
+        .map_err(not_recorded)?;
     let record = Record {
         owner,
         kind,
         step: Step::Staging,
-        original: real(original).map_err(not_recorded)?,
+        original,
         staging: real(staging).map_err(not_recorded)?,
         target,
+        parent,
         identity: Identity::of(meta),
         reported: None,
     };
@@ -972,8 +985,16 @@ fn settle(record: &Record) -> Settled {
 /// anything, and checks that the item renamed is the recorded one.
 fn put_back(record: &Record) -> Result<(), String> {
     let parent = |p: &Path| p.parent().map(Path::to_path_buf).unwrap_or_default();
-    let from_dir = open_dir(&parent(&record.staging)).map_err(|e| e.to_string())?;
-    let to_dir = open_dir(&parent(&record.original)).map_err(|e| e.to_string())?;
+    let from_dir = open_plain_dir(&parent(&record.staging)).map_err(|e| e.to_string())?;
+    let to_dir = open_plain_dir(&parent(&record.original)).map_err(|e| e.to_string())?;
+    if to_dir
+        .metadata()
+        .map(|m| (m.dev(), m.ino()))
+        .map_err(|e| e.to_string())?
+        != record.parent
+    {
+        return Err(tr("its original folder is not the same folder any more").into());
+    }
     let from = record.staging.file_name().unwrap_or_default();
     let to = record.original.file_name().unwrap_or_default();
     let taken = || tr("its original name is taken").to_owned();
@@ -1008,6 +1029,18 @@ fn put_back(record: &Record) -> Result<(), String> {
         remove_holder(&record.staging);
     }
     Ok(())
+}
+
+/// The folder at the absolute `path`, reached without following any link.
+fn open_plain_dir(path: &Path) -> io::Result<File> {
+    use rustix::fs::{Mode, OFlags, ResolveFlags};
+    Ok(File::from(rustix::fs::openat2(
+        rustix::fs::CWD,
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+        ResolveFlags::NO_SYMLINKS,
+    )?))
 }
 
 /// Removes the private holding folder of a held item when it is empty.
@@ -1481,6 +1514,27 @@ mod tests {
     }
 
     #[test]
+    fn an_item_is_not_put_into_another_folder_made_at_its_original_folder_path() {
+        let t = Temp::new("parent-replaced");
+        let (original, staging) = staged_by_hand(&t, "a");
+        // The original folder moved away; a new folder took its path.
+        fs::rename(t.path("dir"), t.path("dir-moved")).unwrap();
+        fs::create_dir(t.path("dir")).unwrap();
+        let found = recover();
+        assert!(found.restored.is_empty(), "{found:?}");
+        assert_eq!(found.kept.len(), 1, "{found:?}");
+        assert!(found.has_news());
+        assert_eq!(fs::read(&staging).unwrap(), b"a");
+        assert!(!original.exists());
+        assert_eq!(fs::read_dir(t.path("dir")).unwrap().count(), 0);
+        // Its own folder back at the path: the item goes back.
+        fs::remove_dir(t.path("dir")).unwrap();
+        fs::rename(t.path("dir-moved"), t.path("dir")).unwrap();
+        assert_eq!(recover().restored, [(staging, original.clone())]);
+        assert_eq!(fs::read(&original).unwrap(), b"a");
+    }
+
+    #[test]
     fn two_left_records_are_both_put_back() {
         let t = Temp::new("two");
         let (a, a_staging) = staged_by_hand(&t, "a");
@@ -1783,6 +1837,9 @@ mod tests {
             original: original.to_owned(),
             staging: staging.to_owned(),
             target: target.to_owned(),
+            parent: fs::metadata(original.parent().unwrap())
+                .map(|m| (m.dev(), m.ino()))
+                .unwrap_or_default(),
             identity: Identity::of(&fs::symlink_metadata(staging).unwrap()),
             reported: None,
         };
@@ -1897,11 +1954,12 @@ mod tests {
             )),
             staging: PathBuf::from("/tmp/.everygrep-moving-1-0"),
             target: PathBuf::from("/tmp/dest/x"),
+            parent: (3, 4),
             identity: Identity::of(&meta),
             reported: Some("its original name is taken".into()),
         };
         let text = record.to_text();
-        assert_eq!(text.lines().count(), 15);
+        assert_eq!(text.lines().count(), 16);
         assert_eq!(Record::parse(&text), Some(record));
     }
 
@@ -1915,6 +1973,7 @@ mod tests {
             original: PathBuf::from("/tmp/a"),
             staging: PathBuf::from("/tmp/.everygrep-held-1-2/item"),
             target: PathBuf::new(),
+            parent: (3, 4),
             identity: Identity::of(&meta),
             reported: None,
         };

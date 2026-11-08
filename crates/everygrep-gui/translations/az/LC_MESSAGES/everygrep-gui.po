@@ -5571,6 +5571,10 @@ msgid "The record “{}” could not be read; nothing was changed."
 msgstr "“{}” qeydi oxuna bilmədi; heç nə dəyişdirilmədi."
 
 #: src/oprecord.rs
+msgid "its original folder is not the same folder any more"
+msgstr "onun əvvəlki qovluğu artıq həmin qovluq deyil"
+
+#: src/oprecord.rs
 msgid "“{}” is a link, belongs to another user, or can be changed by others; it is not used"
 msgstr "“{}” keçiddir, başqa istifadəçiyə məxsusdur və ya başqaları onu dəyişə bilər; istifadə olunmur"
 
