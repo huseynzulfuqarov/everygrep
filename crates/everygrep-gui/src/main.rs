@@ -824,7 +824,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let prefs = prefs.clone();
         Timer::single_shot(SETTINGS_DELAY, move || prefs.open(Some(page)));
     }
-    start_recovery();
+    start_recovery(weak.clone());
     slint::run_event_loop_until_quit()?;
     // Later launches wait for this process to end instead of handing over;
     // those whose request was not run are told so.
@@ -2381,12 +2381,22 @@ fn online_targets(
 /// Items an earlier run left under a hidden staging name (it stopped in
 /// the middle of a file operation) are looked at once, off the window's
 /// thread, before any file operation of this run (see [`oprecord`]).
-fn start_recovery() {
-    std::thread::spawn(|| {
+/// What was found is told once in the status area, with the exact paths
+/// in the notice's details.
+fn start_recovery(weak: slint::Weak<AppWindow>) {
+    std::thread::spawn(move || {
         let _files = fileops_undo::file_guard();
         let found = oprecord::recover();
         if found.has_news() || found.complete > 0 {
             debug_log::note!("interrupted file operations: {found:?}");
+        }
+        if let Some((text, details, attention)) = found.notice() {
+            let _ = weak.upgrade_in_event_loop(move |w| {
+                w.set_notice_error(attention);
+                w.set_notice(text.into());
+                w.set_notice_details(details.into());
+                w.set_notice_has_details(true);
+            });
         }
     });
 }

@@ -535,6 +535,49 @@ impl Recovery {
             || !self.unreadable.is_empty()
             || self.error.is_some()
     }
+
+    /// The notice for the user: short text, details, and whether something
+    /// needs the user. `None` when there is nothing to tell.
+    pub(crate) fn notice(&self) -> Option<(String, String, bool)> {
+        if !self.has_news() {
+            return None;
+        }
+        let mut lines = Vec::new();
+        for (staging, original) in &self.restored {
+            lines.push(fill(
+                tr("Put back “{0}” from “{1}”."),
+                &[&original.display(), &staging.display()],
+            ));
+        }
+        for k in &self.kept {
+            let target = if k.target.as_os_str().is_empty() {
+                tr("the trash").to_owned()
+            } else {
+                k.target.display().to_string()
+            };
+            lines.push(fill(
+                tr("Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to {3}."),
+                &[&k.staging.display(), &k.reason, &k.original.display(), &target],
+            ));
+        }
+        for path in &self.unreadable {
+            lines.push(fill(
+                tr("The record “{}” could not be read; nothing was changed."),
+                &[&path.display()],
+            ));
+        }
+        if let Some(e) = &self.error {
+            lines.push(e.clone());
+        }
+        let attention =
+            !self.kept.is_empty() || !self.unreadable.is_empty() || self.error.is_some();
+        let short = if attention {
+            tr("An interrupted file operation needs your attention.")
+        } else {
+            tr("An interrupted file operation was recovered.")
+        };
+        Some((short.into(), lines.join("\n"), attention))
+    }
 }
 
 /// Reads the records left by programs that are no longer running and acts
@@ -1363,6 +1406,58 @@ mod tests {
         assert!(!x.exists());
         assert!(t.records().is_empty());
         assert!(t.hidden("dest").is_empty());
+    }
+
+    #[test]
+    fn the_notice_names_every_path_and_asks_for_attention_only_when_needed() {
+        assert_eq!(Recovery::default().notice(), None);
+        let complete = Recovery {
+            complete: 3,
+            ..Recovery::default()
+        };
+        assert_eq!(complete.notice(), None, "a finished operation is not news");
+        let restored = Recovery {
+            restored: vec![("/d/.everygrep-moving-1-0".into(), "/s/x".into())],
+            ..Recovery::default()
+        };
+        let (text, details, attention) = restored.notice().unwrap();
+        assert_eq!(text, "An interrupted file operation was recovered.");
+        assert_eq!(details, "Put back “/s/x” from “/d/.everygrep-moving-1-0”.");
+        assert!(!attention);
+        let kept = Recovery {
+            kept: vec![
+                Kept {
+                    staging: "/d/.everygrep-moving-1-0".into(),
+                    original: "/s/x".into(),
+                    target: "/d/x".into(),
+                    reason: "its original name is taken".into(),
+                },
+                Kept {
+                    staging: "/s/.everygrep-held-1-2/item".into(),
+                    original: "/s/y".into(),
+                    target: PathBuf::new(),
+                    reason: "it is no longer at the staging path".into(),
+                },
+            ],
+            unreadable: vec!["/state/1-2-3.op.unreadable".into()],
+            ..restored
+        };
+        let (text, details, attention) = kept.notice().unwrap();
+        assert_eq!(text, "An interrupted file operation needs your attention.");
+        assert!(attention);
+        let lines: Vec<_> = details.lines().collect();
+        assert_eq!(
+            lines,
+            [
+                "Put back “/s/x” from “/d/.everygrep-moving-1-0”.",
+                "Left “/d/.everygrep-moving-1-0” where it is (its original name is taken). \
+                 Its original path: “/s/x”; the operation was taking it to /d/x.",
+                "Left “/s/.everygrep-held-1-2/item” where it is (it is no longer at the \
+                 staging path). Its original path: “/s/y”; the operation was taking it to \
+                 the trash.",
+                "The record “/state/1-2-3.op.unreadable” could not be read; nothing was changed.",
+            ]
+        );
     }
 
     #[test]

@@ -5553,3 +5553,27 @@ msgstr "önceki adı artık kullanılıyor"
 #: src/oprecord.rs
 msgid "neither XDG_STATE_HOME nor HOME is set"
 msgstr "ne XDG_STATE_HOME ne de HOME ayarlı"
+
+#: src/oprecord.rs
+msgid "Put back “{0}” from “{1}”."
+msgstr "“{0}”, “{1}” konumundan geri getirildi."
+
+#: src/oprecord.rs
+msgid "the trash"
+msgstr "çöp kutusu"
+
+#: src/oprecord.rs
+msgid "Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to {3}."
+msgstr "“{0}” olduğu yerde bırakıldı ({1}). Önceki yolu: “{2}”; işlem onu şuraya taşıyordu: {3}."
+
+#: src/oprecord.rs
+msgid "The record “{}” could not be read; nothing was changed."
+msgstr "“{}” kaydı okunamadı; hiçbir şey değiştirilmedi."
+
+#: src/oprecord.rs
+msgid "An interrupted file operation needs your attention."
+msgstr "Yarıda kalan bir dosya işlemi ilginizi bekliyor."
+
+#: src/oprecord.rs
+msgid "An interrupted file operation was recovered."
+msgstr "Yarıda kalan bir dosya işlemi kurtarıldı."
