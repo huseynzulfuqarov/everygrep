@@ -292,17 +292,24 @@ impl Record {
 
 #[cfg(test)]
 thread_local! {
-    /// The record folder in tests; without one nothing is recorded.
+    /// The state folder in tests; without one nothing is recorded.
     static TEST_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Sets the state folder of this thread's tests: records go to
+/// `<dir>/everygrep/interrupted/`.
 #[cfg(test)]
 pub(crate) fn set_test_dir(dir: Option<PathBuf>) {
     TEST_DIR.with(|d| *d.borrow_mut() = dir);
 }
 
-/// The folder of the records; `None` (tests only) records nothing.
-fn folder() -> io::Result<Option<PathBuf>> {
+/// The two folders below the state folder that hold the records.
+const APP: &str = "everygrep";
+const RECORDS: &str = "interrupted";
+
+/// The state folder (`$XDG_STATE_HOME`, else `~/.local/state`); `None`
+/// (tests only) records nothing.
+fn state_base() -> io::Result<Option<PathBuf>> {
     #[cfg(test)]
     {
         Ok(TEST_DIR.with(|d| d.borrow().clone()))
@@ -319,8 +326,13 @@ fn folder() -> io::Result<Option<PathBuf>> {
                     .map(|h| h.join(".local/state"))
             })
             .ok_or_else(|| io::Error::other(tr("neither XDG_STATE_HOME nor HOME is set")))?;
-        Ok(Some(state.join("everygrep/interrupted")))
+        Ok(Some(state))
     }
+}
+
+/// The folder of the records, as shown to the user.
+fn folder() -> io::Result<Option<PathBuf>> {
+    Ok(state_base()?.map(|b| b.join(APP).join(RECORDS)))
 }
 
 /// This program: its process id and start time (in clock ticks after
@@ -359,21 +371,159 @@ fn owner_running(owner: (u32, u64)) -> bool {
     owner == this_owner() || start_time(owner.0).map_or(true, |s| s == Some(owner.1))
 }
 
+unsafe extern "C" {
+    fn geteuid() -> u32;
+}
+
+/// Whether a record folder or record `m` describes is this user's own and
+/// no one else can change it.
+fn private_to_us(m: &Metadata) -> bool {
+    // SAFETY: geteuid has no arguments and cannot fail.
+    m.uid() == unsafe { geteuid() } && m.mode() & 0o022 == 0
+}
+
+/// The error for a record folder that is not used.
+fn not_private(path: &Path) -> io::Error {
+    io::Error::other(fill(
+        tr("“{}” is a link, belongs to another user, or can be changed by others; it is not used"),
+        &[&path.display()],
+    ))
+}
+
+/// The folder `name` in `parent`, never through a link; made (`0700`)
+/// when it is missing and `create` is set. `None` when it is missing.
+fn open_child(parent: &File, name: &str, create: bool) -> io::Result<Option<File>> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    match rustix::fs::openat(parent, name, flags, Mode::empty()) {
+        Ok(fd) => return Ok(Some(File::from(fd))),
+        Err(rustix::io::Errno::NOENT) if create => {}
+        Err(rustix::io::Errno::NOENT) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    }
+    match rustix::fs::mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
+        Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(Some(File::from(rustix::fs::openat(
+        parent,
+        name,
+        flags,
+        Mode::empty(),
+    )?)))
+}
+
+/// The record folder, opened from the state folder: the two folders of
+/// this program below it are never reached through a link, and each must
+/// belong to this user and be closed to others. With `create`, missing
+/// folders are made; otherwise a missing folder gives `None`.
 fn open_folder(create: bool) -> io::Result<Option<File>> {
-    let Some(path) = folder()? else {
+    let Some(base) = state_base()? else {
         return Ok(None);
     };
     if create {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(&path)?;
+            .create(&base)?;
     }
-    match open_dir(&path) {
-        Ok(dir) => Ok(Some(dir)),
-        Err(e) if !create && e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+    // The state folder is the user's, wherever a link of theirs leads.
+    let mut dir = match open_dir(&base) {
+        Ok(dir) => dir,
+        Err(e) if !create && e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let mut shown = base;
+    for name in [APP, RECORDS] {
+        shown.push(name);
+        let child = match open_child(&dir, name, create) {
+            Ok(Some(child)) => child,
+            Ok(None) => return Ok(None),
+            // A link, or not a folder.
+            Err(e) if matches!(e.raw_os_error(), Some(40 | 20)) => return Err(not_private(&shown)),
+            Err(e) => return Err(e),
+        };
+        if !private_to_us(&child.metadata()?) {
+            return Err(not_private(&shown));
+        }
+        dir = child;
     }
+    Ok(Some(dir))
+}
+
+/// Whether `path` is absolute and written in its one plain form: no empty,
+/// `.` or `..` part, no `/` at the end.
+fn plain_absolute(path: &Path) -> bool {
+    let bytes = path.as_os_str().as_bytes();
+    bytes.len() > 1
+        && bytes[0] == b'/'
+        && bytes[1..]
+            .split(|&b| b == b'/')
+            .all(|part| !matches!(part, b"" | b"." | b".."))
+}
+
+/// Whether `name` is `<prefix><pid>-<rest>` with `rest` made of what `ok`
+/// takes (and `len` bytes long, when given).
+fn staging_name(
+    name: &OsStr,
+    prefix: &str,
+    pid: u32,
+    len: Option<usize>,
+    ok: fn(&u8) -> bool,
+) -> bool {
+    let start = format!("{prefix}{pid}-");
+    name.as_bytes()
+        .strip_prefix(start.as_bytes())
+        .is_some_and(|rest| {
+            !rest.is_empty() && len.is_none_or(|l| rest.len() == l) && rest.iter().all(ok)
+        })
+}
+
+/// Whether `record` describes an operation of this program: plain absolute
+/// paths, and a staging path of the program that wrote it, where that
+/// operation puts it (next to the target for a move that replaces, next to
+/// the original for a change of case, in a holding folder next to the
+/// original for a held item).
+fn our_operation(record: &Record) -> bool {
+    let (original, staging, target) = (&record.original, &record.staging, &record.target);
+    let target_ok = if record.kind == Kind::Trash {
+        target.as_os_str().is_empty()
+    } else {
+        plain_absolute(target)
+    };
+    if !plain_absolute(original) || !plain_absolute(staging) || !target_ok {
+        return false;
+    }
+    let pid = record.owner.0;
+    let moving = |name: Option<&OsStr>| {
+        name.is_some_and(|n| staging_name(n, ".everygrep-moving-", pid, None, u8::is_ascii_digit))
+    };
+    match record.kind {
+        Kind::MoveReplace => staging.parent() == target.parent() && moving(staging.file_name()),
+        Kind::CaseRename => {
+            staging.parent() == original.parent()
+                && target.parent() == original.parent()
+                && moving(staging.file_name())
+        }
+        Kind::Trash | Kind::Rename => {
+            let holder = staging.parent();
+            staging.file_name() == Some(OsStr::new("item"))
+                && holder.and_then(Path::parent) == original.parent()
+                && holder.and_then(Path::file_name).is_some_and(|n| {
+                    staging_name(n, ".everygrep-held-", pid, Some(16), |b| {
+                        b.is_ascii_digit() || (b'a'..=b'f').contains(b)
+                    })
+                })
+        }
+    }
+}
+
+/// `path` with its folder written in its one real form (links resolved).
+fn real(path: &Path) -> io::Result<PathBuf> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(io::ErrorKind::InvalidInput.into());
+    };
+    Ok(fs::canonicalize(parent)?.join(name))
 }
 
 /// Writes `text` as the record `name` in `dir`: a temporary file, flushed,
@@ -452,16 +602,27 @@ pub(crate) fn begin(
         owner.1,
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
+    let target = if target.as_os_str().is_empty() {
+        PathBuf::new()
+    } else {
+        real(target).map_err(not_recorded)?
+    };
     let record = Record {
         owner,
         kind,
         step: Step::Staging,
-        original: original.to_owned(),
-        staging: staging.to_owned(),
-        target: target.to_owned(),
+        original: real(original).map_err(not_recorded)?,
+        staging: real(staging).map_err(not_recorded)?,
+        target,
         identity: Identity::of(meta),
         reported: None,
     };
+    // Never a record the next start would not act on.
+    if !our_operation(&record) {
+        return Err(not_recorded(io::Error::other(tr(
+            "the paths do not fit the operation",
+        ))));
+    }
     write_record(&dir, &name, &record.to_text()).map_err(not_recorded)?;
     Ok(Some(Pending { dir, name, record }))
 }
@@ -475,7 +636,7 @@ impl Pending {
     }
     /// Another staging path is tried (its name was taken).
     pub(crate) fn retarget(&mut self, staging: &Path) -> io::Result<()> {
-        self.record.staging = staging.to_owned();
+        self.record.staging = real(staging).map_err(not_recorded)?;
         write_record(&self.dir, &self.name, &self.record.to_text()).map_err(not_recorded)
     }
     /// The item is at its staging path, as `meta` describes it now.
@@ -522,6 +683,10 @@ pub(crate) struct Recovery {
     pub(crate) kept: Vec<Kept>,
     /// Records that could not be read; set aside as `<name>.unreadable`.
     pub(crate) unreadable: Vec<PathBuf>,
+    /// Records that were not used: a link, another user's, open to others,
+    /// or not describing an operation of this program; set aside as
+    /// `<name>.untrusted`.
+    pub(crate) untrusted: Vec<PathBuf>,
     /// Records of operations that were complete; removed.
     pub(crate) complete: usize,
     /// The record folder could not be read.
@@ -533,6 +698,7 @@ impl Recovery {
         !self.restored.is_empty()
             || !self.kept.is_empty()
             || !self.unreadable.is_empty()
+            || !self.untrusted.is_empty()
             || self.error.is_some()
     }
 
@@ -566,11 +732,19 @@ impl Recovery {
                 &[&path.display()],
             ));
         }
+        for path in &self.untrusted {
+            lines.push(fill(
+                tr("The record “{}” was not used: it is a link, belongs to another user, can be changed by others, or does not describe an operation of this program. Nothing was changed."),
+                &[&path.display()],
+            ));
+        }
         if let Some(e) = &self.error {
             lines.push(e.clone());
         }
-        let attention =
-            !self.kept.is_empty() || !self.unreadable.is_empty() || self.error.is_some();
+        let attention = !self.kept.is_empty()
+            || !self.unreadable.is_empty()
+            || !self.untrusted.is_empty()
+            || self.error.is_some();
         let short = if attention {
             tr("An interrupted file operation needs your attention.")
         } else {
@@ -637,14 +811,21 @@ pub(crate) fn recover() -> Recovery {
     for name in names {
         let path = fd_path(&dir).join(&name);
         let shown = folder().ok().flatten().unwrap_or_default().join(&name);
+        let set_aside = |suffix: &str| {
+            let mut aside = name.clone();
+            aside.push(suffix);
+            let _ = fs::rename(&path, fd_path(&dir).join(&aside));
+            let _ = dir.sync_all();
+            shown.with_file_name(aside)
+        };
         let record = match read_record(&path) {
-            Ok(Some(record)) => record,
-            Ok(None) => {
-                let mut aside = name.clone();
-                aside.push(".unreadable");
-                let _ = fs::rename(&path, fd_path(&dir).join(&aside));
-                let _ = dir.sync_all();
-                out.unreadable.push(shown.with_file_name(aside));
+            Ok(Found::Record(record)) if our_operation(&record) => record,
+            Ok(Found::Record(_) | Found::Untrusted) => {
+                out.untrusted.push(set_aside(".untrusted"));
+                continue;
+            }
+            Ok(Found::Unreadable) => {
+                out.unreadable.push(set_aside(".unreadable"));
                 continue;
             }
             Err(e) => {
@@ -691,8 +872,18 @@ pub(crate) fn recover() -> Recovery {
     out
 }
 
-/// The record at `path`; `None` when it is not a complete record.
-fn read_record(path: &Path) -> io::Result<Option<Record>> {
+/// What a record file holds.
+enum Found {
+    Record(Record),
+    /// Not a complete record.
+    Unreadable,
+    /// A link, not a plain file, another user's, or open to changes by
+    /// others: not read at all.
+    Untrusted,
+}
+
+/// The record at `path`.
+fn read_record(path: &Path) -> io::Result<Found> {
     let file = match OpenOptions::new()
         .read(true)
         .custom_flags(0o400000 | 0o4000)
@@ -700,18 +891,21 @@ fn read_record(path: &Path) -> io::Result<Option<Record>> {
     {
         Ok(f) => f,
         // A link (O_NOFOLLOW) is not one of our records.
-        Err(e) if e.raw_os_error() == Some(40) => return Ok(None),
+        Err(e) if e.raw_os_error() == Some(40) => return Ok(Found::Untrusted),
         Err(e) => return Err(e),
     };
     let meta = file.metadata()?;
-    if !meta.is_file() || meta.len() > MAX_RECORD {
-        return Ok(None);
+    if !meta.is_file() || !private_to_us(&meta) {
+        return Ok(Found::Untrusted);
+    }
+    if meta.len() > MAX_RECORD {
+        return Ok(Found::Unreadable);
     }
     let mut text = String::new();
     if file.take(MAX_RECORD).read_to_string(&mut text).is_err() {
-        return Ok(None);
+        return Ok(Found::Unreadable);
     }
-    Ok(Record::parse(&text))
+    Ok(Record::parse(&text).map_or(Found::Unreadable, Found::Record))
 }
 
 enum Settled {
@@ -833,8 +1027,12 @@ mod tests {
     use crate::transfer::Decision;
     use everygrep_core::progress::Progress;
 
-    /// A temp folder that is also the record folder (`records/`) and the
-    /// trash (`trash/`) of this thread while it lives.
+    /// The record folder below a test's temp folder.
+    const RECORDS_REL: &str = "state/everygrep/interrupted";
+
+    /// A temp folder that is also the state folder (`state/`, records in
+    /// [`RECORDS_REL`]) and the trash (`trash/`) of this thread while it
+    /// lives.
     struct Temp(PathBuf);
     impl Temp {
         fn new(tag: &str) -> Self {
@@ -843,8 +1041,12 @@ mod tests {
                 std::process::id()
             ));
             let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(dir.join("records")).unwrap();
-            set_test_dir(Some(dir.join("records")));
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir.join(RECORDS_REL))
+                .unwrap();
+            set_test_dir(Some(dir.join("state")));
             crate::trashbin::set_test_home(Some(dir.join("trash")));
             Self(dir)
         }
@@ -858,7 +1060,7 @@ mod tests {
             path
         }
         fn records(&self) -> Vec<PathBuf> {
-            let mut out: Vec<_> = fs::read_dir(self.path("records"))
+            let mut out: Vec<_> = fs::read_dir(self.path(RECORDS_REL))
                 .unwrap()
                 .map(|e| e.unwrap().path())
                 .filter(|p| !p.file_name().unwrap().as_bytes().starts_with(b"."))
@@ -932,7 +1134,7 @@ mod tests {
         };
         let root = PathBuf::from(root);
         assert!(root.starts_with(std::env::temp_dir()));
-        set_test_dir(Some(root.join("records")));
+        set_test_dir(Some(root.join("state")));
         crate::trashbin::set_test_home(Some(root.join("trash")));
         let (scenario, at) = what.split_once(':').unwrap();
         let at: &'static str = String::leak(at.to_owned());
@@ -1153,10 +1355,15 @@ mod tests {
         assert_eq!(recover().restored.len(), 1);
         let path = t.path("dir/doomed");
         let meta = fs::symlink_metadata(&path).unwrap();
+        let holder = t.path(&format!(
+            "dir/.everygrep-held-{}-0123456789abcdef",
+            std::process::id()
+        ));
+        fs::create_dir(&holder).unwrap();
         let pending = begin(
             Kind::Trash,
             &path,
-            &t.path("dir/.everygrep-held-x/item"),
+            &holder.join("item"),
             Path::new(""),
             &meta,
         )
@@ -1173,14 +1380,20 @@ mod tests {
 
     /// Leaves the record of `pending` as a program that stopped would.
     fn as_stopped(mut pending: Pending) {
-        pending.record.owner = (u32::MAX, 1);
+        // The same process id (the staging names carry it), another start.
+        pending.record.owner.1 += 1;
         pending.save();
     }
 
     /// An item staged by hand, its record left by a stopped program.
     fn staged_by_hand(t: &Temp, name: &str) -> (PathBuf, PathBuf) {
         let original = t.write(&format!("dir/{name}"), name);
-        let staging = t.path(&format!("dir/.everygrep-moving-1-{name}"));
+        fs::create_dir_all(t.path("dest")).unwrap();
+        let staging = t.path(&format!(
+            "dest/.everygrep-moving-{}-{}",
+            std::process::id(),
+            name.as_bytes()[0]
+        ));
         let meta = fs::symlink_metadata(&original).unwrap();
         let mut pending = begin(
             Kind::MoveReplace,
@@ -1279,7 +1492,7 @@ mod tests {
         assert_eq!(found, expected);
         assert_eq!(fs::read(&a).unwrap(), b"a");
         assert_eq!(fs::read(&b).unwrap(), b"b");
-        assert!(t.records().is_empty() && t.hidden("dir").is_empty());
+        assert!(t.records().is_empty() && t.hidden("dest").is_empty());
         assert_eq!(recover(), Recovery::default());
     }
 
@@ -1287,7 +1500,8 @@ mod tests {
     fn a_record_of_a_running_program_is_not_touched() {
         let t = Temp::new("running");
         let original = t.write("dir/a", "a");
-        let staging = t.path("dir/.everygrep-moving-1-a");
+        let staging = t.path(&format!("dest/.everygrep-moving-{}-1", std::process::id()));
+        fs::create_dir_all(t.path("dest")).unwrap();
         let meta = fs::symlink_metadata(&original).unwrap();
         let pending = begin(
             Kind::MoveReplace,
@@ -1315,7 +1529,11 @@ mod tests {
         let text = fs::read_to_string(&full).unwrap();
         // Cut short, and plain garbage.
         fs::write(&full, &text[..text.len() / 2]).unwrap();
-        fs::write(t.path("records/9-9-9.op"), b"\xff\x00 not a record").unwrap();
+        fs::write(
+            t.path(&format!("{RECORDS_REL}/9-9-9.op")),
+            b"\xff\x00 not a record",
+        )
+        .unwrap();
         let found = recover();
         assert!(found.restored.is_empty() && found.kept.is_empty());
         assert_eq!(found.unreadable.len(), 2, "{found:?}");
@@ -1337,8 +1555,8 @@ mod tests {
         let src = t.write("src/x", "original source");
         t.write("dest/x", "old destination");
         // The record folder cannot be made: a file has its name.
-        fs::remove_dir(t.path("records")).unwrap();
-        fs::write(t.path("records"), "").unwrap();
+        fs::remove_dir(t.path(RECORDS_REL)).unwrap();
+        fs::write(t.path(RECORDS_REL), "").unwrap();
         let out = crate::transfer::paste_observed_using(
             Operation::Cut,
             std::slice::from_ref(&src),
@@ -1458,6 +1676,213 @@ mod tests {
                 "The record “/state/1-2-3.op.unreadable” could not be read; nothing was changed.",
             ]
         );
+    }
+
+    /// The record file names in the record folder, set aside or not.
+    fn record_names(t: &Temp) -> Vec<String> {
+        let mut out: Vec<_> = fs::read_dir(t.path(RECORDS_REL))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| !n.starts_with('.'))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Asserts that `recover` acted on nothing: `staging` keeps its bytes,
+    /// `original` is free, and the user is told about `record`.
+    fn ignored_with_notice(found: &Recovery, staging: &Path, original: &Path, record: &str) {
+        assert!(found.restored.is_empty(), "{found:?}");
+        assert!(found.has_news(), "{found:?}");
+        let (_, details, attention) = found.notice().unwrap();
+        assert!(attention, "{details}");
+        assert!(details.contains(record), "{details}");
+        assert!(staging.exists(), "{}", staging.display());
+        assert!(
+            fs::symlink_metadata(original).is_err(),
+            "{}",
+            original.display()
+        );
+    }
+
+    #[test]
+    fn a_record_others_could_change_is_ignored_with_a_notice() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Temp::new("open-record");
+        let (original, staging) = staged_by_hand(&t, "a");
+        let record = t.records().pop().unwrap();
+        fs::set_permissions(&record, fs::Permissions::from_mode(0o666)).unwrap();
+        let found = recover();
+        let name = record.file_name().unwrap().to_str().unwrap();
+        ignored_with_notice(&found, &staging, &original, name);
+        // Told once: the record is set aside and not looked at again.
+        assert!(!recover().has_news());
+        assert!(staging.exists());
+    }
+
+    #[test]
+    fn a_record_folder_others_could_change_is_not_used() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Temp::new("open-folder");
+        let (original, staging) = staged_by_hand(&t, "a");
+        let folder = t.path(RECORDS_REL);
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o777)).unwrap();
+        let found = recover();
+        ignored_with_notice(&found, &staging, &original, "interrupted");
+        // Nothing is recorded there either: the operation is refused.
+        let src = t.write("src/x", "source");
+        t.write("dest/x", "old");
+        let e = crate::actions::rename_case_only(
+            &src,
+            &t.path("src/X"),
+            crate::transfer::rename_noreplace,
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("Nothing was changed"), "{e}");
+        assert_eq!(fs::read(&src).unwrap(), b"source");
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[test]
+    fn a_record_folder_reached_through_a_link_is_not_used() {
+        let t = Temp::new("linked-folder");
+        let (original, staging) = staged_by_hand(&t, "a");
+        // The records now sit elsewhere, and the folder name is a link.
+        fs::rename(t.path("state/everygrep"), t.path("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(t.path("elsewhere"), t.path("state/everygrep")).unwrap();
+        let found = recover();
+        ignored_with_notice(&found, &staging, &original, "everygrep");
+        assert_eq!(
+            fs::read_dir(t.path("elsewhere/interrupted"))
+                .unwrap()
+                .count(),
+            1,
+            "the record there is not touched"
+        );
+        let src = t.write("src/x", "source");
+        let e = crate::actions::rename_case_only(
+            &src,
+            &t.path("src/X"),
+            crate::transfer::rename_noreplace,
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("Nothing was changed"), "{e}");
+        assert!(t.hidden("src").is_empty());
+    }
+
+    /// A record, written by hand, of an item now at `staging` (created
+    /// with some bytes), left by a stopped program.
+    fn forged(t: &Temp, kind: Kind, original: &Path, staging: &Path, target: &Path) -> String {
+        fs::create_dir_all(staging.parent().unwrap()).unwrap();
+        fs::write(staging, "victim").unwrap();
+        let me = this_owner();
+        let record = Record {
+            owner: (me.0, me.1 + 1),
+            kind,
+            step: Step::Staged,
+            original: original.to_owned(),
+            staging: staging.to_owned(),
+            target: target.to_owned(),
+            identity: Identity::of(&fs::symlink_metadata(staging).unwrap()),
+            reported: None,
+        };
+        let name = format!("{}-{}-77.op", me.0, me.1 + 1);
+        let path = t.path(&format!("{RECORDS_REL}/{name}"));
+        let _ = fs::remove_file(&path);
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap()
+            .write_all(record.to_text().as_bytes())
+            .unwrap();
+        name
+    }
+
+    #[test]
+    fn a_record_whose_paths_are_not_one_of_our_operations_is_ignored() {
+        let pid = std::process::id();
+        let t = Temp::new("forged");
+        fs::create_dir_all(t.path("dir")).unwrap();
+        fs::create_dir_all(t.path("dest")).unwrap();
+        let moving = |dir: &str, owner: u32| t.path(&format!("{dir}/.everygrep-moving-{owner}-3"));
+        let cases: Vec<(&str, Kind, PathBuf, PathBuf, PathBuf)> = vec![
+            // Any file, not a staging name of ours.
+            (
+                "not a staging name",
+                Kind::MoveReplace,
+                t.path("dir/a"),
+                t.path("dest/victim"),
+                t.path("dest/a"),
+            ),
+            // A staging name, but in another folder than the target's.
+            (
+                "another folder",
+                Kind::MoveReplace,
+                t.path("dir/a"),
+                moving("other", pid),
+                t.path("dest/a"),
+            ),
+            // A staging name of another program.
+            (
+                "another program",
+                Kind::CaseRename,
+                t.path("dir/a"),
+                moving("dir", pid + 1),
+                t.path("dir/A"),
+            ),
+            // A case rename into another folder.
+            (
+                "case rename elsewhere",
+                Kind::CaseRename,
+                t.path("dest/a"),
+                moving("dir", pid),
+                t.path("dir/A"),
+            ),
+            // An original path that climbs out.
+            (
+                "parent step",
+                Kind::CaseRename,
+                t.path("dir/../dir/a"),
+                moving("dir", pid),
+                t.path("dir/A"),
+            ),
+            (
+                "not normal",
+                Kind::CaseRename,
+                PathBuf::from(format!("{}//a", t.path("dir").display())),
+                moving("dir", pid),
+                t.path("dir/A"),
+            ),
+            // A held item outside a holding folder of its parent.
+            (
+                "held elsewhere",
+                Kind::Trash,
+                t.path("dir/a"),
+                t.path(&format!("dest/.everygrep-held-{pid}-0123456789abcdef/item")),
+                PathBuf::new(),
+            ),
+            (
+                "held without a holder",
+                Kind::Rename,
+                t.path("dir/a"),
+                t.path("dir/item"),
+                t.path("dest/a"),
+            ),
+        ];
+        for (what, kind, original, staging, target) in cases {
+            let name = forged(&t, kind, &original, &staging, &target);
+            let found = recover();
+            ignored_with_notice(&found, &staging, &original, &name);
+            assert_eq!(fs::read(&staging).unwrap(), b"victim", "{what}");
+            assert!(
+                record_names(&t).iter().all(|n| !n.ends_with(".op")),
+                "{what}: {:?}",
+                record_names(&t)
+            );
+            fs::remove_file(&staging).unwrap();
+        }
     }
 
     #[test]

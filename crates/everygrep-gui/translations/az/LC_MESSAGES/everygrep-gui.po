@@ -5571,6 +5571,18 @@ msgid "The record “{}” could not be read; nothing was changed."
 msgstr "“{}” qeydi oxuna bilmədi; heç nə dəyişdirilmədi."
 
 #: src/oprecord.rs
+msgid "“{}” is a link, belongs to another user, or can be changed by others; it is not used"
+msgstr "“{}” keçiddir, başqa istifadəçiyə məxsusdur və ya başqaları onu dəyişə bilər; istifadə olunmur"
+
+#: src/oprecord.rs
+msgid "the paths do not fit the operation"
+msgstr "yollar əməliyyata uyğun gəlmir"
+
+#: src/oprecord.rs
+msgid "The record “{}” was not used: it is a link, belongs to another user, can be changed by others, or does not describe an operation of this program. Nothing was changed."
+msgstr "“{}” qeydi istifadə olunmadı: o, keçiddir, başqa istifadəçiyə məxsusdur, başqaları onu dəyişə bilər və ya bu proqramın əməliyyatını təsvir etmir. Heç nə dəyişdirilmədi."
+
+#: src/oprecord.rs
 msgid "An interrupted file operation needs your attention."
 msgstr "Yarımçıq qalmış fayl əməliyyatı diqqətinizi tələb edir."
 
