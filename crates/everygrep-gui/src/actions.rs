@@ -266,22 +266,28 @@ fn rename_case(old: &Path, target: &Path, new_name: &str) -> Result<PathBuf, Ren
     kept_new_case(target)
 }
 
-fn rename_case_only(
+pub(crate) fn rename_case_only(
     old: &Path,
     target: &Path,
     publish: impl Fn(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
     let parent = old.parent().ok_or(io::ErrorKind::InvalidInput)?;
-    let staged = crate::transfer::stage_rename(old, parent)?;
+    let (staged, record) =
+        crate::transfer::stage_rename(old, parent, crate::oprecord::Kind::CaseRename, target)?;
     if let Err(error) = publish(&staged, target) {
         if let Err(restore) = crate::transfer::rename_noreplace(&staged, old) {
+            // The record stays: the next start finds the item.
             return Err(io::Error::other(fill(
                 tr("the original name could not be restored; the item is now at {0}: {1}"),
                 &[&staged.display(), &restore],
             )));
         }
+        crate::oprecord::finish(record);
         return Err(error);
     }
+    #[cfg(test)]
+    crate::fileops_test::at("case-published", target);
+    crate::oprecord::finish(record);
     Ok(())
 }
 

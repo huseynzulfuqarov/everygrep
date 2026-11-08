@@ -5529,3 +5529,27 @@ msgstr "Geri və İrəli düymələrində adları göstər"
 
 msgid "Open location and filter lists below their buttons"
 msgstr "Məkan və filtr siyahılarını düymələrinin altında aç"
+
+#: src/oprecord.rs
+msgid "Cannot record the operation for recovery after a crash: {}. Nothing was changed."
+msgstr "Qəza halında bərpa üçün əməliyyatı qeyd etmək mümkün olmadı: {}. Heç nə dəyişdirilmədi."
+
+#: src/oprecord.rs
+msgid "The records of interrupted file operations could not be read: {}"
+msgstr "Yarımçıq qalmış fayl əməliyyatlarının qeydləri oxuna bilmədi: {}"
+
+#: src/oprecord.rs
+msgid "it changed since the operation started"
+msgstr "əməliyyat başlayandan sonra dəyişib"
+
+#: src/oprecord.rs
+msgid "it is no longer at the staging path"
+msgstr "artıq müvəqqəti yerində deyil"
+
+#: src/oprecord.rs
+msgid "its original name is taken"
+msgstr "əvvəlki adı artıq tutulub"
+
+#: src/oprecord.rs
+msgid "neither XDG_STATE_HOME nor HOME is set"
+msgstr "nə XDG_STATE_HOME, nə də HOME təyin edilib"

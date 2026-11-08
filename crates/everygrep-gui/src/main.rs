@@ -53,6 +53,7 @@ mod menus;
 mod mount_ns;
 mod name_list_ui;
 mod open;
+mod oprecord;
 mod physical;
 mod portal;
 mod prefs;
@@ -823,6 +824,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let prefs = prefs.clone();
         Timer::single_shot(SETTINGS_DELAY, move || prefs.open(Some(page)));
     }
+    start_recovery();
     slint::run_event_loop_until_quit()?;
     // Later launches wait for this process to end instead of handing over;
     // those whose request was not run are told so.
@@ -2374,6 +2376,19 @@ fn online_targets(
             None
         }
     }
+}
+
+/// Items an earlier run left under a hidden staging name (it stopped in
+/// the middle of a file operation) are looked at once, off the window's
+/// thread, before any file operation of this run (see [`oprecord`]).
+fn start_recovery() {
+    std::thread::spawn(|| {
+        let _files = fileops_undo::file_guard();
+        let found = oprecord::recover();
+        if found.has_news() || found.complete > 0 {
+            debug_log::note!("interrupted file operations: {found:?}");
+        }
+    });
 }
 
 fn info(w: &AppWindow, text: String) {

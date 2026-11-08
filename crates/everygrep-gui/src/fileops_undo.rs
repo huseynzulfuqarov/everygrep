@@ -97,8 +97,14 @@ impl Snapshot {
             .file_name()
             .ok_or_else(|| tr("The item changed since the recorded operation.").to_owned())?;
         let stamp = self.0[0].1;
-        let held = transfer::Isolation::take(parent, name, path, (stamp.dev, stamp.ino))
-            .map_err(|e| e.to_string())?;
+        let held = transfer::Isolation::take_recorded(
+            parent,
+            name,
+            path,
+            (stamp.dev, stamp.ino),
+            Some((crate::oprecord::Kind::Trash, Path::new(""))),
+        )
+        .map_err(|e| e.to_string())?;
         let ready = before
             .after(&held.path())
             .map_err(|e| held.restore_error(e).to_string())?;
@@ -131,9 +137,12 @@ pub(crate) fn trash_file_checked(
 }
 
 impl Snapshot {
+    /// Holds the item at `path` aside; with `to`, recorded on disk as on
+    /// its way there.
     fn isolate(
         &self,
         path: &Path,
+        to: Option<&Path>,
     ) -> Result<(BeforeRename, transfer::Isolation, Snapshot), String> {
         self.check(path)?;
         let before = BeforeRename::read(path).map_err(|e| e.to_string())?;
@@ -147,12 +156,13 @@ impl Snapshot {
             )
             .map_err(|e| e.to_string())?,
         );
-        let held = transfer::Isolation::take(
+        let held = transfer::Isolation::take_recorded(
             parent,
             path.file_name()
                 .ok_or_else(|| tr("The item changed since the recorded operation.").to_owned())?,
             path,
             (self.0[0].1.dev, self.0[0].1.ino),
+            to.map(|to| (crate::oprecord::Kind::Rename, to)),
         )
         .map_err(|e| e.to_string())?;
         let ready = before
@@ -167,7 +177,7 @@ impl Snapshot {
         if !same_item {
             ensure_absent(to)?;
         }
-        let (before, held, ready) = self.isolate(from)?;
+        let (before, held, ready) = self.isolate(from, Some(to))?;
         if let Err(e) = transfer::rename_expected(&held.path(), to, ready.0[0].1) {
             return Err(undo_io_error(held.restore_error(e)));
         }
@@ -181,7 +191,7 @@ impl Snapshot {
         if self.0.len() != 1 {
             return Err(tr("The item changed since the recorded operation.").into());
         }
-        let (_, held, _) = self.isolate(path)?;
+        let (_, held, _) = self.isolate(path, None)?;
         held.remove(true).map_err(|e| e.to_string())
     }
 }
@@ -777,7 +787,9 @@ fn reverse_rename(
     let parent = from
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput).to_string())?;
-    let staged = transfer::stage_rename(from, parent).map_err(|e| e.to_string())?;
+    let (staged, record) =
+        transfer::stage_rename(from, parent, crate::oprecord::Kind::CaseRename, to)
+            .map_err(|e| e.to_string())?;
     let result = ensure_absent(to).and_then(|()| rename(&staged, to).map_err(|e| e.to_string()));
     if result.is_err()
         && let Err(e) = rename(&staged, from)
@@ -787,6 +799,7 @@ fn reverse_rename(
             &[&staged.display(), &e],
         ));
     }
+    crate::oprecord::finish(record);
     result
 }
 

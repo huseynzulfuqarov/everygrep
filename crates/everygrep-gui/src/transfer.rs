@@ -605,7 +605,7 @@ fn move_replace(
     if !source.unchanged(&fs::symlink_metadata(src)?) {
         return Err(io::Error::other(tr("The copy source changed while copying.")).into());
     }
-    let staged = match stage_for_replace(src, dest) {
+    let (staged, mut record) = match stage_for_replace(src, dest, &expected.path) {
         Ok(staged) => staged,
         Err(e) if e.raw_os_error() == Some(EXDEV) => {
             run.replace = Some(expected);
@@ -638,19 +638,31 @@ fn move_replace(
         .map_err(io::Error::other)?;
         run.replacements += 1;
         run.replaced = true;
+        if let Some(r) = record.as_mut() {
+            r.step(crate::oprecord::Step::TargetTrashed);
+        }
+        #[cfg(test)]
+        crate::fileops_test::at("replace-target-trashed", &expected.path);
         rename_strict(&staged, &expected.path).map_err(|e| io::Error::other(fill(tr("The previous file was sent to the trash, but the new file could not be published: {}"), &[&e])))?;
         Ok(())
     })();
     match publish {
-        Ok(()) => Ok(Some(Pasted::New(expected.path))),
+        Ok(()) => {
+            #[cfg(test)]
+            crate::fileops_test::at("replace-published", &expected.path);
+            crate::oprecord::finish(record);
+            Ok(Some(Pasted::New(expected.path)))
+        }
         Err(error) => {
             if let Err(restore) = rename_strict(&staged, src) {
+                // The record stays: the next start finds the item.
                 return Err(io::Error::other(fill(
                     tr("Could not restore the source; it remains at {0}: {1}"),
                     &[&staged.display(), &restore],
                 ))
                 .into());
             }
+            crate::oprecord::finish(record);
             Err(error)
         }
     }
@@ -666,27 +678,68 @@ thread_local! {
     static COPY_SYNC_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-fn stage_for_replace(src: &Path, folder: &Path) -> io::Result<PathBuf> {
+fn stage_for_replace(
+    src: &Path,
+    folder: &Path,
+    target: &Path,
+) -> io::Result<(PathBuf, Option<crate::oprecord::Pending>)> {
     #[cfg(test)]
     if FORCE_EXDEV.with(std::cell::Cell::get) {
         return Err(io::Error::from_raw_os_error(EXDEV));
     }
-    stage_rename(src, folder)
+    stage_rename(src, folder, crate::oprecord::Kind::MoveReplace, target)
 }
 
 /// Renames `src` to a free hidden name in `folder`. The staged entry is the
 /// user's original, so its name does not look like a disposable part file.
-pub(crate) fn stage_rename(src: &Path, folder: &Path) -> io::Result<PathBuf> {
+/// Before the rename, the operation (`kind`, on its way to `target`) is
+/// recorded on disk, so that a crash before the item leaves the hidden name
+/// is found at the next start (see [`crate::oprecord`]). The caller ends
+/// the record once the item is published or back at `src`.
+pub(crate) fn stage_rename(
+    src: &Path,
+    folder: &Path,
+    kind: crate::oprecord::Kind,
+    target: &Path,
+) -> io::Result<(PathBuf, Option<crate::oprecord::Pending>)> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    let meta = fs::symlink_metadata(src)?;
+    let mut record: Option<crate::oprecord::Pending> = None;
+    let mut started = false;
     for _ in 0..TEMP_TRIES {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let temp = folder.join(format!(".everygrep-moving-{}-{n}", std::process::id()));
+        if !started {
+            record = crate::oprecord::begin(kind, src, &temp, target, &meta)?;
+            started = true;
+        } else if let Some(r) = record.as_mut()
+            && let Err(e) = r.retarget(&temp)
+        {
+            crate::oprecord::finish(record);
+            return Err(e);
+        }
+        #[cfg(test)]
+        crate::fileops_test::at("staging-recorded", src);
         match rename_noreplace(src, &temp) {
-            Ok(()) => return Ok(temp),
+            Ok(()) => {
+                if let Some(r) = record.as_mut() {
+                    match fs::symlink_metadata(&temp) {
+                        Ok(now) => r.staged(&now),
+                        Err(e) => crate::debug_log::note!("staged {}: {e}", temp.display()),
+                    }
+                }
+                #[cfg(test)]
+                crate::fileops_test::at("staged", src);
+                return Ok((temp, record));
+            }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
+            Err(e) => {
+                crate::oprecord::finish(record);
+                return Err(e);
+            }
         }
     }
+    crate::oprecord::finish(record);
     Err(io::ErrorKind::AlreadyExists.into())
 }
 
@@ -1713,6 +1766,9 @@ pub(crate) struct Isolation {
     folder_id: (u64, u64),
     logical: PathBuf,
     expected: (u64, u64),
+    /// The on-disk record of the held item, for a user's item on its way
+    /// to the trash or to a new path; it ends once the holder is empty.
+    record: std::sync::Mutex<Option<crate::oprecord::Pending>>,
 }
 fn same_inode(meta: &Metadata, id: (u64, u64)) -> bool {
     (meta.dev(), meta.ino()) == id
@@ -1760,6 +1816,18 @@ impl Isolation {
         name: &OsStr,
         logical: &Path,
         expected: (u64, u64),
+    ) -> io::Result<Self> {
+        Self::take_recorded(parent, name, logical, expected, None)
+    }
+    /// [`take`](Self::take), recording on disk (see [`crate::oprecord`])
+    /// that the item is held for `kind`, on its way to `target`, before it
+    /// is moved into the holder. Nothing is held when it cannot be recorded.
+    pub(crate) fn take_recorded(
+        parent: std::sync::Arc<File>,
+        name: &OsStr,
+        logical: &Path,
+        expected: (u64, u64),
+        record: Option<(crate::oprecord::Kind, &Path)>,
     ) -> io::Result<Self> {
         use std::hash::BuildHasher;
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -1815,15 +1883,30 @@ impl Isolation {
             folder_id,
             logical: logical.into(),
             expected,
+            record: std::sync::Mutex::new(None),
         };
         let checked = fs::symlink_metadata(&visible).and_then(|m| {
             if same_inode(&m, expected) {
-                Ok(())
+                Ok(m)
             } else {
                 Err(io::Error::other(tr(
                     "The item changed since the recorded operation.",
                 )))
             }
+        });
+        let checked = checked.and_then(|meta| {
+            let Some((kind, target)) = record else {
+                return Ok(());
+            };
+            let real = |file: &File| {
+                fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+                    .map_err(crate::oprecord::not_recorded)
+            };
+            let original = real(&held.parent)?.join(&held.name);
+            let staging = real(&held.folder)?.join("item");
+            *held.record.lock().unwrap_or_else(|e| e.into_inner()) =
+                crate::oprecord::begin(kind, &original, &staging, target, &meta)?;
+            Ok(())
         });
         if let Err(e) = checked {
             let _ = held.clear_folder();
@@ -1839,6 +1922,17 @@ impl Isolation {
         crate::fileops_test::at("isolate-taken", logical);
         if let Err(e) = held.check() {
             return Err(held.restore_error(e));
+        }
+        if let Some(r) = held
+            .record
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            match fs::symlink_metadata(held.path()) {
+                Ok(now) => r.staged(&now),
+                Err(e) => crate::debug_log::note!("held item: {e}"),
+            }
         }
         Ok(held)
     }
@@ -1870,7 +1964,11 @@ impl Isolation {
                 "The temporary copy changed. Unrecognized items were kept.",
             )));
         }
-        unlink_at(&self.parent, &self.folder_name, true)
+        unlink_at(&self.parent, &self.folder_name, true)?;
+        // The holder is gone, so the item is not in it: the operation that
+        // held it is over.
+        crate::oprecord::finish(self.record.lock().unwrap_or_else(|e| e.into_inner()).take());
+        Ok(())
     }
     pub(crate) fn restore(&self) -> io::Result<()> {
         // Even a foreign item accidentally taken in the rename gap is kept.
