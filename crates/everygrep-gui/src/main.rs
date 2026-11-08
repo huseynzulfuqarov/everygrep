@@ -1741,6 +1741,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
 thread_local! {
     /// Files this window put on the clipboard with Cut or Copy.
     static HELD: RefCell<Option<clipboard::Held>> = RefCell::default();
+    /// Every recent Cut or Copy of this window with its identities, found
+    /// again through the payload Paste reads.
+    static RECENT: RefCell<clipboard::Recent> = RefCell::default();
     /// The XWayland clipboard: connected on first use, `Some(None)` when
     /// there is none.
     static X11: RefCell<Option<Option<x11clip::X11Clipboard>>> = RefCell::default();
@@ -1765,14 +1768,13 @@ fn with_x11<R>(f: impl FnOnce(Option<&x11clip::X11Clipboard>) -> R) -> R {
 /// answered (or after the clipboard's wait).
 fn files_to_paste(
     w: &AppWindow,
-    then: impl FnOnce(&AppWindow, Option<(clipboard::Operation, Vec<PathBuf>)>) + Send + 'static,
+    then: impl FnOnce(&AppWindow, Option<clipboard::ToPaste>) + Send + 'static,
 ) {
-    let finish = move |w: &AppWindow, from_x11: Option<(clipboard::Operation, Vec<PathBuf>)>| {
-        let found = from_x11.or_else(|| {
-            let text = w.invoke_paste_text().to_string();
-            HELD.with(|h| clipboard::to_paste(h.borrow().as_ref(), &text))
+    let finish = move |w: &AppWindow, from_x11: Option<x11clip::Answer>| {
+        let found = RECENT.with(|r| {
+            clipboard::to_paste_from(&r.borrow(), from_x11, || w.invoke_paste_text().to_string())
         });
-        let found = found.filter(|(op, paths)| {
+        let found = found.filter(|(op, paths, _)| {
             !CUT_PASTED.with(|c| clipboard::moved_already(*op, paths, c.borrow().as_deref()))
         });
         then(w, found);
@@ -1836,6 +1838,7 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 chosen,
             };
             HELD.with(|h| *h.borrow_mut() = Some(held.clone()));
+            RECENT.with(|r| r.borrow_mut().remember(held.clone()));
             info(&w, labels::on_clipboard(op, held.paths.len()));
             // Other programs get the files through XWayland, offered without
             // waiting for the display; without it, or when the clipboard
@@ -1901,19 +1904,15 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             info(&w, String::new());
             let engine = engine.clone();
             files_to_paste(&w, move |w, found| {
-                let Some((op, sources)) = found else {
+                // This window's own Cut or Copy comes with the items as they
+                // were then (found through the payload read, not through
+                // what this window holds now). Files another program put
+                // there are taken as they are.
+                let Some((op, sources, chosen)) = found else {
                     TRANSFER_BUSY.store(false, SeqCst);
                     info(w, tr("The clipboard holds no files to paste.").into());
                     return;
                 };
-                // This window's own Cut or Copy: only the items as they were
-                // then. Files another program put there are taken as they are.
-                let chosen = HELD.with(|h| {
-                    h.borrow()
-                        .as_ref()
-                        .filter(|h| h.paths == sources)
-                        .map(|h| h.chosen.clone())
-                });
                 let source_list = sources.clone();
                 start_transfer(w, &engine, op, source_list, chosen, dest, move |_, out| {
                     // A cut is pasted once; after a failure or a cancel it

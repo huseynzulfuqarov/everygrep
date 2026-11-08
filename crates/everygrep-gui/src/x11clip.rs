@@ -170,17 +170,21 @@ enum Cmd {
     /// Reads the clipboard, then takes it with nothing on it if it holds
     /// these files and this program does not hold it.
     EmptyIf(Found),
-    Read(Sender<Option<Found>>),
+    Read(Sender<Option<Answer>>),
     Quit,
 }
 
 /// Files read from the clipboard, and what pasting them does.
 type Found = (Operation, Vec<PathBuf>);
 
+/// Files read from the clipboard and, when this program served them, what
+/// it held then (with the identities recorded at Cut or Copy).
+pub type Answer = (Found, Option<Held>);
+
 /// What ends a read.
 enum Then {
     /// The files go to the caller of [`X11Clipboard::read`].
-    Reply(Sender<Option<Found>>),
+    Reply(Sender<Option<Answer>>),
     /// The clipboard is emptied if it held these files.
     EmptyIf(Found),
 }
@@ -317,7 +321,7 @@ impl X11Clipboard {
     /// Asks for the files another program put on the clipboard without
     /// waiting: `done` gets them (or `None`) on a helper thread, at the
     /// latest after [`READ_WAIT`].
-    pub fn read_then(&self, done: impl FnOnce(Option<Found>) + Send + 'static) {
+    pub fn read_then(&self, done: impl FnOnce(Option<Answer>) + Send + 'static) {
         let (reply, answer) = mpsc::channel();
         if !self.send(Cmd::Read(reply)) {
             done(None);
@@ -402,6 +406,11 @@ struct Read {
     asked: Target,
     /// Files from the URI list while their cut mark is asked for.
     files: Option<Vec<PathBuf>>,
+    /// What this program held when it answered the type asked for itself
+    /// (it owned the clipboard); `None` when another program answered.
+    served: Option<Held>,
+    /// [`served`](Self::served) for `files`.
+    files_served: Option<Held>,
     /// Content received so far in `INCR` steps.
     incr: Option<Vec<u8>>,
 }
@@ -520,8 +529,9 @@ impl Worker {
         Ok(true)
     }
 
-    /// Answers another program that asks for the clipboard.
-    fn answer(&self, e: &SelectionRequestEvent) -> XResult<()> {
+    /// Answers another program that asks for the clipboard, or this
+    /// program's own read (then what was served is remembered with it).
+    fn answer(&mut self, e: &SelectionRequestEvent) -> XResult<()> {
         // Obsolete clients give no property; the target is used instead.
         let property = if e.property == NONE {
             e.target
@@ -532,9 +542,14 @@ impl Worker {
             .held
             .as_ref()
             .filter(|_| self.offer_epoch.load(Ordering::SeqCst) == self.held_epoch);
+        let mut served = None;
         let ok = match (active, self.atoms.target(e.target)) {
             (Some(held), Some(target)) if e.selection == self.atoms.clipboard => {
-                self.write(e.requestor, property, e.target, target, held)?
+                let ok = self.write(e.requestor, property, e.target, target, held)?;
+                if ok && e.requestor == self.window {
+                    served = Some(held.clone());
+                }
+                ok
             }
             // Emptied: the list of types holds only itself.
             (None, Some(Target::Targets)) if e.selection == self.atoms.clipboard => {
@@ -549,6 +564,11 @@ impl Worker {
             }
             _ => false,
         };
+        if let Some(read) = self.read.as_mut()
+            && self.atoms.atom(read.asked) == e.target
+        {
+            read.served = served;
+        }
         let notify = SelectionNotifyEvent {
             response_type: SELECTION_NOTIFY_EVENT,
             sequence: 0,
@@ -610,6 +630,8 @@ impl Worker {
             left: VecDeque::new(),
             asked: Target::Targets,
             files: None,
+            served: None,
+            files_served: None,
             incr: None,
         });
         self.ask(Target::Targets)
@@ -635,6 +657,7 @@ impl Worker {
             return Ok(());
         };
         read.incr = None;
+        read.served = None;
         read.asked = target;
         self.conn.convert_selection(
             self.window,
@@ -671,7 +694,8 @@ impl Worker {
             }
             Target::KdeCutSelection => {
                 let files = read.files.take().unwrap_or_default();
-                self.finish(Some((Operation::Copy, files)))
+                let served = read.files_served.take();
+                self.finish(Some(((Operation::Copy, files), served)))
             }
             _ => self.ask_next(),
         }
@@ -764,25 +788,30 @@ impl Worker {
             }
             Target::KdeCutSelection => {
                 let files = read.files.take().unwrap_or_default();
-                self.finish(Some((cut_mark(content), files)))
+                let served = read.files_served.take();
+                self.finish(Some(((cut_mark(content), files), served)))
             }
             asked => match read_payload(asked, content) {
                 Some((_, paths)) if asks_cut_mark(asked, read.offered.as_deref()) => {
                     read.files = Some(paths);
+                    read.files_served = read.served.take();
                     self.ask(Target::KdeCutSelection)
                 }
-                Some(found) => self.finish(Some(found)),
+                Some(found) => {
+                    let served = read.served.take();
+                    self.finish(Some((found, served)))
+                }
                 None => self.ask_next(),
             },
         }
     }
 
     /// Ends the read with `found`.
-    fn finish(&mut self, found: Option<Found>) -> XResult<()> {
+    fn finish(&mut self, found: Option<Answer>) -> XResult<()> {
         let Some(read) = self.read.take() else {
             return Ok(());
         };
-        if empties(&read.then, found.as_ref()) {
+        if empties(&read.then, found.as_ref().map(|(f, _)| f)) {
             return self.empty();
         }
         if let Then::Reply(reply) = read.then {

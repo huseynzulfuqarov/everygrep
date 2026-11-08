@@ -113,19 +113,6 @@ pub struct Held {
     pub chosen: crate::actions::Chosen,
 }
 
-/// What to paste, given the files this window put on the clipboard and the
-/// text the clipboard holds now. Text equality can preserve lossless paths,
-/// but cannot prove clipboard ownership or Cut intent. Only file-format
-/// offers (read separately) or an explicit cut payload can request a move.
-pub fn to_paste(held: Option<&Held>, clipboard_text: &str) -> Option<(Operation, Vec<PathBuf>)> {
-    match held {
-        Some(h) if h.text == clipboard_text && !h.paths.is_empty() => {
-            Some((Operation::Copy, h.paths.clone()))
-        }
-        _ => parse(clipboard_text),
-    }
-}
-
 /// Whether a cut on the clipboard was pasted here already: the same files
 /// as the last cut moved (`moved`), and none of them is left. Such a cut
 /// offers nothing to paste. A cut of the same paths made again after they
@@ -148,6 +135,59 @@ pub fn fallback_text<'a>(
     (!taken && current == Some(offered)).then_some(offered.text.as_str())
 }
 
+/// How many of this window's Cut and Copy payloads are remembered.
+const RECENT: usize = 32;
+
+/// The files this window put on the clipboard this session, newest last,
+/// each with the identities recorded at Cut or Copy. Paste finds the
+/// identities through the payload it reads, so a newer Cut or Copy made
+/// while the clipboard answers never takes them away.
+#[derive(Debug, Default)]
+pub struct Recent(std::collections::VecDeque<Held>);
+
+impl Recent {
+    pub fn remember(&mut self, held: Held) {
+        if self.0.len() == RECENT {
+            self.0.pop_front();
+        }
+        self.0.push_back(held);
+    }
+
+    /// The newest payload put on the clipboard as `text`.
+    fn by_text(&self, text: &str) -> Option<&Held> {
+        self.0.iter().rev().find(|h| h.text == text)
+    }
+}
+
+/// What Paste takes: the operation, the files, and the items as they were
+/// chosen when this window put them on the clipboard (`None` for files
+/// another program put there).
+pub type ToPaste = (Operation, Vec<PathBuf>, Option<crate::actions::Chosen>);
+
+/// What to paste. `read` is what the X11 clipboard gave: the files and,
+/// when this window served them, the payload they were served from (its
+/// identities go with them). Files served by another program are taken as
+/// they are. Without a read, the text clipboard (`text`) is used: text this
+/// window put there itself (any remembered payload, not only the latest)
+/// is pasted as a copy of that payload's items as they were chosen. Text
+/// equality can preserve lossless paths, but cannot prove clipboard
+/// ownership or Cut intent: only file-format offers (read separately) or an
+/// explicit cut payload can request a move.
+pub fn to_paste_from(
+    recent: &Recent,
+    read: Option<crate::x11clip::Answer>,
+    text: impl FnOnce() -> String,
+) -> Option<ToPaste> {
+    if let Some(((op, paths), served)) = read {
+        return Some((op, paths, served.map(|h| h.chosen)));
+    }
+    let text = text();
+    if let Some(h) = recent.by_text(&text).filter(|h| !h.paths.is_empty()) {
+        return Some((Operation::Copy, h.paths.clone(), Some(h.chosen.clone())));
+    }
+    parse(&text).map(|(op, paths)| (op, paths, None))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +200,67 @@ mod tests {
             PathBuf::from("/tmp/şəkil.png"),
             PathBuf::from(OsStr::from_bytes(b"/x/\xff%")),
         ]
+    }
+
+    fn chosen(paths: &[PathBuf]) -> crate::actions::Chosen {
+        crate::actions::Chosen::of(paths)
+    }
+
+    #[test]
+    fn paste_keeps_the_identities_of_the_cut_it_reads_after_a_newer_copy() {
+        let dir = std::env::temp_dir().join(format!("everygrep-paste-ids-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let held = |op, p: &PathBuf| Held {
+            op,
+            paths: vec![p.clone()],
+            text: crate::actions::paths_text(std::slice::from_ref(p), false),
+            chosen: chosen(std::slice::from_ref(p)),
+        };
+        let (cut_a, copy_b) = (held(Operation::Cut, &a), held(Operation::Copy, &b));
+        let mut recent = Recent::default();
+        recent.remember(cut_a.clone());
+        recent.remember(copy_b.clone());
+        let no_text = || -> String { unreachable!() };
+        // The X11 read returns the Cut this window served before Copy
+        // replaced what it holds.
+        let got = to_paste_from(
+            &recent,
+            Some(((Operation::Cut, vec![a.clone()]), Some(cut_a.clone()))),
+            no_text,
+        );
+        assert_eq!(
+            got,
+            Some((Operation::Cut, vec![a.clone()], Some(cut_a.chosen.clone())))
+        );
+        // The text clipboard still holds the paths of the earlier payload.
+        let got = to_paste_from(&recent, None, || cut_a.text.clone());
+        assert_eq!(
+            got,
+            Some((Operation::Copy, vec![a.clone()], Some(cut_a.chosen.clone())))
+        );
+        // Files another program put on the clipboard: taken as they are.
+        let got = to_paste_from(
+            &recent,
+            Some(((Operation::Copy, vec![a.clone()]), None)),
+            no_text,
+        );
+        assert_eq!(got, Some((Operation::Copy, vec![a.clone()], None)));
+        let got = to_paste_from(&recent, None, || "/elsewhere".into());
+        assert_eq!(
+            got,
+            Some((Operation::Copy, vec!["/elsewhere".into()], None))
+        );
+        // The latest payload, read back as served.
+        let got = to_paste_from(
+            &recent,
+            Some(((Operation::Copy, vec![b.clone()]), Some(copy_b.clone()))),
+            no_text,
+        );
+        assert_eq!(got, Some((Operation::Copy, vec![b], Some(copy_b.chosen))));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -296,7 +397,9 @@ mod tests {
             text: text.clone(),
             chosen: Default::default(),
         };
-        let (op, paths) = to_paste(Some(&old), &text).unwrap();
+        let mut recent = Recent::default();
+        recent.remember(old);
+        let (op, paths, _) = to_paste_from(&recent, None, || text.clone()).unwrap();
         assert_eq!(op, Operation::Copy);
         let out = crate::transfer::paste(
             op,
@@ -321,16 +424,21 @@ mod tests {
             text: "/a".into(),
             chosen: Default::default(),
         };
+        let mut recent = Recent::default();
+        recent.remember(held);
+        let paste = |recent: &Recent, text: &str| {
+            to_paste_from(recent, None, || text.into()).map(|(op, paths, _)| (op, paths))
+        };
         assert_eq!(
-            to_paste(Some(&held), "/a"),
+            paste(&recent, "/a"),
             Some((Operation::Copy, vec![PathBuf::from("/a")]))
         );
         // Copied elsewhere since: the clipboard text wins, as a copy.
         assert_eq!(
-            to_paste(Some(&held), "/b"),
+            paste(&recent, "/b"),
             Some((Operation::Copy, vec![PathBuf::from("/b")]))
         );
-        assert_eq!(to_paste(Some(&held), "some words"), None);
-        assert_eq!(to_paste(None, ""), None);
+        assert_eq!(paste(&recent, "some words"), None);
+        assert_eq!(paste(&Recent::default(), ""), None);
     }
 }
