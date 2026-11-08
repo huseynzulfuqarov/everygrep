@@ -449,12 +449,27 @@ pub(crate) fn changed_since_chosen() -> io::Error {
 /// at all: see [`remove_tree`]. Returns the paths that failed.
 pub fn delete_permanently(paths: &[PathBuf], confirmed: &Chosen) -> Vec<(PathBuf, io::Error)> {
     let mut failed = Vec::new();
-    for path in paths {
-        if let Err(e) = delete_one(path, confirmed) {
+    let mut unlinked = Unlinked::default();
+    for (i, path) in paths.iter().enumerate() {
+        #[cfg(test)]
+        if i > 0
+            && let Some(f) = DELETE_NEXT.with(|h| h.borrow_mut().take())
+        {
+            f();
+        }
+        #[cfg(not(test))]
+        let _ = i;
+        if let Err(e) = delete_one(path, confirmed, &mut unlinked) {
             failed.push((path.clone(), e));
         }
     }
     failed
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once before the second item of a permanent delete.
+    static DELETE_NEXT: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// The folder of `path`, opened, and the name in it. Opened as a handle
@@ -477,9 +492,66 @@ fn open_parent(path: &Path) -> io::Result<(OwnedFd, CString)> {
     Ok((fd, CString::new(name.as_bytes())?))
 }
 
-fn delete_one(path: &Path, confirmed: &Chosen) -> io::Result<()> {
+/// The names of regular files this delete removed so far, per file
+/// (device, inode). Removing one name of a file with more names sets its
+/// change time and lowers its link count; another chosen name of the same
+/// file is still deleted when exactly that, and nothing else, happened.
+#[derive(Default)]
+struct Unlinked(std::collections::HashMap<(u64, u64), Removed>);
+
+struct Removed {
+    /// Names removed here.
+    count: u64,
+    /// The link count and change time before the first was removed.
+    nlink_before: u64,
+    ctime_before: Time,
+    /// The link count and change time right after the last was removed.
+    nlink_after: u64,
+    ctime_after: Time,
+}
+
+impl Unlinked {
+    /// Whether `m` is a chosen file, as confirmed, except for what removing
+    /// its other names here did to it.
+    fn explains(&self, m: &std::fs::Metadata, confirmed: &Chosen) -> bool {
+        let Some(r) = self.0.get(&(m.dev(), m.ino())) else {
+            return false;
+        };
+        let mut was = Identity::of(m);
+        let Some(content) = was.content.as_mut() else {
+            return false;
+        };
+        content.2 = r.ctime_before;
+        m.nlink() == r.nlink_after
+            && r.nlink_before.checked_sub(r.count) == Some(m.nlink())
+            && (m.ctime(), m.ctime_nsec()) == r.ctime_after
+            && confirmed.items.contains(&was)
+    }
+
+    /// Notes that a name of the file `before` described was removed, the
+    /// file now as `after` describes it.
+    fn note(&mut self, before: &std::fs::Metadata, after: &rustix::fs::Stat) {
+        let r = self
+            .0
+            .entry((before.dev(), before.ino()))
+            .or_insert(Removed {
+                count: 0,
+                nlink_before: before.nlink(),
+                ctime_before: (before.ctime(), before.ctime_nsec()),
+                nlink_after: 0,
+                ctime_after: (0, 0),
+            });
+        r.count += 1;
+        r.nlink_after = after.st_nlink;
+        r.ctime_after = (after.st_ctime, after.st_ctime_nsec as i64);
+    }
+}
+
+fn delete_one(path: &Path, confirmed: &Chosen, unlinked: &mut Unlinked) -> io::Result<()> {
     let m = std::fs::symlink_metadata(path)?;
-    confirmed.check(&m, true)?;
+    if !confirmed.holds(&m, true) && !unlinked.explains(&m, confirmed) {
+        return Err(changed_since_chosen());
+    }
     if m.is_dir() {
         return remove_tree(path, (m.dev(), m.ino()));
     }
@@ -501,11 +573,27 @@ fn delete_one(path: &Path, confirmed: &Chosen) -> io::Result<()> {
     if now != Identity::of(&m) {
         return Err(changed_since_chosen());
     }
-    Ok(rustix::fs::unlinkat(
-        &parent,
-        name.as_c_str(),
-        AtFlags::empty(),
-    )?)
+    // A file with other names stays: held open to see what the removal
+    // did to it.
+    let other_names = (m.is_file() && m.nlink() > 1)
+        .then(|| {
+            rustix::fs::openat(
+                &parent,
+                name.as_c_str(),
+                OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .ok()
+        })
+        .flatten();
+    rustix::fs::unlinkat(&parent, name.as_c_str(), AtFlags::empty())?;
+    if let Some(fd) = other_names
+        && let Ok(after) = rustix::fs::fstat(&fd)
+        && (after.st_dev, after.st_ino) == (m.dev(), m.ino())
+    {
+        unlinked.note(&m, &after);
+    }
+    Ok(())
 }
 
 /// Where a folder's entries live: its device and the mount it was reached
@@ -1254,6 +1342,59 @@ mod tests {
         assert_eq!(names(&dir.0), ["NOTES.txt", "notes.txt"]);
         assert_eq!(fs::read_to_string(&other).unwrap(), "other");
         assert_eq!(fs::read_to_string(&target).unwrap(), "n");
+    }
+
+    #[test]
+    fn a_confirmed_delete_removes_two_chosen_names_of_one_file() {
+        let dir = TempDir::new("delete-hard-links");
+        let a = dir.0.join("a");
+        fs::write(&a, "shared").unwrap();
+        let b = dir.0.join("b");
+        fs::hard_link(&a, &b).unwrap();
+        let c = dir.0.join("c");
+        fs::hard_link(&a, &c).unwrap();
+        let asked = [a.clone(), b.clone(), c.clone()];
+        let failed = delete_permanently(&asked, &Chosen::of(&asked));
+        assert!(failed.is_empty(), "{failed:?}");
+        assert!(asked.iter().all(|p| fs::symlink_metadata(p).is_err()));
+    }
+
+    #[test]
+    fn a_confirmed_delete_keeps_a_second_name_of_a_file_changed_by_others_meanwhile() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("delete-hard-links-changed");
+        let a = dir.0.join("a");
+        fs::write(&a, "shared").unwrap();
+        let b = dir.0.join("b");
+        fs::hard_link(&a, &b).unwrap();
+        let outside = dir.0.join("outside");
+        fs::hard_link(&a, &outside).unwrap();
+        let asked = [a.clone(), b.clone()];
+        let confirmed = Chosen::of(&asked);
+        // Before the delete another program removes a name of its own: the
+        // link count no longer matches only the names deleted here.
+        fs::remove_file(&outside).unwrap();
+        let failed = delete_permanently(&asked, &confirmed);
+        assert_eq!(failed.len(), 2, "{failed:?}");
+        assert!(a.exists() && b.exists());
+        // After the first name goes, the file's mode is changed by others.
+        let c = dir.0.join("c");
+        fs::write(&c, "x").unwrap();
+        let d = dir.0.join("d");
+        fs::hard_link(&c, &d).unwrap();
+        let asked = [c.clone(), d.clone()];
+        let confirmed = Chosen::of(&asked);
+        let watched = d.clone();
+        DELETE_NEXT.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                fs::set_permissions(&watched, fs::Permissions::from_mode(0o600)).unwrap();
+            }))
+        });
+        let failed = delete_permanently(&asked, &confirmed);
+        DELETE_NEXT.with(|h| h.borrow_mut().take());
+        let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, std::slice::from_ref(&d));
+        assert!(!c.exists() && d.exists());
     }
 
     #[test]
