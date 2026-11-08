@@ -399,8 +399,14 @@ fn not_private(path: &Path) -> io::Error {
 }
 
 /// The folder `name` in `parent`, never through a link; made (`0700`)
-/// when it is missing and `create` is set. `None` when it is missing.
-fn open_child(parent: &File, name: &str, create: bool) -> io::Result<Option<File>> {
+/// when it is missing and `create` is set (then `made` is set). `None`
+/// when it is missing.
+fn open_child(
+    parent: &File,
+    name: &str,
+    create: bool,
+    made: &mut bool,
+) -> io::Result<Option<File>> {
     use rustix::fs::{Mode, OFlags};
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     match rustix::fs::openat(parent, name, flags, Mode::empty()) {
@@ -410,7 +416,8 @@ fn open_child(parent: &File, name: &str, create: bool) -> io::Result<Option<File
         Err(e) => return Err(e.into()),
     }
     match rustix::fs::mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
-        Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+        Ok(()) => *made = true,
+        Err(rustix::io::Errno::EXIST) => {}
         Err(e) => return Err(e.into()),
     }
     Ok(Some(File::from(rustix::fs::openat(
@@ -421,19 +428,48 @@ fn open_child(parent: &File, name: &str, create: bool) -> io::Result<Option<File
     )?)))
 }
 
+/// Makes the missing folders of `path`, top down, each `0700`; the
+/// folders that got a new entry (with their paths) are added to `changed`.
+fn make_folders(path: &Path, changed: &mut Vec<(File, PathBuf)>) -> io::Result<()> {
+    let mut missing = Vec::new();
+    let mut at = path;
+    loop {
+        match fs::metadata(at) {
+            Ok(_) => break,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                missing.push(at);
+                at = at.parent().ok_or(e)?;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    for folder in missing.into_iter().rev() {
+        match fs::DirBuilder::new().mode(0o700).create(folder) {
+            Ok(()) => {
+                let parent = folder.parent().unwrap_or(Path::new("/"));
+                changed.push((open_dir(parent)?, parent.to_owned()));
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
 /// The record folder, opened from the state folder: the two folders of
 /// this program below it are never reached through a link, and each must
 /// belong to this user and be closed to others. With `create`, missing
-/// folders are made; otherwise a missing folder gives `None`.
+/// folders are made, and the folder above each new one is flushed (the
+/// deepest first) before the folder is used, so the records written in it
+/// are not lost with a folder that never reached the disk. Otherwise a
+/// missing folder gives `None`.
 fn open_folder(create: bool) -> io::Result<Option<File>> {
     let Some(base) = state_base()? else {
         return Ok(None);
     };
+    let mut changed = Vec::new();
     if create {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&base)?;
+        make_folders(&base, &mut changed)?;
     }
     // The state folder is the user's, wherever a link of theirs leads.
     let mut dir = match open_dir(&base) {
@@ -443,8 +479,10 @@ fn open_folder(create: bool) -> io::Result<Option<File>> {
     };
     let mut shown = base;
     for name in [APP, RECORDS] {
+        let above = shown.clone();
         shown.push(name);
-        let child = match open_child(&dir, name, create) {
+        let mut made = false;
+        let child = match open_child(&dir, name, create, &mut made) {
             Ok(Some(child)) => child,
             Ok(None) => return Ok(None),
             // A link, or not a folder.
@@ -454,7 +492,13 @@ fn open_folder(create: bool) -> io::Result<Option<File>> {
         if !private_to_us(&child.metadata()?) {
             return Err(not_private(&shown));
         }
-        dir = child;
+        let parent = std::mem::replace(&mut dir, child);
+        if made {
+            changed.push((parent, above));
+        }
+    }
+    for (folder, path) in changed.iter().rev() {
+        sync_folder(folder, path)?;
     }
     Ok(Some(dir))
 }
@@ -1740,6 +1784,60 @@ mod tests {
         let found = recover();
         assert!(!found.has_news(), "{found:?}");
         assert!(t.records().is_empty());
+    }
+
+    #[test]
+    fn the_first_record_flushes_every_new_folder_above_it_deepest_first() {
+        let t = Temp::new("first-record");
+        // Nothing of the state folder exists yet, two levels above it too.
+        fs::remove_dir_all(t.path("state")).unwrap();
+        set_test_dir(Some(t.path("state/deeper")));
+        let src = t.write("dir/Name", "bytes");
+        crate::fileops_test::start_log();
+        let pending = begin(
+            Kind::CaseRename,
+            &src,
+            &t.path(&format!("dir/.everygrep-moving-{}-1", std::process::id())),
+            &t.path("dir/NAME"),
+            &fs::symlink_metadata(&src).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let log = crate::fileops_test::take_log();
+        let synced: Vec<_> = log
+            .iter()
+            .filter(|(e, _)| *e == "folder-synced")
+            .map(|(_, p)| p.clone())
+            .collect();
+        assert_eq!(
+            synced,
+            [
+                t.path("state/deeper/everygrep"),
+                t.path("state/deeper"),
+                t.path("state"),
+                t.0.clone(),
+            ]
+        );
+        let mode = |rel: &str| fs::metadata(t.path(rel)).unwrap().mode() & 0o777;
+        assert_eq!(mode("state/deeper/everygrep/interrupted"), 0o700);
+        assert_eq!(mode("state/deeper/everygrep"), 0o700);
+        // Once there, nothing more is flushed for the folders.
+        crate::fileops_test::start_log();
+        drop(pending);
+        let again = begin(
+            Kind::CaseRename,
+            &src,
+            &t.path(&format!("dir/.everygrep-moving-{}-2", std::process::id())),
+            &t.path("dir/NAME"),
+            &fs::symlink_metadata(&src).unwrap(),
+        )
+        .unwrap();
+        assert!(again.is_some());
+        assert!(
+            crate::fileops_test::take_log()
+                .iter()
+                .all(|(e, _)| *e != "folder-synced")
+        );
     }
 
     #[test]
