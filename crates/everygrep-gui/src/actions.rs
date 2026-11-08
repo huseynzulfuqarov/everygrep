@@ -309,15 +309,23 @@ pub fn trash(
 
 /// Which item a path named when the user chose it for an action: device,
 /// inode and type of the entry itself (a link, not what it points to), and
-/// for a regular file its size and modification time.
+/// for a regular file its size, modification time and change time. The
+/// change time is set by the kernel on every write, rename or permission
+/// change and cannot be set back from user space, so a rewrite that keeps
+/// the size and the modification time is still seen (on file systems with
+/// fine-grained times).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Identity {
     dev: u64,
     ino: u64,
     kind: u32,
-    /// Size and modification time (seconds, nanoseconds) of a regular file.
-    content: Option<(u64, (i64, i64))>,
+    /// Size, modification time and change time (seconds, nanoseconds) of a
+    /// regular file.
+    content: Option<(u64, Time, Time)>,
 }
+
+/// A file time: seconds and nanoseconds.
+type Time = (i64, i64);
 
 impl Identity {
     pub(crate) fn of(m: &std::fs::Metadata) -> Self {
@@ -326,7 +334,13 @@ impl Identity {
             dev: m.dev(),
             ino: m.ino(),
             kind,
-            content: (kind == S_IFREG).then(|| (m.size(), (m.mtime(), m.mtime_nsec()))),
+            content: (kind == S_IFREG).then(|| {
+                (
+                    m.size(),
+                    (m.mtime(), m.mtime_nsec()),
+                    (m.ctime(), m.ctime_nsec()),
+                )
+            }),
         }
     }
 
@@ -362,7 +376,8 @@ impl Chosen {
     }
 
     /// Whether `m` is one of the chosen items; with `unchanged` also with
-    /// the size and modification time it had (a regular file).
+    /// the size, modification time and change time it had (a regular
+    /// file).
     pub(crate) fn holds(&self, m: &std::fs::Metadata, unchanged: bool) -> bool {
         let now = Identity::of(m);
         self.0.iter().any(|c| {
@@ -435,8 +450,11 @@ fn delete_one(path: &Path, confirmed: &Chosen) -> io::Result<()> {
     // one checked even when a folder above was renamed meanwhile.
     let (parent, name) = open_parent(path)?;
     let st = rustix::fs::statat(&parent, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW)?;
-    let content = (st.st_mode & S_IFMT == S_IFREG)
-        .then_some((st.st_size as u64, (st.st_mtime, st.st_mtime_nsec as i64)));
+    let content = (st.st_mode & S_IFMT == S_IFREG).then_some((
+        st.st_size as u64,
+        (st.st_mtime, st.st_mtime_nsec as i64),
+        (st.st_ctime, st.st_ctime_nsec as i64),
+    ));
     let now = Identity {
         dev: st.st_dev,
         ino: st.st_ino,
@@ -1283,8 +1301,7 @@ mod tests {
         fs::remove_file(p("to-link")).unwrap();
         std::os::unix::fs::symlink(p("same"), p("to-link")).unwrap();
         fs::remove_file(p("gone")).unwrap();
-        // Rewritten in place: the same inode and size, a new time.
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        // Rewritten in place: the same inode and size, a new change time.
         fs::write(p("edited"), "54321").unwrap();
 
         let failed = delete_permanently(&asked, &confirmed);
@@ -1303,6 +1320,31 @@ mod tests {
         assert!(p("to-folder").is_dir());
         assert!(fs::symlink_metadata(p("to-link")).unwrap().is_symlink());
         assert_eq!(fs::read(p("edited")).unwrap(), b"54321");
+    }
+
+    #[test]
+    fn a_confirmed_delete_keeps_a_file_rewritten_with_its_old_size_and_time() {
+        let dir = TempDir::new("delete-same-time");
+        let file = dir.0.join("doc.txt");
+        fs::write(&file, "12345").unwrap();
+        let before = fs::metadata(&file).unwrap().modified().unwrap();
+        let asked = [file.clone()];
+        let confirmed = Chosen::of(&asked);
+        // A writer that keeps the time (or a file system with coarse
+        // times): the same inode, size and modification time, new bytes.
+        fs::write(&file, "54321").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(before)
+            .unwrap();
+        assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), before);
+
+        let failed = delete_permanently(&asked, &confirmed);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(failed[0].1.to_string().contains("nothing was done"));
+        assert_eq!(fs::read(&file).unwrap(), b"54321");
     }
 
     #[test]

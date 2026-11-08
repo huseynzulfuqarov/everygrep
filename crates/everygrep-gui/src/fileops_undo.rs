@@ -2100,7 +2100,6 @@ mod tests {
         fs::write(dest.join("doc"), "to be replaced").unwrap();
         let sources = vec![src.clone()];
         let chosen = actions::Chosen::of(&sources);
-        std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(&src, "rewritten").unwrap();
         let out = paste_using(
             Operation::Cut,

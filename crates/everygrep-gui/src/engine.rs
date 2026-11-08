@@ -6093,7 +6093,6 @@ mod tests {
         let confirmed = crate::actions::Chosen::of(&targets.paths);
         let old = path.with_file_name("saved-old");
         if in_place {
-            std::thread::sleep(Duration::from_millis(20));
             fs::write(&path, "rewritten in place, never confirmed").unwrap();
         } else {
             fs::rename(&path, &old).unwrap();
