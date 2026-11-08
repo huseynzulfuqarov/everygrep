@@ -6061,6 +6061,74 @@ mod tests {
         probe.engine.shutdown();
     }
 
+    /// The confirmed permanent delete through the real index: another
+    /// program replaces the file at the same name while the question is
+    /// open, and the index gives the new file the same id.
+    fn confirmed_delete_with_index(in_place: bool) {
+        use crate::results::ResultsModel;
+        use everygrep_core::store::Meta;
+        let dir = Scratch::new(if in_place {
+            "delete-same-id-edit"
+        } else {
+            "delete-same-id"
+        });
+        let root = dir.0.join("files");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("offered.txt"), "what the question offered").unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("offered", QueryOptions::default());
+        let result = loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if r.query == "offered" && r.ids.len() == 1 {
+                break r;
+            }
+        };
+        let model = ResultsModel::new(probe.engine.clone());
+        model.set_result(&result);
+        // The question opens.
+        let targets = model.checked_targets(Some(0)).unwrap();
+        let path = targets.paths[0].clone();
+        let confirmed = crate::actions::Chosen::of(&targets.paths);
+        let old = path.with_file_name("saved-old");
+        if in_place {
+            std::thread::sleep(Duration::from_millis(20));
+            fs::write(&path, "rewritten in place, never confirmed").unwrap();
+        } else {
+            fs::rename(&path, &old).unwrap();
+            fs::write(&path, "unique new file never confirmed").unwrap();
+        }
+        let now = fs::symlink_metadata(&path).unwrap();
+        {
+            let mut index = probe.engine.index.write().unwrap();
+            let item = result.ids[0];
+            let parent = index.store().parent(item);
+            let again = index.insert(parent, b"offered.txt", false, Meta::from_metadata(&now));
+            assert_eq!(again, item, "the index keeps the id");
+        }
+        // Yes.
+        let paths = model.recheck(targets).unwrap();
+        assert_eq!(paths, std::slice::from_ref(&path));
+        let failed = crate::actions::delete_permanently(&paths, &confirmed);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(path.is_file(), "the item never confirmed is kept");
+        if !in_place {
+            assert_eq!(fs::read(&old).unwrap(), b"what the question offered");
+        }
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_confirmed_delete_keeps_a_new_file_the_index_gives_the_same_id() {
+        confirmed_delete_with_index(false);
+    }
+
+    #[test]
+    fn a_confirmed_delete_keeps_a_file_rewritten_in_place_meanwhile() {
+        confirmed_delete_with_index(true);
+    }
+
     #[test]
     fn column_value_queries_use_visible_cached_details_and_the_shared_hash_store() {
         use crate::hash_columns::{HashColumns, HashReader};

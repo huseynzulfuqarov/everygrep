@@ -5299,8 +5299,8 @@ msgid "that folder already holds {}, which this program did not write and would 
 msgstr "həmin qovluqda artıq {} var; onları bu proqram yazmayıb və onlar əvəz olunardı; başqa qovluq seçin"
 
 #: src/actions.rs
-msgid "another item is at this path now than when the delete was confirmed, so it was kept"
-msgstr "silmə təsdiqlənəndən sonra bu yolda artıq başqa element var, ona görə saxlanıldı"
+msgid "it changed after you chose it; nothing was done"
+msgstr "siz seçəndən sonra dəyişib; heç nə edilmədi"
 
 #: src/main.rs
 msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"

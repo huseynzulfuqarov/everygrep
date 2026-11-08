@@ -307,61 +307,150 @@ pub fn trash(
     crate::trashbin::put_from(actual, original, stamp)
 }
 
-/// Which item a path named when the user asked to delete it: device,
-/// inode and type, of the entry itself (a link, not what it points to).
+/// Which item a path named when the user chose it for an action: device,
+/// inode and type of the entry itself (a link, not what it points to), and
+/// for a regular file its size and modification time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Identity {
     dev: u64,
     ino: u64,
     kind: u32,
+    /// Size and modification time (seconds, nanoseconds) of a regular file.
+    content: Option<(u64, (i64, i64))>,
 }
 
 impl Identity {
-    fn from_meta(m: &std::fs::Metadata) -> Self {
+    pub(crate) fn of(m: &std::fs::Metadata) -> Self {
+        let kind = m.mode() & S_IFMT;
         Self {
             dev: m.dev(),
             ino: m.ino(),
-            kind: m.mode() & S_IFMT,
+            kind,
+            content: (kind == S_IFREG).then(|| (m.size(), (m.mtime(), m.mtime_nsec()))),
         }
     }
 
-    /// The identities of the items at `paths` now; items that cannot be
-    /// read are left out (they are not deleted later).
-    pub fn of_all(paths: &[PathBuf]) -> Vec<Self> {
-        paths
-            .iter()
-            .filter_map(|p| std::fs::symlink_metadata(p).ok())
-            .map(|m| Self::from_meta(&m))
-            .collect()
+    /// The same entry: device, inode and type; the content may differ.
+    fn same_item(&self, other: &Self) -> bool {
+        (self.dev, self.ino, self.kind) == (other.dev, other.ino, other.kind)
     }
 }
 
-/// `S_IFMT`: the type bits of a mode.
+/// `S_IFMT`: the type bits of a mode; `S_IFREG`: a regular file.
 const S_IFMT: u32 = 0o170000;
+const S_IFREG: u32 = 0o100000;
+
+/// The items the user chose for an action, as they were then (when the
+/// question or dialog opened, the drag started, or Cut or Copy was used).
+/// Checked again right before each item is acted on, so another item put at
+/// one of the paths meanwhile (a save by an editor, a sync) is never
+/// touched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Chosen(Vec<Identity>);
+
+impl Chosen {
+    /// The items at `paths` now; items that cannot be read are left out
+    /// (nothing is done with them later).
+    pub fn of(paths: &[PathBuf]) -> Self {
+        Self(
+            paths
+                .iter()
+                .filter_map(|p| std::fs::symlink_metadata(p).ok())
+                .map(|m| Identity::of(&m))
+                .collect(),
+        )
+    }
+
+    /// Whether `m` is one of the chosen items; with `unchanged` also with
+    /// the size and modification time it had (a regular file).
+    pub(crate) fn holds(&self, m: &std::fs::Metadata, unchanged: bool) -> bool {
+        let now = Identity::of(m);
+        self.0.iter().any(|c| {
+            if unchanged {
+                *c == now
+            } else {
+                c.same_item(&now)
+            }
+        })
+    }
+
+    /// [`holds`](Self::holds) as a result: the error says the item changed.
+    pub(crate) fn check(&self, m: &std::fs::Metadata, unchanged: bool) -> io::Result<()> {
+        if self.holds(m, unchanged) {
+            Ok(())
+        } else {
+            Err(changed_since_chosen())
+        }
+    }
+}
+
+/// The error for an item that is not the one the user chose any more.
+pub(crate) fn changed_since_chosen() -> io::Error {
+    io::Error::other(tr("it changed after you chose it; nothing was done"))
+}
 
 /// Deletes `paths` permanently: folders with all their contents, links as
-/// links (never what they point to). Only items whose [`Identity`] is in
-/// `confirmed` are deleted: an item replaced at its path after the user
-/// confirmed (a save by an editor, a sync) is refused and kept. A folder
-/// that is, or holds, another file system (a mounted drive or share, a
-/// bind mount, a btrfs subvolume) is not deleted at all: see
-/// [`remove_tree`]. Returns the paths that failed.
-pub fn delete_permanently(paths: &[PathBuf], confirmed: &[Identity]) -> Vec<(PathBuf, io::Error)> {
+/// links (never what they point to). Only the items in `confirmed`, as they
+/// were then, are deleted: an item replaced at its path after the user
+/// confirmed (a save by an editor, a sync), or a file written since, is
+/// kept and reported. Each item is looked at through its open folder right
+/// before it is removed. A folder that is, or holds, another file system (a
+/// mounted drive or share, a bind mount, a btrfs subvolume) is not deleted
+/// at all: see [`remove_tree`]. Returns the paths that failed.
+pub fn delete_permanently(paths: &[PathBuf], confirmed: &Chosen) -> Vec<(PathBuf, io::Error)> {
     let mut failed = Vec::new();
     for path in paths {
-        let result = match std::fs::symlink_metadata(path) {
-            Ok(m) if !confirmed.contains(&Identity::from_meta(&m)) => Err(io::Error::other(tr(
-                "another item is at this path now than when the delete was confirmed, so it was kept",
-            ))),
-            Ok(m) if m.is_dir() => remove_tree(path, (m.dev(), m.ino())),
-            Ok(_) => std::fs::remove_file(path),
-            Err(e) => Err(e),
-        };
-        if let Err(e) = result {
+        if let Err(e) = delete_one(path, confirmed) {
             failed.push((path.clone(), e));
         }
     }
     failed
+}
+
+/// The folder of `path`, opened, and the name in it.
+fn open_parent(path: &Path) -> io::Result<(OwnedFd, CString)> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(io::ErrorKind::InvalidInput.into());
+    };
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    let fd = rustix::fs::open(
+        parent,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    Ok((fd, CString::new(name.as_bytes())?))
+}
+
+fn delete_one(path: &Path, confirmed: &Chosen) -> io::Result<()> {
+    let m = std::fs::symlink_metadata(path)?;
+    confirmed.check(&m, true)?;
+    if m.is_dir() {
+        return remove_tree(path, (m.dev(), m.ino()));
+    }
+    // Looked at again through the open folder, so the entry removed is the
+    // one checked even when a folder above was renamed meanwhile.
+    let (parent, name) = open_parent(path)?;
+    let st = rustix::fs::statat(&parent, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+    let content = (st.st_mode & S_IFMT == S_IFREG)
+        .then_some((st.st_size as u64, (st.st_mtime, st.st_mtime_nsec as i64)));
+    let now = Identity {
+        dev: st.st_dev,
+        ino: st.st_ino,
+        kind: st.st_mode & S_IFMT,
+        content,
+    };
+    if now != Identity::of(&m) {
+        return Err(changed_since_chosen());
+    }
+    Ok(rustix::fs::unlinkat(
+        &parent,
+        name.as_c_str(),
+        AtFlags::empty(),
+    )?)
 }
 
 /// Where a folder's entries live: its device and the mount it was reached
@@ -429,26 +518,11 @@ fn remove_tree_with(
     expected: (u64, u64),
     place: &dyn Fn(BorrowedFd<'_>) -> io::Result<Place>,
 ) -> io::Result<()> {
-    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
-        return Err(io::ErrorKind::InvalidInput.into());
-    };
-    let parent = if parent.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        parent
-    };
-    let parent_fd = rustix::fs::open(
-        parent,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
-    let name = CString::new(name.as_bytes())?;
+    let (parent_fd, name) = open_parent(path)?;
     let root = open_subdir(parent_fd.as_fd(), &name)?;
     let st = rustix::fs::fstat(&root)?;
     if (st.st_dev, st.st_ino) != expected {
-        return Err(io::Error::other(tr(
-            "another item is at this path now than when the delete was confirmed, so it was kept",
-        )));
+        return Err(changed_since_chosen());
     }
     let here = place(root.as_fd())?;
     if here != place(parent_fd.as_fd())? {
@@ -929,7 +1003,7 @@ mod tests {
 
         let missing = dir.0.join("missing");
         let all = [file.clone(), tree.clone(), link.clone(), missing.clone()];
-        let failed = delete_permanently(&all, &Identity::of_all(&all));
+        let failed = delete_permanently(&all, &Chosen::of(&all));
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].0, missing);
         assert!(!file.exists() && !tree.exists());
@@ -998,7 +1072,7 @@ mod tests {
         assert!(
             delete_permanently(
                 std::slice::from_ref(&tree),
-                &Identity::of_all(std::slice::from_ref(&tree))
+                &Chosen::of(std::slice::from_ref(&tree))
             )
             .is_empty()
         );
@@ -1018,7 +1092,7 @@ mod tests {
                 "inner is a mount"
             );
             let one = std::slice::from_ref(&victim);
-            let failed = delete_permanently(one, &Identity::of_all(one));
+            let failed = delete_permanently(one, &Chosen::of(one));
             assert_eq!(failed.len(), 1, "{failed:?}");
             assert!(failed[0].1.to_string().contains("inner"), "{failed:?}");
             assert_eq!(
@@ -1028,7 +1102,7 @@ mod tests {
             assert!(victim.join("own.txt").exists());
             // Picking the mount point itself is refused too.
             let one = std::slice::from_ref(&inner);
-            let failed = delete_permanently(one, &Identity::of_all(one));
+            let failed = delete_permanently(one, &Chosen::of(one));
             assert_eq!(failed.len(), 1, "{failed:?}");
             assert!(inner.join("data.txt").exists());
             return;
@@ -1133,7 +1207,7 @@ mod tests {
         let link = dir.0.join("link");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         let asked = [file.clone(), folder.clone(), link.clone()];
-        let confirmed = Identity::of_all(&asked);
+        let confirmed = Chosen::of(&asked);
         // While the question is open, an editor saves by writing a new
         // file and renaming it over the old one, and a sync puts another
         // folder in place of the old one.
@@ -1148,7 +1222,10 @@ mod tests {
         let failed = delete_permanently(&asked, &confirmed);
         let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
         assert_eq!(paths, [file.clone(), folder.clone()]);
-        assert!(failed[0].1.to_string().contains("kept"), "{failed:?}");
+        assert!(
+            failed[0].1.to_string().contains("nothing was done"),
+            "{failed:?}"
+        );
         assert_eq!(fs::read_to_string(&file).unwrap(), "new");
         assert!(folder.join("b").is_file());
         // The link did not change: deleted, its target kept.
@@ -1159,6 +1236,73 @@ mod tests {
         let m = fs::metadata(&old_folder).unwrap();
         assert!(remove_tree(&folder, (m.dev(), m.ino())).is_err());
         assert!(folder.join("b").is_file());
+    }
+
+    #[test]
+    fn a_confirmed_folder_delete_keeps_a_folder_or_link_put_in_its_place() {
+        let dir = TempDir::new("delete-folder-swap");
+        let outside = dir.0.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), "keep").unwrap();
+        let by_link = dir.0.join("by-link");
+        let by_folder = dir.0.join("by-folder");
+        for f in [&by_link, &by_folder] {
+            fs::create_dir(f).unwrap();
+            fs::write(f.join("old.txt"), "old").unwrap();
+        }
+        let asked = [by_link.clone(), by_folder.clone()];
+        let confirmed = Chosen::of(&asked);
+        fs::rename(&by_link, dir.0.join("by-link-old")).unwrap();
+        std::os::unix::fs::symlink(&outside, &by_link).unwrap();
+        fs::rename(&by_folder, dir.0.join("by-folder-old")).unwrap();
+        fs::create_dir(&by_folder).unwrap();
+        fs::write(by_folder.join("new.txt"), "new").unwrap();
+        let failed = delete_permanently(&asked, &confirmed);
+        assert_eq!(failed.len(), 2, "{failed:?}");
+        assert!(outside.join("keep.txt").is_file());
+        assert!(fs::symlink_metadata(&by_link).unwrap().is_symlink());
+        assert!(by_folder.join("new.txt").is_file());
+    }
+
+    #[test]
+    fn a_confirmed_delete_removes_only_the_unchanged_items_of_a_mixed_selection() {
+        let dir = TempDir::new("delete-mixed");
+        let p = |n: &str| dir.0.join(n);
+        for n in ["same", "to-folder", "to-link", "gone", "edited"] {
+            fs::write(p(n), "12345").unwrap();
+        }
+        fs::create_dir(p("folder")).unwrap();
+        fs::write(p("folder/inner"), "x").unwrap();
+        let asked: Vec<_> = ["same", "to-folder", "to-link", "gone", "edited", "folder"]
+            .into_iter()
+            .map(p)
+            .collect();
+        let confirmed = Chosen::of(&asked);
+        fs::remove_file(p("to-folder")).unwrap();
+        fs::create_dir(p("to-folder")).unwrap();
+        fs::remove_file(p("to-link")).unwrap();
+        std::os::unix::fs::symlink(p("same"), p("to-link")).unwrap();
+        fs::remove_file(p("gone")).unwrap();
+        // Rewritten in place: the same inode and size, a new time.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(p("edited"), "54321").unwrap();
+
+        let failed = delete_permanently(&asked, &confirmed);
+        let paths: Vec<_> = failed.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(
+            paths,
+            [p("to-folder"), p("to-link"), p("gone"), p("edited")]
+        );
+        for (path, e) in &failed {
+            if path != &p("gone") {
+                assert!(e.to_string().contains("nothing was done"), "{e}");
+            }
+        }
+        assert!(fs::symlink_metadata(p("same")).is_err());
+        assert!(fs::symlink_metadata(p("folder")).is_err());
+        assert!(p("to-folder").is_dir());
+        assert!(fs::symlink_metadata(p("to-link")).unwrap().is_symlink());
+        assert_eq!(fs::read(p("edited")).unwrap(), b"54321");
     }
 
     #[test]

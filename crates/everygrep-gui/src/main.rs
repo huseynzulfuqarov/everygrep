@@ -1258,7 +1258,7 @@ enum Pending {
     Open(Targets),
     Trash(Targets),
     /// With the items as they were when the user asked.
-    Delete(Targets, Vec<actions::Identity>),
+    Delete(Targets, actions::Chosen),
 }
 
 /// Open, copy, rename, trash and delete.
@@ -1675,7 +1675,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                 tr("This cannot be undone. Folders are deleted with all their contents."),
                 tr("Delete"),
             );
-            let confirmed = actions::Identity::of_all(&targets.paths);
+            let confirmed = actions::Chosen::of(&targets.paths);
             *pending.borrow_mut() = Some(Pending::Delete(targets, confirmed));
         }
     });
@@ -2420,7 +2420,7 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
 
 /// Deletes items on a helper thread and reports the outcome; only the
 /// items `confirmed` (see [`actions::delete_permanently`]).
-fn run_delete(w: &AppWindow, paths: Vec<PathBuf>, confirmed: Vec<actions::Identity>) {
+fn run_delete(w: &AppWindow, paths: Vec<PathBuf>, confirmed: actions::Chosen) {
     let what = actions::describe(&paths);
     info(w, fill(tr("Deleting {}…"), &[&what]));
     let weak = w.as_weak();
