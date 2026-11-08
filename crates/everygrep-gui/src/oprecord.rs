@@ -561,11 +561,62 @@ fn write_record(dir: &File, name: &OsStr, text: &str) -> io::Result<()> {
 }
 
 fn remove_record(dir: &File, name: &OsStr) -> io::Result<()> {
+    #[cfg(test)]
+    crate::fileops_test::note("record-removed", Path::new(name));
     match fs::remove_file(fd_path(dir).join(name)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         _ => {}
     }
     dir.sync_all()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Makes every flush of a folder fail, as on a failing disk.
+    static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Flushes the folder `dir` (at `path`) so the renames in it last.
+fn sync_folder(dir: &File, path: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if FOLDER_SYNC_FAILS.with(std::cell::Cell::get) {
+        return Err(io::Error::from_raw_os_error(5));
+    }
+    dir.sync_all()?;
+    #[cfg(test)]
+    crate::fileops_test::note("folder-synced", path);
+    #[cfg(not(test))]
+    let _ = path;
+    Ok(())
+}
+
+/// Flushes every folder whose entries the operation of `record` changed:
+/// the original's, the target's and the staging path's (for a held item
+/// its holding folder is gone, and its removal is in the original's
+/// folder). A folder that is gone holds nothing to flush.
+fn sync_folders(record: &Record) -> io::Result<()> {
+    let mut folders: Vec<&Path> = Vec::new();
+    let staging = if record.kind.held() {
+        None
+    } else {
+        record.staging.parent()
+    };
+    for folder in [record.original.parent(), record.target.parent(), staging]
+        .into_iter()
+        .flatten()
+    {
+        if !folder.as_os_str().is_empty() && !folders.contains(&folder) {
+            folders.push(folder);
+        }
+    }
+    for folder in folders {
+        match open_dir(folder) {
+            Ok(dir) => sync_folder(&dir, folder)?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 /// The error of an operation that could not be recorded: nothing was
@@ -663,8 +714,14 @@ impl Pending {
         self.save();
     }
     /// The operation is complete, or the item is back at its original
-    /// name: the record goes.
+    /// name: the folders it changed are flushed, then the record goes.
+    /// When a folder cannot be flushed the record stays, and the next
+    /// start finds the item where it is.
     pub(crate) fn finish(self) {
+        if let Err(e) = sync_folders(&self.record) {
+            crate::debug_log::note!("operation record {:?} kept: {e}", self.name);
+            return;
+        }
         if let Err(e) = remove_record(&self.dir, &self.name) {
             crate::debug_log::note!("operation record {:?}: {e}", self.name);
         }
@@ -694,6 +751,9 @@ pub(crate) struct Recovery {
     pub(crate) restored: Vec<(PathBuf, PathBuf)>,
     /// Items left in place, not told before.
     pub(crate) kept: Vec<Kept>,
+    /// Items put back whose folders could not be flushed afterwards
+    /// (original path, error); their records stay.
+    pub(crate) unflushed: Vec<(PathBuf, String)>,
     /// Records that could not be read; set aside as `<name>.unreadable`.
     pub(crate) unreadable: Vec<PathBuf>,
     /// Records that were not used: a link, another user's, open to others,
@@ -712,6 +772,7 @@ impl Recovery {
             || !self.kept.is_empty()
             || !self.unreadable.is_empty()
             || !self.untrusted.is_empty()
+            || !self.unflushed.is_empty()
             || self.error.is_some()
     }
 
@@ -745,6 +806,12 @@ impl Recovery {
                 &[&path.display()],
             ));
         }
+        for (original, error) in &self.unflushed {
+            lines.push(fill(
+                tr("“{0}” was put back, but the change could not be written to disk ({1}); its record was kept."),
+                &[&original.display(), error],
+            ));
+        }
         for path in &self.untrusted {
             lines.push(fill(
                 tr("The record “{}” was not used: it is a link, belongs to another user, can be changed by others, or does not describe an operation of this program. Nothing was changed."),
@@ -755,6 +822,7 @@ impl Recovery {
             lines.push(e.clone());
         }
         let attention = !self.kept.is_empty()
+            || !self.unflushed.is_empty()
             || !self.unreadable.is_empty()
             || !self.untrusted.is_empty()
             || self.error.is_some();
@@ -850,16 +918,19 @@ pub(crate) fn recover() -> Recovery {
             continue;
         }
         match settle(&record) {
-            Settled::Restored => {
+            Settled::Restored(unflushed) => {
                 out.restored
                     .push((record.staging.clone(), record.original.clone()));
-                if let Err(e) = remove_record(&dir, &name) {
+                if let Some(e) = unflushed {
+                    out.unflushed.push((record.original.clone(), e));
+                } else if let Err(e) = remove_record(&dir, &name) {
                     crate::debug_log::note!("operation record {}: {e}", shown.display());
                 }
             }
             Settled::Complete => {
                 out.complete += 1;
-                if let Err(e) = remove_record(&dir, &name) {
+                // What a stopped program renamed may not be on disk yet.
+                if let Err(e) = sync_folders(&record).and_then(|()| remove_record(&dir, &name)) {
                     crate::debug_log::note!("operation record {}: {e}", shown.display());
                 }
             }
@@ -922,8 +993,9 @@ fn read_record(path: &Path) -> io::Result<Found> {
 }
 
 enum Settled {
-    /// The item is back at its original name.
-    Restored,
+    /// The item is back at its original name; with the error when its
+    /// folders could not be flushed.
+    Restored(Option<String>),
     /// The operation was complete, or never moved the item.
     Complete,
     /// Left as it is, for this reason.
@@ -948,7 +1020,7 @@ fn settle(record: &Record) -> Settled {
                 return Settled::Kept(tr("it changed since the operation started").into());
             }
             match put_back(record) {
-                Ok(()) => Settled::Restored,
+                Ok(unflushed) => Settled::Restored(unflushed),
                 Err(reason) => Settled::Kept(reason),
             }
         }
@@ -982,8 +1054,9 @@ fn settle(record: &Record) -> Settled {
 }
 
 /// Renames the staged item back to its original name, never replacing
-/// anything, and checks that the item renamed is the recorded one.
-fn put_back(record: &Record) -> Result<(), String> {
+/// anything, and checks that the item renamed is the recorded one. Then
+/// both folders are flushed; `Some` error when they could not be.
+fn put_back(record: &Record) -> Result<Option<String>, String> {
     let parent = |p: &Path| p.parent().map(Path::to_path_buf).unwrap_or_default();
     let from_dir = open_plain_dir(&parent(&record.staging)).map_err(|e| e.to_string())?;
     let to_dir = open_plain_dir(&parent(&record.original)).map_err(|e| e.to_string())?;
@@ -1023,12 +1096,15 @@ fn put_back(record: &Record) -> Result<(), String> {
         let _ = crate::transfer::rename_at(&to_dir, to, &from_dir, from);
         return Err(tr("it changed since the operation started").into());
     }
-    let _ = to_dir.sync_all();
-    let _ = from_dir.sync_all();
-    if record.kind.held() {
-        remove_holder(&record.staging);
-    }
-    Ok(())
+    let staging_folder = parent(&record.staging);
+    let flushed = sync_folder(&from_dir, &staging_folder).and_then(|()| {
+        // The holder goes from the original folder, flushed after it.
+        if record.kind.held() {
+            remove_holder(&record.staging);
+        }
+        sync_folder(&to_dir, &parent(&record.original))
+    });
+    Ok(flushed.err().map(|e| e.to_string()))
 }
 
 /// The folder at the absolute `path`, reached without following any link.
@@ -1532,6 +1608,138 @@ mod tests {
         fs::rename(t.path("dir-moved"), t.path("dir")).unwrap();
         assert_eq!(recover().restored, [(staging, original.clone())]);
         assert_eq!(fs::read(&original).unwrap(), b"a");
+    }
+
+    /// The folder flushes and record removals noted while `f` runs.
+    fn flushes(f: impl FnOnce()) -> Vec<(&'static str, PathBuf)> {
+        crate::fileops_test::start_log();
+        f();
+        crate::fileops_test::take_log()
+            .into_iter()
+            .filter(|(e, _)| matches!(*e, "folder-synced" | "record-removed"))
+            .collect()
+    }
+
+    /// Asserts that `log` flushes each of `folders` and then removes one record.
+    fn flushed_then_removed(log: &[(&'static str, PathBuf)], folders: &[PathBuf]) {
+        let removed = log
+            .iter()
+            .position(|(e, _)| *e == "record-removed")
+            .unwrap_or_else(|| panic!("no record removed: {log:?}"));
+        for folder in folders {
+            assert!(
+                log[..removed]
+                    .iter()
+                    .any(|(e, p)| *e == "folder-synced" && p == folder),
+                "{} not flushed before the record went: {log:?}",
+                folder.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_finished_move_replace_flushes_both_folders_before_its_record_goes() {
+        let t = Temp::new("flush-replace");
+        let src = t.write("src/x", "original source");
+        t.write("dest/x", "old destination");
+        let log = flushes(|| {
+            let out = crate::transfer::paste_observed_using(
+                Operation::Cut,
+                std::slice::from_ref(&src),
+                &t.path("dest"),
+                &Progress::new(),
+                Some(Box::new(|_, _| Decision::Overwrite)),
+                crate::transfer::test_replacement(),
+                |_| {},
+            );
+            assert!(out.failed.is_empty(), "{:?}", out.failed);
+        });
+        // The replaced file's record (held for the trash) goes first, then
+        // the move's, right after both its folders are flushed.
+        let moved = log
+            .iter()
+            .rposition(|(e, _)| *e == "record-removed")
+            .unwrap();
+        let before = log[..moved]
+            .iter()
+            .rposition(|(e, _)| *e == "record-removed")
+            .map_or(0, |i| i + 1);
+        flushed_then_removed(&log[before..=moved], &[t.path("src"), t.path("dest")]);
+        assert!(t.records().is_empty());
+    }
+
+    #[test]
+    fn a_finished_case_rename_flushes_its_folder_before_its_record_goes() {
+        let t = Temp::new("flush-case");
+        let src = t.write("dir/Name", "bytes");
+        let log = flushes(|| {
+            crate::actions::rename_case_only(
+                &src,
+                &t.path("dir/NAME"),
+                crate::transfer::rename_noreplace,
+            )
+            .unwrap();
+        });
+        flushed_then_removed(&log, &[t.path("dir")]);
+        assert!(t.records().is_empty());
+    }
+
+    #[test]
+    fn a_record_stays_when_the_folders_of_its_finished_operation_cannot_be_flushed() {
+        let t = Temp::new("flush-fails");
+        let src = t.write("dir/Name", "bytes");
+        FOLDER_SYNC_FAILS.with(|f| f.set(true));
+        let done = crate::actions::rename_case_only(
+            &src,
+            &t.path("dir/NAME"),
+            crate::transfer::rename_noreplace,
+        );
+        FOLDER_SYNC_FAILS.with(|f| f.set(false));
+        done.unwrap();
+        assert_eq!(t.records().len(), 1, "the record is kept");
+        // The next start finds the rename complete and removes it.
+        let mut record = t.record();
+        record.owner.1 += 1;
+        fs::write(&t.records()[0], record.to_text()).unwrap();
+        let found = recover();
+        assert!(!found.has_news(), "{found:?}");
+        assert_eq!(found.complete, 1);
+        assert!(t.records().is_empty());
+        assert_eq!(fs::read(t.path("dir/NAME")).unwrap(), b"bytes");
+    }
+
+    #[test]
+    fn recovery_flushes_both_folders_before_it_removes_a_record() {
+        let t = Temp::new("flush-recovery");
+        let (original, staging) = staged_by_hand(&t, "a");
+        let log = flushes(|| {
+            assert_eq!(recover().restored.len(), 1);
+        });
+        flushed_then_removed(&log, &[t.path("dir"), t.path("dest")]);
+        assert_eq!(fs::read(&original).unwrap(), b"a");
+        assert!(!staging.exists());
+    }
+
+    #[test]
+    fn recovery_keeps_the_record_when_it_cannot_flush_what_it_put_back() {
+        let t = Temp::new("flush-recovery-fails");
+        let (original, _) = staged_by_hand(&t, "a");
+        FOLDER_SYNC_FAILS.with(|f| f.set(true));
+        let found = recover();
+        FOLDER_SYNC_FAILS.with(|f| f.set(false));
+        assert_eq!(found.restored.len(), 1);
+        assert_eq!(found.unflushed.len(), 1, "{found:?}");
+        let (_, details, attention) = found.notice().unwrap();
+        assert!(
+            attention && details.contains("its record was kept"),
+            "{details}"
+        );
+        assert_eq!(fs::read(&original).unwrap(), b"a");
+        assert_eq!(t.records().len(), 1, "the record is kept");
+        // Next time the item is found back home and the record goes.
+        let found = recover();
+        assert!(!found.has_news(), "{found:?}");
+        assert!(t.records().is_empty());
     }
 
     #[test]

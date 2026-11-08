@@ -5571,6 +5571,10 @@ msgid "The record “{}” could not be read; nothing was changed."
 msgstr "“{}” qeydi oxuna bilmədi; heç nə dəyişdirilmədi."
 
 #: src/oprecord.rs
+msgid "“{0}” was put back, but the change could not be written to disk ({1}); its record was kept."
+msgstr "“{0}” geri qaytarıldı, amma dəyişiklik diskə yazıla bilmədi ({1}); onun qeydi saxlanıldı."
+
+#: src/oprecord.rs
 msgid "its original folder is not the same folder any more"
 msgstr "onun əvvəlki qovluğu artıq həmin qovluq deyil"
 
