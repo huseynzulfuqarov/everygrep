@@ -5571,6 +5571,10 @@ msgid "The record “{}” could not be read; nothing was changed."
 msgstr "“{}” kaydı okunamadı; hiçbir şey değiştirilmedi."
 
 #: src/oprecord.rs
+msgid "another item took the staging path in the last moment and was moved to “{0}”; it could not be moved back to “{1}” ({2}), so it was left there"
+msgstr "son anda hazırlık yolunu başka bir öğe aldı ve “{0}” yoluna taşındı; “{1}” yoluna geri taşınamadı ({2}), bu yüzden orada bırakıldı"
+
+#: src/oprecord.rs
 msgid "“{0}” was put back, but the change could not be written to disk ({1}); its record was kept."
 msgstr "“{0}” geri konuldu, ancak değişiklik diske yazılamadı ({1}); kaydı tutuldu."
 

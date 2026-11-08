@@ -1120,25 +1120,57 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.to_string()),
     }
-    // Held by its descriptor, so the item checked is the item renamed.
-    let pinned =
-        crate::transfer::pin_path(&fd_path(&from_dir).join(from)).map_err(|e| e.to_string())?;
+    // Held by its descriptor while it is checked, and looked at again
+    // through its folder right before and right after the rename: Linux
+    // cannot rename a descriptor, only a name.
+    let pinned = File::from(
+        rustix::fs::openat(
+            &from_dir,
+            from,
+            rustix::fs::OFlags::PATH | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(|e| io::Error::from(e).to_string())?,
+    );
     let now = Identity::of(&pinned.metadata().map_err(|e| e.to_string())?);
     if !record.identity.same_item(&now) {
-        return Err(tr("it changed since the operation started").into());
+        return Err(changed());
     }
+    let pin = (now.dev, now.ino);
     #[cfg(test)]
     crate::fileops_test::at("recovery-checked", &record.staging);
+    if inode_at(&from_dir, from) != Some(pin) {
+        return Err(changed());
+    }
+    #[cfg(test)]
+    crate::fileops_test::at("recovery-renaming", &record.staging);
     match crate::transfer::rename_at(&from_dir, from, &to_dir, to) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(taken()),
         Err(e) => return Err(e.to_string()),
     }
-    let moved = fs::symlink_metadata(fd_path(&to_dir).join(to)).map(|m| Identity::of(&m));
-    if !moved.is_ok_and(|m| (m.dev, m.ino) == (now.dev, now.ino)) {
-        // Another item was taken in the last moment: it goes back.
-        let _ = crate::transfer::rename_at(&to_dir, to, &from_dir, from);
-        return Err(tr("it changed since the operation started").into());
+    #[cfg(test)]
+    crate::fileops_test::at("recovery-renamed", &record.staging);
+    let moved = inode_at(&to_dir, to);
+    if moved != Some(pin) {
+        // Another item took the staging name in the last moment and was
+        // renamed instead: it goes back, never over anything, and only
+        // while it is still the item that was renamed.
+        let back = match moved {
+            Some(id) if inode_at(&to_dir, to) == Some(id) => {
+                crate::transfer::rename_at(&to_dir, to, &from_dir, from)
+            }
+            _ => Err(io::Error::other(changed())),
+        };
+        return Err(match back {
+            Ok(()) => changed(),
+            Err(e) => fill(
+                tr(
+                    "another item took the staging path in the last moment and was moved to “{0}”; it could not be moved back to “{1}” ({2}), so it was left there",
+                ),
+                &[&record.original.display(), &record.staging.display(), &e],
+            ),
+        });
     }
     let staging_folder = parent(&record.staging);
     let flushed = sync_folder(&from_dir, &staging_folder).and_then(|()| {
@@ -1149,6 +1181,17 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
         sync_folder(&to_dir, &parent(&record.original))
     });
     Ok(flushed.err().map(|e| e.to_string()))
+}
+
+/// The device and inode of the entry `name` in `dir` (a link itself).
+fn inode_at(dir: &File, name: &OsStr) -> Option<(u64, u64)> {
+    rustix::fs::statat(dir, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)
+        .ok()
+        .map(|st| (st.st_dev, st.st_ino))
+}
+
+fn changed() -> String {
+    tr("it changed since the operation started").into()
 }
 
 /// The folder at the absolute `path`, reached without following any link.
@@ -1838,6 +1881,82 @@ mod tests {
                 .iter()
                 .all(|(e, _)| *e != "folder-synced")
         );
+    }
+
+    #[test]
+    fn an_item_swapped_in_at_the_last_moment_is_moved_back_or_both_paths_are_reported() {
+        let t = Temp::new("swap-late");
+        let (original, staging) = staged_by_hand(&t, "a");
+        let away = t.path("dest/away");
+        let other = staging.clone();
+        // Right before the rename another item takes the staging name, and
+        // right after it yet another one.
+        crate::fileops_test::arm("recovery-renaming", move |_| {
+            fs::rename(&other, &away).unwrap();
+            fs::write(&other, "foreign").unwrap();
+            crate::fileops_test::arm("recovery-renamed", move |path| {
+                fs::write(path, "third").unwrap();
+            });
+        });
+        let found = recover();
+        crate::fileops_test::fired();
+        assert!(found.restored.is_empty(), "{found:?}");
+        assert_eq!(found.kept.len(), 1, "{found:?}");
+        let reason = &found.kept[0].reason;
+        assert!(
+            reason.contains(&original.display().to_string())
+                && reason.contains(&staging.display().to_string()),
+            "{reason}"
+        );
+        // Nothing more is moved: each item stays where it is now.
+        assert_eq!(fs::read(&original).unwrap(), b"foreign");
+        assert_eq!(fs::read(&staging).unwrap(), b"third");
+        assert_eq!(fs::read(t.path("dest/away")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn an_item_swapped_in_after_the_check_and_moved_back_is_reported() {
+        let t = Temp::new("swap-moved-back");
+        let (original, staging) = staged_by_hand(&t, "a");
+        let away = t.path("dest/away");
+        let other = staging.clone();
+        crate::fileops_test::arm("recovery-renaming", move |_| {
+            fs::rename(&other, &away).unwrap();
+            fs::write(&other, "foreign").unwrap();
+        });
+        let found = recover();
+        crate::fileops_test::fired();
+        assert!(found.restored.is_empty(), "{found:?}");
+        assert_eq!(found.kept.len(), 1, "{found:?}");
+        assert!(!original.exists());
+        assert_eq!(fs::read(&staging).unwrap(), b"foreign");
+        assert_eq!(fs::read(t.path("dest/away")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn an_item_swapped_in_before_the_last_look_is_never_renamed() {
+        let t = Temp::new("swap-early");
+        let (original, staging) = staged_by_hand(&t, "a");
+        let away = t.path("dest/away");
+        let other = staging.clone();
+        let seen = std::rc::Rc::new(std::cell::Cell::new(None));
+        let put = seen.clone();
+        crate::fileops_test::arm("recovery-checked", move |_| {
+            fs::rename(&other, &away).unwrap();
+            fs::write(&other, "foreign").unwrap();
+            put.set(Some(Identity::of(&fs::symlink_metadata(&other).unwrap())));
+        });
+        let found = recover();
+        crate::fileops_test::fired();
+        // Never renamed, not even there and back: its change time is the same.
+        assert_eq!(
+            seen.get(),
+            Some(Identity::of(&fs::symlink_metadata(&staging).unwrap())),
+            "the foreign item was renamed"
+        );
+        assert_eq!(found.kept.len(), 1, "{found:?}");
+        assert!(!original.exists());
+        assert_eq!(fs::read(&staging).unwrap(), b"foreign");
     }
 
     #[test]
