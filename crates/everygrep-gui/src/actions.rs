@@ -422,7 +422,9 @@ pub fn delete_permanently(paths: &[PathBuf], confirmed: &Chosen) -> Vec<(PathBuf
     failed
 }
 
-/// The folder of `path`, opened, and the name in it.
+/// The folder of `path`, opened, and the name in it. Opened as a handle
+/// only (`O_PATH`): entries are looked at, opened and removed through it by
+/// name, so a folder that may be written to but not listed works.
 fn open_parent(path: &Path) -> io::Result<(OwnedFd, CString)> {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(io::ErrorKind::InvalidInput.into());
@@ -434,7 +436,7 @@ fn open_parent(path: &Path) -> io::Result<(OwnedFd, CString)> {
     };
     let fd = rustix::fs::open(
         parent,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
         Mode::empty(),
     )?;
     Ok((fd, CString::new(name.as_bytes())?))
@@ -1345,6 +1347,29 @@ mod tests {
         assert_eq!(failed.len(), 1, "{failed:?}");
         assert!(failed[0].1.to_string().contains("nothing was done"));
         assert_eq!(fs::read(&file).unwrap(), b"54321");
+    }
+
+    #[test]
+    fn a_confirmed_delete_works_in_a_folder_that_cannot_be_listed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("delete-unlisted");
+        let folder = dir.0.join("drop-box");
+        fs::create_dir(&folder).unwrap();
+        let file = folder.join("doc.txt");
+        fs::write(&file, "x").unwrap();
+        let tree = folder.join("tree");
+        fs::create_dir(&tree).unwrap();
+        fs::write(tree.join("inner"), "y").unwrap();
+        let asked = [file.clone(), tree.clone()];
+        let confirmed = Chosen::of(&asked);
+        // Write and search, but no read: the names are known, the folder
+        // cannot be listed.
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o300)).unwrap();
+        let failed = delete_permanently(&asked, &confirmed);
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(failed.is_empty(), "{failed:?}");
+        assert!(fs::symlink_metadata(&file).is_err());
+        assert!(fs::symlink_metadata(&tree).is_err());
     }
 
     #[test]
