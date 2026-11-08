@@ -2204,8 +2204,10 @@ fn mode(meta: &Metadata) -> u32 {
     meta.permissions().mode() & 0o1777
 }
 
-/// Bytes of the files in `path`, links not followed. Stops counting once
-/// the paste is cancelled.
+/// Bytes of the files in `path`, links not followed. Folders are opened by
+/// descriptor, one below the other (never through a link), like the copy
+/// walk, so a folder swapped for a link meanwhile is not counted through.
+/// Stops counting once the paste is cancelled.
 fn tree_size(path: &Path, progress: &Progress) -> u64 {
     let Ok(meta) = fs::symlink_metadata(path) else {
         return 0;
@@ -2216,12 +2218,60 @@ fn tree_size(path: &Path, progress: &Progress) -> u64 {
     if !meta.is_dir() || progress.is_cancelled() {
         return 0;
     }
-    fs::read_dir(path)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| tree_size(&e.path(), progress))
-        .sum()
+    #[cfg(test)]
+    crate::fileops_test::at("size-folder", path);
+    let Ok(dir) = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    ) else {
+        return 0;
+    };
+    folder_size(dir, path, progress)
+}
+
+/// [`tree_size`] of the open folder `dir` (at `path`).
+fn folder_size(dir: std::os::fd::OwnedFd, path: &Path, progress: &Progress) -> u64 {
+    use rustix::fs::{AtFlags, Mode, OFlags};
+    let Ok(mut entries) = rustix::fs::Dir::new(dir) else {
+        return 0;
+    };
+    let mut total = 0u64;
+    while let Some(Ok(entry)) = entries.read() {
+        if progress.is_cancelled() {
+            break;
+        }
+        let name = entry.file_name();
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        let Ok(fd) = entries.fd() else {
+            break;
+        };
+        let Ok(st) = rustix::fs::statat(fd, name, AtFlags::SYMLINK_NOFOLLOW) else {
+            continue;
+        };
+        let kind = rustix::fs::FileType::from_raw_mode(st.st_mode);
+        if kind.is_file() {
+            total = total.saturating_add(st.st_size as u64);
+        } else if kind.is_dir() {
+            let child = path.join(OsStr::from_bytes(name.to_bytes()));
+            #[cfg(test)]
+            crate::fileops_test::at("size-folder", &child);
+            if let Ok(sub) = rustix::fs::openat(
+                fd,
+                name,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            ) {
+                total = total.saturating_add(folder_size(sub, &child, progress));
+            }
+        }
+    }
+    total
 }
 
 /// Why `sources` cannot be copied or moved into `dest` at all: `dest` is
@@ -4962,6 +5012,31 @@ mod tests {
             assert_eq!(fs::read_dir(&root).unwrap().count(), 20_000);
             assert_eq!(read(&root.join("19999")), "19999");
         }
+    }
+
+    #[test]
+    fn the_size_count_never_follows_a_folder_swapped_for_a_link() {
+        let t = TempDir::new("size-swap");
+        let sub = t.path("tree/sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("small"), "12345").unwrap();
+        let outside = t.path("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("big"), vec![0u8; 1 << 20]).unwrap();
+        // Looked at as a folder, then swapped for a link before it is read.
+        let (swap, aside) = (sub.clone(), t.path("sub-aside"));
+        crate::fileops_test::arm_path("size-folder", &sub, move |_| {
+            fs::rename(&swap, &aside).unwrap();
+            symlink(&outside, &swap).unwrap();
+        });
+        let size = tree_size(&t.path("tree"), &Progress::new());
+        crate::fileops_test::fired();
+        assert!(size < 1 << 20, "{size}");
+        // Unchanged, the folders are counted in full.
+        fs::remove_file(&sub).unwrap();
+        fs::rename(t.path("sub-aside"), &sub).unwrap();
+        fs::write(t.path("tree/top"), "123").unwrap();
+        assert_eq!(tree_size(&t.path("tree"), &Progress::new()), 8);
     }
 
     /// The open file limit for [`copy_and_move_with_few_descriptors`].
