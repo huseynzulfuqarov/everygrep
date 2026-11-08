@@ -16,11 +16,16 @@ connections, has no telemetry and runs no service besides the window itself.
 The core uses the standard library, the `regex` crate for regular expressions
 in queries, `rustix` for opening files and folders without following links,
 the line searcher and matcher of ripgrep (`grep-searcher`, `grep-regex`) with
-`encoding_rs` for reading file contents (`content.rs`), `md-5`, `sha2`,
-`crc32fast` and `twox-hash` (XXH3-128) for hashes of file contents
-(`hash.rs`), and hand-written
-bindings for the few Linux calls it needs (`inotify.rs`). The window adds Slint (UI toolkit) and
-zbus (session bus); see `THIRD-PARTY-LICENSES.md` for the full list.
+`encoding_rs` for reading file contents (`content.rs`), `rawzip`, `flate2`
+and `quick-xml` for Office and EPUB documents (`document.rs`), `md-5`,
+`sha1`, `sha2`, `crc32fast` and `twox-hash` (XXH3-128) for hashes of file
+contents (`hash.rs`), `lofty` and `kamadak-exif` for audio and photo
+metadata (`media.rs`, `preview.rs`), and hand-written
+bindings for the few Linux calls it needs (`inotify.rs`). The window adds Slint (UI toolkit),
+its winit backend crate (keys by position, `physical.rs`), zbus (session
+bus) and `x11rb` (the XWayland clipboard, `x11clip.rs`); see
+`THIRD-PARTY-LICENSES.md` for the full list.
+
 
 ## Core
 
@@ -40,7 +45,13 @@ globs. They run only through bubblewrap, with all namespaces isolated, a fresh
 session, cleared environment, dropped capabilities, read-only runtime and input
 binds, private temporary storage and no host home. A native seccomp filter on
 x86-64/aarch64 denies kernel administration, mount, tracing, io_uring and new
-user namespaces (so helpers that start their own nested sandbox fail). Wall
+user namespaces, so helpers that start their own nested sandbox fail. The one
+exception, behind a Window page switch that is on by default, is
+`glycin-thumbnailer` at its usual install paths when it is a root-owned file
+no one else can change: its filter also allows the calls a nested sandbox
+needs (user namespaces, mount, `pivot_root`, `chroot`, `unshare`, `setns`),
+and all other limits stay. Wall
+
 time is limited to five seconds, output files to 4 MiB, CPU time to five
 seconds and address space to 2 GiB. Missing sandbox support skips this tier.
 Failures are recorded under `fail/everygrep` only when a helper exits by
@@ -637,7 +648,12 @@ while the folder is connected, synced and renamed into place.
 
 Opening runs `xdg-open`. The containing folder is shown with the items
 selected through the file manager's `org.freedesktop.FileManager1.ShowItems`
-(called with `gdbus`), falling back to opening the parent folder. Move to trash runs `gio trash`; permanent
+(called with `gdbus`), falling back to opening the parent folder. Move to
+trash is done in-process (`trashbin.rs`): the item is isolated, then renamed
+into `files/` of the trash folder of its file system with its
+`info/<name>.trashinfo` written first, following the freedesktop.org Trash
+specification, without replacing anything; `gio info` only tells whether a
+file can be trashed before it is overwritten. Permanent
 delete removes files and folders directly (links as links). Renames are
 checked first (empty names, `/`, `.` and `..`, too long, existing names).
 The index is not touched by these actions: the watcher sees the change on
@@ -797,8 +813,13 @@ case-insensitive filesystems stage the source before checking target vacancy,
 then publish without replacement; a failed publication restores the source.
 Copy undo uses the
 desktop trash, while redo creates an exact-path copy from a verified source.
-It never relies on discovering a trash identifier. Cross-filesystem moves,
-overwrites and destructive deletion are excluded. No history goes to disk.
+It never relies on discovering a trash identifier. New folders, bulk renames
+and moves to the trash (plain trash and duplicate clean-up) are recorded too:
+undo removes a new folder only while it is still empty and unchanged, and
+finds a trashed item again by device, inode, size, modification time and its
+recorded original path (`trashbin.rs`), putting it back without replacing
+anything. Cross-filesystem moves, overwrites and permanent deletion are
+excluded. No history goes to disk.
 The settings writer persists only the enable choice and history limit.
 
 The journal and this program's destructive operations are serialized on

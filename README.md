@@ -34,9 +34,18 @@ Screenshots: to be added to `docs/images/`.
 - **Keyboard first.** Every action has a key; open, open with another
   application, open the containing folder, cut, copy and paste files, copy
   names or paths, rename in place, trash or delete.
-- **Fits the desktop.** Light and dark themes that follow GNOME, one window
-  per index that a desktop shortcut brings forward, a menu bar or a compact
-  `⋯` menu.
+- **File operations with undo.** New folder, copy or move to a folder, drag
+  rows onto a folder row, rename several items with a preview, clean up
+  duplicates into the trash; undo and redo for the session, trash included.
+- **More than names.** Optional columns from the file system and from file
+  metadata (owner, dimensions, duration, tags, camera, page and word
+  counts, hashes), a preview panel, a properties dialog and a folder panel.
+- **Saved searches.** Tabs, filters and bookmarks (with folders, keys and
+  CSV import/export), search history, a largest folders view.
+- **Fits the desktop.** Light and dark themes that follow GNOME, with a
+  choice of accent colors and surface styles, one window per index that a
+  desktop shortcut brings forward, a menu bar or a compact `⋯` menu, an
+  optional toolbar, zoom for the result list.
 - **Translated.** English, Azerbaijani and Turkish; the window follows the
   system language or a choice in the settings.
 - **Private.** All data stays on this computer (see [Privacy](#privacy)).
@@ -111,6 +120,9 @@ and saves the index; later starts load it and catch up in a moment.
 | `created:today`, `accessed:>30d` | created / accessed (read from disk while searching) |
 | `content:invoice`, `content:<total "due date">`, `regex:content:^From:` | files whose contents hold the text (read from disk while searching) |
 | `duplicates:`, `duplicates:name`, `duplicates:name;size`, `extra-copies:`, `distinct:`, `unique:` | duplicates among the results: same contents by default (read from disk), or same name, size, …; `extra-copies:` all but the first of each group, `distinct:` one of each, `unique:` only files without a copy (`duplicates:` and `extra-copies:` are short names) |
+| `type:pdf`, `attributes:RH`, `sha256:<hex>` | file type as in the Type column, attribute letters, an exact digest (MD5, SHA-1/256/384/512, CRC-32, xxHash) |
+| `parent:docs`, `child:*.txt`, `depth:<=2`, `len:5..20`, `children:0` | the parent folder, a direct child, path depth, name length, number of direct children (from the index) |
+| `names:"a.txt\x0ab.txt"` | one of a list of names (Search → Search a list of names…) |
 
 The full syntax, with every modifier and edge case, is in
 [docs/query-language.md](docs/query-language.md).
@@ -177,14 +189,17 @@ executable file.
 | `Enter`, double-click | open |
 | `Ctrl+Enter`, double-click in the Folder column | open the containing folder |
 | `Shift+Enter` | open with another application, chosen in the desktop's dialog |
+| `Alt+Enter` | properties of the selected item |
 | `Ctrl+X` / `Ctrl+C` | cut / copy the items, to paste them into a folder |
 | `Ctrl+V` | paste into the selected folder |
 | `Ctrl+Shift+C` | copy the full path (one per line) |
 | `Ctrl+Alt+C` | copy the name |
 | `Ctrl+Alt+Shift+C` | copy the path of the containing folder (each folder once) |
 | — | copy path / full path with quotes: each in double quotes, or in single quotes when it has `$`, a backtick, `"`, `\`, `!` or a line break, so a shell takes it literally (context menu, Edit menu; a key can be set) |
-| `F2` | rename in place or in a dialog (`Enter` renames, `Esc` cancels; Settings → Window) |
-| `Delete` | move to the trash (`gio trash`) |
+| `F2` | rename in place or in a dialog (`Enter` renames, `Esc` cancels; Settings → Window); with several items selected, rename them all with a preview |
+| `Ctrl+Shift+N` | new folder |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | undo / redo the last file operation; `Ctrl+Alt+Z` lists them |
+| `Delete` | move to the desktop trash |
 | `Shift+Delete` | delete permanently, after a confirmation |
 | `Esc` | clear the selection, then back to the search |
 | `Ctrl+F`, `Ctrl+L` | focus the search field |
@@ -196,8 +211,12 @@ executable file.
 | `Alt+↑` / `Alt+↓` | previous / next filter |
 | `Ctrl+S` | export the results to a CSV, TSV, text, M3U8, JSON or HTML file |
 | `F5` | refresh: run the search again and read the Created, Accessed and Attributes values afresh |
+| `Ctrl+T`, `Ctrl+W` | new tab, close tab (more tab keys below) |
 | `Ctrl+N` | new window over the same index (also with the menu bar hidden) |
-| `Ctrl+W` | close the window, as its close button does |
+| `Ctrl+Shift+W` | close the window, as its close button does |
+| `Ctrl+D` | save the search as a bookmark |
+| `Ctrl+Shift+F` | Advanced Search |
+| `Ctrl+=`, `Ctrl+-`, `Ctrl+Shift+0` | zoom the result list in, out, back to 100 % |
 | `Ctrl+,` | settings |
 | `F1` | help: search syntax, regular expressions, command line options |
 | `Ctrl+Q` | quit (also when closing only hides the window) |
@@ -206,9 +225,17 @@ Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
 
 Cut or copy items, select one folder in the results and paste (`Ctrl+V`,
-or Paste into folder in the menus) to copy or move them there. By default,
-when a name is taken, the item gets the first free name like
-`report (2).pdf`. A copy is written under a temporary name and renamed into
+or Paste into folder in the menus) to copy or move them there. File → Copy
+to folder… and Move to folder… ask for the destination in the desktop's
+folder chooser instead, and rows can be dragged onto a folder row in the
+list (outlined while the drop is allowed): `Ctrl` copies; otherwise
+Settings → Window → File operations chooses move on the same drive and copy
+to another (the default), always copy, always move, or a menu that asks.
+All of them run the same transfer. When a name is taken, a question offers
+keep both (the first free name like `report (2).pdf`), skip, skip all
+conflicts in this paste, overwrite or cancel; with "Ask when a pasted name
+exists" off, the item gets the first free name without a question. A copy
+is written under a temporary name and renamed into
 place only when it is complete, so a failure or a cancel leaves nothing
 half-copied. A move is a rename on the same file system; across file
 systems the items are copied first and only what was copied is removed
@@ -216,12 +243,31 @@ afterwards, so a failed move never loses the original. Links are copied as
 links, and special files (pipes, sockets, devices) are left out and named
 in the status line. A paste that takes longer shows its progress in the
 status line with a Cancel button; items already pasted stay. A folder is
-never pasted into itself. Settings → Window → File operations can enable
-questions for existing names: keep both, skip, skip all conflicts in this paste,
-or cancel. Regular files can also be overwritten: a complete temporary copy
-replaces the destination atomically after its identity is checked again. Links,
-folders and hard links to the source cannot be overwritten. Errors offer retry
+never pasted into itself. Only regular files can be overwritten: a complete
+temporary copy replaces the destination atomically after its identity is
+checked again, and the old file goes to the trash (overwrite is offered only
+where it can). Links, folders and hard links to the source cannot be
+overwritten. A copy whose source changes while it is read is refused. A
+move across file systems keeps the whole source when the file times or
+extended attributes (ACLs included) cannot be copied, and is refused for a
+file with several hard links. Errors offer retry
+
 or skip. The worker waits for an answer while the window stays responsive.
+
+New folder (`Ctrl+Shift+N`) asks for a name, offers the first free
+"New Folder (N)" and never takes an existing name; it goes inside the
+selected folder, or next to the selected item when that setting is off.
+Rename with several items selected (or Edit → Rename several items…)
+applies one rule to all of them: text before or after the name, replace
+text, a regular expression, the modification date or a counter, keeping
+the extension if wanted. Every old and new name is shown first, and the
+batch runs only when no row has a problem (a name that is not allowed, two
+items with the same name, a name taken in the folder). Edit → Clean up
+duplicates… takes the groups of a duplicate search and keeps the newest
+copy, the oldest copy or the copies in a chosen folder; the preview lists
+what is kept, what goes to the trash and the space freed. Just before each
+copy goes, both files are compared byte by byte again, and copies only go
+to the trash.
 
 The result context menu can search the clicked Name, Folder, Size, Modified,
 Created, Accessed or Extension value. Name matches the whole literal name, Folder
@@ -241,16 +287,20 @@ context-search window/tab setting, retain the current filter and case choice,
 and turn global regex mode off. The name-without-extension commands can have
 keys assigned in Keyboard settings and are also in the row context menu.
 
-File undo is off by default. Settings → Window → File operations enables a
-session-only history (100 steps by default, adjustable from 1 to 1000).
+File undo is on by default: a session-only history of 100 steps (1 to 1000,
+Settings → Window → File operations, where it can also be turned off).
 A typed limit takes effect only with "Apply history limit".
 `Ctrl+Z` and `Ctrl+Shift+Z` in the result list undo/redo; `Ctrl+Alt+Z` opens
 File undo history, with action filtering, undo through a selected step and CSV
 export. That selection includes every newer step, even when filtered out.
-Rename, copies and moves within one filesystem are recorded. Trash, permanent
-deletion, overwrites, shortcuts and moves across filesystems are excluded.
+Renames (also several at once), new folders, copies, moves within one
+filesystem and moves to the trash (also of a duplicate clean-up) are
+recorded; undoing a move to the trash puts the item back from the trash
+without replacing anything. Permanent deletion, overwrites, shortcuts and
+moves across filesystems are excluded.
 Undo never replaces a destination. Changed or missing items are skipped with
-the reason shown. Undoing a copy sends it to the desktop trash; redo copies
+the reason shown; a skipped step can be retried. Undoing a copy sends it to
+the desktop trash; redo copies
 its original source again only if that source is unchanged. A new recorded
 action discards redo. Disabling undo clears the session history. History also
 has a memory bound of 100,000 recorded tree entries; the oldest whole steps
@@ -288,7 +338,8 @@ a temporary file and renamed into place.
 
 The menu bar (File, Edit, View, Search, Bookmarks, Tabs, History, Index, Tools,
 Help) holds the same actions,
-File → Close window (`Ctrl+W`, as the close button: hide or quit as set),
+File → Close window (`Ctrl+Shift+W`, as the close button: hide or quit as set),
+
 the appearance choices (optional columns, sort by a column and direction,
 folder size, density, theme, selection details, the menu bar itself), the
 matching modes with their `Alt` keys, the filters and the search history.
@@ -315,7 +366,8 @@ take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
 the table above. With the menu bar hidden, the `⋯` button next to the filter
 selector holds settings, search syntax, keyboard shortcuts, about and quit.
 
-The status line shows badges for active matching modes and hidden-file filters.
+The status line shows badges for active matching modes and hidden-file
+filters, a duplicate search and paused index updates.
 Settings → Search → Show active matching modes in the status line turns them
 off or on.
 Badges describe the window toggles; per-term modifiers stay in the query.
@@ -397,9 +449,9 @@ last keep their result lists in memory (Settings → Window → Background tabs
 that keep their results); older ones free theirs and search again when shown,
 except a content search that was stopped, which keeps its matches so far.
 
-Settings → Window includes opt-in preferences for opening searches in tabs,
-switching to newly opened tabs and restoring the last window's tabs. All three
-are off by default. Opening a context search in a new window follows the tab
+Settings → Window has preferences for opening searches in tabs, switching to
+newly opened tabs (both on by default) and restoring the last window's tabs
+(off by default). Opening a context search in a new window follows the tab
 preference, as do query-bearing launches handed to the running window. Explicit
 New window commands continue to create windows.
 
@@ -421,18 +473,77 @@ preserved and reported with their path and reset instructions in the status
 line. Turning restore off and on explicitly resets the saved file. Reading is limited to 8 MiB and
 1,000 tab records.
 
+### Columns, panels and saved searches
+
+Besides the columns above, the header's context menu and View → Organize
+columns offer columns read from the index or the file system (full path,
+parent path, name without extension, name and path length, size on disk,
+total size, items, files and subfolders inside (also at any depth), folder depth, hard link count,
+shortcut target, owner), from file metadata (width, height, dimensions,
+length, bit rate, title, artist, album, year, track, genre, rating, tags,
+page count, word count, camera maker and model, date taken, GPS latitude
+and longitude), more hashes (SHA-1, SHA-384, SHA-512, xxHash) and the
+duplicate group of a duplicate search. Metadata is read for the rows on
+screen with a budget of 8 MB and 250 ms per file and kept in the property
+cache; Settings → Search can index chosen properties in the background.
+View → Advanced sort sorts by several columns.
+
+View → Preview panel shows a preview of the selected file: thumbnails from
+the shared thumbnail cache, PNG and JPEG images, text files, and other
+formats through the system's thumbnail helpers, which run only in a sandbox
+(Settings → Window chooses the sources). File → Properties (`Alt+Enter`)
+shows the properties of an item; its hashes only when the hash cache
+already has them. View →
+
+Folders panel shows the indexed folders as a tree; choosing one searches
+inside it. View → Toolbar, View → Status bar and View → Zoom show the
+toolbar, hide the status line and size the result list; the window title
+names the search and the number of other tabs.
+
+Right-click the search field for Undo, Redo, the clipboard commands and
+Insert menus that put an operator, a modifier or a function at the cursor.
+Edit → Copy column value copies the value of the right-clicked column for
+the chosen items, and Copy all properties (TSV) the shown columns with a
+header line. File → Load file details reads the size and date of
+items that an index of names only has without them, without writing
+anything.
+
+Filters can bring their own columns and sort order; bookmarks keep their
+columns too. Bookmarks can be grouped in folders (one level) with
+separators, shown as submenus of the Bookmarks menu; each folder can open
+all its bookmarks in tabs, as Bookmarks → Open all bookmarks does for all.
+Bookmarks → Append to search adds a bookmark's search to the field as one
+more condition. The managers of filters and bookmarks import and export
+CSV (an import never replaces an entry) and have a find field (Search →
+Find Filter…, Bookmarks → Find Bookmark…). The Bookmarks menu also offers
+five ready-made searches: files over 1 GB, changed today, downloads of the
+last 7 days, empty folders and duplicate photos.
+
+View → Largest folders lists folders by total size, and Search → Search a
+list of names… finds the names of a pasted list or a text file (both in
+[docs/query-language.md](docs/query-language.md)). Index → Index changes…
+lists the last 10 000 changes applied from file events, with filters and
+CSV export (when the journal is on). Index → File list editor… makes,
+opens and saves file lists (see [File lists](#file-lists)).
+
 ### Settings
 
-Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the
+Open the settings with `Ctrl+,`,
+ Tools → Settings… (or the `⋯` menu when the
 menu bar is hidden), or with `--settings` (`--settings=search` opens that page; given to
 a later launch, it opens the settings in the running window). Changes apply at
 once; each page has a "Reset to defaults" button. Without a settings file
-the program behaves as before, except that folders show their total size.
+every setting has the default shown below.
+
 
 | Page | Setting | Default |
 |---|---|---|
 | Indexing | folders to index (added through the desktop's folder chooser) | the folders of the saved index, or the home folder |
+| | index the subfolders of the selected folder (off: only its own files and folders, nothing deeper) | on |
 | | watch for changes (off: nothing is watched and the status line says so; on again catches up) | on |
+| | change event buffer, 16 KiB to 4 MiB (the system's queue size is shown) | 64 KiB |
+| | index again when change events were lost (off: catch up by folder times instead) | on |
+| | keep a list of index changes: the last 10 000 changes applied from file events, in memory only (Index → Index changes…) | off |
 | | rescan the folders: never, every N hours (1 to 168, counted from the last full scan, also across restarts: its time is kept in `last-full-scan` next to the index file; from the start when there is none) or every day at a time (`HH:MM`; a time passed while the computer slept runs at the next check); not while index updates are paused | never (24 hours, 03:00 when chosen) |
 | | index file sizes and modification times (off: only names are read, which is faster; Size and Modified are empty for files, folders have no total size, `size:` and `modified:` find no files; changing it indexes again) | on |
 | | use the exclude list (excluded folders and file filters) | on |
@@ -442,6 +553,8 @@ the program behaves as before, except that folders show their total size.
 | | when a drive is removed: keep its entries, shown dimmed, or forget them | keep |
 | | known drives, each with "Forget" and "Don't index this drive" | — |
 | | file lists: add, create, turn on or off, remove, read again (see [File lists](#file-lists)) | none |
+| | read a file list again when its file changes | on |
+
 | | hide entries of drives and file lists that are not connected (also Index → Hide offline entries) | off |
 | | "Rebuild index now" | — |
 | | index file: the folder of `index.bin` (and `hashes.bin` and `last-full-scan` next to it), "Choose folder…" moves it there at once and removes the old file once the new one is written; drive indexes stay in the cache folder; not for a window started with `--root` or `--index-file` | the cache folder |
@@ -453,7 +566,13 @@ the program behaves as before, except that folders show their total size.
 | | searches kept for `Alt+←`/`Alt+→` (0 turns the history off) | 200 |
 | | record search history | on |
 | | days to keep searches (0 = forever), with Clear now | 90 |
-| | suggest earlier searches while typing (off: suggestions appear only when search as you type is off) | off |
+| | suggest earlier searches while typing (off: suggestions appear only when search as you type is off) | on |
+| | distinct searches to keep in the history | 10 000 |
+| | hide the results while the search field is empty | off |
+| | show the search scope next to the search field: all locations, the home folder or one indexed folder or drive; each tab keeps its own | on |
+| | search delay while typing, in milliseconds (Enter always searches at once) | 0 |
+| | search inside Office and EPUB documents (DOCX, XLSX, PPTX, ODT, ODS, ODP, EPUB), with a limit for their expanded size | on, 64 MiB |
+| | property cache: largest size, "Clear property cache", and per property: index it in the background, largest file, include and exclude patterns | 256 MB, every property off |
 | | keep the history after EveryGrep closes | off |
 | | search file contents only when Enter is pressed: while searching as you type, a search with `content:` or for duplicates by contents waits for Enter | on |
 | | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
@@ -465,6 +584,12 @@ the program behaves as before, except that folders show their total size.
 | | hash cache of duplicate searches: largest size in MB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
+| | dark style: slate, layered, graphite or classic; light style: classic, cool, layered or neutral | slate, classic |
+| | accent color: system (the desktop's accent, adjusted for contrast), blue, green, teal, purple, orange or pink | blue |
+| | result list zoom, 50 to 300 % | 100 % |
+| | show the status line (off: progress, Cancel and messages appear in a small box at the bottom right) | on |
+| | show the toolbar (Back, Forward, New tab, Rescan, Filters, Preview, Settings; each button can be turned off), labels on Back and Forward | off |
+| | open the location and filter lists below their buttons | on |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
 | | alternate row color: every second row slightly darker (lighter in the dark theme); in a `duplicates:` or `extra-copies:` list every second group of copies instead | on |
 | | size format: automatic, bytes, KB, MB or GB | automatic |
@@ -481,7 +606,15 @@ the program behaves as before, except that folders show their total size.
 | | focus the search field and select its text when the window is shown again | on |
 | | sort dates newest first / sort sizes largest first: the direction of the first click on a date or Size header | off |
 | | what the Size column shows for folders: total size, number of items, or nothing | total size |
+| | use bookmark and filter columns as defaults | off |
+| | protect spreadsheet formulas in CSV and TSV (an apostrophe before cells starting with `=`, `+`, `-`, `@`, tab or carriage return) | on |
+| | show the drive label on drive roots | on |
+| | read missing sizes and dates of the rows on screen, for an index of names only | off |
+| | preview panel sources: the shared thumbnail cache, PNG and JPEG images, text files, system thumbnail helpers (only in a sandbox), HEIC/JXL/SVG helpers with their own sandbox | all on |
+| | file operations: rename in a dialog; ask when a pasted name exists; file undo and its number of steps; new folder inside a selected folder; drag results onto folders and what a drop does; shortcut kind and names; context search window, subfolders and whole names | off; on; on, 100; on; on, move on the same drive; symbolic link, numbered; this window, direct children, substrings |
 | Keyboard | the keys of the window's commands (see below), and how to open EveryGrep with a key | the keys listed above |
+| | match shortcuts by key position: a shortcut with `Ctrl`, `Alt` or `Super` stays on the same key whatever the keyboard layout | on |
+
 | Advanced | the settings file: "Export settings…" writes it where you choose; "Import settings…" replaces every setting with those of a chosen file (after a question; a file that sets nothing known is refused); "Reset all settings…" puts every setting back to its default (after a question); folders, rules and file details are taken only by the window over the default index, and changing them indexes again; column widths of an import apply at the next start | — |
 | | all settings: a table of every key with its value and default ("Search settings…", "Only changed settings"); choose a row to edit its value in the file's form, toggle a `true`/`false`, reset it or copy its line; a change applies and is saved at once, and under "Only changed settings" a setting changed back to its default stays listed (and chosen) until the filter changes; list keys (`root`, `exclude`, `ignore-drive`, `shortcut`) are shown but changed on their pages | — |
 | | apply changes made to the settings file outside this window (looked at every 2 seconds, after the window's own saves; applied as an import, with a note in the status line) | on |
@@ -877,16 +1010,29 @@ collects nothing. It stores:
   inode numbers, sizes, modification times and hashes, never names or
   paths), at most 512 MB (Settings → Search → Hash cache, with a button
   that empties it);
+- file metadata read for property columns (tags, dimensions, page counts,
+  …), in `properties.bin` next to the window's index, at most 256 MB by
+  default (Settings → Search, with a button that empties it);
+- thumbnails made for the preview panel, in the shared thumbnail cache
+  (`~/.cache/thumbnails`, as other programs keep them);
 - the settings, in `~/.config/everygrep/settings` (and an empty
-  `settings.lock` next to it, which windows lock while they save);
+  `settings.lock` next to it, which windows lock while they save), the
+  filters and bookmarks in `saved-searches` and, when restoring tabs is on,
+  the last window's tabs in `session`, in the same folder;
 - the search history, in `~/.config/everygrep/search-history`, only when "Keep the
-  history after EveryGrep closes" is on (it is off by default).
+  history after EveryGrep closes" is on (it is off by default);
+- the debug log, in `~/.cache/everygrep/debug.log`, only with `--debug-log`.
 
 It talks to other programs only on this computer: the session bus (single
 window, desktop portals for the folder chooser, the save dialog of the
-export, the application chooser of "open with" and the light or dark style,
-the file manager), the XWayland display for files on the clipboard, `xdg-open` to open files and `gio trash` to move them to
-the trash.
+export, the application chooser of "open with" and the light or dark style
+and accent color, the file manager), the XWayland display for files on the
+clipboard, `xdg-open` to open files, `gio info` to see whether a file can go
+to the trash before it is overwritten, `pdftotext` and `pdfinfo` for PDF
+files, `getent` for owner names, and system thumbnail helpers, each run in
+a `bwrap` sandbox. Moving to the trash is done by EveryGrep itself, as the
+freedesktop.org Trash specification describes.
+
 
 ## Building
 

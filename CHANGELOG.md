@@ -15,14 +15,36 @@ First version, 0.1.0, not released yet.
   open. Add explicit filename and name-without-extension search commands,
   sharing current-window, new-window and new-tab routing.
 
-- Opt-in session file undo/redo for rename, copy and same-filesystem moves,
-  with bounded history, filtering, undo through selection and CSV export.
-  Changed items and occupied targets are protected; undoing a copy uses trash.
+- Session file undo/redo (on by default, 100 steps) for renames, new
+  folders, copies, same-filesystem moves and moves to the trash, with
+  bounded history, filtering, undo through selection, retry of skipped
+  steps and CSV export. Changed items and occupied targets are protected;
+  undoing a copy uses the trash, undoing a trash step restores the item
+  from it.
+- New folder (`Ctrl+Shift+N`), inside the selected folder or next to it.
+- Copy to folder… and Move to folder… through the desktop's folder chooser,
+  and dragging result rows onto a folder row (`Ctrl` copies; a setting
+  chooses move on the same drive and copy to another, always copy, always
+  move, or ask), all with the same transfer, questions and undo.
+- Rename several items at once with a preview: text before or after the
+  name, replace text, a regular expression, the modification date or a
+  counter; a batch with any problem row is refused as a whole.
+- Clean up duplicates…: keep the newest, the oldest or the copies in a
+  chosen folder, preview what goes, compare the bytes again just before
+  each copy goes to the trash; one undo step.
+- Moving to the trash is done in-process, following the freedesktop.org
+  Trash specification, instead of running `gio trash`; every trashed item
+  of a batch is recorded for undo and every failure is reported.
+- A copy whose source changes while it is read is refused; a move across
+  file systems keeps the whole source when file times or extended
+  attributes cannot be kept, and is refused for files with several hard
+  links. Partial copies are created with private permissions.
 - Rename validation stays local while typing; rename submission runs on a
   helper thread and keeps dialog errors next to the editor.
 
-- Optional paste conflict questions with skip, skip all, keep both, retry and
-  atomic replacement of regular files; existing behavior remains the default.
+- Paste conflict questions (on by default) with skip, skip all, keep both,
+  retry and atomic replacement of regular files, whose old version goes to
+  the trash; off, a taken name gets the first free numbered name.
 
 ### Tabs
 
@@ -36,8 +58,8 @@ First version, 0.1.0, not released yet.
   background tabs shown last keep their results in memory (a setting);
   the others search again when shown.
 
-- Add Window settings for searches in tabs, immediate activation and restoring
-  the last window's tabs, all off by default.
+- Window settings for searches in tabs and immediate activation (both on by
+  default) and restoring the last window's tabs (off by default).
 
 ### Saved searches
 
@@ -57,6 +79,16 @@ First version, 0.1.0, not released yet.
 
 - Manage named filters with matching modes in the existing selector and Search
   menu; restore built-ins, reorder with Alt+Up/Down and save edits atomically.
+- Filters can bring their own columns and sort order, and bookmarks keep
+  their columns. Bookmarks can be grouped in one level of folders with
+  separators (submenus of the Bookmarks menu). Both managers import and
+  export CSV; an import never replaces an entry. The saved searches file
+  is version 2 and still reads version 1.
+- Bookmarks → Open all bookmarks, "Open all in tabs" for one bookmark
+  folder, and Append to search; Search → Find Filter… and Bookmarks → Find
+  Bookmark… open the managers with their find field.
+- Five ready-made bookmark searches: files over 1 GB, changed today,
+  downloads of the last 7 days, empty folders and duplicate photos.
 
 ### Search history
 
@@ -89,6 +121,15 @@ First version, 0.1.0, not released yet.
 
 ### Index and engine
 
+- A folder to index can leave out the contents of its subfolders (Settings
+  → Indexing, per folder).
+- The change event buffer is settable (16 KiB to 4 MiB), and lost events
+  can lead to a catch-up by folder times instead of indexing again.
+- Index → Index changes…: the last 10 000 changes applied from file
+  events, with filters, Open path, Copy full path and CSV export; off by
+  default and kept in memory only.
+- Index → File list editor… makes, opens and saves file lists; a file list
+  whose file changes on disk is read again.
 - File lists: the entries of a folder, normally a disk, saved to a text file
   (`.eglist`, names kept byte for byte) and searched while it is not
   connected. Index → Create file list…, and Settings → Indexing → File lists
@@ -183,6 +224,18 @@ First version, 0.1.0, not released yet.
 
 ### Query language
 
+- `type:` (the kind shown in the Type column), `attributes:` (attribute
+  letters, `=` for an exact set) and exact digests (`md5:`, `sha1:`,
+  `sha256:`, `sha384:`, `sha512:`, `crc32:`, `xxhash:`), read from disk
+  while searching.
+- Conditions on the index tree: `parent:`, `child:`, `depth:`, `len:`,
+  `children:`, `childfiles:` and `childfolders:`, also in
+  Advanced Search and the search field's Insert menu.
+- Lists of names (`names:`, `stemnames:`, `containsnames:`,
+  `containsstemnames:`) from Search → Search a list of names…, up to
+  10 000 names.
+- `content:` also searches Office and EPUB documents (DOCX, XLSX, PPTX,
+  ODT, ODS, ODP, EPUB; on by default, with a limit for their expanded size).
 - AND (space), OR (`|`), NOT (`!`), grouping (`< >`) and quoted literals.
   Nesting deeper than 100 levels is a query error instead of a crash.
 - Settings → Search can enable standalone uppercase `AND`, `OR`, `NOT`
@@ -299,6 +352,38 @@ First version, 0.1.0, not released yet.
   panic.
 
 ### Window
+
+- Optional columns from the index, the file system and file metadata (paths,
+  lengths, counts, size on disk, owner, hard links, shortcut target,
+  dimensions, duration, audio tags, rating, tags, page and word counts,
+  camera and GPS data), more hashes (SHA-1, SHA-384, SHA-512, xxHash) and
+  a sortable duplicate group column; metadata is kept in a property cache
+  (`properties.bin`, 256 MB by default), and chosen properties can be
+  indexed in the background.
+- Preview panel with the shared thumbnail cache, PNG/JPEG images, text
+  files and sandboxed system thumbnail helpers, each source switchable; a
+  Properties dialog (`Alt+Enter`); a Folders panel; a Largest folders view.
+- Optional toolbar (Back, Forward, New tab, Rescan, Filters, Preview,
+  Settings; each button and the Back/Forward labels can be turned off).
+- Accent colors (system, blue, green, teal, purple, orange, pink; system
+  follows the desktop accent, adjusted for contrast) and four surface
+  styles each for the dark and the light theme.
+- Zoom of the result list from 50 to 300 % (`Ctrl+=`, `Ctrl+-`,
+  `Ctrl+Shift+0`); the status line can be hidden (messages then appear in a
+  small box); the window title names the search and the other tabs.
+- A search scope selector next to the search field (all locations, the
+  home folder or one indexed folder or drive), kept per tab.
+- Search page: a search delay while typing (0 ms by default) and hiding
+  the results while the search field is empty (off by default).
+- The search field's context menu has Insert menus for operators,
+  modifiers and functions.
+- Copy column value and Copy all properties (TSV), with the formula guard
+  of the export setting.
+- File → Load file details reads sizes and dates for an index of
+  names only, and a Window page switch reads them for the rows on screen.
+- Shortcuts with `Ctrl`, `Alt` or `Super` are matched by key position,
+  whatever the keyboard layout (Keyboard page, on by default).
+- Status badges for a duplicate search and paused index updates.
 
 - Search window with results on every key press, matched terms in bold
   (every occurrence of every term, wildcards, regular expressions, path terms
@@ -422,7 +507,8 @@ First version, 0.1.0, not released yet.
   shortcuts dialog. `Ctrl+N` opens a new window with the menu bar hidden
   too, and the global keys also work while the filter selector has the
   focus.
-- Menus built from the same table: File → Close window (`Ctrl+W`, the
+- Menus built from the same table: File → Close window (`Ctrl+Shift+W`, the
+
   close button's action), View → Sort by (column and direction), Search →
   Previous filter / Next filter (`Alt+↑`/`Alt+↓`), and a Tools menu with
   Settings… (moved from File, still `Ctrl+,`) and Customize shortcuts…. The
@@ -561,4 +647,6 @@ First version, 0.1.0, not released yet.
   documentation.
 - Generated list of third-party crates and their licenses.
 - Arch Linux PKGBUILD.
+- AppStream metainfo (`data/az.huseynz.EveryGrep.metainfo.xml`), installed by
+  the PKGBUILD.
 

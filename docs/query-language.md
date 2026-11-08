@@ -391,6 +391,30 @@ other terms on large indexes (`created:today ext:pdf` is cheaper than `created:t
 - The access time is coarse on most systems (`relatime` updates it at most
   once a day); entries that cannot be read never match `accessed:`.
 
+## File type, attributes and digests
+
+| Query | Finds |
+|---|---|
+| `type:image`, `type:pdf` | entries of that kind, as the Type column names it |
+| `attributes:RH` (`attrib:`) | entries with at least these attribute letters |
+| `attributes:=RH`, `attributes:=` | entries with exactly these letters (none for `=` alone) |
+| `md5:<hex>`, `sha256:<hex>`, … | files whose digest is exactly this value |
+
+The kinds of `type:` are `folder`, `file`, `text`, `document`, `pdf`,
+`spreadsheet`, `presentation`, `image`, `audio`, `video`, `archive`,
+`code`, `executable`, `font`, `disk-image` and `link` (case is ignored);
+another word is a query error. The attribute letters are those of the
+Attributes column: `R` read-only, `H` hidden, `D` folder, `L` link, `X`
+executable; attributes are read from disk while searching.
+
+Digests take the full value in hexadecimal: `md5:`, `sha1:` (`sha-1:`),
+`sha256:` (`sha-256:`), `sha384:`, `sha512:`, `crc32:` (`crc-32:`) and
+`xxhash:` (`xxh3:`, `xxh3-128:`). Files are read whole when needed, and the
+hashes are kept in the hash cache like those of duplicate searches. A digest
+counts as a content term: a query holds at most six digests and `content:`
+terms together. `attributes:` and digests are not available inside
+`parent:` and `child:`; `type:` is.
+
 ## File contents
 
 `content:invoice` finds files whose contents hold `invoice`. The index keeps

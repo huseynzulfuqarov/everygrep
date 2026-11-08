@@ -49,8 +49,13 @@ so `scripts/check.sh` does not run it.
 `everygrep-core` depends on `regex` (regular expressions in queries),
 `rustix` (opening files and folders without following links), and
 `grep-searcher`, `grep-regex` and `encoding_rs` (reading file contents for
-`content:`), and `md-5`, `sha2`, `crc32fast` and `twox-hash` (hashes of file
-contents); keep that list short. The window uses Slint and zbus. **Do not add a crate, or a feature that pulls in new
+`content:`), `md-5`, `sha1`, `sha2`, `crc32fast` and `twox-hash` (hashes of
+file contents), `lofty` and `kamadak-exif` (audio and photo metadata), and
+`rawzip`, `flate2` and `quick-xml` (Office and EPUB documents); keep that list
+short. The window uses Slint (with its winit backend crate pinned, for keys
+by position), zbus (session bus), `x11rb` (files on the XWayland clipboard)
+and `rustix`. **Do not add a crate, or a feature that pulls in new
+
 crates, without discussing it first**; `git diff Cargo.lock` should normally
 be empty. When the dependencies do change, regenerate the license list:
 
