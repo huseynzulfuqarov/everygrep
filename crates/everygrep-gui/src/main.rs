@@ -1256,7 +1256,7 @@ enum Pending {
     /// Bookmarks to open in new tabs.
     Tabs(Vec<tabs::SearchState>),
     Open(Targets),
-    Trash(Targets),
+    Trash(Targets, actions::Chosen),
     /// With the items as they were when the user asked.
     Delete(Targets, actions::Chosen),
 }
@@ -1658,9 +1658,11 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                     tr("You can restore them from the trash."),
                     tr("Move to trash"),
                 );
-                *pending.borrow_mut() = Some(Pending::Trash(targets));
+                let chosen = actions::Chosen::of(&targets.paths);
+                *pending.borrow_mut() = Some(Pending::Trash(targets, chosen));
             } else if !targets.paths.is_empty() {
-                run_trash(&w, targets.paths);
+                let chosen = actions::Chosen::of(&targets.paths);
+                run_trash(&w, targets.paths, chosen);
             }
         }
     });
@@ -1708,9 +1710,9 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
                         paths.iter().for_each(|p| open::open(p));
                     }
                 }
-                Some(Pending::Trash(t)) => {
+                Some(Pending::Trash(t, chosen)) => {
                     if let Some(paths) = checked(t) {
-                        run_trash(&w, paths);
+                        run_trash(&w, paths, chosen);
                     }
                 }
                 Some(Pending::Delete(t, confirmed)) => {
@@ -2414,13 +2416,14 @@ fn ask_reload_settings(w: &AppWindow) {
 }
 
 /// Moves items to the trash on a helper thread and reports the outcome.
-fn run_trash(w: &AppWindow, paths: Vec<PathBuf>) {
+fn run_trash(w: &AppWindow, paths: Vec<PathBuf>, chosen: actions::Chosen) {
     let what = actions::describe(&paths);
     info(w, fill(tr("Moving {} to the trash…"), &[&what]));
     let weak = w.as_weak();
     std::thread::spawn(move || {
         fileops_undo::queue_notice(weak.clone());
-        let result = fileops_undo::catch_worker(|| fileops_undo::trash(&paths, &actions::trash));
+        let result =
+            fileops_undo::catch_worker(|| fileops_undo::trash(&paths, &chosen, &actions::trash));
         let _ = weak.upgrade_in_event_loop(move |w| match result {
             Ok(out) => {
                 if out.failed.is_empty() {

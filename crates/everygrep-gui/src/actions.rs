@@ -995,14 +995,18 @@ mod tests {
         let stuck = [paths[3].clone(), paths[7].clone()];
         let attempts = std::cell::Cell::new(0);
         crate::fileops_undo::with_undo_on(|| {
-            let out = crate::fileops_undo::trash(&paths, &|actual, original, stamp| {
-                attempts.set(attempts.get() + 1);
-                if stuck.contains(&original.to_path_buf()) {
-                    Err("Cannot move to the trash: no permission".into())
-                } else {
-                    crate::trashbin::test_send(actual, original, stamp)
-                }
-            });
+            let out = crate::fileops_undo::trash(
+                &paths,
+                &Chosen::of(&paths),
+                &|actual, original, stamp| {
+                    attempts.set(attempts.get() + 1);
+                    if stuck.contains(&original.to_path_buf()) {
+                        Err("Cannot move to the trash: no permission".into())
+                    } else {
+                        crate::trashbin::test_send(actual, original, stamp)
+                    }
+                },
+            );
             assert_eq!(attempts.get(), paths.len(), "all later items were tried");
             assert_eq!(
                 out.failed
@@ -1030,7 +1034,8 @@ mod tests {
                 fs::read_dir(bin.join("files")).unwrap().count(),
                 paths.len() - 2
             );
-            let empty = crate::fileops_undo::trash(&[], &|_, _, _| unreachable!());
+            let empty =
+                crate::fileops_undo::trash(&[], &Chosen::default(), &|_, _, _| unreachable!());
             assert!(empty.trashed.is_empty() && empty.failed.is_empty() && empty.note.is_none());
         });
         crate::trashbin::set_test_home(None);

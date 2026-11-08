@@ -297,6 +297,9 @@ fn show(w: &AppWindow, plan: Result<&Plan, String>) {
 #[derive(Default)]
 pub struct Dialog {
     paths: RefCell<Vec<PathBuf>>,
+    /// The items as they were when the dialog opened: only they are
+    /// renamed.
+    chosen: RefCell<crate::actions::Chosen>,
 }
 
 type BulkDone = Box<dyn FnOnce(&AppWindow, Result<crate::fileops_undo::BatchOutcome, String>)>;
@@ -329,6 +332,7 @@ impl Dialog {
                     return;
                 }
                 let renames = plan.renames();
+                let chosen = dialog.chosen.borrow().clone();
                 w.set_bulk_busy(true);
                 let (weak, dialog) = (w.as_weak(), dialog.clone());
                 DONE.with(|d| {
@@ -346,7 +350,7 @@ impl Dialog {
                 });
                 std::thread::spawn(move || {
                     let result = crate::fileops_undo::catch_worker(|| {
-                        crate::fileops_undo::rename_batch(&renames)
+                        crate::fileops_undo::rename_batch(&renames, &chosen)
                     })
                     .unwrap_or_else(Err);
                     let _ = weak.upgrade_in_event_loop(move |w| {
@@ -382,6 +386,7 @@ impl Dialog {
             );
             return;
         }
+        *self.chosen.borrow_mut() = crate::actions::Chosen::of(&paths);
         *self.paths.borrow_mut() = paths;
         w.set_bulk_open(true);
         self.refresh(w);
@@ -661,7 +666,8 @@ mod tests {
         let link = t.0.join("link");
         std::os::unix::fs::symlink(&target, &link).unwrap();
         let plan = plan(std::slice::from_ref(&link), &prefix("x "), Zone::utc()).unwrap();
-        let out = crate::fileops_undo::rename_batch(&plan.renames()).unwrap();
+        let chosen = crate::actions::Chosen::of(std::slice::from_ref(&link));
+        let out = crate::fileops_undo::rename_batch(&plan.renames(), &chosen).unwrap();
         assert_eq!(out.done.len(), 1);
         assert_eq!(fs::read_link(t.0.join("x link")).unwrap(), target);
         assert_eq!(fs::read(&target).unwrap(), b"target.txt");

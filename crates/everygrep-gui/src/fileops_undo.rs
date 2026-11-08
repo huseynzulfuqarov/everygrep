@@ -824,33 +824,8 @@ pub fn rename_chosen(
     let _files = try_file_guard().ok_or_else(|| {
         actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
     })?;
-    let still_chosen = || -> Result<fs::Metadata, actions::RenameError> {
-        let now = fs::symlink_metadata(old).map_err(actions::RenameError::Io)?;
-        chosen
-            .check(&now, false)
-            .map_err(actions::RenameError::Io)?;
-        Ok(now)
-    };
-    still_chosen()?;
     let c = config();
-    let before = BeforeRename::read(old);
-    // Looked at again after the undo snapshot, which can take long for a
-    // big folder: an item put in place meanwhile is refused, also when it
-    // made the snapshot fail. The snapshot must be of the item renamed.
-    let now = still_chosen()?;
-    let before = match before {
-        Ok(b) => {
-            let pinned = Stamp::of(&b.root.metadata().map_err(actions::RenameError::Io)?);
-            let now = Stamp::of(&now);
-            if (pinned.dev, pinned.ino) != (now.dev, now.ino) {
-                return Err(actions::RenameError::Io(actions::changed_since_chosen()));
-            }
-            Some(b)
-        }
-        // Still the item chosen (a file inside could not be read, or the
-        // folder is too large): renamed without undo, and the user is told.
-        Err(_) => None,
-    };
+    let before = before_chosen(old, chosen).map_err(actions::RenameError::Io)?;
     let result = actions::rename(old, name)?;
     let mut note = None;
     if c.enabled
@@ -894,6 +869,34 @@ pub fn rename_chosen(
     Ok(note)
 }
 
+/// The undo snapshot of the item at `old`, which must be one of the items
+/// `chosen`. Checked before and again after the snapshot, which can take
+/// long for a big folder: an item put in place meanwhile is refused, also
+/// when it made the snapshot fail, and the snapshot is of the item checked.
+/// `None` when the item is still the one chosen but no snapshot could be
+/// read (a file inside could not be read, or the folder is too large): it
+/// is changed without undo then, and the user is told.
+fn before_chosen(old: &Path, chosen: &actions::Chosen) -> io::Result<Option<BeforeRename>> {
+    let still_chosen = || -> io::Result<fs::Metadata> {
+        let now = fs::symlink_metadata(old)?;
+        chosen.check(&now, false)?;
+        Ok(now)
+    };
+    still_chosen()?;
+    let before = BeforeRename::read(old);
+    let now = Stamp::of(&still_chosen()?);
+    match before {
+        Ok(b) => {
+            let pinned = Stamp::of(&b.root.metadata()?);
+            if (pinned.dev, pinned.ino) != (now.dev, now.ino) {
+                return Err(actions::changed_since_chosen());
+            }
+            Ok(Some(b))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
 /// What a batch rename did.
 #[derive(Debug, Default)]
 pub struct BatchOutcome {
@@ -907,16 +910,26 @@ pub struct BatchOutcome {
 
 /// Renames each item to its new name, never replacing anything, and
 /// records the renamed ones as one undo step. An item that cannot be
-/// renamed (its name taken meanwhile, gone, no permission) is reported and
-/// the others go on; undo then reverses the ones that were renamed.
-pub fn rename_batch(items: &[(PathBuf, String)]) -> Result<BatchOutcome, String> {
+/// renamed (its name taken meanwhile, gone, no permission, or not one of
+/// the items `chosen` when the preview opened) is reported and the others
+/// go on; undo then reverses the ones that were renamed.
+pub fn rename_batch(
+    items: &[(PathBuf, String)],
+    chosen: &actions::Chosen,
+) -> Result<BatchOutcome, String> {
     let _files =
         try_file_guard().ok_or_else(|| tr("A file operation is still running.").to_owned())?;
     let c = config();
     let mut out = BatchOutcome::default();
     let mut stamps = Vec::new();
     for (from, name) in items {
-        let before = BeforeRename::read(from).ok();
+        let before = match before_chosen(from, chosen) {
+            Ok(before) => before,
+            Err(e) => {
+                out.failed.push((from.clone(), e.to_string()));
+                continue;
+            }
+        };
         match actions::rename(from, name) {
             Ok(Some(to)) => {
                 #[cfg(test)]
@@ -1169,8 +1182,12 @@ pub struct TrashOutcome {
 
 /// Plain Trash uses the same identity snapshots and grouped journal as
 /// duplicate cleanup. Individual desktop calls cannot hide partial batches.
+/// Only the items `chosen` (when Trash was used or its question opened)
+/// are moved: another item put at one of the paths meanwhile is kept and
+/// reported.
 pub fn trash(
     paths: &[PathBuf],
+    chosen: &actions::Chosen,
     send: &dyn Fn(&Path, &Path, Stamp) -> Result<(), String>,
 ) -> TrashOutcome {
     let _files = file_guard();
@@ -1178,7 +1195,23 @@ pub fn trash(
     let mut out = TrashOutcome::default();
     let mut entries = Vec::new();
     for path in paths {
-        let mut expected = match Snapshot::read(path) {
+        // The snapshot must be of the item chosen; `trash_checked` then
+        // moves only the item the snapshot was read from.
+        let chosen_now = || -> io::Result<Stamp> {
+            let now = fs::symlink_metadata(path)?;
+            chosen.check(&now, false)?;
+            Ok(Stamp::of(&now))
+        };
+        let read = chosen_now().and_then(|_| {
+            let expected = Snapshot::read(path)?;
+            let now = chosen_now()?;
+            let root = expected.0[0].1;
+            if (root.dev, root.ino) != (now.dev, now.ino) {
+                return Err(actions::changed_since_chosen());
+            }
+            Ok(expected)
+        });
+        let mut expected = match read {
             Ok(expected) => expected,
             Err(e) => {
                 out.failed.push((path.clone(), e.to_string()));
@@ -2924,7 +2957,11 @@ mod new_item_tests {
             let b = t.work("b");
             fs::write(&a, "first").unwrap();
             fs::write(&b, "second").unwrap();
-            let out = trash(&[a.clone(), b.clone()], &crate::trashbin::test_send);
+            let out = trash(
+                &[a.clone(), b.clone()],
+                &actions::Chosen::of(&[a.clone(), b.clone()]),
+                &crate::trashbin::test_send,
+            );
             assert_eq!(out.trashed, [a.clone(), b.clone()], "{:?}", out.failed);
             assert!(out.failed.is_empty() && out.note.is_none());
             let undo = step(false);
@@ -2953,6 +2990,7 @@ mod new_item_tests {
             }
             let out = trash(
                 &[a.clone(), b.clone(), c.clone()],
+                &actions::Chosen::of(&[a.clone(), b.clone(), c.clone()]),
                 &|actual, path, stamp| {
                     if path == b {
                         Err("permission denied for b".into())
@@ -3074,7 +3112,8 @@ mod new_item_tests {
                 fs::rename(path, &saved).unwrap();
                 fs::rename(&foreign, path).unwrap();
             });
-            let out = rename_batch(&[(src, "renamed".into())]).unwrap();
+            let chosen = actions::Chosen::of(std::slice::from_ref(&src));
+            let out = rename_batch(&[(src, "renamed".into())], &chosen).unwrap();
             crate::fileops_test::fired();
             assert_eq!(out.done.len(), 1);
             assert!(out.note.is_some());
@@ -3150,7 +3189,11 @@ mod new_item_tests {
             symlink(&outside, tree.join("nested-link")).unwrap();
             symlink(&outside, &link).unwrap();
             let inode = fs::metadata(&alias).unwrap().ino();
-            let out = trash(&[tree.clone(), link.clone()], &crate::trashbin::test_send);
+            let out = trash(
+                &[tree.clone(), link.clone()],
+                &actions::Chosen::of(&[tree.clone(), link.clone()]),
+                &crate::trashbin::test_send,
+            );
             assert_eq!(out.trashed.len(), 2, "{:?}", out.failed);
             assert!(fs::symlink_metadata(&tree).is_err());
             assert!(fs::symlink_metadata(&link).is_err());
@@ -3214,15 +3257,20 @@ mod new_item_tests {
             let file = t.work("file");
             let parked = t.work("parked");
             fs::write(&file, "selected bytes").unwrap();
-            let out = trash(std::slice::from_ref(&file), &|actual, original, stamp| {
-                let held = actual.to_owned();
-                let saved = parked.clone();
-                crate::fileops_test::arm_path("trash-publish-checked", original, move |_| {
-                    fs::rename(&held, saved).unwrap();
-                    fs::write(&held, "foreign unique bytes").unwrap();
-                });
-                crate::trashbin::test_send(actual, original, stamp)
-            });
+            let chosen = actions::Chosen::of(std::slice::from_ref(&file));
+            let out = trash(
+                std::slice::from_ref(&file),
+                &chosen,
+                &|actual, original, stamp| {
+                    let held = actual.to_owned();
+                    let saved = parked.clone();
+                    crate::fileops_test::arm_path("trash-publish-checked", original, move |_| {
+                        fs::rename(&held, saved).unwrap();
+                        fs::write(&held, "foreign unique bytes").unwrap();
+                    });
+                    crate::trashbin::test_send(actual, original, stamp)
+                },
+            );
             crate::fileops_test::fired();
             assert!(out.trashed.is_empty());
             assert_eq!(out.failed.len(), 1);
@@ -3278,7 +3326,12 @@ mod new_item_tests {
             let t = Temp::new();
             let file = t.work("file");
             fs::write(&file, "AAAA").unwrap();
-            let out = trash(std::slice::from_ref(&file), &crate::trashbin::test_send);
+            let chosen = actions::Chosen::of(std::slice::from_ref(&file));
+            let out = trash(
+                std::slice::from_ref(&file),
+                &chosen,
+                &crate::trashbin::test_send,
+            );
             assert_eq!(out.trashed.len(), 1);
             let target = t.0.join("Trash/files/file");
             let old = fs::metadata(&target).unwrap().modified().unwrap();
@@ -3376,6 +3429,60 @@ mod new_item_tests {
     }
 
     #[test]
+    fn trash_keeps_an_item_replaced_after_it_was_chosen() {
+        with_undo(|| {
+            let t = Temp::new();
+            let (a, b) = (t.work("a"), t.work("b"));
+            fs::write(&a, "chosen").unwrap();
+            fs::write(&b, "b").unwrap();
+            let chosen = actions::Chosen::of(&[a.clone(), b.clone()]);
+            // An editor saves while the question is open.
+            fs::rename(&a, t.work("a.old")).unwrap();
+            fs::write(&a, "never chosen").unwrap();
+            let out = trash(
+                &[a.clone(), b.clone()],
+                &chosen,
+                &crate::trashbin::test_send,
+            );
+            assert_eq!(out.trashed, std::slice::from_ref(&b), "{:?}", out.failed);
+            assert_eq!(out.failed.len(), 1);
+            assert!(
+                out.failed[0].1.contains("nothing was done"),
+                "{:?}",
+                out.failed
+            );
+            assert_eq!(fs::read(&a).unwrap(), b"never chosen");
+        });
+    }
+
+    #[test]
+    fn a_batch_rename_keeps_an_item_replaced_after_the_preview_opened() {
+        with_undo(|| {
+            let t = Temp::new();
+            let (a, b) = (t.work("a"), t.work("b"));
+            fs::write(&a, "chosen").unwrap();
+            fs::write(&b, "b").unwrap();
+            let chosen = actions::Chosen::of(&[a.clone(), b.clone()]);
+            fs::rename(&a, t.work("a.old")).unwrap();
+            fs::write(&a, "never chosen").unwrap();
+            let items = vec![
+                (a.clone(), "new a".to_owned()),
+                (b.clone(), "new b".to_owned()),
+            ];
+            let out = rename_batch(&items, &chosen).unwrap();
+            assert_eq!(out.done, [(b.clone(), t.work("new b"))], "{:?}", out.failed);
+            assert_eq!(out.failed.len(), 1);
+            assert!(
+                out.failed[0].1.contains("nothing was done"),
+                "{:?}",
+                out.failed
+            );
+            assert_eq!(fs::read(&a).unwrap(), b"never chosen");
+            assert!(!t.work("new a").exists());
+        });
+    }
+
+    #[test]
     fn a_batch_rename_is_one_undo_step_for_every_renamed_item() {
         with_undo(|| {
             let t = Temp::new();
@@ -3387,7 +3494,8 @@ mod new_item_tests {
                 .iter()
                 .map(|n| (t.work(n), format!("2024 {n}")))
                 .collect();
-            let out = rename_batch(&items).unwrap();
+            let paths: Vec<_> = items.iter().map(|(p, _)| p.clone()).collect();
+            let out = rename_batch(&items, &actions::Chosen::of(&paths)).unwrap();
             assert_eq!(out.done.len(), 3);
             assert!(out.failed.is_empty() && out.note.is_none());
             assert_eq!(JOURNAL.lock().unwrap().cursor, 3);
@@ -3421,7 +3529,8 @@ mod new_item_tests {
                 (t.work("gone"), "new gone".to_owned()),
                 (t.work("c"), "new c".to_owned()),
             ];
-            let out = rename_batch(&items).unwrap();
+            let paths: Vec<_> = items.iter().map(|(p, _)| p.clone()).collect();
+            let out = rename_batch(&items, &actions::Chosen::of(&paths)).unwrap();
             assert_eq!(out.done.len(), 2);
             assert_eq!(out.failed.len(), 2);
             assert!(out.failed[0].1.contains("already exists"));
@@ -3445,7 +3554,8 @@ mod new_item_tests {
         let t = Temp::new();
         fs::write(t.work("a"), "a").unwrap();
         let _running = file_guard();
-        assert!(rename_batch(&[(t.work("a"), "b".into())]).is_err());
+        let chosen = actions::Chosen::of(&[t.work("a")]);
+        assert!(rename_batch(&[(t.work("a"), "b".into())], &chosen).is_err());
         assert!(t.work("a").exists() && !t.work("b").exists());
     }
 
