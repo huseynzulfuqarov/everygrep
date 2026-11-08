@@ -456,6 +456,29 @@ fn make_folders(path: &Path, changed: &mut Vec<(File, PathBuf)>) -> io::Result<(
     Ok(())
 }
 
+/// The state folder `base` (as the user or the system set it), opened.
+/// When it is a link (say to a folder on another drive), the link is
+/// followed, and the folder it leads to must belong to this user and be
+/// closed to others; the folders of this program below it are never
+/// links (see [`open_folder`]).
+fn open_base(base: &Path) -> io::Result<File> {
+    use rustix::fs::{Mode, OFlags};
+    match open_dir(base) {
+        // A link (or not a folder): looked at where it leads.
+        Err(e) if matches!(e.raw_os_error(), Some(40 | 20)) => {}
+        other => return other,
+    }
+    let dir = File::from(rustix::fs::open(
+        base,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?);
+    if !private_to_us(&dir.metadata()?) {
+        return Err(not_private(base));
+    }
+    Ok(dir)
+}
+
 /// The record folder, opened from the state folder: the two folders of
 /// this program below it are never reached through a link, and each must
 /// belong to this user and be closed to others. With `create`, missing
@@ -471,8 +494,7 @@ fn open_folder(create: bool) -> io::Result<Option<File>> {
     if create {
         make_folders(&base, &mut changed)?;
     }
-    // The state folder is the user's, wherever a link of theirs leads.
-    let mut dir = match open_dir(&base) {
+    let mut dir = match open_base(&base) {
         Ok(dir) => dir,
         Err(e) if !create && e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
@@ -2247,6 +2269,87 @@ mod tests {
         .unwrap_err();
         assert!(e.to_string().contains("Nothing was changed"), "{e}");
         assert!(t.hidden("src").is_empty());
+    }
+
+    #[test]
+    fn a_state_folder_that_is_a_link_to_a_private_folder_of_ours_is_used() {
+        let t = Temp::new("linked-base");
+        // The state folder the user set up is a link to a private folder.
+        fs::rename(t.path("state"), t.path("real-state")).unwrap();
+        std::os::unix::fs::symlink(t.path("real-state"), t.path("state")).unwrap();
+        let src = t.write("src/x", "original source");
+        t.write("dest/x", "old destination");
+        let out = crate::transfer::paste_observed_using(
+            Operation::Cut,
+            std::slice::from_ref(&src),
+            &t.path("dest"),
+            &Progress::new(),
+            Some(Box::new(|_, _| Decision::Overwrite)),
+            crate::transfer::test_replacement(),
+            |_| {},
+        );
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(fs::read(t.path("dest/x")).unwrap(), b"original source");
+        // A change of case is recorded in the folder the link leads to.
+        let real = t.path("real-state/everygrep/interrupted");
+        let seen = std::rc::Rc::new(std::cell::Cell::new(0));
+        let count = seen.clone();
+        let watched = real.clone();
+        crate::fileops_test::arm("case-published", move |_| {
+            count.set(fs::read_dir(&watched).unwrap().count());
+        });
+        crate::actions::rename_case_only(
+            &t.path("dest/x"),
+            &t.path("dest/X"),
+            crate::transfer::rename_noreplace,
+        )
+        .unwrap();
+        crate::fileops_test::fired();
+        assert_eq!(seen.get(), 1, "the record was written");
+        let x = t.path("dest/X");
+        crate::fileops_undo::trash_file_checked(
+            &x,
+            crate::transfer::FileStamp::read(&x).unwrap(),
+            &crate::trashbin::test_send,
+        )
+        .unwrap();
+        assert!(!x.exists());
+        assert_eq!(fs::read_dir(&real).unwrap().count(), 0);
+        assert!(!recover().has_news());
+    }
+
+    #[test]
+    fn a_state_folder_that_is_a_link_to_a_folder_others_can_change_is_not_used() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Temp::new("linked-base-open");
+        fs::rename(t.path("state"), t.path("real-state")).unwrap();
+        std::os::unix::fs::symlink(t.path("real-state"), t.path("state")).unwrap();
+        fs::set_permissions(t.path("real-state"), fs::Permissions::from_mode(0o770)).unwrap();
+        let refused = |t: &Temp| {
+            let src = t.write("src/x", "source");
+            let e = crate::actions::rename_case_only(
+                &src,
+                &t.path("src/X"),
+                crate::transfer::rename_noreplace,
+            )
+            .unwrap_err();
+            assert!(e.to_string().contains("Nothing was changed"), "{e}");
+            assert!(e.to_string().contains("state"), "{e}");
+            assert!(t.hidden("src").is_empty());
+            assert_eq!(fs::read(&src).unwrap(), b"source");
+            fs::remove_file(&src).unwrap();
+        };
+        refused(&t);
+        let found = recover();
+        assert!(found.has_news(), "{found:?}");
+        // A link to a folder of another user (the shared temporary folder
+        // belongs to root): nothing is made there.
+        let made = Path::new("/tmp").join(APP);
+        let there = made.exists();
+        fs::remove_file(t.path("state")).unwrap();
+        std::os::unix::fs::symlink("/tmp", t.path("state")).unwrap();
+        refused(&t);
+        assert_eq!(made.exists(), there);
     }
 
     /// A record, written by hand, of an item now at `staging` (created
