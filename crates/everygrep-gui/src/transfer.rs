@@ -757,6 +757,11 @@ impl Copied {
             path.parent()
                 .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
         )?);
+        Self::pinned_in(parent, path, meta)
+    }
+    /// Pins the entry named like `path` in the open folder `parent`. It
+    /// must be the entry `meta` describes; a link is held as the link.
+    fn pinned_in(parent: std::sync::Arc<File>, path: &Path, meta: &Metadata) -> io::Result<Self> {
         let name = path
             .file_name()
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?
@@ -1799,18 +1804,45 @@ impl Copier<'_> {
     }
 
     fn tree(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<(), Stop> {
+        self.entry(None, src, meta, dst)
+    }
+
+    /// Copies the entry `src` (described by `meta`) to `dst`. Below the
+    /// selected item, `parent` is the open source folder that holds it:
+    /// every entry is opened relative to its folder's descriptor, never
+    /// through a path, so a folder renamed or replaced by a link while the
+    /// copy runs cannot lead it outside the selected tree. Only folders on
+    /// the way down stay open.
+    fn entry(
+        &mut self,
+        parent: Option<std::sync::Arc<File>>,
+        src: &Path,
+        meta: &Metadata,
+        dst: &Path,
+    ) -> Result<(), Stop> {
         if self.progress.is_cancelled() {
             return Err(Stop::Cancelled);
         }
-        let mut source = Copied::pinned(src, meta)?;
+        #[cfg(test)]
+        crate::fileops_test::at("copy-pin", src);
+        let mut source = match parent {
+            Some(parent) => Copied::pinned_in(parent, src, meta)?,
+            None => Copied::pinned(src, meta)?,
+        };
+        #[cfg(test)]
+        crate::fileops_test::at("copy-open", src);
+        let anchor = source.anchor.as_ref().ok_or_else(source_changed)?;
         let kind = meta.file_type();
         if kind.is_symlink() {
+            // The target is read from the link that was pinned.
+            let target = rustix::fs::readlinkat(&*anchor.handle, c"", Vec::new())
+                .map_err(io::Error::from)?;
             let parent = self.output_parent(dst)?;
             let actual = fd_path(&parent).join(
                 dst.file_name()
                     .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
             );
-            std::os::unix::fs::symlink(fs::read_link(src)?, &actual)?;
+            std::os::unix::fs::symlink(OsStr::from_bytes(target.as_bytes()), &actual)?;
             self.made = true;
             let handle = std::sync::Arc::new(
                 OpenOptions::new()
@@ -1822,13 +1854,22 @@ impl Copier<'_> {
             self.created
                 .push(Created::new(dst, parent, &made, Some(handle))?);
             if self.sync {
-                source.metadata_error = crate::transfer_metadata::link(src, &actual, meta).err();
+                source.metadata_error =
+                    crate::transfer_metadata::link(&anchor.path(), &actual, meta).err();
             }
-            self.copied.push(source);
+            self.keep(source);
         } else if kind.is_file() {
-            source.metadata_error = self.file(src, meta, dst)?;
-            self.copied.push(source);
+            let from = anchor.readable()?;
+            source.metadata_error = self.file(src, meta, dst, from)?;
+            self.keep(source);
         } else if kind.is_dir() {
+            // The folder that was pinned, opened for reading through the
+            // held descriptor: the name may point elsewhere by now.
+            let dir = std::sync::Arc::new(open_dir(&fd_path(&anchor.handle))?);
+            let opened = dir.metadata()?;
+            if !opened.is_dir() || (opened.dev(), opened.ino()) != (meta.dev(), meta.ino()) {
+                return Err(source_changed().into());
+            }
             let parent = self.output_parent(dst)?;
             let actual = fd_path(&parent).join(
                 dst.file_name()
@@ -1852,15 +1893,18 @@ impl Copier<'_> {
             crate::fileops_test::at("copy-created", &actual);
             require_private(&handle)?;
             let index = self.copied.len();
-            self.copied.push(source);
-            for entry in fs::read_dir(src)? {
+            self.keep(source);
+            // Entries are listed and looked at through the open folder;
+            // each is opened (and checked) relative to it.
+            for entry in fs::read_dir(fd_path(&dir))? {
                 let entry = entry?;
                 let m = entry.metadata()?;
-                self.tree(&entry.path(), &m, &dst.join(entry.file_name()))?;
+                let name = entry.file_name();
+                self.entry(Some(dir.clone()), &src.join(&name), &m, &dst.join(&name))?;
             }
             if self.sync {
                 self.copied[index].metadata_error =
-                    (|| crate::transfer_metadata::file(&File::open(src)?, &handle, meta))().err();
+                    crate::transfer_metadata::file(&dir, &handle, meta).err();
             } else {
                 handle.set_permissions(fs::Permissions::from_mode(mode(meta)))?;
                 if let Ok(t) = meta.modified() {
@@ -1868,12 +1912,31 @@ impl Copier<'_> {
                 }
             }
         } else {
+            // Never opened: a FIFO, socket or device is only counted.
             *self.special += 1;
         }
         Ok(())
     }
 
-    fn file(&mut self, src: &Path, meta: &Metadata, dst: &Path) -> Result<Option<io::Error>, Stop> {
+    /// Records a copied source entry. Only a move needs the entry held
+    /// until its source is removed; a copy lets it go, so a big tree does
+    /// not keep a descriptor open per source entry.
+    fn keep(&mut self, mut source: Copied) {
+        if !self.sync {
+            source.anchor = None;
+        }
+        self.copied.push(source);
+    }
+
+    /// Copies the regular file `src`, already open as `from` through its
+    /// pinned descriptor, to `dst`.
+    fn file(
+        &mut self,
+        src: &Path,
+        meta: &Metadata,
+        dst: &Path,
+        mut from: File,
+    ) -> Result<Option<io::Error>, Stop> {
         // Copying then unlinking aliases changes their shared ctime and
         // breaks the original hard-link relationship. Until that relationship
         // can be moved as one verified group, refuse before deleting anything.
@@ -1882,7 +1945,6 @@ impl Copier<'_> {
                 "Hard-linked files cannot be moved across filesystems safely. Use Copy; the source was kept.",
             )).into());
         }
-        let mut from = File::open(src)?;
         // The bytes must all come from one version of the source: the one
         // that was looked at, opened, and still the same once read in full.
         let seen = Copied::new(src, meta);
@@ -2157,7 +2219,7 @@ thread_local! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{FileTypeExt, symlink};
 
     fn paste_with(
         op: Operation,
@@ -2905,7 +2967,10 @@ mod tests {
         };
         // Past the check at the top of the tree: the file is made, and the
         // read loop sees the cancel.
-        assert!(matches!(c.file(&big, &meta, &temp), Err(Stop::Cancelled)));
+        assert!(matches!(
+            c.file(&big, &meta, &temp, File::open(&big).unwrap()),
+            Err(Stop::Cancelled)
+        ));
         assert!(c.made);
         remove_partial(&created).unwrap();
         assert!(names(&dest).is_empty());
@@ -4293,8 +4358,432 @@ mod tests {
             made: false,
         };
         let temp = temp_name(&dest);
-        assert!(matches!(c.file(&src, &meta, &temp), Err(Stop::Io(_))));
+        assert!(matches!(c.tree(&src, &meta, &temp), Err(Stop::Io(_))));
         assert!(!c.made);
         assert!(names(&dest).is_empty());
+    }
+
+    /// Whether a regular file under `dir` (links not followed) holds `bytes`.
+    fn holds(dir: &Path, bytes: &[u8]) -> bool {
+        fs::read_dir(dir).into_iter().flatten().flatten().any(|e| {
+            let kind = e.file_type().unwrap();
+            if kind.is_dir() {
+                holds(&e.path(), bytes)
+            } else {
+                kind.is_file() && fs::read(e.path()).unwrap() == bytes
+            }
+        })
+    }
+
+    fn fifo(path: &Path) {
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            path,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+    }
+
+    /// Runs `work` on its own thread. `None` when it is still blocked after
+    /// two seconds; a writer is then opened at `unblock` so it can end.
+    fn within_deadline(
+        unblock: PathBuf,
+        work: impl FnOnce() -> Outcome + Send + 'static,
+    ) -> Option<Outcome> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = tx.send(work());
+        });
+        if let Ok(out) = rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            worker.join().unwrap();
+            return Some(out);
+        }
+        for _ in 0..100 {
+            if OpenOptions::new()
+                .write(true)
+                .custom_flags(0o4000)
+                .open(&unblock)
+                .is_ok()
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+        let _ = worker.join();
+        None
+    }
+
+    fn copy(src: &Path, dest: &Path) -> Outcome {
+        paste(Operation::Copy, &[src.to_owned()], dest, &Progress::new())
+    }
+
+    fn changed_while_copying(out: &Outcome) -> bool {
+        out.failed.len() == 1
+            && out.failed[0]
+                .1
+                .to_string()
+                .contains("The copy source changed while copying.")
+    }
+
+    #[test]
+    fn copy_reads_the_opened_folder_when_its_name_becomes_a_link() {
+        let t = TempDir::new("walk-root-link");
+        let tree = t.path("src/tree");
+        let (parked, outside, dest) = (t.path("parked"), t.path("outside"), t.path("dest"));
+        write(&tree.join("selected"), "selected");
+        write(&outside.join("DO-NOT-TOUCH"), "outside bytes");
+        fs::create_dir(&dest).unwrap();
+        let (s, p, o) = (tree.clone(), parked.clone(), outside.clone());
+        crate::fileops_test::arm_path("copy-open", &tree, move |_| {
+            fs::rename(&s, &p).unwrap();
+            symlink(&o, &s).unwrap();
+        });
+        let out = copy(&tree, &dest);
+        crate::fileops_test::fired();
+        assert!(!holds(&dest, b"outside bytes"), "{:?}", names(&dest));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(read(&dest.join("tree/selected")), "selected");
+        assert_eq!(read(&outside.join("DO-NOT-TOUCH")), "outside bytes");
+    }
+
+    #[test]
+    fn move_never_takes_files_from_a_folder_linked_in_after_the_open() {
+        let t = TempDir::new("walk-move-link");
+        let tree = t.path("src/tree");
+        let (parked, outside, dest) = (t.path("parked"), t.path("outside"), t.path("dest"));
+        write(&tree.join("selected"), "selected");
+        write(&outside.join("DO-NOT-TOUCH"), "outside bytes");
+        fs::create_dir(&dest).unwrap();
+        let (s, p, o) = (tree.clone(), parked.clone(), outside.clone());
+        crate::fileops_test::arm_path("copy-open", &tree, move |_| {
+            fs::rename(&s, &p).unwrap();
+            symlink(&o, &s).unwrap();
+        });
+        let out = move_across_devices(&tree, &dest);
+        crate::fileops_test::fired();
+        assert!(!holds(&dest, b"outside bytes"), "{:?}", names(&dest));
+        assert_eq!(read(&outside.join("DO-NOT-TOUCH")), "outside bytes");
+        assert_eq!(read(&parked.join("selected")), "selected");
+        // The selected folder no longer has its name, so it is not removed.
+        assert!(
+            matches!(out.failed.as_slice(), [(_, Failure::NotRemoved(_))]),
+            "{:?}",
+            out.failed
+        );
+    }
+
+    #[test]
+    fn copy_never_follows_a_child_folder_swapped_for_a_link() {
+        let t = TempDir::new("walk-child-link");
+        let tree = t.path("src/tree");
+        let sub = tree.join("sub");
+        let (parked, outside, dest) = (t.path("parked"), t.path("outside"), t.path("dest"));
+        write(&tree.join("a"), "a");
+        write(&sub.join("inner"), "inner");
+        write(&outside.join("DO-NOT-TOUCH"), "outside bytes");
+        fs::create_dir(&dest).unwrap();
+        let (s, p, o) = (sub.clone(), parked.clone(), outside.clone());
+        crate::fileops_test::arm_path("copy-open", &sub, move |_| {
+            fs::rename(&s, &p).unwrap();
+            symlink(&o, &s).unwrap();
+        });
+        let out = copy(&tree, &dest);
+        crate::fileops_test::fired();
+        assert!(!holds(&dest, b"outside bytes"), "{:?}", names(&dest));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(read(&dest.join("tree/a")), "a");
+        assert_eq!(read(&dest.join("tree/sub/inner")), "inner");
+        assert_eq!(read(&outside.join("DO-NOT-TOUCH")), "outside bytes");
+    }
+
+    #[test]
+    fn a_file_swapped_for_a_link_after_it_is_opened_is_refused_without_following() {
+        let t = TempDir::new("walk-file-link");
+        let src = t.path("src/x");
+        let (parked, outside, dest) = (t.path("parked"), t.path("private"), t.path("dest"));
+        write(&src, "selected");
+        write(&outside, "unselected private file");
+        fs::create_dir(&dest).unwrap();
+        let (s, p, o) = (src.clone(), parked.clone(), outside.clone());
+        crate::fileops_test::arm_path("copy-open", &src, move |_| {
+            fs::rename(&s, &p).unwrap();
+            symlink(&o, &s).unwrap();
+        });
+        let out = copy(&src, &dest);
+        crate::fileops_test::fired();
+        // The held file was renamed away (its status changed): refused,
+        // and the link put at its name is never followed.
+        assert!(changed_while_copying(&out), "{:?}", out.failed);
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&outside), "unselected private file");
+    }
+
+    #[test]
+    fn a_fifo_swapped_in_after_it_is_opened_is_refused_without_blocking() {
+        let t = TempDir::new("walk-fifo-after");
+        let src = t.path("src/x");
+        let (parked, pipe, dest) = (t.path("parked"), t.path("pipe"), t.path("dest"));
+        write(&src, "selected");
+        fifo(&pipe);
+        fs::create_dir(&dest).unwrap();
+        let (s, d) = (src.clone(), dest.clone());
+        let out = within_deadline(src.clone(), move || {
+            let (s2, p) = (s.clone(), parked);
+            crate::fileops_test::arm_path("copy-open", &s, move |_| {
+                fs::rename(&s2, &p).unwrap();
+                fs::rename(&pipe, &s2).unwrap();
+            });
+            let out = copy(&s, &d);
+            crate::fileops_test::fired();
+            out
+        })
+        .expect("the copy blocked on a FIFO");
+        assert!(changed_while_copying(&out), "{:?}", out.failed);
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert!(fs::symlink_metadata(&src).unwrap().file_type().is_fifo());
+    }
+
+    #[test]
+    fn copy_never_reads_through_an_ancestor_swapped_for_a_link() {
+        let t = TempDir::new("walk-ancestor-link");
+        let tree = t.path("src/tree");
+        let sub = tree.join("sub");
+        let (parked, outside, dest) = (t.path("parked"), t.path("outside"), t.path("dest"));
+        write(&sub.join("inner"), "inner");
+        // The same names outside the selection: only the bytes differ.
+        write(&outside.join("sub/inner"), "outside bytes");
+        fs::create_dir(&dest).unwrap();
+        let (s, p, o) = (tree.clone(), parked.clone(), outside.clone());
+        crate::fileops_test::arm_path("copy-open", &sub, move |_| {
+            fs::rename(&s, &p).unwrap();
+            symlink(&o, &s).unwrap();
+        });
+        let out = copy(&tree, &dest);
+        crate::fileops_test::fired();
+        assert!(!holds(&dest, b"outside bytes"), "{:?}", names(&dest));
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(read(&dest.join("tree/sub/inner")), "inner");
+        assert_eq!(read(&outside.join("sub/inner")), "outside bytes");
+    }
+
+    /// `tree` with `sub/inner` and a file `a`, plus `outside/DO-NOT-TOUCH`.
+    fn walk_fixture(t: &TempDir) -> (PathBuf, PathBuf, PathBuf) {
+        let tree = t.path("src/tree");
+        write(&tree.join("a"), "a");
+        write(&tree.join("sub/inner"), "inner");
+        write(&t.path("outside/DO-NOT-TOUCH"), "outside bytes");
+        fs::create_dir(t.path("dest")).unwrap();
+        (tree, t.path("outside"), t.path("dest"))
+    }
+
+    /// Replaces `path` with a link to `to` when `event` reaches it.
+    fn link_at(event: &'static str, path: &Path, to: &Path, parked: &Path) {
+        let (s, o, p) = (path.to_owned(), to.to_owned(), parked.to_owned());
+        crate::fileops_test::arm_path(event, path, move |_| {
+            fs::rename(&s, &p).unwrap();
+            symlink(&o, &s).unwrap();
+        });
+    }
+
+    #[test]
+    fn a_folder_swapped_for_a_link_before_it_is_opened_is_refused() {
+        let t = TempDir::new("walk-root-before");
+        let (tree, outside, dest) = walk_fixture(&t);
+        link_at("copy-pin", &tree, &outside, &t.path("parked"));
+        let out = copy(&tree, &dest);
+        crate::fileops_test::fired();
+        assert!(changed_while_copying(&out), "{:?}", out.failed);
+        assert!(out.done.is_empty());
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&outside.join("DO-NOT-TOUCH")), "outside bytes");
+    }
+
+    #[test]
+    fn a_child_folder_swapped_for_a_link_before_it_is_opened_fails_the_item() {
+        let t = TempDir::new("walk-child-before");
+        let (tree, outside, dest) = walk_fixture(&t);
+        let other = t.path("src/other");
+        write(&other, "other");
+        link_at("copy-pin", &tree.join("sub"), &outside, &t.path("parked"));
+        let out = paste(
+            Operation::Copy,
+            &[tree.clone(), other.clone()],
+            &dest,
+            &Progress::new(),
+        );
+        crate::fileops_test::fired();
+        assert!(changed_while_copying(&out), "{:?}", out.failed);
+        assert_eq!(out.failed[0].0, tree);
+        // The rest of the batch still goes; no partial copy of the tree stays.
+        assert_eq!(out.done, [dest.join("other")]);
+        assert_eq!(names(&dest), ["other"]);
+        assert!(!holds(&dest, b"outside bytes"));
+        assert_eq!(read(&t.path("parked/inner")), "inner");
+    }
+
+    #[test]
+    fn a_file_swapped_for_a_link_before_it_is_opened_fails_the_item() {
+        let t = TempDir::new("walk-file-before");
+        let (tree, outside, dest) = walk_fixture(&t);
+        let private = outside.join("DO-NOT-TOUCH");
+        link_at("copy-pin", &tree.join("a"), &private, &t.path("parked"));
+        let out = copy(&tree, &dest);
+        crate::fileops_test::fired();
+        assert!(changed_while_copying(&out), "{:?}", out.failed);
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&private), "outside bytes");
+    }
+
+    #[test]
+    fn a_fifo_swapped_in_before_it_is_opened_is_refused_without_blocking() {
+        let t = TempDir::new("walk-fifo-before");
+        let (tree, _, dest) = walk_fixture(&t);
+        let pipe = t.path("pipe");
+        fifo(&pipe);
+        let file = tree.join("a");
+        let (f, p, tr, d) = (file.clone(), t.path("parked"), tree.clone(), dest.clone());
+        let out = within_deadline(file.clone(), move || {
+            let f2 = f.clone();
+            crate::fileops_test::arm_path("copy-pin", &f, move |_| {
+                fs::rename(&f2, &p).unwrap();
+                fs::rename(&pipe, &f2).unwrap();
+            });
+            let out = copy(&tr, &d);
+            crate::fileops_test::fired();
+            out
+        })
+        .expect("the copy blocked on a FIFO");
+        assert!(changed_while_copying(&out), "{:?}", out.failed);
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert!(fs::symlink_metadata(&file).unwrap().file_type().is_fifo());
+    }
+
+    #[test]
+    fn a_fifo_in_the_tree_is_counted_and_never_opened() {
+        let t = TempDir::new("walk-fifo-plain");
+        let (tree, _, dest) = walk_fixture(&t);
+        fifo(&tree.join("pipe"));
+        let (tr, d) = (tree.clone(), dest.clone());
+        let out = within_deadline(tree.join("pipe"), move || copy(&tr, &d))
+            .expect("the copy blocked on a FIFO");
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert_eq!(out.skipped_special, 1);
+        assert_eq!(names(&dest.join("tree")), ["a", "sub"]);
+    }
+
+    #[test]
+    fn a_source_entry_removed_during_the_walk_fails_the_item_without_a_partial_copy() {
+        let t = TempDir::new("walk-removed");
+        let (tree, _, dest) = walk_fixture(&t);
+        let inner = tree.join("sub/inner");
+        let gone = inner.clone();
+        crate::fileops_test::arm_path("copy-pin", &inner, move |_| fs::remove_file(&gone).unwrap());
+        let out = copy(&tree, &dest);
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert!(matches!(&out.failed[0].1, Failure::Io(e) if e.kind() == io::ErrorKind::NotFound));
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&tree.join("a")), "a");
+    }
+
+    #[test]
+    fn a_move_keeps_its_source_when_an_entry_is_removed_during_the_walk() {
+        let t = TempDir::new("walk-removed-move");
+        let (tree, _, dest) = walk_fixture(&t);
+        let inner = tree.join("sub/inner");
+        let gone = inner.clone();
+        crate::fileops_test::arm_path("copy-pin", &inner, move |_| fs::remove_file(&gone).unwrap());
+        let out = move_across_devices(&tree, &dest);
+        crate::fileops_test::fired();
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&tree.join("a")), "a");
+        assert!(tree.join("sub").is_dir());
+    }
+
+    #[test]
+    fn cancel_during_the_walk_leaves_no_partial_copy() {
+        let t = TempDir::new("walk-cancel");
+        let (tree, _, dest) = walk_fixture(&t);
+        let progress = std::sync::Arc::new(Progress::new());
+        let p = progress.clone();
+        crate::fileops_test::arm_path("copy-open", &tree.join("sub"), move |_| p.cancel());
+        let out = paste(
+            Operation::Copy,
+            std::slice::from_ref(&tree),
+            &dest,
+            &progress,
+        );
+        crate::fileops_test::fired();
+        assert!(out.cancelled);
+        assert!(out.done.is_empty());
+        assert!(names(&dest).is_empty(), "{:?}", names(&dest));
+        assert_eq!(read(&tree.join("sub/inner")), "inner");
+    }
+
+    #[test]
+    fn a_link_inside_the_tree_is_copied_as_the_link() {
+        let t = TempDir::new("walk-plain-link");
+        let (tree, outside, dest) = walk_fixture(&t);
+        symlink(&outside, tree.join("to-outside")).unwrap();
+        let out = copy(&tree, &dest);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let copied = dest.join("tree/to-outside");
+        assert!(fs::symlink_metadata(&copied).unwrap().is_symlink());
+        assert_eq!(fs::read_link(&copied).unwrap(), outside);
+        assert!(!holds(&dest, b"outside bytes"));
+    }
+
+    #[test]
+    fn a_tree_two_hundred_folders_deep_copies_and_moves() {
+        let t = TempDir::new("walk-deep");
+        let tree = t.path("src/deep");
+        let mut at = tree.clone();
+        for i in 0..200 {
+            at.push("d");
+            write(&at.join("f"), &i.to_string());
+        }
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let out = copy(&tree, &dest);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let moved = t.path("moved");
+        fs::create_dir(&moved).unwrap();
+        let out = move_across_devices(&tree, &moved);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!tree.exists());
+        for root in [dest.join("deep"), moved.join("deep")] {
+            let mut at = root;
+            for i in 0..200 {
+                at.push("d");
+                assert_eq!(read(&at.join("f")), i.to_string());
+            }
+        }
+    }
+
+    #[test]
+    fn a_folder_with_twenty_thousand_files_copies_and_moves() {
+        let t = TempDir::new("walk-wide");
+        let tree = t.path("src/wide");
+        fs::create_dir_all(&tree).unwrap();
+        for i in 0..20_000 {
+            fs::write(tree.join(i.to_string()), i.to_string()).unwrap();
+        }
+        let dest = t.path("dest");
+        fs::create_dir(&dest).unwrap();
+        let out = copy(&tree, &dest);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        let moved = t.path("moved");
+        fs::create_dir(&moved).unwrap();
+        let out = move_across_devices(&tree, &moved);
+        assert!(out.failed.is_empty(), "{:?}", out.failed);
+        assert!(!tree.exists());
+        for root in [dest.join("wide"), moved.join("wide")] {
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 20_000);
+            assert_eq!(read(&root.join("19999")), "19999");
+        }
     }
 }
