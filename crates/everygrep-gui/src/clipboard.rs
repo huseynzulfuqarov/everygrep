@@ -109,6 +109,8 @@ pub struct Held {
     pub paths: Vec<PathBuf>,
     /// The text put on the clipboard with them.
     pub text: String,
+    /// The items as they were when Cut or Copy was used.
+    pub chosen: crate::actions::Chosen,
 }
 
 /// What to paste, given the files this window put on the clipboard and the
@@ -166,6 +168,7 @@ mod tests {
             op: Operation::Copy,
             paths: vec![PathBuf::from(name)],
             text: name.into(),
+            chosen: Default::default(),
         };
         let (a, b) = (held("/a"), held("/b"));
         // Taken with the files: no text needed.
@@ -291,6 +294,7 @@ mod tests {
             op: Operation::Cut,
             paths: vec![src.clone()],
             text: text.clone(),
+            chosen: Default::default(),
         };
         let (op, paths) = to_paste(Some(&old), &text).unwrap();
         assert_eq!(op, Operation::Copy);
@@ -315,6 +319,7 @@ mod tests {
             op: Operation::Cut,
             paths: vec![PathBuf::from("/a")],
             text: "/a".into(),
+            chosen: Default::default(),
         };
         assert_eq!(
             to_paste(Some(&held), "/a"),

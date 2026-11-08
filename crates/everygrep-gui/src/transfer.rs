@@ -219,11 +219,13 @@ impl From<io::Error> for Stop {
 /// Copies (`Operation::Copy`) or moves (`Operation::Cut`) `sources` into
 /// the folder `dest`. Progress is counted in bytes copied; cancel through
 /// `progress` stops at the next read.
+#[cfg(test)]
 pub fn paste(op: Operation, sources: &[PathBuf], dest: &Path, progress: &Progress) -> Outcome {
     paste_with(op, sources, dest, progress, None)
 }
 
 /// An optional resolver runs on the worker, never on the window thread.
+#[cfg(test)]
 pub fn paste_with(
     op: Operation,
     sources: &[PathBuf],
@@ -235,6 +237,7 @@ pub fn paste_with(
 }
 
 /// Capture each published item's identity before another source can replace it.
+#[cfg(test)]
 pub fn paste_observed(
     op: Operation,
     sources: &[PathBuf],
@@ -254,9 +257,37 @@ pub fn paste_observed(
     )
 }
 
+#[cfg(test)]
 pub fn paste_observed_using(
     op: Operation,
     sources: &[PathBuf],
+    dest: &Path,
+    progress: &Progress,
+    resolver: Option<Resolver>,
+    replacement: Replacement,
+    observe: impl FnMut(&Record),
+) -> Outcome {
+    paste_chosen(
+        op,
+        sources,
+        None,
+        dest,
+        progress,
+        resolver,
+        replacement,
+        observe,
+    )
+}
+
+/// [`paste_observed_using`] of the items `chosen` (when Cut or Copy was
+/// used, the drag started or the folder chooser opened): a source that is
+/// not one of them any more (another item was put at its path meanwhile) is
+/// left alone and reported; with `None` every source is taken as it is.
+#[allow(clippy::too_many_arguments)]
+pub fn paste_chosen(
+    op: Operation,
+    sources: &[PathBuf],
+    chosen: Option<&crate::actions::Chosen>,
     dest: &Path,
     progress: &Progress,
     resolver: Option<Resolver>,
@@ -292,6 +323,7 @@ pub fn paste_observed_using(
     let mut run = Run {
         resolver,
         replacement,
+        chosen: chosen.cloned(),
         ..Run::default()
     };
     for src in sources {
@@ -368,6 +400,8 @@ struct Run {
     replacement: Replacement,
     exact: Option<PathBuf>,
     produced: Option<Produced>,
+    /// The items chosen for this paste, if known (see [`paste_chosen`]).
+    chosen: Option<crate::actions::Chosen>,
     /// For each name (and whether it is a folder's), the first number
     /// `name (N)` not yet known to be taken in the target folder.
     next: HashMap<(OsString, bool), u64>,
@@ -439,6 +473,13 @@ fn paste_attempt(
     run.replaced = false;
     run.produced = None;
     let meta = fs::symlink_metadata(src)?;
+    if let Some(chosen) = &run.chosen
+        && !chosen.holds(&meta, false)
+    {
+        return Ok(Pasted::Failed(Failure::Io(
+            crate::actions::changed_since_chosen(),
+        )));
+    }
     let name = src
         .file_name()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -472,6 +513,14 @@ fn paste_attempt(
         };
         match resolver(q, progress) {
             Decision::Overwrite if can_overwrite => {
+                // What replaces another file must be the content chosen.
+                if let Some(chosen) = &run.chosen
+                    && !chosen.holds(&meta, true)
+                {
+                    return Ok(Pasted::Failed(Failure::Io(
+                        crate::actions::changed_since_chosen(),
+                    )));
+                }
                 run.replace = Some(Copied::new(&target, &existing))
             }
             Decision::KeepBoth => {}

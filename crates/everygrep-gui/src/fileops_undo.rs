@@ -804,12 +804,28 @@ fn ensure_absent(path: &Path) -> Result<(), String> {
     }
 }
 
-/// Renames, and records the rename when undo is on. The answer is a notice
-/// for the user when undo history could not follow the rename.
+/// [`rename_chosen`] of the item at `old` as it is now.
+#[cfg(test)]
 pub fn rename(old: &Path, name: &str) -> Result<Option<String>, actions::RenameError> {
+    rename_chosen(old, name, &actions::Chosen::of(&[old.to_path_buf()]))
+}
+
+/// Renames, and records the rename when undo is on. The answer is a notice
+/// for the user when undo history could not follow the rename. Only the
+/// item `chosen` when the rename started is renamed: another item put at
+/// `old` meanwhile is refused.
+pub fn rename_chosen(
+    old: &Path,
+    name: &str,
+    chosen: &actions::Chosen,
+) -> Result<Option<String>, actions::RenameError> {
     let _files = try_file_guard().ok_or_else(|| {
         actions::RenameError::Io(io::Error::other(tr("A file operation is still running.")))
     })?;
+    let now = fs::symlink_metadata(old).map_err(actions::RenameError::Io)?;
+    chosen
+        .check(&now, false)
+        .map_err(actions::RenameError::Io)?;
     let c = config();
     let before = BeforeRename::read(old).ok();
     let result = actions::rename(old, name)?;
@@ -1245,9 +1261,12 @@ fn record_one(kind: Kind, from: &Path, to: &Path, c: Config) -> Option<String> {
     }
 }
 
+/// Copies or moves `sources` into `dest` and records it for undo. With
+/// `chosen`, only those items are taken (see [`transfer::paste_chosen`]).
 pub fn paste(
     op: Operation,
     sources: &[PathBuf],
+    chosen: Option<&actions::Chosen>,
     dest: &Path,
     progress: &Progress,
     resolver: Option<transfer::Resolver>,
@@ -1255,6 +1274,7 @@ pub fn paste(
     paste_using(
         op,
         sources,
+        chosen,
         dest,
         progress,
         resolver,
@@ -1266,6 +1286,7 @@ pub fn paste(
 fn paste_using(
     op: Operation,
     sources: &[PathBuf],
+    chosen: Option<&actions::Chosen>,
     dest: &Path,
     progress: &Progress,
     resolver: Option<transfer::Resolver>,
@@ -1298,30 +1319,46 @@ fn paste_using(
     let mut published = Vec::new();
     let mut budget = MAX_TREE;
     let mut out = if c.enabled {
-        transfer::paste_observed_using(op, sources, dest, progress, resolver, replacement, |r| {
-            // Not counted: the transfer counts bytes by then.
-            let snapshot = if let Some(produced) = &r.produced {
-                let expected = Snapshot(produced.snapshot());
-                expected.check(&r.target).ok().map(|()| expected)
-            } else if op == Operation::Cut {
-                sources
-                    .iter()
-                    .position(|s| s == &r.source)
-                    .and_then(|i| before[i].as_ref())
-                    .and_then(|b| b.after(&r.target).ok())
-            } else {
-                None
-            }
-            .filter(|s| s.0.len() <= budget);
-            if let Some(s) = &snapshot {
-                budget -= s.0.len();
-            }
-            published.push(snapshot);
-        })
-    } else if resolver.is_some() {
-        transfer::paste_with(op, sources, dest, progress, resolver)
+        transfer::paste_chosen(
+            op,
+            sources,
+            chosen,
+            dest,
+            progress,
+            resolver,
+            replacement,
+            |r| {
+                // Not counted: the transfer counts bytes by then.
+                let snapshot = if let Some(produced) = &r.produced {
+                    let expected = Snapshot(produced.snapshot());
+                    expected.check(&r.target).ok().map(|()| expected)
+                } else if op == Operation::Cut {
+                    sources
+                        .iter()
+                        .position(|s| s == &r.source)
+                        .and_then(|i| before[i].as_ref())
+                        .and_then(|b| b.after(&r.target).ok())
+                } else {
+                    None
+                }
+                .filter(|s| s.0.len() <= budget);
+                if let Some(s) = &snapshot {
+                    budget -= s.0.len();
+                }
+                published.push(snapshot);
+            },
+        )
     } else {
-        transfer::paste(op, sources, dest, progress)
+        transfer::paste_chosen(
+            op,
+            sources,
+            chosen,
+            dest,
+            progress,
+            resolver,
+            replacement,
+            |_| {},
+        )
     };
     if c.enabled {
         let mut journal = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -1884,6 +1921,201 @@ mod tests {
         assert_eq!(fs::read(t.0.join("new")).unwrap(), b"kept");
     }
 
+    /// Puts a new file at `path` the way an editor saves: the old one goes
+    /// to `old`.
+    fn replace_by_save(path: &Path, old: &Path, bytes: &str) {
+        fs::rename(path, old).unwrap();
+        fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn rename_keeps_an_item_replaced_after_the_dialog_opened() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let path = t.0.join("chosen.txt");
+        fs::write(&path, "chosen").unwrap();
+        // The dialog opens.
+        let chosen = actions::Chosen::of(std::slice::from_ref(&path));
+        replace_by_save(&path, &t.0.join("chosen.old"), "never chosen");
+        let error = rename_chosen(&path, "renamed.txt", &chosen).unwrap_err();
+        assert!(error.to_string().contains("nothing was done"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), b"never chosen");
+        assert!(!t.0.join("renamed.txt").exists());
+    }
+
+    #[test]
+    fn rename_refuses_a_folder_or_link_put_in_place_and_a_removed_item() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let p = |n: &str| t.0.join(n);
+        for n in ["to-folder", "to-link", "gone", "same"] {
+            fs::write(p(n), "x").unwrap();
+        }
+        let chosen = |n: &str| actions::Chosen::of(&[p(n)]);
+        let (to_folder, to_link, gone, same) = (
+            chosen("to-folder"),
+            chosen("to-link"),
+            chosen("gone"),
+            chosen("same"),
+        );
+        fs::remove_file(p("to-folder")).unwrap();
+        fs::create_dir(p("to-folder")).unwrap();
+        fs::remove_file(p("to-link")).unwrap();
+        std::os::unix::fs::symlink(p("same"), p("to-link")).unwrap();
+        fs::remove_file(p("gone")).unwrap();
+        // Written in place: still the item chosen, renamed as usual.
+        fs::write(p("same"), "longer content").unwrap();
+
+        assert!(rename_chosen(&p("to-folder"), "a", &to_folder).is_err());
+        assert!(rename_chosen(&p("to-link"), "b", &to_link).is_err());
+        assert!(rename_chosen(&p("gone"), "c", &gone).is_err());
+        assert!(p("to-folder").is_dir());
+        assert!(fs::symlink_metadata(p("to-link")).unwrap().is_symlink());
+        for n in ["a", "b", "c"] {
+            assert!(fs::symlink_metadata(p(n)).is_err(), "{n}");
+        }
+        assert!(rename_chosen(&p("same"), "d", &same).is_ok());
+        assert_eq!(fs::read(p("d")).unwrap(), b"longer content");
+    }
+
+    #[test]
+    fn paste_of_a_cut_keeps_an_item_replaced_after_the_cut() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let src = t.0.join("cut.txt");
+        let dest = t.0.join("dest");
+        fs::write(&src, "cut").unwrap();
+        fs::create_dir(&dest).unwrap();
+        let held = vec![src.clone()];
+        let chosen = actions::Chosen::of(&held);
+        replace_by_save(&src, &t.0.join("cut.old"), "never cut");
+        let out = paste(
+            Operation::Cut,
+            &held,
+            Some(&chosen),
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert_eq!(fs::read(&src).unwrap(), b"never cut");
+        assert!(!dest.join("cut.txt").exists());
+    }
+
+    #[test]
+    fn paste_takes_only_the_unchanged_chosen_items_of_a_mixed_selection() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        for op in [Operation::Cut, Operation::Copy] {
+            let t = Temp::new();
+            let p = |n: &str| t.0.join(n);
+            let dest = p("dest");
+            fs::create_dir(&dest).unwrap();
+            for n in ["same", "to-file", "to-folder", "to-link", "gone", "edited"] {
+                fs::write(p(n), n).unwrap();
+            }
+            fs::create_dir(p("folder")).unwrap();
+            fs::write(p("folder/inner"), "inner").unwrap();
+            let names = [
+                "same",
+                "to-file",
+                "to-folder",
+                "to-link",
+                "gone",
+                "edited",
+                "folder",
+            ];
+            let sources: Vec<_> = names.into_iter().map(p).collect();
+            let chosen = actions::Chosen::of(&sources);
+            replace_by_save(&p("to-file"), &p("to-file.old"), "never chosen");
+            fs::remove_file(p("to-folder")).unwrap();
+            fs::create_dir(p("to-folder")).unwrap();
+            fs::remove_file(p("to-link")).unwrap();
+            std::os::unix::fs::symlink(p("same"), p("to-link")).unwrap();
+            fs::remove_file(p("gone")).unwrap();
+            // Written in place: still the chosen item, taken as usual.
+            fs::write(p("edited"), "edited later").unwrap();
+
+            let out = paste(op, &sources, Some(&chosen), &dest, &Progress::new(), None);
+            let failed: Vec<_> = out.failed.iter().map(|(s, _)| s.clone()).collect();
+            assert_eq!(
+                failed,
+                [p("to-file"), p("to-folder"), p("to-link"), p("gone")],
+                "{op:?}"
+            );
+            for (s, e) in &out.failed {
+                if s != &p("gone") {
+                    assert!(e.to_string().contains("nothing was done"), "{e}");
+                }
+            }
+            for n in ["to-file", "to-folder", "to-link", "gone"] {
+                assert!(fs::symlink_metadata(dest.join(n)).is_err(), "{op:?} {n}");
+            }
+            assert_eq!(fs::read(p("to-file")).unwrap(), b"never chosen");
+            assert!(p("to-folder").is_dir());
+            assert_eq!(fs::read(dest.join("same")).unwrap(), b"same");
+            assert_eq!(fs::read(dest.join("edited")).unwrap(), b"edited later");
+            assert_eq!(fs::read(dest.join("folder/inner")).unwrap(), b"inner");
+            assert_eq!(p("same").exists(), op == Operation::Copy);
+            assert_eq!(p("folder").exists(), op == Operation::Copy);
+        }
+    }
+
+    #[test]
+    fn paste_refuses_an_item_whose_folder_was_swapped_after_the_cut() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let folder = t.0.join("folder");
+        let other = t.0.join("other");
+        let dest = t.0.join("dest");
+        for d in [&folder, &other, &dest] {
+            fs::create_dir(d).unwrap();
+        }
+        fs::write(folder.join("item"), "chosen").unwrap();
+        fs::write(other.join("item"), "elsewhere").unwrap();
+        let sources = vec![folder.join("item")];
+        let chosen = actions::Chosen::of(&sources);
+        fs::rename(&folder, t.0.join("folder.old")).unwrap();
+        std::os::unix::fs::symlink(&other, &folder).unwrap();
+        let out = paste(
+            Operation::Cut,
+            &sources,
+            Some(&chosen),
+            &dest,
+            &Progress::new(),
+            None,
+        );
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert_eq!(fs::read(other.join("item")).unwrap(), b"elsewhere");
+        assert!(!dest.join("item").exists());
+    }
+
+    #[test]
+    fn a_replace_refuses_a_source_rewritten_after_the_cut() {
+        let _test = TEST_JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+        let t = Temp::new();
+        let src = t.0.join("doc");
+        let dest = t.0.join("dest");
+        fs::create_dir(&dest).unwrap();
+        fs::write(&src, "chosen").unwrap();
+        fs::write(dest.join("doc"), "to be replaced").unwrap();
+        let sources = vec![src.clone()];
+        let chosen = actions::Chosen::of(&sources);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(&src, "rewritten").unwrap();
+        let out = paste_using(
+            Operation::Cut,
+            &sources,
+            Some(&chosen),
+            &dest,
+            &Progress::new(),
+            Some(Box::new(|_, _| transfer::Decision::Overwrite)),
+            transfer::Replacement::with_trash(|_, _, _| panic!("nothing is replaced")),
+        );
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert_eq!(fs::read(&src).unwrap(), b"rewritten");
+        assert_eq!(fs::read(dest.join("doc")).unwrap(), b"to be replaced");
+    }
+
     #[test]
     fn rename_refuses_a_running_paste_without_waiting() {
         let _test = TEST_JOURNAL.lock().unwrap();
@@ -1953,6 +2185,7 @@ mod tests {
         let out = paste_using(
             Operation::Cut,
             std::slice::from_ref(&src),
+            None,
             &dst,
             &Progress::new(),
             Some(Box::new(|q, _| {
@@ -2000,6 +2233,7 @@ mod tests {
             let out = paste_using(
                 op,
                 &[x.clone(), y.clone()],
+                None,
                 &dest,
                 &Progress::new(),
                 Some(Box::new(|_, _| transfer::Decision::Overwrite)),
@@ -2708,6 +2942,7 @@ mod new_item_tests {
             let out = paste_using(
                 Operation::Copy,
                 std::slice::from_ref(&src),
+                None,
                 &dest,
                 &Progress::new(),
                 None,
@@ -2740,6 +2975,7 @@ mod new_item_tests {
             let out = paste_using(
                 Operation::Copy,
                 std::slice::from_ref(&src),
+                None,
                 &dest,
                 &Progress::new(),
                 None,
@@ -2811,6 +3047,7 @@ mod new_item_tests {
             let out = paste_using(
                 Operation::Copy,
                 std::slice::from_ref(&src),
+                None,
                 &dest,
                 &Progress::new(),
                 None,
@@ -2899,6 +3136,7 @@ mod new_item_tests {
             let out = paste_using(
                 Operation::Copy,
                 std::slice::from_ref(&src),
+                None,
                 &dest,
                 &Progress::new(),
                 None,

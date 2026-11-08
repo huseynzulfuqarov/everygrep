@@ -16,8 +16,9 @@ thread_local! { static DONE: RefCell<Option<RenameDone>> = RefCell::new(None); }
 /// What the dialog's name is for.
 #[derive(Clone)]
 enum Mode {
-    /// A new name for the item at this path.
-    Rename(PathBuf),
+    /// A new name for the item at this path, as it was when the dialog
+    /// opened.
+    Rename(PathBuf, actions::Chosen),
     /// The name of a new folder in this folder.
     NewFolder(PathBuf),
 }
@@ -70,7 +71,7 @@ impl Dialog {
                 if let (Some(w), Some(mode)) = (weak.upgrade(), dialog.path.borrow().as_ref()) {
                     let folder = match mode {
                         Mode::NewFolder(folder) => Some(folder.as_path()),
-                        Mode::Rename(_) => None,
+                        Mode::Rename(..) => None,
                     };
                     w.set_fileops_rename_error(name_problem(&name, folder).into());
                 }
@@ -107,8 +108,9 @@ impl Dialog {
                 });
                 std::thread::spawn(move || {
                     let result = crate::fileops_undo::catch_worker(|| match &mode {
-                        Mode::Rename(path) => {
-                            crate::fileops_undo::rename(path, &name).map_err(|e| e.to_string())
+                        Mode::Rename(path, chosen) => {
+                            crate::fileops_undo::rename_chosen(path, &name, chosen)
+                                .map_err(|e| e.to_string())
                         }
                         Mode::NewFolder(folder) => crate::fileops_undo::new_folder(folder, &name)
                             .map(|(_, note)| {
@@ -166,7 +168,8 @@ impl Dialog {
         w.set_fileops_rename_name(name.into());
         w.set_fileops_rename_stem(actions::rename_selection(name, is_dir, name_only) as i32);
         w.set_fileops_rename_error("".into());
-        *self.path.borrow_mut() = Some(Mode::Rename(path));
+        let chosen = actions::Chosen::of(std::slice::from_ref(&path));
+        *self.path.borrow_mut() = Some(Mode::Rename(path, chosen));
         w.set_fileops_rename_open(true);
         true
     }

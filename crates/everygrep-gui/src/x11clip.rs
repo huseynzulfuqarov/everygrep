@@ -802,6 +802,7 @@ mod tests {
             op,
             text: crate::actions::paths_text(&paths, false),
             paths,
+            chosen: Default::default(),
         }
     }
 

@@ -1558,8 +1558,10 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
         }
     });
 
+    // The item of the rename in the list, as it was when the rename started.
+    let renaming = Rc::new(RefCell::new(actions::Chosen::default()));
     window.on_rename_start({
-        let (weak, model) = (weak.clone(), model.clone());
+        let (weak, model, renaming) = (weak.clone(), model.clone(), renaming.clone());
         move |r| {
             let (Some(w), Some(r)) = (weak.upgrade(), row(r)) else {
                 return;
@@ -1575,11 +1577,13 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             let Some((name, is_dir)) = model.name(r) else {
                 return;
             };
-            if let Some(path) = model.path(r)
+            let path = model.path(r);
+            if let Some(path) = path.clone()
                 && rename_dialog.start(&w, path, &name, is_dir)
             {
                 return;
             }
+            *renaming.borrow_mut() = actions::Chosen::of(path.as_slice());
             model.set_renaming(model.id(r));
             let mut name_only = true;
             prefs::with(|p| name_only = p.rename_name_only());
@@ -1591,6 +1595,7 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
     });
     window.on_rename_commit({
         let (weak, model) = (weak.clone(), model.clone());
+        let renaming = renaming.clone();
         move |text| {
             let Some(w) = weak.upgrade() else { return };
             let Some(old) = model.renaming_row().and_then(|r| model.path(r)) else {
@@ -1602,9 +1607,12 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             }
             w.set_rename_busy(true);
             let weak = w.as_weak();
+            let chosen = renaming.borrow().clone();
             std::thread::spawn(move || {
-                let result = fileops_undo::catch_worker(|| fileops_undo::rename(&old, &text))
-                    .unwrap_or_else(|e| Err(actions::RenameError::Io(std::io::Error::other(e))));
+                let result = fileops_undo::catch_worker(|| {
+                    fileops_undo::rename_chosen(&old, &text, &chosen)
+                })
+                .unwrap_or_else(|e| Err(actions::RenameError::Io(std::io::Error::other(e))));
                 let _ = weak.upgrade_in_event_loop(move |w| {
                     w.set_rename_busy(false);
                     match result {
@@ -1820,7 +1828,13 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 return;
             }
             let text = actions::paths_text(&paths, false);
-            let held = clipboard::Held { op, paths, text };
+            let chosen = actions::Chosen::of(&paths);
+            let held = clipboard::Held {
+                op,
+                paths,
+                text,
+                chosen,
+            };
             HELD.with(|h| *h.borrow_mut() = Some(held.clone()));
             info(&w, labels::on_clipboard(op, held.paths.len()));
             // Other programs get the files through XWayland, offered without
@@ -1892,7 +1906,16 @@ fn connect_clipboard(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                     info(w, tr("The clipboard holds no files to paste.").into());
                     return;
                 };
-                start_transfer(w, &engine, op, sources.clone(), dest, move |_, out| {
+                // This window's own Cut or Copy: only the items as they were
+                // then. Files another program put there are taken as they are.
+                let chosen = HELD.with(|h| {
+                    h.borrow()
+                        .as_ref()
+                        .filter(|h| h.paths == sources)
+                        .map(|h| h.chosen.clone())
+                });
+                let source_list = sources.clone();
+                start_transfer(w, &engine, op, source_list, chosen, dest, move |_, out| {
                     // A cut is pasted once; after a failure or a cancel it
                     // stays, so pasting again moves what is left.
                     if op == clipboard::Operation::Cut
@@ -1950,6 +1973,8 @@ fn connect_to_folder(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             } else {
                 clipboard::Operation::Copy
             };
+            // The items as they are now, while the chooser is open.
+            let items = actions::Chosen::of(&sources);
             let (weak, engine) = (weak.clone(), engine.clone());
             // The chooser is the portal's; waiting for it blocks.
             std::thread::spawn(move || {
@@ -1960,7 +1985,7 @@ fn connect_to_folder(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 };
                 let chosen = portal::choose_folder(title, accept);
                 let _ = weak.upgrade_in_event_loop(move |w| match chosen {
-                    Ok(Some(dest)) => start_checked_transfer(&w, &engine, op, sources, dest),
+                    Ok(Some(dest)) => start_checked_transfer(&w, &engine, op, sources, items, dest),
                     Ok(None) => {}
                     Err(e) => error(&w, fill(tr("Cannot show the folder chooser: {}"), &[&e])),
                 });
@@ -1977,6 +2002,7 @@ fn start_checked_transfer(
     engine: &Arc<Engine>,
     op: clipboard::Operation,
     sources: Vec<PathBuf>,
+    chosen: actions::Chosen,
     dest: PathBuf,
 ) {
     use std::sync::atomic::Ordering::SeqCst;
@@ -1989,7 +2015,7 @@ fn start_checked_transfer(
         return;
     }
     info(w, String::new());
-    start_transfer(w, engine, op, sources, dest, |_, _| {});
+    start_transfer(w, engine, op, sources, Some(chosen), dest, |_, _| {});
 }
 
 /// One copy or move at a time: Paste, Copy to folder, Move to folder and
@@ -1999,12 +2025,14 @@ static TRANSFER_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// Copies or moves `sources` into `dest` on a helper thread, with the
 /// conflict questions, undo recording and status line of Paste. The caller
 /// has taken [`TRANSFER_BUSY`]; it is given back when the transfer ends.
-/// `done` runs on the window thread after a transfer that ran.
+/// `done` runs on the window thread after a transfer that ran. With
+/// `chosen`, only those items are taken (see [`transfer::paste_chosen`]).
 fn start_transfer(
     w: &AppWindow,
     engine: &Arc<Engine>,
     op: clipboard::Operation,
     sources: Vec<PathBuf>,
+    chosen: Option<actions::Chosen>,
     dest: PathBuf,
     done: impl FnOnce(&AppWindow, &transfer::Outcome) + Send + 'static,
 ) {
@@ -2026,7 +2054,14 @@ fn start_transfer(
         fileops_undo::queue_notice(weak.clone());
         let result = fileops_undo::catch_worker(|| {
             let job = engine.begin_job(kind);
-            fileops_undo::paste(op, &sources, &dest, job.progress(), resolver)
+            fileops_undo::paste(
+                op,
+                &sources,
+                chosen.as_ref(),
+                &dest,
+                job.progress(),
+                resolver,
+            )
         });
         let queued = weak.upgrade_in_event_loop(move |w| {
             w.invoke_fileops_conflict_answer(5);

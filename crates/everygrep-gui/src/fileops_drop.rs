@@ -134,10 +134,13 @@ enum Refused {
 struct State {
     /// The items being dragged.
     sources: Option<Vec<PathBuf>>,
+    /// The items as they were when the drag started.
+    chosen: crate::actions::Chosen,
     /// The last folder row checked, and the answer.
     checked: Option<Checked>,
-    /// A drop waiting for the answer of the menu: items and folder.
-    asked: Option<(Vec<PathBuf>, PathBuf)>,
+    /// A drop waiting for the answer of the menu: items, folder and the
+    /// items as they were when the drag started.
+    asked: Option<(Vec<PathBuf>, PathBuf, crate::actions::Chosen)>,
 }
 
 /// The device and inode of the folder `dest`.
@@ -213,6 +216,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
             s.sources = crate::online_targets(&weak, &model, usize::try_from(row).ok())
                 .map(|t| t.paths)
                 .filter(|p| !p.is_empty());
+            s.chosen = crate::actions::Chosen::of(s.sources.as_deref().unwrap_or_default());
         }
     });
     w.on_rows_drag_end({
@@ -221,6 +225,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
             let mut s = state.borrow_mut();
             s.sources = None;
             s.checked = None;
+            s.chosen = Default::default();
         }
     });
     w.on_drop_allowed({
@@ -242,7 +247,11 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
             let Ok(index) = usize::try_from(row) else {
                 return false;
             };
-            let taken = state.borrow_mut().take_drop(index, model.path(index));
+            let (taken, chosen) = {
+                let mut s = state.borrow_mut();
+                let taken = s.take_drop(index, model.path(index));
+                (taken, std::mem::take(&mut s.chosen))
+            };
             let (sources, dest) = match taken {
                 Ok(drop) => drop,
                 Err(Refused::Nothing) => return false,
@@ -262,11 +271,11 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
             prefs::with(|p| action = p.fileops_settings().drop_action);
             match choose(action, copy, &sources, &dest) {
                 Choice::Do(op) => {
-                    crate::start_checked_transfer(&w, &engine, op, sources, dest);
+                    crate::start_checked_transfer(&w, &engine, op, sources, chosen, dest);
                     false
                 }
                 Choice::Ask => {
-                    state.borrow_mut().asked = Some((sources, dest));
+                    state.borrow_mut().asked = Some((sources, dest, chosen));
                     true
                 }
             }
@@ -275,7 +284,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
     w.on_drop_answer({
         let (weak, engine) = (w.as_weak(), engine.clone());
         move |answer| {
-            let Some((sources, dest)) = state.borrow_mut().asked.take() else {
+            let Some((sources, dest, chosen)) = state.borrow_mut().asked.take() else {
                 return;
             };
             let Some(w) = weak.upgrade() else { return };
@@ -284,7 +293,7 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
                 2 => Operation::Cut,
                 _ => return,
             };
-            crate::start_checked_transfer(&w, &engine, op, sources, dest);
+            crate::start_checked_transfer(&w, &engine, op, sources, chosen, dest);
         }
     });
 }
@@ -382,6 +391,7 @@ mod tests {
     fn dragging(file: &Path) -> State {
         State {
             sources: Some(vec![file.to_path_buf()]),
+            chosen: crate::actions::Chosen::of(&[file.to_path_buf()]),
             ..State::default()
         }
     }
@@ -455,6 +465,33 @@ mod tests {
             s.take_drop(4, Some(other.clone())),
             Ok((vec![a.clone()], other))
         );
+    }
+
+    #[test]
+    fn a_drag_move_keeps_an_item_replaced_after_the_drag_started() {
+        let t = Temp::new("replaced-source");
+        let file = t.0.join("f");
+        fs::write(&file, "dragged").unwrap();
+        let dest = t.0.join("d");
+        fs::create_dir(&dest).unwrap();
+        let mut s = dragging(&file);
+        assert!(s.allowed(0, Some(dest.clone())));
+        fs::rename(&file, t.0.join("f-old")).unwrap();
+        fs::write(&file, "never dragged").unwrap();
+        let (sources, dest) = s.take_drop(0, Some(dest.clone())).unwrap();
+        let out = crate::transfer::paste_chosen(
+            Operation::Cut,
+            &sources,
+            Some(&s.chosen),
+            &dest,
+            &everygrep_core::progress::Progress::new(),
+            None,
+            crate::transfer::Replacement::default(),
+            |_| {},
+        );
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert_eq!(fs::read(&file).unwrap(), b"never dragged");
+        assert!(!dest.join("f").exists());
     }
 
     #[test]
