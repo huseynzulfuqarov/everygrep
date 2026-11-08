@@ -310,6 +310,18 @@ pub fn paste_chosen(
             return out;
         }
     };
+    if let Some(Err(e)) = chosen.map(|c| c.check_folder(&dest)) {
+        out.failed = sources
+            .iter()
+            .map(|s| {
+                (
+                    s.clone(),
+                    Failure::Io(io::Error::new(e.kind(), e.to_string())),
+                )
+            })
+            .collect();
+        return out;
+    }
     let dest_dev = fs::metadata(&dest).map(|m| m.dev()).ok();
     let total: u64 = sources
         .iter()

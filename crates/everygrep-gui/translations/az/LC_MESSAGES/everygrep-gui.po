@@ -5302,6 +5302,10 @@ msgstr "həmin qovluqda artıq {} var; onları bu proqram yazmayıb və onlar ə
 msgid "it changed after you chose it; nothing was done"
 msgstr "siz seçəndən sonra dəyişib; heç nə edilmədi"
 
+#: src/actions.rs
+msgid "the destination folder changed after you chose it; nothing was done"
+msgstr "təyinat qovluğu siz seçəndən sonra dəyişib; heç nə edilmədi"
+
 #: src/main.rs
 msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"
 msgstr "{} element zibil qutusuna köçürüldü (cəmi {}). Köçürülmədi: {}, məsələn {}. {}"

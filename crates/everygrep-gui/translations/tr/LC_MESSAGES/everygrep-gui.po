@@ -5302,6 +5302,10 @@ msgstr "o klasörde zaten {} var; bunları bu program yazmadı ve üzerlerine ya
 msgid "it changed after you chose it; nothing was done"
 msgstr "siz seçtikten sonra değişti; hiçbir şey yapılmadı"
 
+#: src/actions.rs
+msgid "the destination folder changed after you chose it; nothing was done"
+msgstr "hedef klasör siz seçtikten sonra değişti; hiçbir şey yapılmadı"
+
 #: src/main.rs
 msgid "Moved {} of {} to the trash. Not moved: {}, for example {}. {}"
 msgstr "{} öğe çöp kutusuna taşındı (toplam {}). Taşınmadı: {}, örneğin {}. {}"

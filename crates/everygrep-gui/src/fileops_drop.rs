@@ -196,6 +196,11 @@ impl State {
                     && c.id.is_some()
                     && c.id == folder_id(&dest) =>
             {
+                // The worker checks the folder again: a menu that asks
+                // Move or Copy can stay open for long.
+                if let Some(id) = c.id {
+                    self.chosen.set_folder(id);
+                }
                 Ok((sources, dest))
             }
             _ => Err(Refused::Changed),
@@ -492,6 +497,36 @@ mod tests {
         assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
         assert_eq!(fs::read(&file).unwrap(), b"never dragged");
         assert!(!dest.join("f").exists());
+    }
+
+    #[test]
+    fn a_drop_answered_from_the_menu_keeps_out_of_a_folder_replaced_meanwhile() {
+        let t = Temp::new("replaced-dest");
+        let file = t.0.join("f");
+        fs::write(&file, "dragged").unwrap();
+        let dest = t.0.join("d");
+        fs::create_dir(&dest).unwrap();
+        let mut s = dragging(&file);
+        assert!(s.allowed(0, Some(dest.clone())));
+        let (sources, dest) = s.take_drop(0, Some(dest.clone())).unwrap();
+        // The drop asks Move or Copy; meanwhile a sync puts another folder
+        // of that name in place.
+        fs::rename(&dest, t.0.join("d-old")).unwrap();
+        fs::create_dir(&dest).unwrap();
+        let out = crate::transfer::paste_chosen(
+            Operation::Cut,
+            &sources,
+            Some(&s.chosen),
+            &dest,
+            &everygrep_core::progress::Progress::new(),
+            None,
+            crate::transfer::Replacement::default(),
+            |_| {},
+        );
+        assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        assert_eq!(fs::read(&file).unwrap(), b"dragged");
+        assert!(!dest.join("f").exists());
+        assert!(!t.0.join("d-old/f").exists());
     }
 
     #[test]

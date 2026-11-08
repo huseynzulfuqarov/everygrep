@@ -1984,7 +1984,17 @@ fn connect_to_folder(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 };
                 let chosen = portal::choose_folder(title, accept);
                 let _ = weak.upgrade_in_event_loop(move |w| match chosen {
-                    Ok(Some(dest)) => start_checked_transfer(&w, &engine, op, sources, items, dest),
+                    Ok(Some(dest)) => {
+                        // The folder as it is when chosen; the worker,
+                        // which may wait for another file operation, checks
+                        // it again.
+                        let mut items = items;
+                        if let Ok(m) = std::fs::metadata(&dest) {
+                            use std::os::unix::fs::MetadataExt;
+                            items.set_folder((m.dev(), m.ino()));
+                        }
+                        start_checked_transfer(&w, &engine, op, sources, items, dest)
+                    }
                     Ok(None) => {}
                     Err(e) => error(&w, fill(tr("Cannot show the folder chooser: {}"), &[&e])),
                 });

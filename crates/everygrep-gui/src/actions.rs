@@ -360,19 +360,48 @@ const S_IFREG: u32 = 0o100000;
 /// one of the paths meanwhile (a save by an editor, a sync) is never
 /// touched.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Chosen(Vec<Identity>);
+pub struct Chosen {
+    items: Vec<Identity>,
+    /// The device and inode of the folder chosen to copy or move into,
+    /// when one was chosen before the operation started (a drop that
+    /// asks Move or Copy).
+    folder: Option<(u64, u64)>,
+}
 
 impl Chosen {
     /// The items at `paths` now; items that cannot be read are left out
     /// (nothing is done with them later).
     pub fn of(paths: &[PathBuf]) -> Self {
-        Self(
-            paths
+        Self {
+            items: paths
                 .iter()
                 .filter_map(|p| std::fs::symlink_metadata(p).ok())
                 .map(|m| Identity::of(&m))
                 .collect(),
-        )
+            folder: None,
+        }
+    }
+
+    /// Records the folder to copy or move into: its device and inode (of
+    /// the folder itself, a link to it followed).
+    pub(crate) fn set_folder(&mut self, id: (u64, u64)) {
+        self.folder = Some(id);
+    }
+
+    /// Whether `dest` is still the folder chosen to copy or move into
+    /// (always, when none was recorded).
+    pub(crate) fn check_folder(&self, dest: &Path) -> io::Result<()> {
+        let Some(id) = self.folder else {
+            return Ok(());
+        };
+        let m = std::fs::metadata(dest)?;
+        if (m.dev(), m.ino()) == id {
+            Ok(())
+        } else {
+            Err(io::Error::other(tr(
+                "the destination folder changed after you chose it; nothing was done",
+            )))
+        }
     }
 
     /// Whether `m` is one of the chosen items; with `unchanged` also with
@@ -380,7 +409,7 @@ impl Chosen {
     /// file).
     pub(crate) fn holds(&self, m: &std::fs::Metadata, unchanged: bool) -> bool {
         let now = Identity::of(m);
-        self.0.iter().any(|c| {
+        self.items.iter().any(|c| {
             if unchanged {
                 *c == now
             } else {
