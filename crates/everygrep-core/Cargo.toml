@@ -11,7 +11,7 @@ authors.workspace = true
 # Hashes of file contents (`hash.rs`): CRC-32, MD5 and SHA-256 for the hash
 # columns, XXH3-128 to find files with the same contents. crc32fast is the
 # version already in Cargo.lock; md-5 and sha2 without their default
-# features (no object identifiers); 0.11.0 is the newest sha2 for Rust 1.85.
+# features (no object identifiers).
 # twox-hash with only XXH3-128 (its default features bring a random number
 # generator).
 crc32fast = "1.5.3"

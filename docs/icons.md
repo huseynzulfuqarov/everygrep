@@ -55,8 +55,9 @@ page.
 
 ### Palette
 
-Tints were chosen in OKLCH at lightness 0.60–0.66 so that every color has at
-least 3:1 contrast (the WCAG level for graphics) against both theme surfaces.
+Tints were chosen in OKLCH at lightness 0.60–0.66 so that every color but the
+folder front (see the notes below) has at least 3:1 contrast (the WCAG level for
+graphics) against both theme surfaces.
 
 | Kind | Hex | vs `#ffffff` | vs `#1c1d20` |
 |---|---|---|---|
