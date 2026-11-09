@@ -78,8 +78,7 @@ are separate and can be deleted too.
 the one it lives in, at branch `main`): `cd packaging/arch && makepkg -si`.
 It installs both programs to `/usr/bin`, the desktop entry, the AppStream
 metadata (`/usr/share/metainfo`), the icons, the licenses (including
-`THIRD-PARTY-LICENSES.md`) and the documentation. The project's public URL
-is not set yet; the PKGBUILD has a placeholder for it.
+`THIRD-PARTY-LICENSES.md`) and the documentation.
 
 ## Quick start
 

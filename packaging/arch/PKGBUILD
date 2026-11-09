@@ -14,8 +14,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='Instant file name search for Linux, with a desktop window'
 arch=('x86_64')
-# Placeholder: the project's public URL is not decided yet.
-url=''
+url='https://github.com/huseynzulfuqarov/everygrep'
 license=('MIT OR Apache-2.0')
 depends=(
   'gcc-libs'
@@ -43,8 +42,8 @@ _checkout="${EVERYGREP_CHECKOUT:-$(realpath "${startdir:-.}/../..")}"
 # For a release: _ref="tag=v$pkgver"
 _ref='branch=main'
 source=("$pkgname::git+file://$_checkout#$_ref")
-# Placeholder for the published repository; replace OWNER/URL first:
-# source=("$pkgname::git+https://PROJECT-URL-PLACEHOLDER/everygrep.git#tag=v$pkgver")
+# For a release, build from the published repository instead:
+# source=("$pkgname::git+https://github.com/huseynzulfuqarov/everygrep.git#tag=v$pkgver")
 sha256sums=('SKIP')
 
 prepare() {

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Before the first release: add <url type="homepage"> once the public
-     address is known, <releases> with the version and date, and
-     <screenshots>. -->
+<!-- Before the first release: add <releases> with the version and date,
+     and <screenshots>. -->
 <component type="desktop-application">
   <id>az.huseynz.EveryGrep</id>
   <metadata_license>CC0-1.0</metadata_license>
@@ -36,6 +35,10 @@
       All data stays on this computer: EveryGrep makes no network connections.
     </p>
   </description>
+
+  <url type="homepage">https://github.com/huseynzulfuqarov/everygrep</url>
+  <url type="bugtracker">https://github.com/huseynzulfuqarov/everygrep/issues</url>
+  <url type="vcs-browser">https://github.com/huseynzulfuqarov/everygrep</url>
 
   <launchable type="desktop-id">az.huseynz.EveryGrep.desktop</launchable>
   <provides>
