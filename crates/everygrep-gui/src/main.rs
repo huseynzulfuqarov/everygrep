@@ -2415,6 +2415,16 @@ fn error(w: &AppWindow, text: String) {
     w.set_notice(format::visible_name(&text).as_ref().into());
 }
 
+/// An error whose details keep their line breaks. Every name in `lines`
+/// must already be escaped ([`format::visible_path`]); the status line
+/// shows it on one line.
+fn error_lines(w: &AppWindow, lines: String) {
+    w.set_notice_has_details(true);
+    w.set_notice_details(lines.clone().into());
+    w.set_notice_error(true);
+    w.set_notice(format::visible_name(&lines).as_ref().into());
+}
+
 fn ask(w: &AppWindow, title: String, text: &str, action: &str) {
     w.set_confirm_title(title.into());
     w.set_confirm_text(text.into());
@@ -2440,6 +2450,37 @@ fn ask_reload_settings(w: &AppWindow) {
     );
 }
 
+/// Details of a partial trash outcome. The first failure is already named
+/// in the summary, so only later failures need their own lines.
+fn trash_failure_details(out: &fileops_undo::TrashOutcome, total: usize) -> Option<String> {
+    let (first, first_error) = out.failed.first()?;
+    let mut lines = vec![fill(
+        tr("Moved {} of {} to the trash. Not moved: {}, for example {}. {}"),
+        &[
+            &format::count(out.trashed.len()),
+            &format::count(total),
+            &format::count(out.failed.len()),
+            &format::visible_path(first),
+            &format::visible_name(first_error),
+        ],
+    )];
+    lines.extend(
+        out.trashed
+            .iter()
+            .map(|p| fill(tr("Moved to trash: {}"), &[&format::visible_path(p)])),
+    );
+    lines.extend(out.failed.iter().skip(1).map(|(p, e)| {
+        fill(
+            tr("Kept {}: {}"),
+            &[&format::visible_path(p), &format::visible_name(e)],
+        )
+    }));
+    if let Some(note) = &out.note {
+        lines.push(format::visible_name(note).into_owned());
+    }
+    Some(lines.join("\n"))
+}
+
 /// Moves items to the trash on a helper thread and reports the outcome.
 fn run_trash(w: &AppWindow, paths: Vec<PathBuf>, chosen: actions::Chosen) {
     let what = actions::describe(&paths);
@@ -2458,31 +2499,7 @@ fn run_trash(w: &AppWindow, paths: Vec<PathBuf>, chosen: actions::Chosen) {
                     }
                     info(&w, text);
                 } else {
-                    let (first, first_error) = &out.failed[0];
-                    let mut lines = vec![fill(
-                        tr("Moved {} of {} to the trash. Not moved: {}, for example {}. {}"),
-                        &[
-                            &format::count(out.trashed.len()),
-                            &format::count(paths.len()),
-                            &format::count(out.failed.len()),
-                            &first.display(),
-                            first_error,
-                        ],
-                    )];
-                    lines.extend(
-                        out.trashed
-                            .iter()
-                            .map(|p| fill(tr("Moved to trash: {}"), &[&p.display()])),
-                    );
-                    lines.extend(
-                        out.failed
-                            .iter()
-                            .map(|(p, e)| fill(tr("Kept {}: {}"), &[&p.display(), e])),
-                    );
-                    if let Some(note) = out.note {
-                        lines.push(note);
-                    }
-                    error(&w, lines.join("\n"));
+                    error_lines(&w, trash_failure_details(&out, paths.len()).unwrap());
                 }
             }
             Err(e) => error(&w, e),
@@ -3057,6 +3074,49 @@ fn is_loading_message(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trash_details_name_each_failure_once_and_keep_successes_and_notes() {
+        let mut out = fileops_undo::TrashOutcome {
+            failed: vec![("/one".into(), "first reason".into())],
+            ..Default::default()
+        };
+        let single = trash_failure_details(&out, 1).unwrap();
+        assert!(single.starts_with("Moved 0 of 1 to the trash. Not moved: 1"));
+        assert_eq!(single.matches("/one").count(), 1);
+        assert_eq!(single.matches("first reason").count(), 1);
+        assert_eq!(single.lines().count(), 1);
+        out.failed.push(("/two".into(), "second reason".into()));
+        out.trashed.push("/done".into());
+        out.note = Some("undo note".into());
+        let partial = trash_failure_details(&out, 3).unwrap();
+        assert!(partial.starts_with("Moved 1 of 3 to the trash. Not moved: 2"));
+        assert_eq!(partial.matches("/one").count(), 1);
+        assert_eq!(partial.matches("first reason").count(), 1);
+        assert!(partial.contains("\nMoved to trash: /done\nKept /two: second reason\nundo note"));
+        assert_eq!(trash_failure_details(&Default::default(), 0), None);
+    }
+
+    #[test]
+    fn trash_details_escape_names_so_only_real_lines_break() {
+        let out = fileops_undo::TrashOutcome {
+            failed: vec![
+                ("/a\nMoved to trash: /etc".into(), "why\nnot".into()),
+                ("/b\u{202e}txt.exe".into(), "second".into()),
+            ],
+            trashed: vec!["/c\td".into()],
+            note: Some("note\nend".into()),
+        };
+        let details = trash_failure_details(&out, 3).unwrap();
+        // Summary, one moved item, one later failure, the note: 4 lines.
+        assert_eq!(details.lines().count(), 4, "{details}");
+        assert!(details.contains("/a⏎Moved to trash: /etc"));
+        assert!(details.contains("why⏎not"));
+        assert!(details.contains("/b\\u{202e}txt.exe"));
+        assert!(details.contains("Moved to trash: /c⇥d"));
+        assert!(details.ends_with("note⏎end"));
+        assert!(!details.contains('\u{202e}'));
+    }
 
     #[test]
     fn completing_a_content_regex_drops_the_incomplete_escape_error() {

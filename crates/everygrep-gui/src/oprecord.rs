@@ -685,12 +685,24 @@ fn sync_folders(record: &Record) -> io::Result<()> {
     Ok(())
 }
 
+/// Human-readable OS text for recovery notices; custom errors keep their text.
+fn error_text(error: &io::Error) -> String {
+    let text = error.to_string();
+    match error.raw_os_error() {
+        Some(code) => text
+            .strip_suffix(&format!(" (os error {code})"))
+            .unwrap_or(&text)
+            .to_owned(),
+        None => text,
+    }
+}
+
 /// The error of an operation that could not be recorded: nothing was
 /// changed.
 pub(crate) fn not_recorded(error: io::Error) -> io::Error {
     io::Error::other(fill(
         tr("Cannot record the operation for recovery after a crash: {}. Nothing was changed."),
-        &[&error],
+        &[&error_text(&error)],
     ))
 }
 
@@ -848,11 +860,13 @@ impl Recovery {
         if !self.has_news() {
             return None;
         }
+        use crate::format::{visible_name, visible_path as vp};
+        // Names are escaped piece by piece: the details keep real line breaks.
         let mut lines = Vec::new();
         for (staging, original) in &self.restored {
             lines.push(fill(
                 tr("Put back “{0}” from “{1}”."),
-                &[&original.display(), &staging.display()],
+                &[&vp(original), &vp(staging)],
             ));
         }
         for k in &self.kept {
@@ -868,15 +882,15 @@ impl Recovery {
                     tr(
                         "Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to “{3}”.",
                     ),
-                    k.target.display().to_string(),
+                    vp(&k.target),
                 )
             };
             lines.push(fill(
                 message,
                 &[
-                    &k.staging.display(),
-                    &k.reason,
-                    &k.original.display(),
+                    &vp(&k.staging),
+                    &visible_name(&k.reason),
+                    &vp(&k.original),
                     &target,
                 ],
             ));
@@ -884,23 +898,23 @@ impl Recovery {
         for path in &self.unreadable {
             lines.push(fill(
                 tr("The record “{}” could not be read; nothing was changed."),
-                &[&path.display()],
+                &[&vp(path)],
             ));
         }
         for (original, error) in &self.unflushed {
             lines.push(fill(
                 tr("“{0}” was put back, but the change could not be written to disk ({1}); its record was kept."),
-                &[&original.display(), error],
+                &[&vp(original), &visible_name(error)],
             ));
         }
         for path in &self.untrusted {
             lines.push(fill(
                 tr("The record “{}” was not used: it is a link, belongs to another user, can be changed by others, or does not describe an operation of this program. Nothing was changed."),
-                &[&path.display()],
+                &[&vp(path)],
             ));
         }
         if let Some(e) = &self.error {
-            lines.push(e.clone());
+            lines.push(visible_name(e).into_owned());
         }
         let attention = !self.kept.is_empty()
             || !self.unflushed.is_empty()
@@ -927,7 +941,7 @@ pub(crate) fn recover() -> Recovery {
         Err(e) => {
             out.error = Some(fill(
                 tr("The records of interrupted file operations could not be read: {}"),
-                &[&e],
+                &[&error_text(&e)],
             ));
             return out;
         }
@@ -950,7 +964,7 @@ pub(crate) fn recover() -> Recovery {
         Err(e) => {
             out.error = Some(fill(
                 tr("The records of interrupted file operations could not be read: {}"),
-                &[&e],
+                &[&error_text(&e)],
             ));
             return out;
         }
@@ -964,7 +978,7 @@ pub(crate) fn recover() -> Recovery {
         Err(e) => {
             out.error = Some(fill(
                 tr("The records of interrupted file operations could not be read: {}"),
-                &[&e],
+                &[&error_text(&e)],
             ));
             return out;
         }
@@ -1130,7 +1144,7 @@ fn settle(record: &Record) -> Settled {
                 Settled::Kept(tr("it is no longer at the staging path").into())
             }
         }
-        Err(e) => Settled::Kept(e.to_string()),
+        Err(e) => Settled::Kept(error_text(&e)),
     }
 }
 
@@ -1139,12 +1153,12 @@ fn settle(record: &Record) -> Settled {
 /// both folders are flushed; `Some` error when they could not be.
 fn put_back(record: &Record) -> Result<Option<String>, String> {
     let parent = |p: &Path| p.parent().map(Path::to_path_buf).unwrap_or_default();
-    let from_dir = open_plain_dir(&parent(&record.staging)).map_err(|e| e.to_string())?;
-    let to_dir = open_plain_dir(&parent(&record.original)).map_err(|e| e.to_string())?;
+    let from_dir = open_plain_dir(&parent(&record.staging)).map_err(|e| error_text(&e))?;
+    let to_dir = open_plain_dir(&parent(&record.original)).map_err(|e| error_text(&e))?;
     if to_dir
         .metadata()
         .map(|m| (m.dev(), m.ino()))
-        .map_err(|e| e.to_string())?
+        .map_err(|e| error_text(&e))?
         != record.parent
     {
         return Err(tr("its original folder is not the same folder any more").into());
@@ -1155,7 +1169,7 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
     match fs::symlink_metadata(fd_path(&to_dir).join(to)) {
         Ok(_) => return Err(taken()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(error_text(&e)),
     }
     // Held by its descriptor while it is checked, and looked at again
     // through its folder right before and right after the rename: Linux
@@ -1167,9 +1181,9 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
             rustix::fs::OFlags::PATH | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
             rustix::fs::Mode::empty(),
         )
-        .map_err(|e| io::Error::from(e).to_string())?,
+        .map_err(|e| error_text(&io::Error::from(e)))?,
     );
-    let now = Identity::of(&pinned.metadata().map_err(|e| e.to_string())?);
+    let now = Identity::of(&pinned.metadata().map_err(|e| error_text(&e))?);
     if !record.identity.same_item(&now) {
         return Err(changed());
     }
@@ -1184,7 +1198,7 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
     match crate::transfer::rename_at(&from_dir, from, &to_dir, to) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(taken()),
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(error_text(&e)),
     }
     #[cfg(test)]
     crate::fileops_test::at("recovery-renamed", &record.staging);
@@ -1205,7 +1219,11 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
                 tr(
                     "another item took the staging path in the last moment and was moved to “{0}”; it could not be moved back to “{1}” ({2}), so it was left there",
                 ),
-                &[&record.original.display(), &record.staging.display(), &e],
+                &[
+                    &record.original.display(),
+                    &record.staging.display(),
+                    &error_text(&e),
+                ],
             ),
         });
     }
@@ -1217,7 +1235,7 @@ fn put_back(record: &Record) -> Result<Option<String>, String> {
         }
         sync_folder(&to_dir, &parent(&record.original))
     });
-    Ok(flushed.err().map(|e| e.to_string()))
+    Ok(flushed.err().map(|e| error_text(&e)))
 }
 
 /// The device and inode of the entry `name` in `dir` (a link itself).
@@ -1256,6 +1274,21 @@ fn remove_holder(staging: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notice_escapes_names_and_keeps_one_line_per_item() {
+        let found = Recovery {
+            restored: vec![("/s/.x\n1".into(), "/s/Put back \u{202e}a\nb".into())],
+            unreadable: vec!["/r/rec\n.op".into()],
+            ..Default::default()
+        };
+        let (_, details, _) = found.notice().unwrap();
+        assert_eq!(details.lines().count(), 2, "{details}");
+        assert!(details.contains("“/s/Put back \\u{202e}a⏎b”"));
+        assert!(details.contains("“/s/.x⏎1”"));
+        assert!(details.contains("“/r/rec⏎.op”"));
+        assert!(!details.contains('\u{202e}'));
+    }
     use crate::clipboard::Operation;
     use crate::transfer::Decision;
     use everygrep_core::progress::Progress;
@@ -2140,6 +2173,26 @@ mod tests {
         assert!(!x.exists());
         assert!(t.records().is_empty());
         assert!(t.hidden("dest").is_empty());
+    }
+
+    #[test]
+    fn recovery_errors_use_plain_os_text_and_preserve_custom_reasons() {
+        for (code, expected) in [
+            (13, "Permission denied"),
+            (28, "No space left on device"),
+            (30, "Read-only file system"),
+        ] {
+            let error = io::Error::from_raw_os_error(code);
+            assert_eq!(error_text(&error), expected);
+            assert_eq!(
+                not_recorded(error).to_string(),
+                format!(
+                    "Cannot record the operation for recovery after a crash: {expected}. Nothing was changed."
+                )
+            );
+        }
+        let custom = "custom reason (os error 13)";
+        assert_eq!(error_text(&io::Error::other(custom)), custom);
     }
 
     #[test]

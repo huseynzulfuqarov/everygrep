@@ -360,6 +360,12 @@ pub fn visible_name(text: &str) -> std::borrow::Cow<'_, str> {
     shown.into()
 }
 
+/// [`visible_name`] of a path: one piece of a message whose own line breaks
+/// stay real (details of a notice), so a name cannot add or turn lines.
+pub fn visible_path(path: &std::path::Path) -> String {
+    visible_name(&path.display().to_string()).into_owned()
+}
+
 /// Marks that change the direction of the text around them.
 fn is_direction_mark(c: char) -> bool {
     matches!(
