@@ -5601,3 +5601,7 @@ msgstr "Yarımçıq qalmış fayl əməliyyatı diqqətinizi tələb edir."
 #: src/oprecord.rs
 msgid "An interrupted file operation was recovered."
 msgstr "Yarımçıq qalmış fayl əməliyyatı bərpa olundu."
+
+#: src/oprecord.rs
+msgid "Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to “{3}”."
+msgstr "“{0}” olduğu yerdə saxlanıldı ({1}). Əvvəlki yolu: “{2}”; əməliyyat onu buraya aparırdı: “{3}”."

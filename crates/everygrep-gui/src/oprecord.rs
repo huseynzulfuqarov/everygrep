@@ -856,14 +856,29 @@ impl Recovery {
             ));
         }
         for k in &self.kept {
-            let target = if k.target.as_os_str().is_empty() {
-                tr("the trash").to_owned()
+            let (message, target) = if k.target.as_os_str().is_empty() {
+                (
+                    tr(
+                        "Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to {3}.",
+                    ),
+                    tr("the trash").to_owned(),
+                )
             } else {
-                k.target.display().to_string()
+                (
+                    tr(
+                        "Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to “{3}”.",
+                    ),
+                    k.target.display().to_string(),
+                )
             };
             lines.push(fill(
-                tr("Left “{0}” where it is ({1}). Its original path: “{2}”; the operation was taking it to {3}."),
-                &[&k.staging.display(), &k.reason, &k.original.display(), &target],
+                message,
+                &[
+                    &k.staging.display(),
+                    &k.reason,
+                    &k.original.display(),
+                    &target,
+                ],
             ));
         }
         for path in &self.unreadable {
@@ -2170,7 +2185,7 @@ mod tests {
             [
                 "Put back “/s/x” from “/d/.everygrep-moving-1-0”.",
                 "Left “/d/.everygrep-moving-1-0” where it is (its original name is taken). \
-                 Its original path: “/s/x”; the operation was taking it to /d/x.",
+                 Its original path: “/s/x”; the operation was taking it to “/d/x”.",
                 "Left “/s/.everygrep-held-1-2/item” where it is (it is no longer at the \
                  staging path). Its original path: “/s/y”; the operation was taking it to \
                  the trash.",
