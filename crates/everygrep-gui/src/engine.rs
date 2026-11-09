@@ -6239,6 +6239,84 @@ mod tests {
     }
 
     #[test]
+    fn link_icons_arrive_from_the_worker_without_detail_columns_or_target_sizes() {
+        use crate::filetype::{FileKind, KindIcon};
+        use crate::results::{DetailReader, ResultsModel};
+        use slint::Model;
+        use std::os::unix::fs::symlink;
+        let dir = Scratch::new("row-link-icons");
+        let root = dir.0.join("files");
+        fs::create_dir_all(root.join("folder")).unwrap();
+        fs::write(root.join("target.txt"), vec![b'x'; 4096]).unwrap();
+        symlink("target.txt", root.join("link-file")).unwrap();
+        symlink("folder", root.join("link-folder")).unwrap();
+        symlink("missing.txt", root.join("link-broken.txt")).unwrap();
+        symlink("link-file", root.join("link-chain")).unwrap();
+        symlink("link-loop", root.join("link-loop")).unwrap();
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        while probe.results.try_recv().is_ok() {}
+        probe
+            .engine
+            .set_query("regex:^link-", QueryOptions::default());
+        let result = loop {
+            let r = probe.results.recv_timeout(Duration::from_secs(20)).unwrap();
+            if r.query == "regex:^link-" {
+                assert_eq!(r.ids.len(), 5, "only the link fixture rows");
+                break r;
+            }
+        };
+        let model = ResultsModel::new(Arc::clone(&probe.engine));
+        let (deliver, batches) = mpsc::channel();
+        model.read_details_with(DetailReader::start(move |batch| {
+            let _ = deliver.send(batch);
+        }));
+        model.set_result(&result);
+        let asked = Instant::now();
+        for i in 0..model.row_count() {
+            assert!(!model.row_data(i).unwrap().is_symlink, "not read yet");
+        }
+        assert!(asked.elapsed() < Duration::from_millis(300));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            model.take_details(
+                batches
+                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                    .unwrap(),
+            );
+            if (0..model.row_count()).all(|i| model.row_data(i).unwrap().is_symlink) {
+                break;
+            }
+        }
+        for i in 0..model.row_count() {
+            let row = model.row_data(i).unwrap();
+            let name = format!("{}{}{}", row.name.p0, row.name.b0, row.name.p1);
+            let expected = match name.as_str() {
+                "link-file" | "link-chain" => FileKind::Text,
+                "link-folder" => FileKind::Folder,
+                "link-broken.txt" | "link-loop" => FileKind::File,
+                _ => panic!("unexpected row: {name}"),
+            };
+            assert_eq!(row.kind, expected.icon_index(), "{name}");
+            assert!(!row.is_dir, "a link is still an indexed file");
+            assert_eq!(
+                row.size.as_str(),
+                crate::format::size(fs::symlink_metadata(root.join(&name)).unwrap().len())
+            );
+        }
+        assert!(
+            batches.recv_timeout(Duration::from_millis(100)).is_err(),
+            "cached; no new reads"
+        );
+        // Answers for an older result must not bring a stale marker back.
+        let saved = model.freeze();
+        model.restore(None);
+        model.restore(Some(&saved));
+        assert!(!model.row_data(0).unwrap().is_symlink);
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn row_details_are_read_without_holding_up_the_window() {
         use crate::results::{DetailColumns, DetailReader, ResultsModel};
         use slint::Model;

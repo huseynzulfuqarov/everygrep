@@ -82,6 +82,7 @@ export struct ResultRow {
     size-freq: string,
     properties: [string],
     is-dir: bool,
+    is-symlink: bool,
     // Index into Icons.types (FileKind in src/filetype.rs).
     kind: int,
     selected: bool,
@@ -1026,13 +1027,32 @@ component Row inherits Rectangle {
     }
 
     // Cells are positioned directly to keep the columns aligned with the header.
-    Image {
+    row-icon := Image {
         x: Theme.s3;
         opacity: root.offline ? 0.45 : 1;
         source: Icons.types[root.data.kind];
         width: Theme.row-icon;
         height: Theme.row-icon;
         y: (parent.height - self.height) / 2;
+    }
+    if root.data.is-symlink: Rectangle {
+        x: row-icon.x;
+        y: row-icon.y + row-icon.height - self.height;
+        width: Theme.row-icon * 0.55;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: #82868e;
+        opacity: root.offline ? 0.45 : 1;
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 10;
+            viewbox-height: 10;
+            commands: "M 2.5 7.5 L 7.5 2.5 M 3.5 2.5 L 7.5 2.5 L 7.5 6.5";
+            fill: transparent;
+            stroke: #ffffff;
+            stroke-width: 1.5px;
+        }
     }
     name-cell := MarkedText {
         x: Theme.s3 + Theme.row-icon + Theme.s2;

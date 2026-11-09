@@ -76,6 +76,8 @@ pub struct ResultsModel {
     detail_columns: Cell<DetailColumns>,
     /// Details read for rows that were on screen, until the next result.
     detail_cache: RefCell<HashMap<NodeId, Details>>,
+    /// Base icons of links found by the details worker, until the next result.
+    link_icons: RefCell<HashMap<NodeId, filetype::FileKind>>,
     /// Reads details off the window's thread; without one they are read
     /// when a row is shown.
     detail_reader: RefCell<Option<DetailReader>>,
@@ -134,7 +136,14 @@ struct DetailRequest {
 /// Details a [`DetailReader`] read, for [`ResultsModel::take_details`],
 /// with the size and date read at the same time.
 pub struct DetailBatch {
-    found: Vec<(u64, usize, NodeId, Details, Option<Meta>)>,
+    found: Vec<(u64, usize, NodeId, RowDetails)>,
+}
+
+#[derive(Default)]
+struct RowDetails {
+    details: Details,
+    meta: Option<Meta>,
+    link_icon: Option<filetype::FileKind>,
 }
 
 /// Sizes and dates read from disk that are kept at most.
@@ -171,8 +180,8 @@ impl DetailReader {
                     let mut found = Vec::new();
                     for r in std::iter::once(first).chain(asked.try_iter().take(DETAIL_BATCH - 1)) {
                         if r.list == list.load(Ordering::SeqCst) {
-                            let (details, meta) = read_details(&r.path, &r.name);
-                            found.push((r.list, r.row, r.id, details, meta));
+                            let details = read_details(&r.path, &r.name);
+                            found.push((r.list, r.row, r.id, details));
                         }
                     }
                     if !found.is_empty() {
@@ -186,7 +195,7 @@ impl DetailReader {
 
 /// The details of the entry at `path` (named `name`), and its size and
 /// date.
-fn read_details(path: &Path, name: &[u8]) -> (Details, Option<Meta>) {
+fn read_details(path: &Path, name: &[u8]) -> RowDetails {
     #[cfg(test)]
     if tests::SLOW_DETAILS
         .lock()
@@ -197,11 +206,12 @@ fn read_details(path: &Path, name: &[u8]) -> (Details, Option<Meta>) {
         std::thread::sleep(Duration::from_secs(1));
     }
     match std::fs::symlink_metadata(path) {
-        Ok(m) => (
-            Details::from_metadata(name, &m),
-            Some(Meta::from_metadata(&m)),
-        ),
-        Err(_) => (Details::default(), None),
+        Ok(m) => RowDetails {
+            details: Details::from_metadata(name, &m),
+            meta: Some(Meta::from_metadata(&m)),
+            link_icon: m.is_symlink().then(|| filetype::link_icon(path)),
+        },
+        Err(_) => RowDetails::default(),
     }
 }
 
@@ -304,6 +314,7 @@ impl ResultsModel {
             extended_auto: Cell::new(false),
             detail_columns: Cell::new(DetailColumns::default()),
             detail_cache: RefCell::new(HashMap::new()),
+            link_icons: RefCell::new(HashMap::new()),
             detail_reader: RefCell::new(None),
             detail_pending: RefCell::new(HashSet::new()),
             hash_columns: Cell::new(HashColumns::default()),
@@ -706,18 +717,23 @@ impl ResultsModel {
         self.forget_properties();
         self.forget_hashes();
         self.detail_cache.borrow_mut().clear();
+        self.link_icons.borrow_mut().clear();
         self.detail_pending.borrow_mut().clear();
         if let Some(reader) = &*self.detail_reader.borrow() {
             reader.current.fetch_add(1, Ordering::SeqCst);
         }
     }
 
-    fn cache_details(&self, id: NodeId, d: Details) {
+    fn cache_details(&self, id: NodeId, read: RowDetails) {
         let mut cache = self.detail_cache.borrow_mut();
         if cache.len() >= MAX_CACHED_DETAILS {
             cache.clear();
+            self.link_icons.borrow_mut().clear();
         }
-        cache.insert(id, d);
+        if let Some(icon) = read.link_icon {
+            self.link_icons.borrow_mut().insert(id, icon);
+        }
+        cache.insert(id, read.details);
     }
 
     /// Details of the node of `row` for the columns shown, from the cache or
@@ -730,7 +746,7 @@ impl ResultsModel {
         }
         let store = index.store();
         if index.is_offline(id) {
-            self.cache_details(id, Details::default());
+            self.cache_details(id, RowDetails::default());
             return Details::default();
         }
         if let Some(reader) = &*self.detail_reader.borrow() {
@@ -748,9 +764,10 @@ impl ResultsModel {
             }
             return Details::default();
         }
-        let (d, _) = read_details(&store.path(id), store.name(id));
-        self.cache_details(id, d);
-        d
+        let read = read_details(&store.path(id), store.name(id));
+        let details = read.details;
+        self.cache_details(id, read);
+        details
     }
 
     /// Takes details a [`DetailReader`] read and shows them in their rows;
@@ -761,18 +778,18 @@ impl ResultsModel {
             None => return,
         };
         let epoch = self.epoch.get();
-        for (list, row, id, d, meta) in batch.found {
+        for (list, row, id, read) in batch.found {
             if list != current || !self.detail_pending.borrow_mut().remove(&id) {
                 continue;
             }
-            if let Some(meta) = meta.filter(|_| self.extended_auto.get()) {
+            if let Some(meta) = read.meta.filter(|_| self.extended_auto.get()) {
                 let mut extended = self.extended.borrow_mut();
                 if extended.0 != epoch || extended.1.len() >= MAX_EXTENDED {
                     *extended = (epoch, HashMap::new());
                 }
                 extended.1.insert(id, meta);
             }
-            self.cache_details(id, d);
+            self.cache_details(id, read);
             if self.ids.borrow().get(row) == Some(&id) {
                 self.notify.row_changed(row);
             }
@@ -1516,11 +1533,16 @@ impl Model for ResultsModel {
         // Load file details by itself (Settings) asks the row's
         // reader for what the index lacks, with the other details.
         let auto = incomplete && read.is_none() && self.extended_auto.get();
-        let details = if columns.any() || auto {
+        // Link status is not in the index. Ask the existing background
+        // reader even without detail columns; never add synchronous icon
+        // reads to row_data. Cached answers also supply the link's base icon.
+        let icons = self.detail_reader.borrow().is_some();
+        let details = if columns.any() || auto || icons {
             self.details_of(&index, id, row)
         } else {
             Details::default()
         };
+        let link_icon = self.link_icons.borrow().get(&id).copied();
         let hash_columns = self.hash_columns.get();
         let hashes = if hash_columns.any() {
             self.hashes_of(&index, id, row)
@@ -1592,7 +1614,8 @@ impl Model for ResultsModel {
             size_freq: count(shown.size, freq.as_ref().map(|f| f.size(id))),
             properties: slint::ModelRc::new(slint::VecModel::from(self.properties_of(id, row))),
             is_dir,
-            kind: kind.icon_index(),
+            kind: link_icon.unwrap_or(kind).icon_index(),
+            is_symlink: link_icon.is_some(),
             selected: self.selection.borrow().contains(id),
             offline: index.is_offline(id),
             group: self

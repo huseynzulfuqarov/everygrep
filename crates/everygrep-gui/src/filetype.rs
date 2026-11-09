@@ -5,6 +5,22 @@
 
 pub use everygrep_core::kind::{FileKind, classify};
 
+/// The target's icon for a known symlink. Called only by the row-details
+/// worker; unavailable targets keep a generic file icon.
+pub fn link_icon(path: &std::path::Path) -> FileKind {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(target) = std::fs::canonicalize(path) else {
+        return FileKind::File;
+    };
+    match std::fs::metadata(&target) {
+        Ok(meta) => classify(
+            target.file_name().unwrap_or_default().as_bytes(),
+            meta.is_dir(),
+        ),
+        Err(_) => FileKind::File,
+    }
+}
+
 /// Icon of a file kind.
 pub trait KindIcon {
     /// Index of the kind's icon in the window's icon list.
