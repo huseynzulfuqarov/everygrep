@@ -1493,9 +1493,8 @@ impl Engine {
         Some(generation)
     }
 
-    /// Changes the result order and runs the current query again. The order
-    /// stays for later queries. Returns the generation of the request.
-    /// Shows or hides the entries of offline roots in the results.
+    /// Shows or hides the entries of offline roots in the results. Returns
+    /// the generation of the request.
     pub fn set_hide_offline(&self, hide: bool) -> u64 {
         let mut q = self.query.lock().expect("lock");
         if q.hide_offline == hide {
@@ -1548,6 +1547,8 @@ impl Engine {
         self.request_search()
     }
 
+    /// Changes the result order and runs the current query again. The order
+    /// stays for later queries. Returns the generation of the request.
     pub fn set_sort(&self, sort: Sort) -> u64 {
         let mut q = self.query.lock().expect("lock");
         q.sort = sort;
@@ -2292,8 +2293,7 @@ impl Engine {
         *self.unwatched.lock().expect("lock")
     }
 
-    /// Records the folders `watcher` could not watch (none without one).
-    /// Returns whether that changed.
+    /// The folders `watcher` could not watch, as counted by
     /// [`watch_gaps`]; tests can add a folder past the watch limit.
     fn reuse_gaps(&self, watcher: &Watcher) -> Unwatched {
         #[allow(unused_mut)]
@@ -2306,6 +2306,8 @@ impl Engine {
         gaps
     }
 
+    /// Records the folders `watcher` could not watch (none without one).
+    /// Returns whether that changed.
     fn note_unwatched(&self, watcher: Option<&Watcher>) -> bool {
         let now = watcher.map(watch_gaps).unwrap_or_default();
         let mut unwatched = self.unwatched.lock().expect("lock");
@@ -3099,12 +3101,7 @@ impl Engine {
         }
     }
 
-    /// Brings the drives in the index in line with the mount table, the
-    /// settings and the window's requests. With a watcher, drives that come
-    /// online are watched at once. Their roots are returned for a catch-up,
-    /// which the caller runs outside the drive lock: at once with a watcher,
-    /// otherwise when watching starts. Returns whether the index or the list
-    /// of drives changed.
+    /// Brings the sources of the index up to date: the drives with
     /// [`sync_drives`](Self::sync_drives), then the file lists, which give
     /// way to the drives (see `engine_filelists.rs`).
     fn sync_sources(&self, watcher: Option<&mut Watcher>) -> (bool, Vec<NodeId>) {
@@ -3113,6 +3110,12 @@ impl Engine {
         (changed || lists, roots)
     }
 
+    /// Brings the drives in the index in line with the mount table, the
+    /// settings and the window's requests. With a watcher, drives that come
+    /// online are watched at once. Their roots are returned for a catch-up,
+    /// which the caller runs outside the drive lock: at once with a watcher,
+    /// otherwise when watching starts. Returns whether the index or the list
+    /// of drives changed.
     fn sync_drives(&self, mut watcher: Option<&mut Watcher>) -> (bool, Vec<NodeId>) {
         let Some(env) = &self.drive_env else {
             return (false, Vec::new());

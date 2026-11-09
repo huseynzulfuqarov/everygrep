@@ -366,8 +366,7 @@ impl ResultsModel {
         self.notify.reset();
     }
 
-    /// Whether a new query clears the selection (the default) or keeps the
-    /// selected items it lists.
+    /// Reads the property columns of the rows on screen with `reader`.
     pub fn read_properties_with(&self, reader: crate::properties::Reader) {
         *self.property_reader.borrow_mut() = Some(reader);
     }
@@ -434,6 +433,8 @@ impl ResultsModel {
         }
     }
 
+    /// Whether a new query clears the selection (the default) or keeps the
+    /// selected items it lists.
     pub fn set_clear_on_search(&self, on: bool) {
         self.clear_on_search.set(on);
     }
@@ -445,8 +446,8 @@ impl ResultsModel {
         self.set_show_root_labels(settings.drive_root_labels);
     }
 
-    /// Whether `result` answers the newest request. An older one is not
-    /// shown: the newer request's result follows.
+    /// Whether the rows shown are the result of `query` for the newest
+    /// request and the current index, so Enter can open them.
     /// Enter must never open rows left over from a previous request.
     pub fn ready_to_open(&self, query: &str) -> bool {
         self.engine.is_current(self.generation.get())
@@ -454,6 +455,8 @@ impl ResultsModel {
             && self.query.borrow().as_str() == query
     }
 
+    /// Whether `result` answers the newest request. An older one is not
+    /// shown: the newer request's result follows.
     pub fn is_current(&self, result: &SearchResult) -> bool {
         self.engine.is_current(result.generation)
     }
@@ -508,8 +511,6 @@ impl ResultsModel {
         result.ids.iter().position(|&id| selection.contains(id))
     }
 
-    /// Says which columns read from the file system are shown, and shows
-    /// the rows again when that changed.
     /// Shows drive labels in the Name cell of drive roots, or not.
     pub fn set_show_root_labels(&self, on: bool) {
         if self.show_root_labels.replace(on) != on {
@@ -532,6 +533,8 @@ impl ResultsModel {
         }
     }
 
+    /// Says which columns read from the file system are shown, and shows
+    /// the rows again when that changed.
     pub fn set_detail_columns(&self, columns: DetailColumns) {
         if self.detail_columns.replace(columns) != columns {
             self.relabel();
@@ -1743,8 +1746,6 @@ fn tilde_spans(spans: &[Range<usize>], cut: usize) -> Vec<Range<usize>> {
     )
 }
 
-/// `text` split into plain and bold pieces around `spans` (sorted, not
-/// overlapping, on character boundaries).
 /// The Name cell of a drive root, `Label (root)`, with the matched spans of
 /// the root name moved behind the label.
 fn labelled_root(label: &str, name: &str, spans: &[Range<usize>]) -> (String, Vec<Range<usize>>) {
@@ -1756,6 +1757,8 @@ fn labelled_root(label: &str, name: &str, spans: &[Range<usize>]) -> (String, Ve
     (format!("{label} ({name})"), spans)
 }
 
+/// `text` split into plain and bold pieces around `spans` (sorted, not
+/// overlapping, on character boundaries).
 fn marked(text: &str, spans: &[Range<usize>]) -> Marked {
     let mut plain: [&str; MAX_MARKS + 1] = [""; MAX_MARKS + 1];
     let mut bold: [&str; MAX_MARKS] = [""; MAX_MARKS];

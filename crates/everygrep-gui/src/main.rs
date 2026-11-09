@@ -843,10 +843,10 @@ fn main() -> Result<(), slint::PlatformError> {
     Ok(())
 }
 
-/// Arguments that open another window over the same index.
 /// How often the files of file lists are looked at for changes.
 const LIST_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// Arguments that open another window over the same index.
 fn new_window_args(roots: &[PathBuf], index_file: Option<&std::path::Path>) -> Vec<OsString> {
     let mut out = vec![OsString::from("--new-instance")];
     for root in roots {
@@ -2745,9 +2745,6 @@ fn parse_args_with_options(
     Ok(Cli::Run(out))
 }
 
-/// The sort for a header column of the window (0 name, 1 folder, 2 size,
-/// 3 modified, 4 type, 5 extension). The folder column sorts by folder, then
-/// name; folders sort by size as `folders` says.
 /// Whether the first click on the header of `column` sorts it descending:
 /// the date columns (Modified, Created, Accessed) with `dates`, Size with
 /// `sizes`; every other column starts ascending.
@@ -2759,6 +2756,9 @@ pub fn first_descending(column: i32, dates: bool, sizes: bool) -> bool {
     }
 }
 
+/// The sort for a header column of the window (0 name, 1 folder, 2 size,
+/// 3 modified, 4 type, 5 extension). The folder column sorts by folder, then
+/// name; folders sort by size as `folders` says.
 fn sort_for_column(column: i32, descending: bool, folders: FolderSize) -> Sort {
     let key = match column {
         1 => SortKey::Path,
@@ -2824,7 +2824,6 @@ fn set_folder_size(w: &AppWindow, engine: &Engine, folders: FolderSize) {
     engine.set_sort(sort_dialog::window_sort(w, folders));
 }
 
-/// The matching modes and filter set in the window.
 /// Notes that the changed search waits for Enter (search as you type is
 /// off).
 fn wait_for_enter(w: &AppWindow) {
@@ -2876,6 +2875,7 @@ fn run_query(w: &AppWindow, engine: &Engine) {
     engine.set_filtered_query(&w.get_query(), options(w), filter);
 }
 
+/// The matching modes and filter set in the window.
 fn options(w: &AppWindow) -> QueryOptions {
     QueryOptions {
         case_sensitive: w.get_match_case(),

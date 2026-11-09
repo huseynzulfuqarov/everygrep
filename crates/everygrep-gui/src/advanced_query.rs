@@ -202,9 +202,6 @@ fn valid_date(text: &str) -> bool {
 }
 
 impl Fields {
-    /// One `content:` term for the content fields: its own case, whole-word
-    /// and regex settings (the window's apply to names), the text quoted so
-    /// no operator or modifier inside it takes effect.
     /// The duplicate term of the Duplicates fields, if one is chosen.
     fn dupe_term(&self) -> Result<Option<String>, String> {
         if self.dupe_mode == 0 {
@@ -221,6 +218,9 @@ impl Fields {
         Ok(Some(format!("{term}:{by}")))
     }
 
+    /// One `content:` term for the content fields: its own case, whole-word
+    /// and regex settings (the window's apply to names), the text quoted so
+    /// no operator or modifier inside it takes effect.
     fn content_term(&self) -> Result<Option<String>, String> {
         let function = usize::try_from(self.content_encoding)
             .ok()

@@ -15,7 +15,6 @@ use crate::i18n::{fill, tr, trn};
 use crate::settings::{Density, LanguageChoice, OnClose, ThemeChoice};
 use crate::transfer::Outcome;
 
-/// Name of a filter in the filter selector.
 /// The kernel's limit of queued change events, for the Indexing page.
 pub fn event_queue_note() -> String {
     let limit = std::fs::read_to_string("/proc/sys/fs/inotify/max_queued_events")
@@ -36,6 +35,7 @@ pub fn event_queue_note() -> String {
     }
 }
 
+/// Name of a filter in the filter selector.
 pub fn filter(f: Filter) -> &'static str {
     match f {
         Filter::All => tr("All"),
@@ -72,8 +72,8 @@ fn kind_nouns(kind: FileKind) -> (&'static str, &'static str) {
     }
 }
 
-/// Text of the Type column: `Folder`, `PNG image`, `TAR.GZ archive` would be
-/// `GZ archive` (the last extension), `Source` for a `Makefile`.
+/// Text of the Type column: `Folder`, `PNG image`, `GZ archive` for
+/// `a.tar.gz` (only the last extension counts), `Source` for a `Makefile`.
 pub fn type_name(kind: FileKind, extension: &str) -> String {
     let (after, alone) = kind_nouns(kind);
     if kind == FileKind::Folder || extension.is_empty() {
@@ -453,7 +453,6 @@ pub fn theme(t: ThemeChoice) -> &'static str {
     }
 }
 
-/// Choices for how tightly the result list is packed.
 /// Choices for the size format.
 pub fn size_unit(u: SizeUnit) -> &'static str {
     match u {
@@ -474,6 +473,7 @@ pub fn size_standard(s: SizeStandard) -> &'static str {
     }
 }
 
+/// Choices for how tightly the result list is packed.
 pub fn density(d: Density) -> &'static str {
     match d {
         Density::Comfortable => tr("Comfortable"),

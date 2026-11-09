@@ -306,9 +306,6 @@ fn visible_command(chosen: Option<Command>, listed: &[Command]) -> Option<Comman
     chosen.filter(|command| listed.contains(command))
 }
 
-/// Whether an outside change of the settings, the `lines` that differ,
-/// is asked about: not when the user turned down these same differences
-/// (a later save in this window keeps them in the file).
 /// Whether a settings file changed since it was read is asked about before
 /// it applies: only with "Ask first" on, for an edit made outside EveryGrep
 /// (`own` false) that the user has not agreed to already.
@@ -316,6 +313,9 @@ fn asks_first(ask_reload: bool, own: bool, approved: bool) -> bool {
     ask_reload && !own && !approved
 }
 
+/// Whether an outside change of the settings, the `lines` that differ,
+/// is asked about: not when the user turned down these same differences
+/// (a later save in this window keeps them in the file).
 fn ask_about(
     lines: &std::collections::BTreeSet<String>,
     declined: &std::collections::BTreeSet<String>,
@@ -3570,6 +3570,7 @@ impl Prefs {
         }
     }
 
+    /// Applies the settings of the Appearance page to the windows.
     fn appearance_changed(&self) {
         let Some(w) = self.window.borrow().as_ref().map(|w| w.as_weak()) else {
             return;
@@ -3643,7 +3644,8 @@ impl Prefs {
         self.refresh();
     }
 
-    /// Applies the settings of the Appearance page to the windows.
+    /// Uses `accent` as the desktop's accent color (`None` when the desktop
+    /// has none) and colors the windows again.
     pub fn set_desktop_accent(&self, accent: Option<[u8; 3]>) {
         self.desktop_accent.set(accent);
         self.apply_theme();
@@ -4068,12 +4070,12 @@ impl Prefs {
         self.settings.borrow().rename_name_only
     }
 
-    /// Opening more items than this at once asks first; 0 never asks.
     /// How many background tabs keep their results in memory.
     pub fn tab_results_kept(&self) -> usize {
         self.settings.borrow().tab_results_kept
     }
 
+    /// Opening more items than this at once asks first; 0 never asks.
     pub fn open_confirm_over(&self) -> usize {
         self.settings.borrow().open_confirm_over
     }

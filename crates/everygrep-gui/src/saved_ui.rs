@@ -1760,6 +1760,8 @@ mod tab_tests {
     }
 }
 
+/// Whether a bookmark's `name` or `search` holds `needle`, ignoring case
+/// and diacritics; an empty `needle` matches every bookmark.
 fn bookmark_matches(name: &str, search: &str, needle: &str) -> bool {
     let fold = |text: &str| {
         everygrep_core::fold::strip_diacritics(&everygrep_core::fold::fold(text.as_bytes()))
@@ -1782,8 +1784,6 @@ mod find_tests {
     }
 }
 
-/// The bookmarks whose name or search holds `needle` (all for an empty
-/// one), in their order.
 /// The searches of the bookmark folder at `index`, to open them in tabs.
 pub fn folder_bookmarks(index: i32) -> Vec<Bookmark> {
     let Ok(index) = usize::try_from(index) else {

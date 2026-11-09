@@ -333,9 +333,6 @@ fn limits() -> std::io::Result<()> {
     }
     Ok(())
 }
-/// Native Linux classic BPF in the spirit of the desktop thumbnail sandbox:
-/// validate the ABI, deny kernel administration, mount, tracing and user
-/// namespace creation. Namespace isolation still applies without this filter.
 /// The one helper allowed to make its own nested sandbox (HEIC, JXL, SVG
 /// and other image formats): it runs each image decoder in a `bwrap` of
 /// its own, which needs user namespaces and mounts inside ours. These are
@@ -371,6 +368,10 @@ fn nested_allowed(helper: &Path, allowed: bool) -> bool {
         && helper.parent().is_some_and(|d| root_only(d, true))
 }
 
+/// The classic BPF seccomp filter of the helpers: it checks the
+/// architecture and denies kernel administration, mount, tracing and the
+/// creation of user namespaces. The namespaces of the sandbox isolate the
+/// helpers without this filter too.
 #[cfg(target_arch = "x86_64")]
 const SECCOMP: Option<(u32, Blocked)> = Some((
     0xc000003e,

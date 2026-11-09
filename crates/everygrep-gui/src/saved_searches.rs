@@ -365,7 +365,6 @@ impl Library {
         rows
     }
 
-    /// The folders, for choosing where a bookmark goes.
     /// The searches inside the folder at `index` of the list, in their
     /// order; none when `index` is not a folder.
     pub fn folder_searches(&self, index: usize) -> Vec<&Bookmark> {
@@ -378,6 +377,7 @@ impl Library {
             .collect()
     }
 
+    /// The folders, for choosing where a bookmark goes.
     pub fn bookmark_folders(&self) -> Vec<&Bookmark> {
         self.bookmarks
             .iter()
@@ -1014,8 +1014,6 @@ fn missing() -> io::Error {
     )
 }
 
-/// All edits reload under one lock, including the identity allocation.
-/// Malformed files are never overwritten, even by Restore defaults.
 /// The search text with `extra` (a bookmark's search) added as one more
 /// condition. Space joins the two as AND; when AND binds tighter than OR
 /// (`and_before_or`), a side with `|` is grouped in `<` `>` so the OR stays
@@ -1038,6 +1036,9 @@ pub fn append_search(current: &str, extra: &str, and_before_or: bool) -> String 
     format!("{} {}", side(current), side(extra))
 }
 
+/// Applies `change` to the library at `path` and saves it. All edits reload
+/// under one lock, including the identity allocation. Malformed files are
+/// never overwritten, even by Restore defaults.
 pub fn update<R>(
     path: &Path,
     change: impl FnOnce(&mut Library) -> io::Result<R>,

@@ -384,11 +384,11 @@ pub struct Columns {
     pub size_freq: Option<f32>,
 }
 
-/// Every setting the window has. `Default` gives the program's behaviour
 /// Default and range of [`Settings::event_buffer_kib`].
 pub const DEFAULT_EVENT_BUFFER_KIB: u32 = 64;
 pub const EVENT_BUFFER_KIB: std::ops::RangeInclusive<u32> = 16..=4096;
 
+/// Every setting the window has. `Default` gives the program's behaviour
 /// without a settings file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {

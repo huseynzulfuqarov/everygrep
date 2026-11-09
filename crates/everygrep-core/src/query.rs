@@ -2707,7 +2707,6 @@ fn parse_dupe(head: &str, value: &str, case: bool) -> Result<DupeSpec, ParseErro
     })
 }
 
-/// `limit:100`: a number of results.
 /// An unsigned integer, comparison or inclusive range. Never wrap at an
 /// endpoint: >MAX and <0 are empty ranges, represented by min > max.
 fn parse_number_range(head: &str, value: &str) -> Result<(u64, u64), ParseError> {
@@ -2746,6 +2745,7 @@ fn parse_number_range(head: &str, value: &str) -> Result<(u64, u64), ParseError>
     Ok((n, n))
 }
 
+/// `limit:100`: a number of results.
 fn parse_limit(value: &str) -> Result<usize, ParseError> {
     let value = value.trim();
     if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
