@@ -52,8 +52,8 @@ component Note inherits Text {
     color: Theme.text-muted;
     wrap: word-wrap;
     // Its height at the width it gets: inside a row the layout measures a
-    // wrapped text at the row's full width, which made the page shorter
-    // than its content, so its end could not be scrolled into view.
+    // wrapped text at the row's full width, which would make the page
+    // shorter than its content, so its end could not be scrolled into view.
     min-height: self.preferred-height;
 }
 

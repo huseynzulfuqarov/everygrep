@@ -70,7 +70,7 @@ fn load(path: &Path) -> Result<String, String> {
 
 /// The list's matching options are encoded in its query. Preserve the
 /// window's case choice so replacing this query does not change later searches.
-/// Generated query syntax still needs ordinary query parsing, as before.
+/// The generated query syntax is parsed like any typed query.
 fn prepare_search(
     text: &str,
     list: Options,

@@ -1152,7 +1152,8 @@ mod tests {
         let dir = TempDir::new("trash-batches");
         let bin = dir.0.join("Trash");
         crate::trashbin::set_test_home(Some(bin.clone()));
-        // Continue beyond the former command batch boundary after failures.
+        // Over 256 items with failures among them: every item is still
+        // tried.
         let paths: Vec<PathBuf> = (0..256 + 5)
             .map(|i| {
                 let p = dir.0.join(format!("f{i}"));

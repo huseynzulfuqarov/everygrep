@@ -1023,7 +1023,7 @@ mod tests {
         );
         assert_eq!(replace_term("pdf duplicates:size  ", None), "pdf  ");
         assert_eq!(replace_term("duplicates:", None), "");
-        // Terms under their older names are replaced too.
+        // Terms of any of the words, in any case, are replaced too.
         assert_eq!(
             set("duplicates:name x EXTRA-COPIES:", "duplicates:"),
             "x duplicates:"
@@ -1057,7 +1057,7 @@ mod tests {
             err("duplicates:name;size;ext;stem;modified;content;name;x")
                 .contains("unknown property")
         );
-        // The older names still work.
+        // The aliases work too.
         assert_eq!(spec("duplicates:name"), spec("duplicates:name"));
         assert_eq!(spec("extra-copies:").mode, DupeMode::Extra);
         assert!(err("duplicates: duplicates:").contains("only one of"));

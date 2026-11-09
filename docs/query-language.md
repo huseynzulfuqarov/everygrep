@@ -194,9 +194,9 @@ both together make the term equal the whole name (as it is compared: case,
 diacritics and the ignore modes still apply). With the full path they anchor
 at the start or end of the path. With whole words only the open side is
 checked: `prefix:wholeword:art` finds `art.png`, not `artist.png`. A wildcard
-pattern always matches the whole name; with `prefix:` it no longer has to
-reach the end (`prefix:img_??` finds `img_01.png`), with `suffix:` it no
-longer has to start at the beginning (`suffix:?.png`).
+pattern always matches the whole name; with `prefix:` it need not reach the
+end (`prefix:img_??` finds `img_01.png`), with `suffix:` it need not start at
+the beginning (`suffix:?.png`).
 
 ### Ignoring punctuation and whitespace
 
@@ -207,7 +207,7 @@ punctuation of Latin-1 (`« » ¡ ¿ · § ¶`), the General Punctuation block
 whitespace (Unicode `White_Space`). In a wildcard pattern `*` and `?` keep
 their meaning. Word boundaries for `wholeword:` and the start and end for
 `prefix:`/`suffix:` are those of the name after the characters were left
-out, so punctuation no longer separates words: `nopunct:wholeword:art` does not
+out, so punctuation does not separate words: `nopunct:wholeword:art` does not
 find `pop-art` (compared as `popart`). A `/` in the term still
 switches it to the full path, whose `/` are then left out too. A term with
 nothing left (`nopunct:-`) is no condition.

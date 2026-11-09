@@ -41,7 +41,7 @@ pub fn count(n: usize) -> String {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SizeUnit {
     /// Bytes below one kilobyte, otherwise the largest unit that keeps the
-    /// number at 1 or more (the format before the setting existed).
+    /// number at 1 or more (the default).
     #[default]
     Auto,
     Bytes,
@@ -78,7 +78,7 @@ impl SizeUnit {
 /// How big a kilobyte is and how the units are written.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SizeStandard {
-    /// 1 KB = 1024 bytes (the format before the setting existed).
+    /// 1 KB = 1024 bytes (the default).
     #[default]
     Jedec,
     /// 1 KiB = 1024 bytes.

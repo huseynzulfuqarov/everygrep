@@ -4388,7 +4388,7 @@ mod tests {
             IndexSetup::new(&[], None, &back).rules(),
             IndexRules::new(rules).unwrap()
         );
-        // Without saved folders the window keeps today's behaviour.
+        // Without saved folders the window uses the saved index's folders.
         let setup = IndexSetup::new(&[], None, &Settings::default());
         assert!(setup.saved && setup.roots.is_empty());
         assert_eq!(setup.rules, RuleSpec::default());

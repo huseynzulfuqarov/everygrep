@@ -1,7 +1,7 @@
 //! The program's own log: short notes about what went wrong or what it did,
 //! for finding the cause of a problem.
 //!
-//! Every note goes to the terminal (standard error) as before and into a
+//! Every note goes to the terminal (standard error) and into a
 //! ring of the last [`CAPACITY`] lines in memory, which Help → Debug log
 //! shows. Started with `--debug-log`, the program also appends the lines to
 //! `$XDG_CACHE_HOME/everygrep/debug.log` (see [`file_path`]); without it

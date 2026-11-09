@@ -687,7 +687,7 @@ cannot be changed. `--settings=shortcut` still opens this page.
 changes. With one item selected, the status line shows its size (for a folder
 as the folder size setting says), modification time and full path; with
 several, their number and the total size of the files among them. The menu
-bar is new and on by default; turning it off brings back the earlier look.
+bar is on by default and can be turned off.
 
 Changing the folders updates the index in the background while the window stays
 usable. Added coverage is scanned and merged; removed coverage is dropped, with
@@ -762,9 +762,7 @@ size: a file with several hard links counts once per link, a symbolic link
 counts with the length of its target and is never followed. Sorting by Size
 puts folders among the files by their total; with "number of items" folders
 sort by that number, before the files (after them when the order is reversed);
-with "nothing" they sort as empty, as before. Folder sizes are the one setting
-whose default changes the earlier look: until they existed the Size of a folder
-was empty, which "nothing" brings back.
+with "nothing" the Size of a folder is empty and folders sort as empty.
 
 When closing only hides the window, EveryGrep keeps the index in memory and
 keeps watching; starting `everygrep-gui` again (for example with its
@@ -865,7 +863,7 @@ not UTF-8). Unknown keys are kept, lines that cannot be read are ignored (the
 settings window says how many), and the file is replaced atomically. The search
 history, when kept, is in `search-history` in the same folder, with distinct
 queries, counts and last search dates. It is updated atomically under
-`search-history.lock`; the earlier `history` file is imported once and left
+`search-history.lock`; a `history` file of an older version is imported once and left
 untouched until history is explicitly cleared or disk persistence is turned
 off. At most 10,000 distinct searches are kept, dropping the oldest first.
 Apply confirms a changed retention period. Recording can be disabled without

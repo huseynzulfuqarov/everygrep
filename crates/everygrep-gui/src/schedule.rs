@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn daily_is_due_once_when_the_local_time_passes() {
-        // UTC+4, as Baku.
+        // UTC+4.
         let zone = Zone::from_posix_tz("<+04>-4").unwrap();
         let s = Schedule::Daily(3 * 60);
         // 2026-11-02 02:59 local = 22:59 UTC the day before.

@@ -17,7 +17,7 @@ the other saved it with other folders or rules. The file is a cache:
 deleting it only makes the next start scan again. A file that is damaged,
 of another version or cannot be read is built again the same way, and the
 window says so in its status line. An `index.bin` written by
-an earlier command line tool is used by the window only if its rules match
+the command line tool is used by the window only if its rules match
 the window's; otherwise the window builds it again, and the command line
 tool builds its own file once.
 
@@ -81,8 +81,8 @@ the left:
 The size column holds each folder's total (the sum of the sizes of all
 files below it) as it was when saved, but the loader does not trust it:
 folder totals and item counts are computed again after loading (a few
-milliseconds for 600 000 nodes). Files from before folder sizes existed,
-with 0 for folders, therefore load unchanged.
+milliseconds for 600 000 nodes). Older files, with 0 for folders, therefore
+load unchanged.
 
 ## Checksum
 
@@ -124,8 +124,8 @@ After reading:
 - parent chains must end at a root without loops;
 - the name order must be a permutation of the nodes; if it is not sorted by the
   current rules (a version 4 file, or rules that changed with an update of the
-  program) it is sorted again, on one thread per CPU (about 0.05 s for 260 000
-  nodes on 20 threads), and the index is saved with the new order at the next
+  program) it is sorted again, on one thread per CPU (well under a second for a
+  few hundred thousand nodes), and the index is saved with the new order at the next
   save; two nodes with the same parent and name make the file invalid;
 - the folded names used for matching are computed again, not read; a name
   longer than 65 535 bytes once folded (folding can make it longer) makes the

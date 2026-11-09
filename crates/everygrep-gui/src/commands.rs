@@ -2476,7 +2476,7 @@ mod tests {
         assert_eq!(k.to_parts().collect::<Vec<_>>(), ["Control", "Shift", "c"]);
     }
 
-    /// Every key of the window before the keys could be changed.
+    /// The default keys of the window's commands.
     #[test]
     fn the_old_keys_still_work() {
         use Command as C;

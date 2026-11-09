@@ -91,7 +91,7 @@ pub enum FolderSize {
     /// below all files (above them when descending), since a count and a size
     /// cannot be compared.
     Items,
-    /// Nothing: folders count as 0 bytes, as before folder sizes existed.
+    /// Nothing: folders count as 0 bytes.
     None,
 }
 
@@ -1284,7 +1284,7 @@ mod tests {
         assert_eq!(s.keys(), [(SortKey::Size, false), (SortKey::Name, true)]);
         let s = by(SortKey::Path, true, [Some((SortKey::Size, false)), None]);
         assert_eq!(s.keys(), [(SortKey::Path, true)]);
-        // A primary key alone sorts as before.
+        // A primary key alone sorts by that key only.
         let index = tree();
         assert_eq!(
             sorted_by(&index, by(SortKey::Size, false, [None; 2])),

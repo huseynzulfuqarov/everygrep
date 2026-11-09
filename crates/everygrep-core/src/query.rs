@@ -2667,7 +2667,7 @@ const CONTENT_MODIFIERS: &[&str] = &[
 ];
 
 /// `duplicates:name;size` and its relatives (`head`; `duplicates:` and
-/// `extra-copies:` are older names of `duplicates:` and `extra-copies:`): the
+/// `extra-copies:` are aliases of `duplicates:` and `extra-copies:`): the
 /// properties to compare, separated by `;` or `,`; none compares the
 /// contents.
 fn parse_dupe(head: &str, value: &str, case: bool) -> Result<DupeSpec, ParseError> {
@@ -4349,7 +4349,7 @@ mod tests {
         assert_eq!(f("size:>=16777215.99tb"), ["max"]);
         let u128_max = u128::MAX.to_string();
         for bad in [
-            // 2^64, 2^127 (used to wrap to a search for 0 bytes) and the
+            // 2^64, 2^127 (which must not wrap to a search for 0 bytes) and the
             // largest number that parses at all, with and without units.
             "size:18446744073709551616".to_owned(),
             "size:18446744073709551615.5".to_owned(),

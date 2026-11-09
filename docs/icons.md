@@ -148,6 +148,7 @@ Notes:
   (archive), not a video, and `go.mod` code; `.sh`, `.AppImage`, `.run`,
   `.desktop` launchers, `.exe` and Windows scripts (`.bat`, `.cmd`, `.ps1`,
   `.vbs`) are executables; systemd units are code (configuration text).
-- Source code stays its own kind, not a document.
+- The lists cover the common file types of each kind; source code stays its
+  own kind, not a document.
 - Symbolic links are not visible in the name; the caller sets `FileKind::Link`
   from metadata.

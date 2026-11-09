@@ -756,7 +756,8 @@ impl ContentCache {
             return;
         }
         // The budget is shared by all terms: paths and metadata are copied
-        // for each answer, so a per-term limit multiplied memory use by eight.
+        // for each answer, so a limit per term would multiply memory use by
+        // the number of terms.
         if self.len() >= CACHE_ENTRIES {
             self.terms.pop_front();
         }

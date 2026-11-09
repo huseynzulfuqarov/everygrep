@@ -461,7 +461,7 @@ thread looks at the file's inode, size and time; a version it has not seen
 is read and handed to the window, which applies it (as an import, without
 saving it again) when it differs from the running settings and no save was
 asked for since it was read. Choosing other folders
-or rules to index is saved at once, as before.
+or rules to index is saved at once.
 
 Settings exports can include filters and bookmarks independently (both off by
 initial choice). A versioned, escaped library attachment lives in the same text
@@ -475,9 +475,10 @@ replacing those settings; the completed library merge is reported separately.
 
 `history.rs` owns the bounded session navigation trail. `search_history.rs`
 keeps distinct searches, saturating visit counts and UTC epoch timestamps. The
-configuration-folder `search-history` file imports the earlier `history` file
-once, without modifying it during normal updates. Explicit clear/disable also
-removes that older copy. Previously unknown dates use the migration date.
+configuration-folder `search-history` file imports a `history` file of an
+older version once, without modifying it during normal updates. Explicit
+clear/disable also removes that older copy. Imported searches, which have no
+dates, get the date of the import.
 Loading checks duplicates in linear time; at most 10,000 distinct searches
 survive. Its disk operations run on the settings saving thread
 (`settings::Writer`), in the order asked together with every settings save (not
@@ -537,7 +538,7 @@ tested):
 | `az.huseynz.EveryGrep.Error.ShuttingDown`: the window's event loop has ended and it is saving the index (`set_closing`); the name is released when the process exits | wait up to 1.5 s for the name to be released and claim it; still held, show the dialog |
 | `ServiceUnknown` / `NameHasNoOwner`: the owner went away meanwhile | claim the name again, at most 3 times, then run without a name |
 | no reply within 5 seconds (or the bus's `NoReply`) | show the dialog |
-| anything else | run without a name, as before |
+| anything else | run without a name |
 
 The dialog (`stalled.rs`, `ui/stalled.slint`) runs before the main window,
 in its own pass of the event loop. It says the window is still shutting
@@ -563,7 +564,7 @@ hides it.
 Notes about failures and events (a settings window or tab file that could
 not be written, a hash cache or index save that failed, the bus name taken,
 a drive that went away or came back) go through `debug_log::note!`: to
-standard error as before, and into a ring of the last 1000 lines with a
+standard error and into a ring of the last 1000 lines with a
 local time of day. Help → Debug log shows the ring in a window of its own
 with Refresh, Copy (the main window's clipboard) and Save (the save dialog,
 written atomically). With `--debug-log` the lines are also appended to
@@ -726,9 +727,8 @@ tab is shown (`Tabs::shown`), only the background tabs shown last (10 by
 default, `tab-results-kept`) keep their frozen results; the others drop them
 (and their settled state) and search again when shown. A tab whose content
 search was stopped keeps its matches, since they cannot be found again without
-reading the files. Measured in a test, 30 tabs of 1 000 000 rows each: 114 MiB
-of row ids (RSS 129 MiB) before, 45 MiB (RSS 60 MiB) with 10 background tabs
-kept. Restoring a snapshot checks the engine's id epoch before showing it, then
+reading the files. With 30 tabs of 1 000 000 rows each, keeping 10 background
+tabs holds about 45 MiB of row ids instead of 114 MiB for all 30. Restoring a snapshot checks the engine's id epoch before showing it, then
 submits a fresh search. Old queued responses still go through the generation
 check. Query, filter references, matching toggles, sort, column layout (hash
 and frequency columns and Folder's own width too), navigation trail, cursor and

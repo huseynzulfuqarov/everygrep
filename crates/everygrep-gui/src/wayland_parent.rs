@@ -8,7 +8,7 @@
 //! (v2) for the `parent_window` (`wayland:<handle>`) of a portal request.
 //!
 //! Without Wayland, without the protocol, or when anything fails, nothing is
-//! set: windows behave as before and the portal gets `""`. Failures go to
+//! set: windows have no parent and the portal gets `""`. Failures go to
 //! the debug log once.
 //!
 //! All `unsafe` is in [`guest`] and [`proxy`]: winit's display and objects

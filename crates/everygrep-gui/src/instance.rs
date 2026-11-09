@@ -309,7 +309,7 @@ enum Step {
     ClaimAgain,
     /// Wait for the window to go, and let the user decide meanwhile.
     Wait(Stall),
-    /// Run without a name, as before this logic existed.
+    /// Run without a name.
     Alone,
 }
 

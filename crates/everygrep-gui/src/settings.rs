@@ -59,8 +59,7 @@ use crate::i18n::{self, Lang};
 use crate::schedule::{self, Schedule};
 use crate::search_history::Order;
 
-/// Search history entries kept by default (the number before settings
-/// existed).
+/// Search history entries kept by default.
 pub const DEFAULT_HISTORY: usize = 200;
 /// Opening more items than this at once asks first, by default.
 pub const DEFAULT_OPEN_CONFIRM: usize = 32;
@@ -87,7 +86,7 @@ const WIDTH_RANGE: std::ops::RangeInclusive<f32> = 1.0..=10_000.0;
 /// What closing the window does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OnClose {
-    /// End the program (the behaviour before settings existed).
+    /// End the program (the default).
     #[default]
     Quit,
     /// Hide the window and keep the index loaded; the next launch shows it
@@ -174,7 +173,8 @@ impl LightStyle {
     }
 }
 
-/// Accent preference; Blue remains the default when importing older settings.
+/// Accent preference; Blue is the default, also for settings files without
+/// an accent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AccentChoice {
     System,
@@ -214,7 +214,7 @@ impl AccentChoice {
 /// How tightly the result list is packed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Density {
-    /// 28 px rows (the look before the setting existed).
+    /// 28 px rows (the default).
     #[default]
     Comfortable,
     /// 22 px rows with smaller icons and text, for many rows at once.
@@ -465,9 +465,7 @@ pub struct Settings {
     pub export_filters: bool,
     pub export_bookmarks: bool,
     pub on_close: OnClose,
-    /// What the Size column shows for folders, and sorts them by. The one
-    /// default that differs from the behaviour before settings existed
-    /// (folders had an empty size then).
+    /// What the Size column shows for folders, and sorts them by.
     pub folder_size: FolderSize,
     /// Whether the optional columns and the column widths are kept between
     /// sessions.
@@ -3086,7 +3084,8 @@ pub(crate) mod tests {
         let victim = dir.0.join("victim.txt");
         fs::write(&victim, "keep").unwrap();
         let path = dir.0.join("settings");
-        // The temporary name a save of this process used to take.
+        // A link at a predictable temporary name (the file's name and the
+        // process id).
         let planted = dir.0.join(format!("settings.tmp-{}", std::process::id()));
         std::os::unix::fs::symlink(&victim, &planted).unwrap();
         write_atomic(&path, b"new").unwrap();

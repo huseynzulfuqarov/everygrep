@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn narrow_search_controls_do_not_overlap_at_any_width() {
         // Guard the UI connection as well as the calculation: an expanding
-        // layout spacer previously left the editor full-width at the breakpoint.
+        // layout spacer would leave the editor full-width at the breakpoint.
         let ui = include_str!("../ui/app.slint");
         let search = ui.split_once("search := SearchField {").unwrap().1;
         let search = search.split_once("select-on-click:").unwrap().0;
@@ -65,8 +65,7 @@ mod tests {
             let field = if compact { 30.0 } else { 34.0 };
             let top = if compact { 40.0 } else { 48.0 };
             for own_dropdown in [false, true] {
-                // Both controls measured 223px for the search minimum. Include
-                // the minimum filter width and the measured saved-name width.
+                // The minimum filter width and wider ones.
                 for filter in [160.0, 176.0, 800.0] {
                     for show_scope in [false, true] {
                         for show_menu in [false, true] {

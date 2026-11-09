@@ -835,7 +835,8 @@ mod tests {
         let victim = dir.0.join("victim.txt");
         fs::write(&victim, "keep").unwrap();
         let target = dir.0.join("out.csv");
-        // The temporary name an export of this process used to take.
+        // A link at a predictable temporary name (the file's name and the
+        // process id).
         let planted = dir.0.join(format!(".out.csv.tmp-{}", std::process::id()));
         std::os::unix::fs::symlink(&victim, &planted).unwrap();
         let mut w = Writer::create(&target, Format::Text, utc(), true).unwrap();

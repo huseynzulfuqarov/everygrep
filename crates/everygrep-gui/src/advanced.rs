@@ -210,7 +210,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     /// Enter in any text field of the form runs Use query, and the window
-    /// opens low enough for a laptop screen of 810 px with its title bar.
+    /// opens low enough for a small laptop screen with its title bar.
     #[test]
     fn form_fits_and_enter_uses_the_query() {
         let source = include_str!("../ui/advanced.slint");

@@ -1244,7 +1244,7 @@ fn present(
 /// only way to use an activation token in winit 0.30 is at window creation,
 /// which Slint does not expose. So the window is hidden and shown again:
 /// Slint then creates a new surface at the same size, and GNOME gives a new
-/// window the focus. The token from the later launch is not used yet.
+/// window the focus. The token from the later launch is not used.
 fn raise(w: &AppWindow, _activation_token: Option<String>) {
     let _ = w.window().hide();
     let _ = w.window().show();

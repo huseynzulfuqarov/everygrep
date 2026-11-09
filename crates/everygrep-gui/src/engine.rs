@@ -5080,7 +5080,7 @@ mod tests {
         }
         let index_file = dir.0.join("index.bin");
         let roots = normalize_roots(std::slice::from_ref(&a));
-        // A cache without rules (an older window), holding the whole tree.
+        // A cache without rules (an older index file), holding the whole tree.
         let mut store = NodeStore::new();
         everygrep_core::scan::scan(&mut store, &roots, &ScanOptions::default());
         persist::save(&Index::new(store), &roots, &index_file).unwrap();

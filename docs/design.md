@@ -22,7 +22,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
 5. **Honest feedback.** The status line says what the index is doing (loading,
    catching up, watching, number of entries). Errors appear where they happen,
    in plain words.
-6. **Our own design.** The look, names and icons are our own.
+6. **Predictable.** Behaviour follows what users of desktop file search
+   expect. The look, names and icons are the project's own.
 
 ## Layout
 
@@ -507,15 +508,12 @@ pages and `Esc` closes the window.
 
 - Changes apply at once; there is no OK or Apply. Each page has "Reset to
   defaults", which resets that page only.
-- Defaults reproduce the behaviour from before settings existed, so a missing
-  settings file changes nothing. One exception was chosen on purpose: folder
-  sizes (Window page) default to the total size, where folders used to show
-  an empty Size; "nothing" restores the old look. The menu bar, the
-  selection details and the alternate row color (Appearance page) and the
-  selection of the search text on a click (Search page) and the opening of
-  the containing folder by a double-click in the Folder column (Window
-  page) are also on by default; turning them off restores the earlier
-  behaviour.
+- A missing settings file gives the defaults. Folder sizes (Window page)
+  default to the total size; "nothing" leaves the Size of folders empty. The
+  menu bar, the selection details and the alternate row color (Appearance
+  page), the selection of the search text on a click (Search page) and the
+  opening of the containing folder by a double-click in the Folder column
+  (Window page) are on by default and can each be turned off.
 - Choices that also appear in a menu (View and Search) and in the settings
   are the same setting: changing one place changes the other at once.
 - Every behaviour choice is a setting; nothing is fixed in code that a user
@@ -542,10 +540,10 @@ The behaviour chosen for indexing and searching.
 
 | Topic | Behaviour |
 |---|---|
-| Search as you type | On by default (today's behaviour). Off, text, mode and filter changes wait; the status line says "Press Enter to search." |
+| Search as you type | On by default. Off, text, mode and filter changes wait; the status line says "Press Enter to search." |
 | File contents while typing | On by default: with Search as you type on, a search that reads files (a `content:` term, also in the chosen filter, or duplicates by contents) waits for Enter and the status line says "Press Enter to search file contents."; other searches still follow every key. Settings → Search → File contents turns it off. A tab whose text waits keeps waiting when shown again. |
-| Enter with as-you-type off | Enter runs a waiting search; with the results already current it opens the current row as before. Back/Forward still search at once. |
-| Rename selection | On by default (today's behaviour): the name before the last dot; folders and dot-files whole. |
+| Enter with as-you-type off | Enter runs a waiting search; with the results already current it opens the current row. Back/Forward still search at once. |
+| Rename selection | On by default: the name before the last dot; folders and dot-files whole. |
 | Monitoring changes | One global switch, on by default; it is not set per folder (the one per-folder option leaves out the contents of a folder's subfolders). Off drops every inotify watch; on again catches up and watches. A loaded index is not caught up while off. |
 | Exclude list switch | One global switch, on by default; it turns all three lists on or off. |
 | Lists | Three lists: excluded folders (paths and folder patterns), include-only files and excluded files. Folder list items: an absolute path matched exactly, or a pattern. |
@@ -553,7 +551,7 @@ The behaviour chosen for indexing and searching.
 | Name or path | The whole name is matched; an item with a `/` (or `**`) matches the full path, and a path item that does not start with `/` matches the end of the path after a `/`; `regex:` with a `/` matches the path. |
 | Case | Wildcards ignore case (Unicode); `regex:` as written, `(?i)` to ignore. Exact folder paths compare bytes. |
 | Precedence | A file is kept when the include list is empty or one include matches, and no exclude matches; the order of the items does not matter. Folders are never tested against the file lists. |
-| Excluded folder entry | The folder's own entry is not created, so nothing below it is read. (Before this change the folder's own entry was kept.) |
+| Excluded folder entry | The folder's own entry is not created, so nothing below it is read. |
 | Invalid regex | Refused with a message in Settings and not saved; a bad line in the settings file is reported and ignored. |
 | After a change | Every change of the lists or the switch indexes again with progress and Cancel. A saved index records a fingerprint of the rules; one built with other rules, or without a fingerprint, is built again at start. |
 | Live changes | The watcher and the catch-up use the same compiled rules as the scan; a moved folder is read again when a rule looks at paths. |
