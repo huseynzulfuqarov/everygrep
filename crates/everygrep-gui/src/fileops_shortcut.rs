@@ -161,30 +161,34 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>) {
             let mut options = crate::fileops_settings::Settings::default();
             prefs::with(|p| options = p.fileops_settings());
             let (weak, busy) = (w.as_weak(), busy.clone());
+            let parent = crate::wayland_parent::PortalParent::of(w.window());
             std::thread::spawn(move || {
                 crate::fileops_undo::queue_notice(weak.clone());
                 let result = crate::fileops_undo::catch_worker(|| {
-                    portal::choose_folder(tr("Create shortcuts"), tr("Create")).map(|folder| {
-                        folder.map(|folder| {
-                            let _files = crate::fileops_undo::file_guard();
-                            let mut made = 0;
-                            let mut skipped = 0;
-                            let mut failures = Vec::new();
-                            for source in sources {
-                                match create(
-                                    &source,
-                                    &folder,
-                                    options.shortcut_kind,
-                                    options.shortcut_collision,
-                                ) {
-                                    Ok(Some(_)) => made += 1,
-                                    Ok(None) => skipped += 1,
-                                    Err(e) => failures.push(format!("{}: {e}", source.display())),
+                    portal::choose_folder(parent.handle(), tr("Create shortcuts"), tr("Create"))
+                        .map(|folder| {
+                            folder.map(|folder| {
+                                let _files = crate::fileops_undo::file_guard();
+                                let mut made = 0;
+                                let mut skipped = 0;
+                                let mut failures = Vec::new();
+                                for source in sources {
+                                    match create(
+                                        &source,
+                                        &folder,
+                                        options.shortcut_kind,
+                                        options.shortcut_collision,
+                                    ) {
+                                        Ok(Some(_)) => made += 1,
+                                        Ok(None) => skipped += 1,
+                                        Err(e) => {
+                                            failures.push(format!("{}: {e}", source.display()))
+                                        }
+                                    }
                                 }
-                            }
-                            (made, skipped, failures)
+                                (made, skipped, failures)
+                            })
                         })
-                    })
                 })
                 .unwrap_or_else(Err);
                 let reset = busy.clone();

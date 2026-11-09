@@ -59,8 +59,10 @@ impl State {
                     }
                     w.set_choosing(true);
                     let weak = w.as_weak();
+                    let parent = crate::wayland_parent::PortalParent::of(w.window());
                     std::thread::spawn(move || {
                         let result = crate::portal::choose_folder(
+                            parent.handle(),
                             crate::i18n::tr("Located in"),
                             crate::labels::choose_accept(),
                         );

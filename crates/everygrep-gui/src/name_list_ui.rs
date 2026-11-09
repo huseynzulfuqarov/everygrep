@@ -109,8 +109,10 @@ impl State {
                     }
                     window.set_busy(true);
                     let weak = window.as_weak();
+                    let parent = crate::wayland_parent::PortalParent::of(window.window());
                     std::thread::spawn(move || {
                         let result = crate::portal::open_file(
+                            parent.handle(),
                             tr("Load name list"),
                             crate::labels::choose_accept(),
                             &[

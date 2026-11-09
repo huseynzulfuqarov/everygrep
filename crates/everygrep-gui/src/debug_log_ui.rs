@@ -39,10 +39,12 @@ pub fn open(main: Weak<AppWindow>) {
             });
             let weak = w.as_weak();
             w.on_save(move || {
+                let Some(w) = weak.upgrade() else { return };
+                let parent = crate::wayland_parent::PortalParent::of(w.window());
                 let weak = weak.clone();
                 let text = crate::debug_log::text();
                 std::thread::spawn(move || {
-                    let result = save(&text);
+                    let result = save(parent.handle(), &text);
                     let _ = weak.upgrade_in_event_loop(move |w| match result {
                         Ok(Some(path)) => {
                             w.set_notice(fill(tr("Saved to {}."), &[&path.display()]).into())
@@ -102,8 +104,9 @@ fn where_text() -> String {
     }
 }
 
-fn save(text: &str) -> Result<Option<std::path::PathBuf>, String> {
+fn save(parent: &str, text: &str) -> Result<Option<std::path::PathBuf>, String> {
     let Some((path, _)) = crate::portal::save_file(
+        parent,
         tr("Save the debug log"),
         tr("Save"),
         "everygrep-debug.log",

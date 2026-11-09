@@ -353,6 +353,9 @@ First version, 0.1.0, not released yet.
 
 ### Window
 
+- On Wayland, separate windows (bookmarks, settings, history and the
+  others) stay above the main window, and the desktop's file and
+  application choosers stay above the window they were opened from.
 - Optional columns from the index, the file system and file metadata (paths,
   lengths, counts, size on disk, owner, hard links, shortcut target,
   dimensions, duration, audio tags, rating, tags, page and word counts,

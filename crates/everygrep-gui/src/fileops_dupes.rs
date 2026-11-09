@@ -290,11 +290,19 @@ pub fn connect(w: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Engine>) {
     w.on_dupes_choose_folder({
         let weak = w.as_weak();
         move || {
+            let parent = weak
+                .upgrade()
+                .map_or_else(crate::wayland_parent::PortalParent::none, |w| {
+                    crate::wayland_parent::PortalParent::of(w.window())
+                });
             let weak = weak.clone();
             // The chooser is the portal's; waiting for it blocks.
             std::thread::spawn(move || {
-                let answer =
-                    portal::choose_folder(tr("Keep the copies in this folder"), tr("Choose"));
+                let answer = portal::choose_folder(
+                    parent.handle(),
+                    tr("Keep the copies in this folder"),
+                    tr("Choose"),
+                );
                 let _ = weak.upgrade_in_event_loop(move |w| match answer {
                     Ok(Some(folder)) => {
                         if !w.get_dupes_open() || w.get_dupes_busy() {

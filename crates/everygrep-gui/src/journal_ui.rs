@@ -298,12 +298,20 @@ fn fill_window() {
 }
 
 fn export() {
-    let rows = STATE.with(|s| s.borrow().as_ref().map(|s| s.shown.clone()));
-    let Some(rows) = rows else { return };
+    let shown = STATE.with(|s| {
+        s.borrow().as_ref().map(|s| {
+            (
+                s.shown.clone(),
+                crate::wayland_parent::PortalParent::of(s.window.window()),
+            )
+        })
+    });
+    let Some((rows, parent)) = shown else { return };
     let text = csv_text(&rows);
     std::thread::spawn(move || {
         let result = (|| -> Result<Option<PathBuf>, String> {
             let Some((path, _)) = crate::portal::save_file(
+                parent.handle(),
                 tr("Export index changes"),
                 tr("Export"),
                 "index-changes.csv",

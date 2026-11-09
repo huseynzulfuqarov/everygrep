@@ -267,11 +267,27 @@ fn background<T: Send + 'static>(
     });
 }
 
+/// [`background`] for work that opens a desktop dialog over the editor;
+/// `work` gets the dialog's parent window.
+fn with_dialog<T: Send + 'static>(
+    work: impl FnOnce(&str) -> T + Send + 'static,
+    done: impl FnOnce(T) + Send + 'static,
+) {
+    let parent = window().map_or_else(crate::wayland_parent::PortalParent::none, |w| {
+        crate::wayland_parent::PortalParent::of(w.window())
+    });
+    background(move || work(parent.handle()), done);
+}
+
 fn open_file() {
-    background(
-        || -> Result<Option<EditorList>, String> {
-            let Some(path) =
-                crate::portal::open_file(tr("Open a file list"), tr("Open"), &list_filter())?
+    with_dialog(
+        |parent| -> Result<Option<EditorList>, String> {
+            let Some(path) = crate::portal::open_file(
+                parent,
+                tr("Open a file list"),
+                tr("Open"),
+                &list_filter(),
+            )?
             else {
                 return Ok(None);
             };
@@ -296,10 +312,13 @@ fn open_file() {
 
 fn add_folder() {
     let list = with(|s| s.list.clone());
-    background(
-        move || -> Result<Option<(EditorList, usize)>, String> {
-            let Some(dir) =
-                crate::portal::choose_folder(tr("Add a folder to the file list"), tr("Add"))?
+    with_dialog(
+        move |parent| -> Result<Option<(EditorList, usize)>, String> {
+            let Some(dir) = crate::portal::choose_folder(
+                parent,
+                tr("Add a folder to the file list"),
+                tr("Add"),
+            )?
             else {
                 return Ok(None);
             };
@@ -315,10 +334,10 @@ fn add_folder() {
 
 fn add_file() {
     let list = with(|s| s.list.clone());
-    background(
-        move || -> Result<Option<(EditorList, usize)>, String> {
+    with_dialog(
+        move |parent| -> Result<Option<(EditorList, usize)>, String> {
             let Some(file) =
-                crate::portal::choose_file(tr("Add a file to the file list"), tr("Add"))?
+                crate::portal::choose_file(parent, tr("Add a file to the file list"), tr("Add"))?
             else {
                 return Ok(None);
             };
@@ -364,9 +383,10 @@ fn save(as_new: bool) {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "files".into())
             });
-            background(
-                move || {
+            with_dialog(
+                move |parent| {
                     crate::portal::save_file(
+                        parent,
                         tr("Save the file list"),
                         tr("Save"),
                         &format!("{name}.{}", everygrep_core::filelist::EXTENSION),

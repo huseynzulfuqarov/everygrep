@@ -1537,9 +1537,15 @@ impl State {
             "filters.csv"
         };
         let filter_name = tr("CSV files");
-        if let Some(w) = self.window.borrow().as_ref() {
-            w.set_notice("".into());
-        }
+        // The chooser belongs to the bookmarks (or filters) window it is
+        // asked from, so it stays above it.
+        let parent = match self.window.borrow().as_ref() {
+            Some(w) => {
+                w.set_notice("".into());
+                crate::wayland_parent::PortalParent::of(w.window())
+            }
+            None => crate::wayland_parent::PortalParent::none(),
+        };
         std::thread::spawn(move || {
             let filters = [crate::portal::SaveFilter {
                 name: filter_name,
@@ -1548,15 +1554,22 @@ impl State {
             // A cancelled chooser leaves the current status alone.
             let result: Result<Option<CsvOutcome>, String> = (|| {
                 if import {
-                    let Some(path) = crate::portal::open_file(title, accept, &filters)? else {
+                    let Some(path) =
+                        crate::portal::open_file(parent.handle(), title, accept, &filters)?
+                    else {
                         return Ok(None);
                     };
                     std::fs::read_to_string(&path)
                         .map(|text| Some(CsvOutcome::Import(text)))
                         .map_err(|e| e.to_string())
                 } else {
-                    let Some((path, _)) =
-                        crate::portal::save_file(title, accept, file_name, &filters)?
+                    let Some((path, _)) = crate::portal::save_file(
+                        parent.handle(),
+                        title,
+                        accept,
+                        file_name,
+                        &filters,
+                    )?
                     else {
                         return Ok(None);
                     };

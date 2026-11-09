@@ -37,6 +37,7 @@ use crate::settings::{
     self, AccentChoice, Columns, DarkStyle, Density, LanguageChoice, LightStyle, MAX_HISTORY,
     OnClose, Page, Settings, ThemeChoice,
 };
+use crate::wayland_parent::PortalParent;
 use crate::{AppWindow, Command, DriveRow, HistoryWindow, SettingsWindow, ShortcutCommand, labels};
 
 /// Names of the settings pages for `--settings=<page>`, in page order.
@@ -1051,6 +1052,10 @@ impl Prefs {
             i18n::tr("Export")
         };
         let filter_name = i18n::tr("CSV files");
+        let parent = match self.history_window.borrow().as_ref() {
+            Some(w) => PortalParent::of(w.window()),
+            None => self.main_dialog_parent(),
+        };
         std::thread::spawn(move || {
             enum Outcome {
                 Cancelled,
@@ -1063,15 +1068,22 @@ impl Prefs {
             }];
             let result: Result<Outcome, String> = (|| {
                 if import {
-                    let Some(path) = crate::portal::open_file(title, accept, &filters)? else {
+                    let Some(path) =
+                        crate::portal::open_file(parent.handle(), title, accept, &filters)?
+                    else {
                         return Ok(Outcome::Cancelled);
                     };
                     history_csv::import(&path)
                         .map(Outcome::Imported)
                         .map_err(|e| e.to_string())
                 } else {
-                    let Some((path, _)) =
-                        crate::portal::save_file(title, accept, "search-history.csv", &filters)?
+                    let Some((path, _)) = crate::portal::save_file(
+                        parent.handle(),
+                        title,
+                        accept,
+                        "search-history.csv",
+                        &filters,
+                    )?
                     else {
                         return Ok(Outcome::Cancelled);
                     };
@@ -1845,6 +1857,7 @@ impl Prefs {
             return;
         }
         let settings = self.settings.borrow().clone();
+        let parent = self.dialog_parent();
         std::thread::spawn(move || {
             let text = settings::config_dir()
                 .ok_or_else(|| std::io::Error::other("settings path unavailable"))
@@ -1856,6 +1869,7 @@ impl Prefs {
                 pattern: "*.txt",
             }];
             let chosen = crate::portal::save_file(
+                parent.handle(),
                 labels::export_settings_title(),
                 labels::export_accept(),
                 "everygrep-settings.txt",
@@ -1890,8 +1904,10 @@ impl Prefs {
         if self.choosing.replace(true) {
             return;
         }
+        let parent = self.dialog_parent();
         std::thread::spawn(move || {
             let chosen = crate::portal::choose_file(
+                parent.handle(),
                 labels::import_settings_title(),
                 labels::import_accept(),
             );
@@ -2073,14 +2089,34 @@ impl Prefs {
         self.refresh();
     }
 
+    /// The parent of a desktop dialog asked for from the settings: the
+    /// settings window when it is shown, else the main window.
+    pub(crate) fn dialog_parent(&self) -> PortalParent {
+        if let Ok(window) = self.window.try_borrow()
+            && let Some(w) = window.as_ref()
+            && w.window().is_visible()
+        {
+            return PortalParent::of(w.window());
+        }
+        self.main_dialog_parent()
+    }
+
+    /// The main window as the parent of a desktop dialog.
+    pub(crate) fn main_dialog_parent(&self) -> PortalParent {
+        self.main
+            .upgrade()
+            .map_or_else(PortalParent::none, |m| PortalParent::of(m.window()))
+    }
+
     /// Asks for the folder of the index file on a helper thread.
     fn choose_index_folder(&self) {
         if self.choosing.replace(true) {
             return;
         }
         let (title, accept) = (labels::choose_index_folder(), labels::choose_accept());
+        let parent = self.dialog_parent();
         std::thread::spawn(move || {
-            let result = crate::portal::choose_folder(title, accept);
+            let result = crate::portal::choose_folder(parent.handle(), title, accept);
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
                     p.choosing.set(false);
@@ -3919,15 +3955,17 @@ impl Prefs {
             labels::choose_excludes()
         };
         let accept = labels::choose_accept();
+        let parent = self.dialog_parent();
         std::thread::spawn(move || {
-            let result = crate::portal::choose_folders(title, accept).map(|chosen| {
-                chosen.map(|paths| {
-                    paths
-                        .into_iter()
-                        .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
-                        .collect::<Vec<_>>()
-                })
-            });
+            let result =
+                crate::portal::choose_folders(parent.handle(), title, accept).map(|chosen| {
+                    chosen.map(|paths| {
+                        paths
+                            .into_iter()
+                            .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
+                            .collect::<Vec<_>>()
+                    })
+                });
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
                     p.choosing.set(false);

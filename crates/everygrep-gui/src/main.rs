@@ -1461,9 +1461,10 @@ fn connect_actions(window: &AppWindow, model: &Rc<ResultsModel>) {
             };
             w.invoke_history_record();
             let (path, weak) = (path.clone(), weak.clone());
+            let parent = wayland_parent::PortalParent::of(w.window());
             // The chooser is the portal's; waiting for it blocks.
             std::thread::spawn(move || {
-                if let Err(e) = portal::open_with(&path) {
+                if let Err(e) = portal::open_with(parent.handle(), &path) {
                     let text = fill(tr("Cannot show the application chooser: {}"), &[&e]);
                     let _ = weak.upgrade_in_event_loop(move |w| error(&w, text));
                 }
@@ -1984,6 +1985,11 @@ fn connect_to_folder(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
             };
             // The items as they are now, while the chooser is open.
             let items = actions::Chosen::of(&sources);
+            let parent = weak
+                .upgrade()
+                .map_or_else(wayland_parent::PortalParent::none, |w| {
+                    wayland_parent::PortalParent::of(w.window())
+                });
             let (weak, engine) = (weak.clone(), engine.clone());
             // The chooser is the portal's; waiting for it blocks.
             std::thread::spawn(move || {
@@ -1992,7 +1998,7 @@ fn connect_to_folder(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<
                 } else {
                     (tr("Copy to folder"), tr("Copy here"))
                 };
-                let chosen = portal::choose_folder(title, accept);
+                let chosen = portal::choose_folder(parent.handle(), title, accept);
                 let _ = weak.upgrade_in_event_loop(move |w| match chosen {
                     Ok(Some(dest)) => {
                         // The folder as it is when chosen; the worker,
@@ -2180,11 +2186,13 @@ fn connect_export(window: &AppWindow, model: &Rc<ResultsModel>, engine: &Arc<Eng
             let ids = selection.rows();
             let mut protect_formulas = true;
             prefs::with(|p| protect_formulas = p.export_protect_formulas());
+            let parent = wayland_parent::PortalParent::of(w.window());
             let (engine, weak) = (engine.clone(), weak.clone());
             std::thread::spawn(move || {
                 let name = format!("everygrep-results.{}", chosen.extension());
                 let pattern = format!("*.{}", chosen.extension());
                 let outcome = match portal::save_file(
+                    parent.handle(),
                     tr("Export results"),
                     tr("Export"),
                     &name,

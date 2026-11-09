@@ -96,12 +96,13 @@ impl Prefs {
             return;
         }
         let (title, accept) = (tr("Add a file list"), tr("Add"));
+        let parent = self.dialog_parent();
         std::thread::spawn(move || {
             let filters = [crate::portal::SaveFilter {
                 name: tr("File lists"),
                 pattern: "*.eglist",
             }];
-            let result = crate::portal::open_file(title, accept, &filters);
+            let result = crate::portal::open_file(parent.handle(), title, accept, &filters);
             let _ = slint::invoke_from_event_loop(move || {
                 with(|p| {
                     p.choosing.set(false);
@@ -124,9 +125,11 @@ impl Prefs {
         }
         let engine = Arc::clone(&self.engine);
         let main = self.main.clone();
+        let parent = self.main_dialog_parent();
         std::thread::spawn(move || {
             let result = (|| -> Result<Option<(PathBuf, PathBuf)>, String> {
                 let Some(folder) = crate::portal::choose_folder(
+                    parent.handle(),
                     tr("Create a file list of a folder"),
                     tr("Choose"),
                 )?
@@ -138,6 +141,7 @@ impl Prefs {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "files".into());
                 let Some((to, _)) = crate::portal::save_file(
+                    parent.handle(),
                     tr("Save the file list"),
                     tr("Save"),
                     &format!("{name}.{}", everygrep_core::filelist::EXTENSION),

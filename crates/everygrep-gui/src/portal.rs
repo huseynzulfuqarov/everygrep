@@ -8,6 +8,10 @@
 //! desktop's own application chooser. The color scheme comes from
 //! `org.freedesktop.portal.Settings`. All calls block; run them off the UI
 //! thread.
+//!
+//! Each dialog takes the `parent` window it belongs to, as made by
+//! [`crate::wayland_parent::PortalParent`] (`""` for none), so the desktop
+//! keeps it above that window.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -123,14 +127,18 @@ pub fn watch_appearance(changed: impl Fn(AppearanceChange)) -> Result<(), String
 
 /// Asks the user for one or more folders. `Ok(None)` when the dialog was
 /// cancelled; `Err` when the portal is not available.
-pub fn choose_folders(title: &str, accept: &str) -> Result<Option<Vec<PathBuf>>, String> {
+pub fn choose_folders(
+    parent: &str,
+    title: &str,
+    accept: &str,
+) -> Result<Option<Vec<PathBuf>>, String> {
     let options = vec![
         ("accept_label", Value::from(accept)),
         ("modal", Value::from(true)),
         ("multiple", Value::from(true)),
         ("directory", Value::from(true)),
     ];
-    let Some(results) = file_chooser("OpenFile", title, options)? else {
+    let Some(results) = file_chooser(parent, "OpenFile", title, options)? else {
         return Ok(None);
     };
     Ok(Some(
@@ -139,14 +147,14 @@ pub fn choose_folders(title: &str, accept: &str) -> Result<Option<Vec<PathBuf>>,
 }
 
 /// Asks for one destination folder; cancelled requests create nothing.
-pub fn choose_folder(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
+pub fn choose_folder(parent: &str, title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
     let options = vec![
         ("accept_label", Value::from(accept)),
         ("modal", Value::from(true)),
         ("multiple", Value::from(false)),
         ("directory", Value::from(true)),
     ];
-    let Some(results) = file_chooser("OpenFile", title, options)? else {
+    let Some(results) = file_chooser(parent, "OpenFile", title, options)? else {
         return Ok(None);
     };
     uris(&results)
@@ -157,8 +165,8 @@ pub fn choose_folder(title: &str, accept: &str) -> Result<Option<PathBuf>, Strin
 }
 
 /// Asks for one file to read; `Ok(None)` when the dialog was cancelled.
-pub fn choose_file(title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
-    open_file(title, accept, &[])
+pub fn choose_file(parent: &str, title: &str, accept: &str) -> Result<Option<PathBuf>, String> {
+    open_file(parent, title, accept, &[])
 }
 
 /// A file type offered by the save dialog: its name and a glob pattern.
@@ -169,6 +177,7 @@ pub struct SaveFilter<'a> {
 
 /// Chooses one local file for importing data. Cancellation changes nothing.
 pub fn open_file(
+    parent: &str,
     title: &str,
     accept: &str,
     filters: &[SaveFilter],
@@ -186,7 +195,7 @@ pub fn open_file(
     if !list.is_empty() {
         options.push(("filters", Value::from(list)));
     }
-    let Some(results) = file_chooser("OpenFile", title, options)? else {
+    let Some(results) = file_chooser(parent, "OpenFile", title, options)? else {
         return Ok(None);
     };
     uris(&results)
@@ -202,12 +211,13 @@ pub fn open_file(
 /// `Ok(None)` when the dialog was cancelled; `Err` when the portal is not
 /// available. The dialog asks before replacing an existing file.
 pub fn save_file(
+    parent: &str,
     title: &str,
     accept: &str,
     current_name: &str,
     filters: &[SaveFilter],
 ) -> Result<Option<(PathBuf, Option<usize>)>, String> {
-    save_file_with_check(title, accept, current_name, filters, None)
+    save_file_with_check(parent, title, accept, current_name, filters, None)
         .map(|r| r.map(|(path, filter, _)| (path, filter)))
 }
 
@@ -224,18 +234,20 @@ const CHECK_ID: &str = "check";
 /// whether it was ticked (its start value when the dialog does not report
 /// it, as file choosers without check boxes do).
 pub fn save_file_with_check(
+    parent: &str,
     title: &str,
     accept: &str,
     current_name: &str,
     filters: &[SaveFilter],
     check: Option<SaveCheck>,
 ) -> Result<Option<(PathBuf, Option<usize>, bool)>, String> {
-    save_file_with_check_in_folder(title, accept, current_name, filters, check, None)
+    save_file_with_check_in_folder(parent, title, accept, current_name, filters, check, None)
 }
 
 /// Save again with a corrected filename in the same folder, so a changed
 /// extension never bypasses the desktop's overwrite confirmation.
 pub fn save_file_with_check_in_folder(
+    parent: &str,
     title: &str,
     accept: &str,
     current_name: &str,
@@ -265,7 +277,7 @@ pub fn save_file_with_check_in_folder(
     if let Some(check) = &check {
         options.push(("choices", Value::from(check_choices(check))));
     }
-    let Some(results) = file_chooser("SaveFile", title, options)? else {
+    let Some(results) = file_chooser(parent, "SaveFile", title, options)? else {
         return Ok(None);
     };
     let Some(path) = uris(&results).first().and_then(|u| file_path(u)) else {
@@ -309,8 +321,10 @@ fn uris(results: &HashMap<String, OwnedValue>) -> Vec<String> {
 }
 
 /// Calls `method` of the file chooser portal with `options` and waits for
-/// the dialog. Returns its results, or `None` when it was cancelled.
+/// the dialog over `parent`. Returns its results, or `None` when it was
+/// cancelled.
 fn file_chooser(
+    parent: &str,
     method: &str,
     title: &str,
     options: Vec<(&str, Value)>,
@@ -321,7 +335,7 @@ fn file_chooser(
             PATH,
             Some(CHOOSER),
             method,
-            &("", title, options),
+            &(parent, title, options),
         )
     })
 }
@@ -329,8 +343,9 @@ fn file_chooser(
 /// Shows the desktop's application chooser for `path` and opens it with
 /// the application picked there. Returns `Ok(false)` when the chooser was
 /// cancelled; `Err` when the portal is not available or the item cannot
-/// be opened. Only files and folders can be opened this way.
-pub fn open_with(path: &Path) -> Result<bool, String> {
+/// be opened. Only files and folders can be opened this way. The chooser
+/// belongs to the `parent` window.
+pub fn open_with(parent: &str, path: &Path) -> Result<bool, String> {
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
     if !meta.is_file() && !meta.is_dir() {
         // Opening a pipe or a device to pass it could block or have effects.
@@ -344,7 +359,7 @@ pub fn open_with(path: &Path) -> Result<bool, String> {
             PATH,
             Some(OPEN_URI),
             "OpenFile",
-            &("", Fd::from(&file), options),
+            &(parent, Fd::from(&file), options),
         )
     })?;
     Ok(results.is_some())

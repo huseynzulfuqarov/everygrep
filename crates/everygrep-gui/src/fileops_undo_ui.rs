@@ -225,9 +225,10 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
                         return;
                     }
                     w.set_busy(true);
+                    let parent = crate::wayland_parent::PortalParent::of(w.window());
                     let weak = weak.clone();
                     std::thread::spawn(move || {
-                        let result = export();
+                        let result = export(parent.handle());
                         let _ = weak.upgrade_in_event_loop(move |w| {
                             BUSY.store(false, Ordering::SeqCst);
                             refresh_actions();
@@ -264,9 +265,10 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
     });
 }
 
-fn export() -> Result<(), String> {
+fn export(parent: &str) -> Result<(), String> {
     let rows = fileops_undo::export_view().rows;
     let Some((path, _)) = crate::portal::save_file(
+        parent,
         tr("Export file undo history"),
         tr("Save"),
         "file-history.csv",
