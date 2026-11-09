@@ -23,7 +23,9 @@ line searcher and matcher of ripgrep (`grep-searcher`, `grep-regex`) with
 (`media.rs`, `preview.rs`), and hand-written bindings for the few Linux calls
 it needs (`inotify.rs`). The window adds Slint (UI toolkit), its winit backend
 crate (keys by position, `physical.rs`), zbus (session bus) and `x11rb` (the
-XWayland clipboard, `x11clip.rs`); see `THIRD-PARTY-LICENSES.md` for the full
+XWayland clipboard, `x11clip.rs`), and `wayland-client` with
+`wayland-protocols` (dialogs kept above the window that opened them,
+`wayland_parent.rs`); see `THIRD-PARTY-LICENSES.md` for the full
 list.
 
 

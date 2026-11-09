@@ -152,7 +152,7 @@ stores the checksum of the text `no file details` followed by that
 fingerprint instead, so it is never taken for an index with them, or the
 other way round. Indexes with them keep the plain fingerprint.
 
-| Version | Introduced by the commit |
+| Version | Change |
 |---|---|
 | 1 | save and load the index with validation and checksum |
 | 2 | keep the name order in blocks and support live index changes |
@@ -161,4 +161,5 @@ other way round. Indexes with them keep the plain fingerprint.
 | 5 | order the index by natural, diacritic-folded names |
 | 6 | record an optional indexing-rule fingerprint |
 
-All of them predate the first release.
+Versions 1 to 5 were used only during development; the programs write
+version 6.

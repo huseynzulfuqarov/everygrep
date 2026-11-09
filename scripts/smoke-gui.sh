@@ -1,7 +1,9 @@
 #!/bin/sh
 # Starts the built window in a scratch config, state, cache and data folder
-# and watches it while idle. Fails when the UI thread stays busy or memory
-# keeps growing. Needs a desktop session, so it is not part of check.sh.
+# and watches it while idle. Fails when the UI thread stays busy, when the
+# window's resident memory goes over the limit, or when less than 3 GiB of
+# the system's memory stays available. Needs a desktop session, so it is not
+# part of check.sh.
 #
 #   scripts/smoke-gui.sh [binary] [seconds] [rss-limit-MiB]
 set -eu

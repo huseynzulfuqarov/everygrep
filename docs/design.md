@@ -83,8 +83,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
   `Alt+↑/↓`, `Alt+←/→` by default); `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`,
   `Delete` and `F2` are result list keys, stay with the search field when it
   has focus, and the Edit entries show no key. Help → Keyboard shortcuts lists
-  them all. The bar cannot be opened from the keyboard yet (no `F10`), which is
-  fine because every entry has a key or can get one in the settings.
+  them all. The bar cannot be opened from the keyboard (no `F10`); every entry
+  has a key or can get one in the settings.
 - **Top bar.** The search field takes all the remaining width. Five small
   toggles at its right end switch the matching modes: match case, whole words,
   full path, diacritics and regular expression; each shows its name and key
@@ -98,7 +98,8 @@ screen; when a change conflicts with them, the rules win or are changed first.
   bar shown it is left out, so no entry has two homes on screen.
 - **Result table.** Default columns are Name, Folder, Size and Modified. Type,
   Extension, Created, Accessed and Attributes can be shown from the header's
-  context menu and the View menu; Full path is planned. Created, Accessed and
+  context menu and the View menu; View → Organize columns lists the other
+  columns, Full path among them. Created, Accessed and
   Attributes are not in the index, which keeps it small: they are read from the
   file system (`statx`) for the rows on screen while their column is shown, off
   the window's thread (the cells fill in once read), and for every result when
@@ -109,7 +110,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   links, whose mode means nothing), `H` hidden (the name starts with a dot),
   `D` folder, `L` symbolic link (never followed), `X` regular file with any
   execute bit. Columns can be resized, hidden and sorted by clicking the
-  header; reordering is planned. A dragged border stays under the pointer: the
+  header; they cannot be reordered. A dragged border stays under the pointer: the
   column on its left changes, the one on its right gives or takes the room
   while the columns fit the window, and past its minimum (or at the border
   after the last column) the columns get wider than the window. Then the rows
@@ -163,7 +164,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   operation that has run for 300 ms shows its progress after the left part
   ("Indexing: 42%", or a count when there is no estimate), updated at most ten
   times a second, with a small Cancel button when it can be cancelled. Cancel
-  keeps the earlier state and says so in the note. Its key is not decided yet.
+  keeps the earlier state and says so in the note. Cancel has no key.
 - **Folder panel,** hidden by default on the left: indexed roots and folders,
   with expand/collapse buttons, keyboard arrows and Enter to search the folder.
   Include subfolders is on by default. Folders that hold none of the current
@@ -415,19 +416,19 @@ and contents.
 
 `Ctrl+C` copies the items as files, as in a file manager; their names and paths
 have keys of their own. Paste needs one folder selected in the results and
-pastes into it. By default a taken name gets the first free `name (N).ext`,
-from 2. Copies are written under a temporary name and renamed into place when
+pastes into it. A taken name asks what to do (see below); with that question
+off, it gets the first free `name (N).ext`, from 2. Copies are written under a temporary name and renamed into place when
 complete; a move across file systems copies first and then removes only what
 was copied. A cut is pasted once. Slint 1.18 puts only text on the clipboard,
 so files are offered through the X11 clipboard of XWayland, which GNOME passes
 on to Wayland programs; without XWayland other programs get the full paths as
-text. Slint cannot start a drag to other programs yet, so dragging results out
-is planned. "Open with" shows the desktop's own application chooser (the
+text. Slint 1.18 cannot start a drag to other programs, so results can be
+dragged onto a folder row of the list but not out of the window. "Open with" shows the desktop's own application chooser (the
 OpenURI portal with `ask`), never a list of ours.
 
 Paste conflicts and file undo are enabled by default and can be disabled on
-the Window settings page. The modal offers skip, skip all (this paste), keep
-both and cancel; errors offer retry. Only a regular file can replace another
+the Window settings page. The question offers keep both, skip, skip all (this
+paste), overwrite (for a regular file) and cancel; errors offer retry or skip. Only a regular file can replace another
 regular file after rechecking the destination. Cut on the same filesystem
 stages and renames the original inode; other cases use a complete temporary
 copy. Publication uses a non-replacing rename. Folders are never merged.
@@ -435,8 +436,8 @@ copy. Publication uses a non-replacing rename. Folders are never merged.
 Rename refuses a name that already exists in the folder and shows the reason in
 the status line, or inside the rename dialog when Settings → Window opens one.
 Moving to the trash asks first only for more than 50 items; deleting
-permanently always asks, because it cannot be undone. Hiding the window with
-`Esc` is planned.
+permanently always asks, because it cannot be undone. `Esc` does not hide the
+window: it clears the selection or the search.
 
 ### Filters and bookmarks
 
@@ -545,7 +546,7 @@ The behaviour chosen for indexing and searching.
 | File contents while typing | On by default: with Search as you type on, a search that reads files (a `content:` term, also in the chosen filter, or duplicates by contents) waits for Enter and the status line says "Press Enter to search file contents."; other searches still follow every key. Settings → Search → File contents turns it off. A tab whose text waits keeps waiting when shown again. |
 | Enter with as-you-type off | Enter runs a waiting search; with the results already current it opens the current row as before. Back/Forward still search at once. |
 | Rename selection | On by default (today's behaviour): the name before the last dot; folders and dot-files whole. |
-| Monitoring changes | One global switch, on by default (per-folder: no; our folder list has no per-folder options yet). Off drops every inotify watch; on again catches up and watches. A loaded index is not caught up while off. |
+| Monitoring changes | One global switch, on by default; it is not set per folder (the one per-folder option leaves out the contents of a folder's subfolders). Off drops every inotify watch; on again catches up and watches. A loaded index is not caught up while off. |
 | Exclude list switch | One global switch, on by default; it turns all three lists on or off. |
 | Lists | Three lists: excluded folders (paths and folder patterns), include-only files and excluded files. Folder list items: an absolute path matched exactly, or a pattern. |
 | Item syntax | Items separated by `;` (`,` and double quotes also work); a `regex:` prefix; `*` stays within one name, `**` crosses `/`; `?` = one character. |
@@ -554,7 +555,7 @@ The behaviour chosen for indexing and searching.
 | Precedence | A file is kept when the include list is empty or one include matches, and no exclude matches; the order of the items does not matter. Folders are never tested against the file lists. |
 | Excluded folder entry | The folder's own entry is not created, so nothing below it is read. (Before this change the folder's own entry was kept.) |
 | Invalid regex | Refused with a message in Settings and not saved; a bad line in the settings file is reported and ignored. |
-| After a change | Every change of the lists or the switch indexes again with progress and Cancel. A saved index built with other rules is not detected at start (the catch-up removes excluded folders it checks). |
+| After a change | Every change of the lists or the switch indexes again with progress and Cancel. A saved index records a fingerprint of the rules; one built with other rules, or without a fingerprint, is built again at start. |
 | Live changes | The watcher and the catch-up use the same compiled rules as the scan; a moved folder is read again when a rule looks at paths. |
 | Roots | The folders to index are never excluded by the rules. |
 
@@ -590,6 +591,3 @@ The behaviour chosen for indexing and searching.
 | Scrolling | no dropped frames at 120 Hz |
 | Idle CPU while watching | ≈ 0 % |
 | Memory, 600 k entries | < 120 MB in total |
-
-These budgets are measured before each release and the numbers are recorded in
-the changelog.

@@ -318,7 +318,9 @@ and Paste here accepts text whose every line is an absolute path or a
 `file://` URI, as a copy.
 
 File → Export results… (`Ctrl+S`) saves the listed results, in the shown
-order, through the desktop's save dialog. A name ending in `.csv` (or the
+order. A small dialog asks for the format first (and, when only part of the
+list is selected, has a check box "Only the N selected results", not ticked
+at the start); Continue opens the desktop's save dialog. A name ending in `.csv` (or the
 CSV file type) gives a CSV file with the columns `Name`, `Folder`, `Size`
 (bytes; for a folder the total of the files below it), `Modified` (local
 time, `YYYY-MM-DD HH:MM:SS`) and `Offline` (`yes` for an entry of a drive
@@ -329,10 +331,8 @@ the CSV columns separated by tabs, with the same escapes in the name and the
 folder; `.m3u8` a UTF-8 playlist (`#EXTM3U`, then one full path per line; a
 path with a line break is left out); `.json` an array of objects with
 `name`, `folder`, `size`, `modified` (`null` when unknown) and `offline`;
-`.html` a web page with a table of the CSV columns. When only part of the
-list is selected, the save dialog has a check box "Export only the N
-selected results" (not ticked at the start). The file is written to
-a temporary file and renamed into place.
+`.html` a web page with a table of the CSV columns. The file is written to a
+temporary file and renamed into place.
 
 The menu bar (File, Edit, View, Search, Bookmarks, Tabs, History, Index,
 Tools, Help) holds the same actions, File → Close window (`Ctrl+Shift+W`, as
@@ -482,7 +482,7 @@ length, bit rate, title, artist, album, year, track, genre, rating, tags,
 page count, word count, camera maker and model, date taken, GPS latitude
 and longitude), more hashes (SHA-1, SHA-384, SHA-512, xxHash) and the
 duplicate group of a duplicate search. Metadata is read for the rows on
-screen with a budget of 8 MB and 250 ms per file and kept in the property
+screen with a budget of 8 MiB and 250 ms per file and kept in the property
 cache; Settings → Search can index chosen properties in the background.
 View → Advanced sort sorts by several columns.
 
@@ -617,16 +617,16 @@ settings file every setting has the default shown below.
 | | show the search scope next to the search field: all locations, the home folder or one indexed folder or drive; each tab keeps its own | on |
 | | search delay while typing, in milliseconds (Enter always searches at once) | 0 |
 | | search inside Office and EPUB documents (DOCX, XLSX, PPTX, ODT, ODS, ODP, EPUB), with a limit for their expanded size | on, 64 MiB |
-| | property cache: largest size, "Clear property cache", and per property: index it in the background, largest file, include and exclude patterns | 256 MB, every property off |
+| | property cache: largest size, "Clear property cache", and per property: index it in the background, largest file, include and exclude patterns | 256 MiB, every property off |
 | | keep the history after EveryGrep closes | off |
 | | search file contents only when Enter is pressed: while searching as you type, a search with `content:` or for duplicates by contents waits for Enter | on |
-| | file contents (`content:`): largest file to search in MB (0 for any size) | 100 |
-| | let a match run over line ends (a space also matches a line break; files over 16 MB are searched line by line) | on |
+| | file contents (`content:`): largest file to search in MiB (0 for any size) | 100 |
+| | let a match run over line ends (a space also matches a line break; files over 16 MiB are searched line by line) | on |
 | | code page of files that are not UTF-8 (also for `content-codepage:`) | Windows-1254 |
 | | search inside PDF files (with `pdftotext` from poppler; the page says when it is missing) | off |
 | | duplicates by contents: count empty files as duplicates (they form one group) | off |
 | | duplicates by contents: compare byte by byte too (files with equal hashes are read once more) | off |
-| | hash cache of duplicate searches: largest size in MB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
+| | hash cache of duplicate searches: largest size in MiB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
 | | dark style: slate, layered, graphite or classic; light style: classic, cool, layered or neutral | slate, classic |
@@ -753,7 +753,7 @@ in again (also after it was removed while being read, or the program quit while
 it was read: quitting cancels the reading and waits up to 5 seconds for what
 was read to be saved). Catching up cannot be cancelled; quitting during a long
 catch-up waits at most those 5 seconds too, and an index it could not save then
-is caught up again at the next start. Cancel has no key yet. Hidden files are
+is caught up again at the next start. Cancel has no key. Hidden files are
 always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any
@@ -949,7 +949,7 @@ every 10 seconds; what changed meanwhile is caught up once it works.
 
 EveryGrep notices mounts and unmounts through the kernel's mount table
 (`/proc/self/mountinfo`), which wakes it only when something changes; it
-costs nothing while idle. The command line does not search drives yet.
+costs nothing while idle. The command line does not search drives.
 
 ### One window
 
@@ -1054,10 +1054,10 @@ collects nothing. It stores:
 - hashes of files that a duplicate search compared, in
   `~/.cache/everygrep/hashes.bin` next to the window's index (device and
   inode numbers, sizes, modification times and hashes, never names or
-  paths), at most 512 MB (Settings → Search → Hash cache, with a button
+  paths), at most 512 MiB (Settings → Search → Hash cache, with a button
   that empties it);
 - file metadata read for property columns (tags, dimensions, page counts,
-  …), in `properties.bin` next to the window's index, at most 256 MB by
+  …), in `properties.bin` next to the window's index, at most 256 MiB by
   default (Settings → Search, with a button that empties it);
 - thumbnails made for the preview panel, in the shared thumbnail cache
   (`~/.cache/thumbnails`, as other programs keep them);

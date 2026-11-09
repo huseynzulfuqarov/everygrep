@@ -312,12 +312,12 @@ First version, 0.1.0, not released yet.
 - `content:` finds files whose contents hold a text (`content:invoice`,
   `content:"two words"`, `content:<a b>` for both, `regex:content:^foo`,
   `case:` and `wholeword:` too). Contents are read from disk after the other terms
-  narrowed the list: regular files up to 100 MB, not binary files, not
+  narrowed the list: regular files up to 100 MiB, not binary files, not
   links; UTF-8, UTF-16 with a byte order mark, else Windows-1254.
   `content-utf8:`, `content-utf16le:`, `content-utf16be:` and `content-codepage:` read
   in one encoding. Diacritics are matched as written in contents. A match
   may run over line ends (a space also matches a line break; `\n` and `\s`
-  in expressions), for files up to 16 MB; Settings → Search → File
+  in expressions), for files up to 16 MiB; Settings → Search → File
   contents turns it off.
 
 - `duplicates:` lists files with the same contents (size first, then a
@@ -361,7 +361,7 @@ First version, 0.1.0, not released yet.
   dimensions, duration, audio tags, rating, tags, page and word counts,
   camera and GPS data), more hashes (SHA-1, SHA-384, SHA-512, xxHash) and
   a sortable duplicate group column; metadata is kept in a property cache
-  (`properties.bin`, 256 MB by default), and chosen properties can be
+  (`properties.bin`, 256 MiB by default), and chosen properties can be
   indexed in the background.
 - Preview panel with the shared thumbnail cache, PNG/JPEG images, text
   files and sandboxed system thumbnail helpers, each source switchable; a
@@ -420,9 +420,9 @@ First version, 0.1.0, not released yet.
   of the whole index share the name (by kind, ignoring case), the
   extension (files) or the size; counted after a search while one is shown,
   again only when the index changed.
-- Settings → Search → Hash cache: its largest size (512 MB by default, 0
+- Settings → Search → Hash cache: its largest size (512 MiB by default, 0
   keeps none), how much is in use and "Clear hash cache".
-- Settings → Search → File contents: the largest file to search (100 MB;
+- Settings → Search → File contents: the largest file to search (100 MiB;
   0 for any size), the code page of files that are not UTF-8
   (Windows-1250 to 1257, Windows-1254 by default) and "Search inside PDF
   files" (off; reads them with `pdftotext` in a separate process, and says
@@ -449,8 +449,8 @@ First version, 0.1.0, not released yet.
   size, modified, offline) or as a list of full paths (one per line, a
   backslash, line break or tab in a path escaped), through the desktop's
   save dialog, written atomically. Also as TSV, an M3U8 playlist, JSON or
-  an HTML table, and of the selected results only (a check box of the save
-  dialog).
+  an HTML table, and of the selected results only (a check box of the
+  export dialog, before the save dialog).
 - Selection with the mouse and keyboard; open, open the containing folder,
   copy names or paths, rename in place, move to the trash and delete
   permanently, from keys, a context menu and the menu bar.
@@ -543,8 +543,8 @@ First version, 0.1.0, not released yet.
 - Translations into Azerbaijani and Turkish, with a language setting that
   applies at once; translated desktop entry.
 - Cut, copy and paste of files (`Ctrl+X`, `Ctrl+C`, `Ctrl+V`) into a
-  folder of the results: never replaces (a taken name becomes
-  `name (2).ext`), copies through a temporary name, moves across file
+  folder of the results: a taken name asks what to do, or becomes
+  `name (2).ext` when that question is off; copies through a temporary name, moves across file
   systems by copying and then removing only what was copied, with progress
   and Cancel in the status line. Other programs get the files through the
   XWayland clipboard (`x-special/gnome-copied-files`, `text/uri-list` and

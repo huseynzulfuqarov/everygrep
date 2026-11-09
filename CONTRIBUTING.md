@@ -53,8 +53,9 @@ so `scripts/check.sh` does not run it.
 file contents), `lofty` and `kamadak-exif` (audio and photo metadata), and
 `rawzip`, `flate2` and `quick-xml` (Office and EPUB documents); keep that list
 short. The window uses Slint (with its winit backend crate pinned, for keys
-by position), zbus (session bus), `x11rb` (files on the XWayland clipboard)
-and `rustix`. **Do not add a crate, or a feature that pulls in new
+by position), zbus (session bus), `x11rb` (files on the XWayland clipboard),
+`wayland-client` and `wayland-protocols` (keeping dialogs above the window
+that opened them) and `rustix`. **Do not add a crate, or a feature that pulls in new
 crates, without discussing it first**; `git diff Cargo.lock` should normally
 be empty. When the dependencies do change, regenerate the license list:
 

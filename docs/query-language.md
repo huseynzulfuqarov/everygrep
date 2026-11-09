@@ -291,7 +291,7 @@ itself.
 Units: none or `b` (bytes), `k`, `kb`, `ki`, `kib`, and the same with `m`,
 `g`, `t` and `p`, all in steps of 1024 (`kb` and `kib` are the same).
 Decimals work: `size:>1.5gb`. A value above the largest possible size,
-2^64 − 1 bytes (16 777 216 TB − 1 byte), is an error.
+2^64 − 1 bytes (16 777 216 TiB − 1 byte), is an error.
 
 Size words, with comparisons too (`size:>large` is larger than 16 MB):
 
@@ -439,20 +439,25 @@ a content term alone reads every file of the index.
   next (not across an empty line). In a regular expression `\n`, `\s` and
   classes such as `[^a]` match line breaks too, `.` does not. Settings →
   Search → File contents → "Let a match run over line ends" turns this off
-  (then a match ends at the end of its line); files over 16 MB are always
+  (then a match ends at the end of its line); files over 16 MiB are always
   searched line by line, since a match over lines holds the whole file in
   memory. `^` and `$` match at the start and end of every line either way.
 - Folders never match, and neither do links (the target is not read),
   FIFOs, sockets, devices, files that cannot be read, and entries of an
   offline drive.
-- Files over 100 MB are not read (Settings → Search → File contents; 0
+- Files over 100 MiB are not read (Settings → Search → File contents; 0
   reads files of any size), and neither are binary files: a NUL byte
   before the first match ends the search of a file.
 - PDF files are binary for a content term unless Settings → Search →
   Search inside PDF files is on: a file named `*.pdf` is then read as the
   text that `pdftotext` (from the poppler package) prints for it, in a
   separate process that is stopped after 30 seconds. A PDF that it cannot
-  read does not match. Office documents are not read yet.
+  read does not match.
+- Office and EPUB documents (DOCX, XLSX, PPTX, ODT, ODS, ODP, EPUB) are
+  searched in the text of their XML parts while Settings → Search → File
+  contents → "Search inside Office/EPUB documents" is on (the default); with
+  it off they never match. A document whose expanded parts and text are over
+  the limit (64 MiB by default) or that holds damaged data does not match.
 - Encoding: UTF-8; UTF-16 (little or big endian) when the file starts with a
   byte order mark; a file that is not valid UTF-8 is read again in the code
   page of Settings → Search → File contents (Windows-1254, Turkish and
@@ -467,7 +472,7 @@ a content term alone reads every file of the index.
 
 `duplicates:` lists the files whose contents another result has too: copies
 of the same file. The results are compared among themselves, so combine it with
-other terms to say where to look (`duplicates: ~/Pictures ext:jpg;png`). Each
+other terms to say where to look (`duplicates: /home/me/Pictures ext:jpg;png`). Each
 group of equal files stays together, at the place of its first member in the
 order shown, and its members follow in that order.
 
