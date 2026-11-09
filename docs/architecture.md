@@ -14,17 +14,17 @@ connections, has no telemetry and runs no service besides the window itself.
 | `everygrep-gui` | binary `everygrep-gui` | the window: Slint UI, settings, single instance, file actions |
 
 The core uses the standard library, the `regex` crate for regular expressions
-in queries, `rustix` for opening files and folders without following links,
-the line searcher and matcher of ripgrep (`grep-searcher`, `grep-regex`) with
-`encoding_rs` for reading file contents (`content.rs`), `rawzip`, `flate2`
-and `quick-xml` for Office and EPUB documents (`document.rs`), `md-5`,
-`sha1`, `sha2`, `crc32fast` and `twox-hash` (XXH3-128) for hashes of file
-contents (`hash.rs`), `lofty` and `kamadak-exif` for audio and photo
-metadata (`media.rs`, `preview.rs`), and hand-written
-bindings for the few Linux calls it needs (`inotify.rs`). The window adds Slint (UI toolkit),
-its winit backend crate (keys by position, `physical.rs`), zbus (session
-bus) and `x11rb` (the XWayland clipboard, `x11clip.rs`); see
-`THIRD-PARTY-LICENSES.md` for the full list.
+in queries, `rustix` for opening files and folders without following links, the
+line searcher and matcher of ripgrep (`grep-searcher`, `grep-regex`) with
+`encoding_rs` for reading file contents (`content.rs`), `rawzip`, `flate2` and
+`quick-xml` for Office and EPUB documents (`document.rs`), `md-5`, `sha1`,
+`sha2`, `crc32fast` and `twox-hash` (XXH3-128) for hashes of file contents
+(`hash.rs`), `lofty` and `kamadak-exif` for audio and photo metadata
+(`media.rs`, `preview.rs`), and hand-written bindings for the few Linux calls
+it needs (`inotify.rs`). The window adds Slint (UI toolkit), its winit backend
+crate (keys by position, `physical.rs`), zbus (session bus) and `x11rb` (the
+XWayland clipboard, `x11clip.rs`); see `THIRD-PARTY-LICENSES.md` for the full
+list.
 
 
 ## Core
@@ -51,7 +51,6 @@ exception, behind a Window page switch that is on by default, is
 no one else can change: its filter also allows the calls a nested sandbox
 needs (user namespaces, mount, `pivot_root`, `chroot`, `unshare`, `setns`),
 and all other limits stay. Wall
-
 time is limited to five seconds, output files to 4 MiB, CPU time to five
 seconds and address space to 2 GiB. Missing sandbox support skips this tier.
 Failures are recorded under `fail/everygrep` only when a helper exits by
@@ -111,26 +110,26 @@ merged in pairs). Equal results break ties by raw name,
 then parent. Search keeps its own folding: with diacritics ignored, `ə`
 matches `e`.
 
-`search()` splits the blocks into groups of 16 and lets worker threads (one
-per CPU by default) take groups one by one; each evaluates the parsed query
-against every node and the results are concatenated in name order. Text
-matching works on the folded names, so it never allocates or folds per
-comparison. `sort.rs` reorders results by another column (path, size,
-modified, type, extension, created, accessed, attributes) with a stable sort,
-so equal keys keep name order. The index's own name order breaks ties between
-names that collate equal by raw name and parent id; `sort.rs` first puts each
-run of such names in folder path order, then raw name order (one look at each
-neighbour finds the runs, and only their folders get a path key), so that
-order means something to the reader. Folder paths compare component by
-component in the same natural order (`dir2` before `dir10`). A secondary and a
-tertiary key (the Advanced sort dialog) run as further stable passes, the
-last key first; name and folder passes then use the position in the name
-order as the name, and keys after name or folder are dropped because those
-already order every entry apart. A header click sorts by one column again. Creation time, access time and attributes are
+`search()` splits the blocks into groups of 16 and lets worker threads (one per
+CPU by default) take groups one by one; each evaluates the parsed query against
+every node and the results are concatenated in name order. Text matching works
+on the folded names, so it never allocates or folds per comparison. `sort.rs`
+reorders results by another column (path, size, modified, type, extension,
+created, accessed, attributes) with a stable sort, so equal keys keep name
+order. The index's own name order breaks ties between names that collate equal
+by raw name and parent id; `sort.rs` first puts each run of such names in
+folder path order, then raw name order (one look at each neighbour finds the
+runs, and only their folders get a path key), so that order means something to
+the reader. Folder paths compare component by component in the same natural
+order (`dir2` before `dir10`). A secondary and a tertiary key (the Advanced
+sort dialog) run as further stable passes, the last key first; name and folder
+passes then use the position in the name order as the name, and keys after name
+or folder are dropped because those already order every entry apart. A header
+click sorts by one column again. Creation time, access time and attributes are
 not kept in the index; `details.rs` reads them with `lstat` (`statx` with the
 birth time) for the rows on screen, on a thread of the window's own
-(`DetailReader`: the rows are shown at once and updated when the values
-come), and the sort reads them for every result on several threads.
+(`DetailReader`: the rows are shown at once and updated when the values come),
+and the sort reads them for every result on several threads.
 
 Contents (`content.rs`) are not indexed. A query with `content:` terms is
 searched in two stages: `search_staged` evaluates every node with the
@@ -418,17 +417,16 @@ by node id (`selection.rs`), so it survives re-sorting and live updates.
 The UI is written in Slint (`ui/app.slint`, `ui/settings.slint`,
 `ui/theme.slint`) and compiled into Rust by `build.rs`, with the Fluent style
 and the femtovg (OpenGL) renderer on the winit Wayland backend. Colors are
-tokens in `theme.slint`; `look.rs` resolves the theme setting, and
-`portal.rs` reads the desktop's light or dark preference
-(`org.freedesktop.portal.Settings`) and opens the folder chooser and the
-save dialog of the export (`org.freedesktop.portal.FileChooser`, `OpenFile`
-and `SaveFile`). `export.rs` writes the export (CSV, TSV, text, M3U8, JSON, HTML) on a helper
-thread, reading the index in chunks of 20 000 results under short read
-locks; if the ids change meaning meanwhile (a compaction), it stops and
-asks to export again. CSV, TSV, Text and M3U8 retain original file-name
-bytes, including invalid UTF-8; delimiter escaping remains format-specific.
-M3U8 omits paths containing CR or LF. JSON and HTML keep their UTF-8
-replacement behavior.
+tokens in `theme.slint`; `look.rs` resolves the theme setting, and `portal.rs`
+reads the desktop's light or dark preference
+(`org.freedesktop.portal.Settings`) and opens the folder chooser and the save
+dialog of the export (`org.freedesktop.portal.FileChooser`, `OpenFile` and
+`SaveFile`). `export.rs` writes the export (CSV, TSV, text, M3U8, JSON, HTML)
+on a helper thread, reading the index in chunks of 20 000 results under short
+read locks; if the ids change meaning meanwhile (a compaction), it stops and
+asks to export again. CSV, TSV, Text and M3U8 retain original file-name bytes,
+including invalid UTF-8; delimiter escaping remains format-specific. M3U8 omits
+paths containing CR or LF. JSON and HTML keep their UTF-8 replacement behavior.
 
 ### Commands and keys (`commands.rs`, `ui/commands.slint`)
 
@@ -474,27 +472,28 @@ replacing those settings; the completed library merge is reported separately.
 ### Search history (`history.rs`, `search_history.rs`)
 
 `history.rs` owns the bounded session navigation trail. `search_history.rs`
-keeps distinct searches, saturating visit counts and UTC epoch timestamps.
-The configuration-folder `search-history` file imports the earlier `history`
-file once, without modifying it during normal updates. Explicit clear/disable
-also removes that older copy. Previously unknown dates use the migration date.
-Loading checks duplicates in linear time; at most 10,000 distinct searches survive.
-Its disk operations run on the settings saving thread (`settings::Writer`), in the
-order asked together with every settings save (not counted as settings saves, so
-they never hold back applying a settings file changed outside the window), and the
-last ones are waited for at quit; results return to the event loop with epoch and revision guards. Memory updates
+keeps distinct searches, saturating visit counts and UTC epoch timestamps. The
+configuration-folder `search-history` file imports the earlier `history` file
+once, without modifying it during normal updates. Explicit clear/disable also
+removes that older copy. Previously unknown dates use the migration date.
+Loading checks duplicates in linear time; at most 10,000 distinct searches
+survive. Its disk operations run on the settings saving thread
+(`settings::Writer`), in the order asked together with every settings save (not
+counted as settings saves, so they never hold back applying a settings file
+changed outside the window), and the last ones are waited for at quit; results
+return to the event loop with epoch and revision guards. Memory updates
 immediately; stale disk snapshots cannot replace later local changes. No-op
-updates skip writes.
-History policy is read again under the settings lock before every disk delta.
-Suggestion requests and the two-second poll check history changes on the saving
-worker even when general settings reloading is disabled. A separate clear marker
-invalidates queued visits from older windows. Each queued delta retains its
-request-time generation; a later notification cannot authorize that older delta.
-A local clear maps only the requests made after it to its own committed generation.
-This includes windows keeping history
-only in memory. Storage-only changes preserve the in-memory searches. Suggestion
-rows wait for the policy check; revision guards preserve newer local edits.
-Distinct searches have a configurable limit up to 10,000; suggestions default on.
+updates skip writes. History policy is read again under the settings lock
+before every disk delta. Suggestion requests and the two-second poll check
+history changes on the saving worker even when general settings reloading is
+disabled. A separate clear marker invalidates queued visits from older windows.
+Each queued delta retains its request-time generation; a later notification
+cannot authorize that older delta. A local clear maps only the requests made
+after it to its own committed generation. This includes windows keeping history
+only in memory. Storage-only changes preserve the in-memory searches.
+Suggestion rows wait for the policy check; revision guards preserve newer local
+edits. Distinct searches have a configurable limit up to 10,000; suggestions
+default on.
 
 Retention drafts apply only after the explicit Apply action. Every mutation reloads
 the latest file under `search-history.lock`, prunes expired entries and replaces it via
@@ -705,47 +704,49 @@ filter. No form data is persisted.
 The Duplicates fields add one duplicate term after it (`duplicates:`,
 `extra-copies:`, `distinct:` or `unique:` with `name`, `name;size`, `size`,
 `stem`, `ext` or `modified`, nothing for contents); the window's Match case
-applies to names in it, as for typed terms.
-The File contents fields add one `content:` term at the end, always with
-explicit `case:`/`nocase:`, `wholeword:`/`nowholeword:` and `regex:`/`noregex:` modifiers so the
-window's name options do not apply to it, and the encoding function chosen
-(`content`, `content-codepage`, `content-utf8`, `content-utf16le`, `content-utf16be`). The
-text is quoted; a literal text with a quote or control character becomes an
-escaped regex, and in a user regex a quote or control character (escaped or
-not) becomes its `\x{..}` form. A line break is refused (the field is one
-line; a space matches a line end when matches run over lines). One term keeps five slots free for a filter's content terms.
+applies to names in it, as for typed terms. The File contents fields add one
+`content:` term at the end, always with explicit `case:`/`nocase:`,
+`wholeword:`/`nowholeword:` and `regex:`/`noregex:` modifiers so the window's name options do
+not apply to it, and the encoding function chosen (`content`, `content-codepage`,
+`content-utf8`, `content-utf16le`, `content-utf16be`). The text is quoted; a literal
+text with a quote or control character becomes an escaped regex, and in a user
+regex a quote or control character (escaped or not) becomes its `\x{..}` form.
+A line break is refused (the field is one line; a space matches a line end when
+matches run over lines). One term keeps five slots free for a filter's content
+terms.
 
 ### Search tabs (`tabs.rs`, `tabs_ui.rs`, `ui/tabs.slint`)
 
 Rust owns the tab list and ten closed search records. One `ResultsModel` and
 one engine search serve the active tab. Switching freezes Arc-backed ids,
 highlight terms and selection; inactive tabs do not submit work. Each time a
-tab is shown (`Tabs::shown`), only the background tabs shown last (10 by default,
-`tab-results-kept`) keep their frozen results; the others drop them (and their
-settled state) and search again when shown. A tab whose content search was
-stopped keeps its matches, since they cannot be found again without reading the
-files. Measured in a test, 30 tabs of 1 000 000 rows each: 114 MiB of row ids
-(RSS 129 MiB) before, 45 MiB (RSS 60 MiB) with 10 background tabs kept. Restoring a
-snapshot checks the engine's id epoch before showing it, then submits a fresh
-search. Old queued responses still go through the generation check. Query,
-filter references, matching toggles, sort, column layout (hash and frequency
-columns and Folder's own width too), navigation trail, cursor and both scroll
-positions belong to the tab; the sideways one is kept within the table's room
-when the tab is shown. A content or duplicate search the user stopped stays stopped
-when its tab is shown again (`Engine::show_stopped`): its matches so far come back
-from the tab and no file is read again, until the user asks for a search, the
-order changes or the index's ids change. A tab whose complete results were shown keeps the index
-version they were found in (`Engine::settled_search`); shown again with the same
-request while the index has that version and the same ids, its frozen results are
-the answer and no search runs (`Engine::show_settled`), so a duplicate or content
-search and the frequency counts are not done again for nothing. The check never
-waits for the index lock: while the index is being changed the tab searches again.
-A frequency column the tab shows and the one before did not also searches again,
-to count the index. Enter-pending edits keep their
-last submitted search separately. Hidden-file mode and the three parse policies
-follow Settings across all tabs. Filters resolve by live identity, falling back
-to their snapshot only after deletion; bookmarks retain their explicit snapshots.
-Closed tabs release result arrays. No-op navigation does not reinstall a search.
+tab is shown (`Tabs::shown`), only the background tabs shown last (10 by
+default, `tab-results-kept`) keep their frozen results; the others drop them
+(and their settled state) and search again when shown. A tab whose content
+search was stopped keeps its matches, since they cannot be found again without
+reading the files. Measured in a test, 30 tabs of 1 000 000 rows each: 114 MiB
+of row ids (RSS 129 MiB) before, 45 MiB (RSS 60 MiB) with 10 background tabs
+kept. Restoring a snapshot checks the engine's id epoch before showing it, then
+submits a fresh search. Old queued responses still go through the generation
+check. Query, filter references, matching toggles, sort, column layout (hash
+and frequency columns and Folder's own width too), navigation trail, cursor and
+both scroll positions belong to the tab; the sideways one is kept within the
+table's room when the tab is shown. A content or duplicate search the user
+stopped stays stopped when its tab is shown again (`Engine::show_stopped`): its
+matches so far come back from the tab and no file is read again, until the user
+asks for a search, the order changes or the index's ids change. A tab whose
+complete results were shown keeps the index version they were found in
+(`Engine::settled_search`); shown again with the same request while the index
+has that version and the same ids, its frozen results are the answer and no
+search runs (`Engine::show_settled`), so a duplicate or content search and the
+frequency counts are not done again for nothing. The check never waits for the
+index lock: while the index is being changed the tab searches again. A
+frequency column the tab shows and the one before did not also searches again,
+to count the index. Enter-pending edits keep their last submitted search
+separately. Hidden-file mode and the three parse policies follow Settings
+across all tabs. Filters resolve by live identity, falling back to their
+snapshot only after deletion; bookmarks retain their explicit snapshots. Closed
+tabs release result arrays. No-op navigation does not reinstall a search.
 
 A custom horizontal strip appears for two or more tabs; the list dialog and
 Tabs menu make every overflowed tab reachable. A 250 ms observer sees changes
@@ -786,41 +787,41 @@ Restore submits only the selected tab, leaving background searches dormant.
 The transfer resolver posts a question to the UI event loop, then waits on a
 channel with cancellation checks every 100 ms. Only the worker waits. The UI
 answers through a modal, and disconnect or cancel stops the paste. The resolver
-is optional. The window asks by default; turning the setting off selects a
-free numbered name. Overwrites
-recheck destination device, inode, size, mtime and ctime before moving the old
-file to the desktop trash and publishing with a strict non-replacing rename.
-Same-filesystem Cut stages the original inode under a private name; Copy and
-cross-filesystem Cut prepare a complete temporary copy. Failed publication
-restores the staged source without replacing an occupied path; a failed restore
-reports the preserved staging path. Visible changes without an undo record
-invalidate older history even when publication failed. Trash capability is queried on the worker;
-without it Overwrite is disabled. A trash failure preserves the destination.
-Questions show both sizes and modification times; results count replacements.
+is optional. The window asks by default; turning the setting off selects a free
+numbered name. Overwrites recheck destination device, inode, size, mtime and
+ctime before moving the old file to the desktop trash and publishing with a
+strict non-replacing rename. Same-filesystem Cut stages the original inode
+under a private name; Copy and cross-filesystem Cut prepare a complete
+temporary copy. Failed publication restores the staged source without replacing
+an occupied path; a failed restore reports the preserved staging path. Visible
+changes without an undo record invalidate older history even when publication
+failed. Trash capability is queried on the worker; without it Overwrite is
+disabled. A trash failure preserves the destination. Questions show both sizes
+and modification times; results count replacements.
 
 ### File undo (`fileops_undo.rs`, `fileops_undo_ui.rs`)
 
-A default-enabled, bounded session journal records successful transfer pairs and
-renames. One paste is one step, containing its supported successful items;
+A default-enabled, bounded session journal records successful transfer pairs
+and renames. One paste is one step, containing its supported successful items;
 undo visits the members in reverse order and redo in source order. The history
 limit counts whole operations. If a new group would exceed the tree snapshot
 budget, none of that group is recorded and older applied history is cleared;
-redo is invalidated and the result warns about omitted history. Each item carries a sorted, non-following tree snapshot (relative
-paths, device, inode, byte size, mode and nanosecond modification and change times). Undo
-checks the snapshot and destination vacancy on a worker, then uses strict
+redo is invalidated and the result warns about omitted history. Each item
+carries a sorted, non-following tree snapshot (relative paths, device, inode,
+byte size, mode and nanosecond modification and change times). Undo checks the
+snapshot and destination vacancy on a worker, then uses strict
 `RENAME_NOREPLACE`; unsupported filesystems fail safely. Case-only renames on
 case-insensitive filesystems stage the source before checking target vacancy,
 then publish without replacement; a failed publication restores the source.
-Copy undo uses the
-desktop trash, while redo creates an exact-path copy from a verified source.
-It never relies on discovering a trash identifier. New folders, bulk renames
-and moves to the trash (plain trash and duplicate clean-up) are recorded too:
-undo removes a new folder only while it is still empty and unchanged, and
-finds a trashed item again by device, inode, size, modification time and its
-recorded original path (`trashbin.rs`), putting it back without replacing
-anything. Cross-filesystem moves, overwrites and permanent deletion are
-excluded. No history goes to disk.
-The settings writer persists only the enable choice and history limit.
+Copy undo uses the desktop trash, while redo creates an exact-path copy from a
+verified source. It never relies on discovering a trash identifier. New
+folders, bulk renames and moves to the trash (plain trash and duplicate
+clean-up) are recorded too: undo removes a new folder only while it is still
+empty and unchanged, and finds a trashed item again by device, inode, size,
+modification time and its recorded original path (`trashbin.rs`), putting it
+back without replacing anything. Cross-filesystem moves, overwrites and
+permanent deletion are excluded. No history goes to disk. The settings writer
+persists only the enable choice and history limit.
 
 The journal and this program's destructive operations are serialized on
 workers. User questions release the file-operation slot and resumed transfers
@@ -855,15 +856,16 @@ commands share one routing function for history, tabs and new search windows.
 
 ### Folder panel (`folders.rs`, `ui/folders.slint`)
 
-A single worker traverses the in-memory index into flattened visible folder rows,
-sorted by the result list’s natural name order. It reads no filesystem paths. Version/stamp and request
-serials skip unchanged work and discard answers for an older tab or expansion.
-The window polls completed rows without waiting for the index. Tree expansion
-and selected paths are frozen with each runtime tab; the location query uses the
-existing context-search generator and is persisted with the ordinary search.
-Visibility, recursive mode and width use the settings writer. The tree cursor and
-scroll position also travel with runtime tabs. Explicit Locate uses the existing
-result helpers to resolve the selected folder from the index, with no disk reads.
+A single worker traverses the in-memory index into flattened visible folder
+rows, sorted by the result list’s natural name order. It reads no filesystem
+paths. Version/stamp and request serials skip unchanged work and discard
+answers for an older tab or expansion. The window polls completed rows without
+waiting for the index. Tree expansion and selected paths are frozen with each
+runtime tab; the location query uses the existing context-search generator and
+is persisted with the ordinary search. Visibility, recursive mode and width use
+the settings writer. The tree cursor and scroll position also travel with
+runtime tabs. Explicit Locate uses the existing result helpers to resolve the
+selected folder from the index, with no disk reads.
 
 ### Optional properties (`property.rs`, `properties.rs`)
 

@@ -55,7 +55,6 @@ file contents), `lofty` and `kamadak-exif` (audio and photo metadata), and
 short. The window uses Slint (with its winit backend crate pinned, for keys
 by position), zbus (session bus), `x11rb` (files on the XWayland clipboard)
 and `rustix`. **Do not add a crate, or a feature that pulls in new
-
 crates, without discussing it first**; `git diff Cargo.lock` should normally
 be empty. When the dependencies do change, regenerate the license list:
 
@@ -75,7 +74,8 @@ drawings). Every action needs a key, and colors come from the tokens in
 ## Translations
 
 The window's texts are written in English in the code and translated through
-gettext catalogs in `crates/everygrep-gui/translations/<lang>/LC_MESSAGES/everygrep-gui.po`.
+gettext catalogs in
+`crates/everygrep-gui/translations/<lang>/LC_MESSAGES/everygrep-gui.po`.
 
 - In `.slint` files, mark a text with `@tr("…")`; placeholders are `{}`
   (`@tr("Version {}", root.version)`).
@@ -96,12 +96,12 @@ exactly 1 and can be worded apart ("Ad kopyalandı." for one name).
 
 To add a language:
 
-1. Copy one of the catalogs to `translations/<code>/LC_MESSAGES/everygrep-gui.po`,
-   set `Language:` and `Plural-Forms:` in its header, and translate every
-   `msgstr`.
+1. Copy one of the catalogs to
+   `translations/<code>/LC_MESSAGES/everygrep-gui.po`, set `Language:` and
+   `Plural-Forms:` in its header, and translate every `msgstr`.
 2. Add the language to `Lang` in `crates/everygrep-gui/src/i18n.rs` (its code,
-   its own name, its position in `CATALOGS` and `catalog_index`) and to `LanguageChoice::ALL`
-   in `settings.rs`.
+   its own name, its position in `CATALOGS` and `catalog_index`) and to
+   `LanguageChoice::ALL` in `settings.rs`.
 3. If its plural rule is not `n != 1`, teach `trn_in` the rule.
 4. Translate `GenericName`, `Comment` and `Keywords` in
    `data/az.huseynz.EveryGrep.desktop`.

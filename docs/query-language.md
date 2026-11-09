@@ -110,7 +110,7 @@ No files are read during the search itself.
 ## Plain text
 
 A term without wildcards matches anywhere in the name, not only at the start
-of a word: `port` finds `report.pdf`. By default matching ignores
+of a word: `port` finds `report.pdf`. By default matching ignores:
 
 - **case**, with full Unicode lowercasing for valid UTF-8 (bytes that are not
   UTF-8 are compared with ASCII lowercasing only), and
@@ -125,24 +125,23 @@ of a word: `port` finds `report.pdf`. By default matching ignores
 `*` (any run of characters) and `?` (one character) make a term a wildcard
 pattern that must match the **whole** name: `*.pdf` finds names ending in
 `.pdf`, `img_??.png` finds `img_01.png` but not `img_001.png`. A `?` is one
-character of the name as it is compared, after case and diacritics are
-folded: with diacritics ignored (the default) `ß` and `Æ` become `ss` and
-`ae`, so a name `ß` needs `??`; with `diacritics:` a capital `İ` lowercases
-to `i` and a combining dot, two characters. With `case:diacritics:` each
-`?` is one character of the name as written. Inside quotes
-`*` and `?` are literal, and only there: `*"draft report"*` finds names
-containing `draft report`, `"a*"*` names starting with `a*`. In the window, Settings → Search → Match wildcards
+character of the name as it is compared, after case and diacritics are folded:
+with diacritics ignored (the default) `ß` and `Æ` become `ss` and `ae`, so a
+name `ß` needs `??`; with `diacritics:` a capital `İ` lowercases to `i` and a
+combining dot, two characters. With `case:diacritics:` each `?` is one
+character of the name as written. Inside quotes `*` and `?` are literal, and
+only there: `*"draft report"*` finds names containing `draft report`, `"a*"*`
+names starting with `a*`. In the window, Settings → Search → Match wildcards
 anywhere in the filename opens both ends instead (off by default).
-`wholename:ain*` forces whole-name wildcard matching
-and `nowholename:ain*` allows a match inside `main.rs`, regardless of that
+`wholename:ain*` forces whole-name wildcard matching and
+`nowholename:ain*` allows a match inside `main.rs`, regardless of that
 setting. On text without wildcards, `wholename:` requires the whole name
 (for a path term, the whole path) to be that text: `wholename:main.rs` finds
 `main.rs` but not `main.rs.bak`, with case and diacritics matched as for any
 other term (`case:wholename:Main.rs`). Without the modifier, ordinary text keeps its
-substring behavior. Explicit `prefix:` / `suffix:` still anchor their side of
-a wildcard.
-In path mode the open ends can cross folders, while `*` / `?` inside the
-original pattern keep their separator rules.
+substring behavior. Explicit `prefix:` / `suffix:` still anchor their side of a
+wildcard. In path mode the open ends can cross folders, while `*` / `?` inside
+the original pattern keep their separator rules.
 
 Against the full path (`path:`, a term with `/`, or the full path mode), `*`
 and `?` do not cross a `/`, and `**` matches any run including `/`, the same
@@ -353,17 +352,17 @@ Spans that end or start now, with a count `n` (1 to 1 000 000):
 | `modified:last3days` | from 3 days before now up to now |
 | `modified:next2hours` | from now up to 2 hours ahead |
 
-Units are `years`, `months`, `weeks`, `days`, `hours`, `minutes` (`mins`)
-and `seconds` (`secs`), singular or plural. `lastweek` without a count is the previous calendar week, while
+Units are `years`, `months`, `weeks`, `days`, `hours`, `minutes` (`mins`) and
+`seconds` (`secs`), singular or plural. `lastweek` without a count is the previous calendar week, while
 `last1week` is the 7 days up to now. Days, weeks, months and years keep the
-local wall clock time, so `last1day` on the day the clocks go back is 25
-hours long, also when the change falls on the day the span starts, and a day
-that does not exist in the month is the month's last day (`last1month` on 31
-March starts on the last day of February at the same time). A time that the
-clocks skip on that day is moved to the first moment after the gap; a time
-they repeat is its earlier occurrence. These words may be written with `-` or `_` too (`last-3-days`) and
-compare by their whole span: `modified:<last3days` is older than 3 days,
-`modified:>last3days` is in the future.
+local wall clock time, so `last1day` on the day the clocks go back is 25 hours
+long, also when the change falls on the day the span starts, and a day that
+does not exist in the month is the month's last day (`last1month` on 31 March
+starts on the last day of February at the same time). A time that the clocks
+skip on that day is moved to the first moment after the gap; a time they repeat
+is its earlier occurrence. These words may be written with `-` or `_` too
+(`last-3-days`) and compare by their whole span: `modified:<last3days` is older
+than 3 days, `modified:>last3days` is in the future.
 
 Months and days may have one or two digits (`2026-1-5`); years have four. A
 day starts at local midnight, so days with a daylight saving change are 23 or
@@ -472,31 +471,31 @@ other terms to say where to look (`duplicates: ~/Pictures ext:jpg;png`). Each
 group of equal files stays together, at the place of its first member in the
 order shown, and its members follow in that order.
 
-- Contents are compared as fast as possible: files of a size no other file
-  has are not read; files of the same size are compared by their first and
-  last 16 KiB, and only files that still agree are read in full (XXH3-128,
-  a 128-bit hash). The window keeps the hashes in a cache (Settings →
-  Search → Hash cache), so a second search reads only files that changed;
-  the command line reads them every time. With Settings → Search →
-  Duplicates → "Compare duplicates byte by byte" (off by default) files
-  with equal hashes are also read side by side and compared byte by byte,
-  so even files crafted to share a hash are not shown as copies; it reads
-  every file of a group once more.
-- Folders, empty files, links, FIFOs, devices and files that cannot be read
-  are left out. Empty files count (as one group of copies) when Settings →
-  Search → Duplicates → "Count empty files as duplicates" is on (off by
-  default; the command line leaves them out). Hard links are one file: of several paths to the same file
-  only the first is listed, and it is not its own duplicate.
+- Contents are compared as fast as possible: files of a size no other file has
+  are not read; files of the same size are compared by their first and last 16
+  KiB, and only files that still agree are read in full (XXH3-128, a 128-bit
+  hash). The window keeps the hashes in a cache (Settings → Search → Hash
+  cache), so a second search reads only files that changed; the command line
+  reads them every time. With Settings → Search → Duplicates → "Compare
+  duplicates byte by byte" (off by default) files with equal hashes are also
+  read side by side and compared byte by byte, so even files crafted to share a
+  hash are not shown as copies; it reads every file of a group once more.
+- Folders, empty files, links, FIFOs, devices and files that cannot be read are
+  left out. Empty files count (as one group of copies) when Settings → Search →
+  Duplicates → "Count empty files as duplicates" is on (off by default; the
+  command line leaves them out). Hard links are one file: of several paths to
+  the same file only the first is listed, and it is not its own duplicate.
 - Other properties are named after the colon, separated by `;` or `,`:
   `duplicates:name` (the same name in different folders), `duplicates:stem`
   (the name without its extension), `duplicates:ext`, `duplicates:size`,
   `duplicates:modified` (`dm`) and `duplicates:content` (the default). With
   several, all must be equal: `duplicates:name;size`. Only `content` reads
-  files. Size, extension and contents apply to files only; for the others, files and folders form groups of
-  their own. Names, stems and extensions ignore case unless `case:` is set
-  (`case:duplicates:name`) or Match case is on.
-- What is listed depends on the word, like `DISTINCT` in SQL and the
-  `uniq` tool:
+  files. Size, extension and contents apply to files only; for the others,
+  files and folders form groups of their own. Names, stems and extensions
+  ignore case unless `case:` is set (`case:duplicates:name`) or Match case is
+  on.
+- What is listed depends on the word, like `DISTINCT` in SQL and the `uniq`
+  tool:
 
   | Word | Lists |
   |---|---|

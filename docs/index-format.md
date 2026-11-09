@@ -96,16 +96,17 @@ The result is `h XOR (h >> 31)`.
 ## Writing
 
 Before saving, an index with removed slots or unused name bytes is compacted
-into a copy, so files never contain removed nodes. The bytes are written to
-an exclusively created `<file>.tmp-<random>` with owner-only permissions in the
+into a copy, so files never contain removed nodes. The bytes are written to an
+exclusively created `<file>.tmp-<random>` with owner-only permissions in the
 same folder, synced, and renamed over the file. Failed saves remove their
-temporary file. After the rename, the parent directory is opened and synced;
-a directory-sync failure is returned to the caller, except `EINVAL` and
-`ENOTSUP`, with which file systems that cannot sync a directory (several
-FUSE and network ones) answer; the save counts as done then. A bare relative
-filename uses `.` as its parent. Readers see either the old or the complete new file.
-The window saves a changed index at most every five minutes while it watches, after a rebuild, and when it
-ends (also when closing only hides the window).
+temporary file. After the rename, the parent directory is opened and synced; a
+directory-sync failure is returned to the caller, except `EINVAL` and
+`ENOTSUP`, with which file systems that cannot sync a directory (several FUSE
+and network ones) answer; the save counts as done then. A bare relative
+filename uses `.` as its parent. Readers see either the old or the complete new
+file. The window saves a changed index at most every five minutes while it
+watches, after a rebuild, and when it ends (also when closing only hides the
+window).
 
 ## Reading and validation
 
@@ -116,16 +117,16 @@ After reading:
 
 - the checksum must match;
 - every parent link must point to an existing folder (or be 0), names must lie
-  inside the pool, no two names may share bytes of the pool (their lengths
-  add up to at most the pool's size), and no node may be marked removed;
+  inside the pool, no two names may share bytes of the pool (their lengths add
+  up to at most the pool's size), and no node may be marked removed;
 - a root's name must be an absolute path and any other name one entry of a
   folder: not empty, `.` or `..`, without `/`; no name may hold a NUL byte;
 - parent chains must end at a root without loops;
-- the name order must be a permutation of the nodes; if it is not sorted by
-  the current rules (a version 4 file, or rules that changed with an update
-  of the program) it is sorted again, on one thread per CPU (about 0.05 s
-  for 260 000 nodes on 20 threads), and the index is saved with the new order at the next save; two
-  nodes with the same parent and name make the file invalid;
+- the name order must be a permutation of the nodes; if it is not sorted by the
+  current rules (a version 4 file, or rules that changed with an update of the
+  program) it is sorted again, on one thread per CPU (about 0.05 s for 260 000
+  nodes on 20 threads), and the index is saved with the new order at the next
+  save; two nodes with the same parent and name make the file invalid;
 - the folded names used for matching are computed again, not read; a name
   longer than 65 535 bytes once folded (folding can make it longer) makes the
   file invalid.

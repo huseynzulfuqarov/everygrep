@@ -40,50 +40,51 @@ screen; when a change conflicts with them, the rules win or are changed first.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- **Menu bar.** On by default, switchable in the View menu and the
-  settings. File (new window, close window, export results, quit), Edit
-  (cut, copy, paste into folder, copy name, path and full path, select all,
-  invert selection, rename, trash, delete, focus the search field), View
-  (folders panel, refresh, a Columns submenu with the optional columns, size columns to fit, sort by column and direction, folder size, density,
-  theme, selection details, menu bar), Search (matching modes, including
-  prefix, suffix, ignore punctuation and ignore whitespace, filters,
-  previous and next filter), Bookmarks (save, manage and open searches), Tabs
-  (open, close and switch tabs), History (back, forward, search history), Index
-  (rebuild, pause updates, file lists and journal), Tools (settings,
-  keyboard shortcuts settings, open the settings file), Help (search syntax, regular expressions, command line options, copy troubleshooting information, debug log, keyboard shortcuts, about). Only
+- **Menu bar.** On by default, switchable in the View menu and the settings.
+  File (new window, close window, export results, quit), Edit (cut, copy, paste
+  into folder, copy name, path and full path, select all, invert selection,
+  rename, trash, delete, focus the search field), View (folders panel, refresh,
+  a Columns submenu with the optional columns, size columns to fit, sort by
+  column and direction, folder size, density, theme, selection details, menu
+  bar), Search (matching modes, including prefix, suffix, ignore punctuation
+  and ignore whitespace, filters, previous and next filter), Bookmarks (save,
+  manage and open searches), Tabs (open, close and switch tabs), History (back,
+  forward, search history), Index (rebuild, pause updates, file lists and
+  journal), Tools (settings, keyboard shortcuts settings, open the settings
+  file), Help (search syntax, regular expressions, command line options, copy
+  troubleshooting information, debug log, keyboard shortcuts, about). Only
   features that exist get an entry. Every entry runs the same command as its
-  key and the context menu (one table, `commands.rs`). Slint 1.18 draws the
-  bar inside the window on Linux and cannot scroll a menu: a menu taller than
-  the room below the bar is pushed up over the bar and cut off. So long menus
-  are split to fit the window at its default size (660 px).
-  View groups column toggles, sizing and organization in Columns; panel
-  show/focus/close commands and bar toggles in Panels and bars (with Preview
-  panel and Folders panel submenus); and keeps Sort by, Folder size, Density,
-  Theme and Zoom as submenus alongside Refresh. Check marks show the current
-  state. The result list's context menu keeps
-  open, cut, copy, paste, copy full path, rename, trash and delete at its top
-  level with the search and copy variants in Search and Copy name or path
-  submenus. Menu-bar lists have at most eight actions/submenus per level,
-  including overflow commands, so their standard Fluent frames fit below the
-  bar at 1040 × 320 and the default text size. Edit groups clipboard, copying,
-  selection and file operations; Search groups matching modes and filters.
-  Columns separates file information, hashes and layout commands; Sort by
-  separates the four main columns, optional column categories and direction.
-  Tabs groups navigation and keeps all ten closed tabs in two groups of five.
-  Quick lists show six open tabs around the active one, six filters around
-  the chosen one, and six bookmarks/folders per level. List all tabs and
-  More bookmarks… / More filters… open the full lists; folder Open all in
-  tabs still uses the complete folder, including entries outside the menu.
-  Menu placement and scrolling remain controlled by the toolkit. Its item shortcuts are matched before
-  the focused widget sees the key. So a menu item shows a key only when it
-  is a global key that edits no text and that the search field or the list
-  does not bind otherwise (`Ctrl+N`, `Ctrl+W`, `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`,
-  `Ctrl+I`, `F5`, `Alt+C/W/P/D/R/B/E/U/S`, `Alt+↑/↓`, `Alt+←/→` by default);
-  `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Delete` and `F2` are result list
-  keys, stay with the search field when it has focus, and the Edit entries
-  show no key. Help → Keyboard shortcuts lists them all. The bar cannot be
-  opened from the keyboard yet (no `F10`), which is fine because every entry
-  has a key or can get one in the settings.
+  key and the context menu (one table, `commands.rs`). Slint 1.18 draws the bar
+  inside the window on Linux and cannot scroll a menu: a menu taller than the
+  room below the bar is pushed up over the bar and cut off. So long menus are
+  split to fit the window at its default size (660 px). View groups column
+  toggles, sizing and organization in Columns; panel show/focus/close commands
+  and bar toggles in Panels and bars (with Preview panel and Folders panel
+  submenus); and keeps Sort by, Folder size, Density, Theme and Zoom as
+  submenus alongside Refresh. Check marks show the current state. The result
+  list's context menu keeps open, cut, copy, paste, copy full path, rename,
+  trash and delete at its top level with the search and copy variants in Search
+  and Copy name or path submenus. Menu-bar lists have at most eight
+  actions/submenus per level, including overflow commands, so their standard
+  Fluent frames fit below the bar at 1040 × 320 and the default text size. Edit
+  groups clipboard, copying, selection and file operations; Search groups
+  matching modes and filters. Columns separates file information, hashes and
+  layout commands; Sort by separates the four main columns, optional column
+  categories and direction. Tabs groups navigation and keeps all ten closed
+  tabs in two groups of five. Quick lists show six open tabs around the active
+  one, six filters around the chosen one, and six bookmarks/folders per level.
+  List all tabs and More bookmarks… / More filters… open the full lists; folder
+  Open all in tabs still uses the complete folder, including entries outside
+  the menu. Menu placement and scrolling remain controlled by the toolkit. Its
+  item shortcuts are matched before the focused widget sees the key. So a menu
+  item shows a key only when it is a global key that edits no text and that the
+  search field or the list does not bind otherwise (`Ctrl+N`, `Ctrl+W`,
+  `Ctrl+S`, `Ctrl+,`, `Ctrl+Q`, `Ctrl+I`, `F5`, `Alt+C/W/P/D/R/B/E/U/S`,
+  `Alt+↑/↓`, `Alt+←/→` by default); `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`,
+  `Delete` and `F2` are result list keys, stay with the search field when it
+  has focus, and the Edit entries show no key. Help → Keyboard shortcuts lists
+  them all. The bar cannot be opened from the keyboard yet (no `F10`), which is
+  fine because every entry has a key or can get one in the settings.
 - **Top bar.** The search field takes all the remaining width. Five small
   toggles at its right end switch the matching modes: match case, whole words,
   full path, diacritics and regular expression; each shows its name and key
@@ -98,85 +99,89 @@ screen; when a change conflicts with them, the rules win or are changed first.
 - **Result table.** Default columns are Name, Folder, Size and Modified. Type,
   Extension, Created, Accessed and Attributes can be shown from the header's
   context menu and the View menu; Full path is planned. Created, Accessed and
-  Attributes are not in the index, which keeps it small: they are read from
-  the file system (`statx`) for the rows on screen while their column is
-  shown, off the window's thread (the cells fill in once read), and for every result when sorting by one of them, with progress and
-  Cancel. Created is the birth time and stays empty where the file system
-  has none (never 0 or 1970); Accessed follows `relatime`, so it is coarse.
-  Attributes are letters in the order `RHDLX`: `R` read-only (no write
-  permission for the owner; not shown for links, whose mode means nothing),
-  `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link
-  (never followed), `X` regular file with any execute bit.
-  Columns can be resized, hidden and sorted by clicking the header; reordering
-  is planned. A dragged border stays under the pointer: the column on its
-  left changes, the one on its right gives or takes the room while the
-  columns fit the window, and past its minimum (or at the border after the
-  last column) the columns get wider than the window. Then the rows and the
-  headers scroll sideways together; dragging back narrows the columns again
-  first. Folder takes the spare room and keeps a width of its own only while
-  the columns are too wide (saved as `folder-width`). A double-click on a header border sizes the column left of it
-  to fit; "Size all columns to fit" and "Fit columns to window"
-  (View menu, header context menu, keys can be set) size every shown
-  column. Fitting measures the cells of the rows on screen and the header
-  label. Since Folder always takes the room the other columns leave, it is
-  fitted by giving Name the rest, and "to fit" leaves the spare room to
-  Folder, while "to fit window" widens or narrows every column by the same
-  factor so that together they fill the window. The first click on a header sorts ascending; two settings
-  (Window page, off by default) make it sort the date columns newest first
-  and Size largest first. A second click reverses the order. Sorting by Type groups by kind, then extension. Matched search
-  terms are bold: every occurrence of every term that is not negated (`!`),
-  matched as the search matches it (case, diacritics, whole words, prefix,
-  suffix and the ignore modes). Wildcard patterns mark the characters their
-  literal parts matched, regular expressions every match. Name terms are
+  Attributes are not in the index, which keeps it small: they are read from the
+  file system (`statx`) for the rows on screen while their column is shown, off
+  the window's thread (the cells fill in once read), and for every result when
+  sorting by one of them, with progress and Cancel. Created is the birth time
+  and stays empty where the file system has none (never 0 or 1970); Accessed
+  follows `relatime`, so it is coarse. Attributes are letters in the order
+  `RHDLX`: `R` read-only (no write permission for the owner; not shown for
+  links, whose mode means nothing), `H` hidden (the name starts with a dot),
+  `D` folder, `L` symbolic link (never followed), `X` regular file with any
+  execute bit. Columns can be resized, hidden and sorted by clicking the
+  header; reordering is planned. A dragged border stays under the pointer: the
+  column on its left changes, the one on its right gives or takes the room
+  while the columns fit the window, and past its minimum (or at the border
+  after the last column) the columns get wider than the window. Then the rows
+  and the headers scroll sideways together; dragging back narrows the columns
+  again first. Folder takes the spare room and keeps a width of its own only
+  while the columns are too wide (saved as `folder-width`). A double-click on a
+  header border sizes the column left of it to fit; "Size all columns to fit"
+  and "Fit columns to window" (View menu, header context menu, keys
+  can be set) size every shown column. Fitting measures the cells of the rows
+  on screen and the header label. Since Folder always takes the room the other
+  columns leave, it is fitted by giving Name the rest, and "to fit" leaves the
+  spare room to Folder, while "to fit window" widens or narrows every column by
+  the same factor so that together they fill the window. The first click on a
+  header sorts ascending; two settings (Window page, off by default) make it
+  sort the date columns newest first and Size largest first. A second click
+  reverses the order. Sorting by Type groups by kind, then extension. Matched
+  search terms are bold: every occurrence of every term that is not negated
+  (`!`), matched as the search matches it (case, diacritics, whole words,
+  prefix, suffix and the ignore modes). Wildcard patterns mark the characters
+  their literal parts matched, regular expressions every match. Name terms are
   marked in the name; path terms (`path:`, a term with `/`, or the full path
-  mode) in the folder and the name; a run inside the home folder marks the
-  `~` that stands for it. A cell shows up to four bold runs; later ones
-  stay plain. The runs are worked out for the rows on screen only. Entries of a removable drive that is not
-  connected are drawn in the `text-offline` color (dimmer than muted text,
-  still at least 3.9:1, also on alternate rows), their names slanted and their icons faded, so the
-  state is not shown by color alone; file actions on them are refused with a
-  note in the status line. A folder's Size is the total size of all
-  files below it, at any depth (a setting can show the number of items or
-  nothing instead); sorting by Size mixes folders and files by that total,
-  as every other column does, since folders are never forced first.
+  mode) in the folder and the name; a run inside the home folder marks the `~`
+  that stands for it. A cell shows up to four bold runs; later ones stay plain.
+  The runs are worked out for the rows on screen only. Entries of a removable
+  drive that is not connected are drawn in the `text-offline` color (dimmer
+  than muted text, still at least 3.9:1, also on alternate rows), their names
+  slanted and their icons faded, so the state is not shown by color alone; file
+  actions on them are refused with a note in the status line. A folder's Size
+  is the total size of all files below it, at any depth (a setting can show the
+  number of items or nothing instead); sorting by Size mixes folders and files
+  by that total, as every other column does, since folders are never forced
+  first.
 - **Hidden files.** Search menu and Search settings share a saved Show/Hide/Only
   result filter, independent of the kind selector. Ctrl+H cycles it; all three
   choices can have custom keys. Hidden folders include their descendants.
   The default shows all entries and changing visibility never rebuilds the index.
 - **Status line.** Result count, index size, index state, small badges for the
-  matching modes that are on (switchable on the Search settings page), and query time. With one item selected the
-  details of that item follow the count: size (for a folder as the folder
-  size setting says), modification time and path (the home folder as `~`;
-  a path longer than 60 characters keeps its start and its last components,
-  `~/…/Photos/2024/img.jpg`, while Copy full path still copies all of it);
-  with several, their number and the total size of the files among them
-  (summed up to 100 000 selected items). A setting turns the details off.
-  The details are elided first, so the count, the index state, the badges,
-  the note and the time stay visible. The note (for example "Copied 3
-  paths.") uses the available space, with full details in its accessible description and hover tip; hints such as "Select one folder
-  to paste into." use the muted text color, and only failures (an I/O
-  error, a failed paste, trash or export) are drawn in the danger color. A long operation that has run for
-  300 ms shows its progress after the left part ("Indexing: 42%", or a count
-  when there is no estimate), updated at most ten times a second, with a
-  small Cancel button when it can be cancelled. Cancel keeps the earlier
-  state and says so in the note. Its key is not decided yet.
+  matching modes that are on (switchable on the Search settings page), and
+  query time. With one item selected the details of that item follow the count:
+  size (for a folder as the folder size setting says), modification time and
+  path (the home folder as `~`; a path longer than 60 characters keeps its
+  start and its last components, `~/…/Photos/2024/img.jpg`, while Copy full
+  path still copies all of it); with several, their number and the total size
+  of the files among them (summed up to 100 000 selected items). A setting
+  turns the details off. The details are elided first, so the count, the index
+  state, the badges, the note and the time stay visible. The note (for example
+  "Copied 3 paths.") uses the available space, with full details in its
+  accessible description and hover tip; hints such as "Select one folder to
+  paste into." use the muted text color, and only failures (an I/O error, a
+  failed paste, trash or export) are drawn in the danger color. A long
+  operation that has run for 300 ms shows its progress after the left part
+  ("Indexing: 42%", or a count when there is no estimate), updated at most ten
+  times a second, with a small Cancel button when it can be cancelled. Cancel
+  keeps the earlier state and says so in the note. Its key is not decided yet.
 - **Folder panel,** hidden by default on the left: indexed roots and folders,
   with expand/collapse buttons, keyboard arrows and Enter to search the folder.
   Include subfolders is on by default. Folders that hold none of the current
-  results are grey (Folder actions → "Grey out folders without results", on
-  by default; while the results are not given yet, or belong to an older
-  index, no folder is grey). Choosing a folder replaces the search
-  with an explicit, boundary-safe location query; the field shows it as a
-  label with the folder's name (full path as its tip, "(no subfolders)" when
-  subfolders are left out) in front of the text, so terms typed after it
-  search inside the folder. The label's ×, or Backspace in the empty field,
-  removes it; Esc clears both. Tab titles show the label too. The context menu opens the folder
-  or searches it in another tab/window. Locate selected result reveals its folder.
-  Visibility and the dragged width are saved. Opening it scrolls the result
-  list back to its left edge, so the names start in view. Expansion, selection, keyboard cursor and scroll position belong to
-  each tab. View commands can be assigned keys in keyboard settings. The header
-  close button, Esc in the tree and View → Close folders panel hide the sidebar
-  and return focus to results (or the search field when empty).
+  results are grey (Folder actions → "Grey out folders without results", on by
+  default; while the results are not given yet, or belong to an older index, no
+  folder is grey). Choosing a folder replaces the search with an explicit,
+  boundary-safe location query; the field shows it as a label with the folder's
+  name (full path as its tip, "(no subfolders)" when subfolders are left out)
+  in front of the text, so terms typed after it search inside the folder. The
+  label's ×, or Backspace in the empty field, removes it; Esc clears both. Tab
+  titles show the label too. The context menu opens the folder or searches it
+  in another tab/window. Locate selected result reveals its folder. Visibility
+  and the dragged width are saved. Opening it scrolls the result list back to
+  its left edge, so the names start in view. Expansion, selection, keyboard
+  cursor and scroll position belong to each tab. View commands can be assigned
+  keys in keyboard settings. The header close button, Esc in the tree and View
+  → Close folders panel hide the sidebar and return focus to results (or the
+  search field when empty).
 - **Preview panel,** on the right and hidden by default. View provides toggle,
   focus and close commands; its header close button and Esc return focus to
   results. Visibility and dragged width are saved like the folders panel.
@@ -235,6 +240,15 @@ surface, so it gets a visible `#c5cad2` border (`field-line`).
 Contrast: body text at least 7:1 against its background, muted text at least
 4.5:1, in both themes and on every row background (a test checks the
 tokens).
+
+App-drawn dialog cards, history dropdowns, diagnostic/tooltips and floating
+status cards share `Theme.popup-surface`, `Theme.popup-edge` and
+`Theme.popup-shadow`. The opaque 2 px edge keeps at least 3:1 contrast
+against the main and floating surfaces in both themes. Secondary windows
+also draw this edge inside their client area. Ordinary dividers and field
+borders retain their existing colors. Standard menu-bar/context menus and
+ComboBox flyouts retain the toolkit style: Slint 1.18 exposes their color
+scheme, but no public popup border, shadow or placement properties.
 
 ## Icons
 
@@ -399,22 +413,87 @@ and the toolkit cannot pass one to an open window. The window is therefore
 shown again as a new surface, which GNOME focuses; the window keeps its size
 and contents.
 
-`Ctrl+C` copies the items as files, as in a file manager; their names and
-paths have keys of their own. Paste needs one folder selected in the
-results and pastes into it. By default a taken name gets
-the first free `name (N).ext`, from 2. Copies are written under a temporary
-name and renamed into place when complete; a move across file systems
-copies first and then removes only what was copied. A cut is pasted once.
-Slint 1.18 puts only text on the clipboard, so files are offered through
-the X11 clipboard of XWayland, which GNOME passes on to Wayland programs;
-without XWayland other programs get the full paths as text. Slint cannot
-start a drag to other programs yet, so dragging results out is planned. "Open with" shows the desktop's own application
-chooser (the OpenURI portal with `ask`), never a list of ours.
+`Ctrl+C` copies the items as files, as in a file manager; their names and paths
+have keys of their own. Paste needs one folder selected in the results and
+pastes into it. By default a taken name gets the first free `name (N).ext`,
+from 2. Copies are written under a temporary name and renamed into place when
+complete; a move across file systems copies first and then removes only what
+was copied. A cut is pasted once. Slint 1.18 puts only text on the clipboard,
+so files are offered through the X11 clipboard of XWayland, which GNOME passes
+on to Wayland programs; without XWayland other programs get the full paths as
+text. Slint cannot start a drag to other programs yet, so dragging results out
+is planned. "Open with" shows the desktop's own application chooser (the
+OpenURI portal with `ask`), never a list of ours.
+
+Paste conflicts and file undo are enabled by default and can be disabled on
+the Window settings page. The modal offers skip, skip all (this paste), keep
+both and cancel; errors offer retry. Only a regular file can replace another
+regular file after rechecking the destination. Cut on the same filesystem
+stages and renames the original inode; other cases use a complete temporary
+copy. Publication uses a non-replacing rename. Folders are never merged.
 
 Rename refuses a name that already exists in the folder and shows the reason in
-the status line, or inside the rename dialog when Settings → Window opens one. Moving to the trash asks first only for more than 50 items;
-deleting permanently always asks, because it cannot be undone. Hiding the
-window with `Esc` is planned.
+the status line, or inside the rename dialog when Settings → Window opens one.
+Moving to the trash asks first only for more than 50 items; deleting
+permanently always asks, because it cannot be undone. Hiding the window with
+`Esc` is planned.
+
+### Filters and bookmarks
+
+Search → Filter holds Save as filter, Manage filters and Restore default
+filters above the existing choices. The organizer uses a table and an editor
+with a name, query, kind and matching modes. New starts from the current field.
+Alt+Up/Down moves the selected item when the editor is closed. Restore asks
+first and keeps custom entries. Bookmarks has its own menu between Search and
+Tabs, with Save bookmark (Ctrl+D), Manage bookmarks and the saved names.
+Its organizer also edits the filter and sort. Opening restores the text, all
+matching modes, frozen filter and sort, revealing the sort column if needed.
+A frozen filter that differs from the live one is available in the same
+selector; choosing another filter leaves the snapshot unused.
+
+Advanced Search (Search menu, Ctrl+Shift+F) is a separate window with a
+session form; with the window already open the key brings it to the front
+(shown again as a new surface, as the main window is). Words may use `*` and
+`?`; the exact phrase is literal. Name/path, location and subfolder scope, the
+existing filter choices, type, extension and inclusive size/date ranges build
+the query. Dates are local YYYY-MM-DD. Empty bounds are unrestricted; invalid
+or reversed ranges leave the main field unchanged. Use query (or Enter in any
+text field) replaces the field, applies the form's matching modes and follows
+Search as you type. The form never tries to reverse-parse an existing query.
+The window opens 640 px high so it fits a laptop screen; the fields scroll,
+while the error note, Use query and Cancel stay below them in view. Settings →
+Advanced likewise keeps the chosen setting's name, value field and its Apply,
+Toggle, Reset and Copy buttons below the page instead of at the end of it. A
+File contents section (word or phrase, its own match case / whole words /
+regular expression, text encoding) adds one `content:` term; a note says file
+contents are read from disk, so narrowing fields make it faster.
+
+### Search tabs and session
+
+A flat 34 px tab strip sits above the search field only with two or more tabs.
+Each tab shows its query (or New tab) and a close button; middle click closes.
+The active tab uses the selection colors and an accent border. Horizontal
+scrolling and an all-tabs button handle overflow. Tabs have accessible labels
+and selection state. Commands in the Tabs menu and keyboard settings cover
+creation, duplication, navigation, direct selection, bulk closure and reopening.
+The list dialog supports keyboard focus on every tab; multiple closure uses
+checkboxes. Closing the last tab leaves a blank search.
+
+Each tab retains its search, filter, matching modes, sort, columns, selection,
+scroll positions (down and sideways) and navigation trail in memory.
+Background results freeze; activation restores the snapshot and updates the
+visible search. Unsubmitted text still waits for Enter. The last ten closed
+searches can be reopened from the Tabs menu. Searches requested in new windows
+can instead open background tabs; immediate activation is a separate option.
+Both settings are on by default and switchable in the Tabs menu and Window
+settings.
+
+Session restore is separately opt-in. Enabling it asks to enable history
+recording and disk storage too when either prerequisite is off. It restores
+only the last window's searches for the same index, selected tab and closed
+searches; an explicit startup query takes precedence. Selection, raw row ids
+and navigation trails stay in memory. Saving is coalesced, and a malformed
+session is preserved with a status message.
 
 ### Settings
 
@@ -484,12 +563,12 @@ The behaviour chosen for indexing and searching.
 - UI text is short, in sentence case, and never blames the user.
 - Numbers use thin-space grouping (`617 178`). Sizes use KB/MB/GB with 1024
   steps by default, the unit chosen by the size (bytes below 1 KB). Two
-  settings (Appearance page) change that for the Size column and the
-  status line: the size format (automatic, or always bytes, KB, MB or GB;
-  a fixed unit groups its digits and shows one decimal below 10) and the
-  size units (1 KB = 1024 bytes, 1 KiB = 1024 bytes written `KiB`,
-  `MiB`, or 1 KB = 1000 bytes). Size searches keep 1024 steps. Dates show `25 Oct` within the current year, otherwise `25 Oct 2025`;
-  the full timestamp is in a tooltip.
+  settings (Appearance page) change that for the Size column and the status
+  line: the size format (automatic, or always bytes, KB, MB or GB; a fixed unit
+  groups its digits and shows one decimal below 10) and the size units (1 KB
+  = 1024 bytes, 1 KiB = 1024 bytes written `KiB`, `MiB`, or 1 KB = 1000 bytes).
+  Size searches keep 1024 steps. Dates show `25 Oct` within the current year,
+  otherwise `25 Oct 2025`; the full timestamp is in a tooltip.
 - All strings live in one catalog per language so they can be translated:
   gettext files in `crates/everygrep-gui/translations/`, used by both the
   `.slint` files (`@tr`) and the Rust code (`i18n::tr`). English is the
@@ -514,76 +593,3 @@ The behaviour chosen for indexing and searching.
 
 These budgets are measured before each release and the numbers are recorded in
 the changelog.
-
-### Filters and bookmarks
-
-Search → Filter holds Save as filter, Manage filters and Restore default
-filters above the existing choices. The organizer uses a table and an editor
-with a name, query, kind and matching modes. New starts from the current field.
-Alt+Up/Down moves the selected item when the editor is closed. Restore asks
-first and keeps custom entries. Bookmarks has its own menu between Search and
-Tabs, with Save bookmark (Ctrl+D), Manage bookmarks and the saved names.
-Its organizer also edits the filter and sort. Opening restores the text, all
-matching modes, frozen filter and sort, revealing the sort column if needed.
-A frozen filter that differs from the live one is available in the same
-selector; choosing another filter leaves the snapshot unused.
-
-Advanced Search (Search menu, Ctrl+Shift+F) is a separate window with a session
-form; with the window already open the key brings it to the front (shown again
-as a new surface, as the main window is). Words may use `*` and `?`; the exact phrase is literal. Name/path, location
-and subfolder scope, the existing filter choices, type, extension and inclusive
-size/date ranges build the query. Dates are local YYYY-MM-DD. Empty bounds are
-unrestricted; invalid or reversed ranges leave the main field unchanged.
-Use query (or Enter in any text field) replaces the field, applies the form's
-matching modes and follows Search as you type. The form never tries to
-reverse-parse an existing query. The window opens 640 px high so it fits a
-laptop screen; the fields scroll, while the error note, Use query and Cancel
-stay below them in view. Settings → Advanced likewise keeps the chosen
-setting's name, value field and its Apply, Toggle, Reset and Copy buttons
-below the page instead of at the end of it.
-A File contents section (word or phrase, its own match case / whole words /
-regular expression, text encoding) adds one `content:` term; a note says file
-contents are read from disk, so narrowing fields make it faster.
-
-### Search tabs and session
-
-A flat 34 px tab strip sits above the search field only with two or more tabs.
-Each tab shows its query (or New tab) and a close button; middle click closes.
-The active tab uses the selection colors and an accent border. Horizontal
-scrolling and an all-tabs button handle overflow. Tabs have accessible labels
-and selection state. Commands in the Tabs menu and keyboard settings cover
-creation, duplication, navigation, direct selection, bulk closure and reopening.
-The list dialog supports keyboard focus on every tab; multiple closure uses
-checkboxes. Closing the last tab leaves a blank search.
-
-Each tab retains its search, filter, matching modes, sort, columns, selection,
-scroll positions (down and sideways) and navigation trail in memory. Background
-results freeze;
-activation restores the snapshot and updates the visible search. Unsubmitted
-text still waits for Enter. The last ten closed searches can be reopened from
-the Tabs menu. Searches requested in new windows can instead open background
-tabs; immediate activation is a separate option. Both settings are on by
-default and switchable in the Tabs menu and Window settings.
-
-Session restore is separately opt-in. Enabling it asks to enable history
-recording and disk storage too when either prerequisite is off. It restores only the last window's
-searches for the same index, selected tab and closed searches; an explicit
-startup query takes precedence. Selection, raw row ids and navigation trails
-stay in memory. Saving is coalesced, and a malformed session is preserved with
-a status message.
-
-Paste conflicts and file undo are enabled by default and can be disabled on
-the Window settings page. The modal offers
-skip, skip all (this paste), keep both and cancel; errors offer retry. Only a
-regular file can replace another regular file after rechecking the destination.
-Cut on the same filesystem stages and renames the original inode; other cases
-use a complete temporary copy. Publication uses a non-replacing rename. Folders are never merged.
-
-App-drawn dialog cards, history dropdowns, diagnostic/tooltips and floating
-status cards share `Theme.popup-surface`, `Theme.popup-edge` and
-`Theme.popup-shadow`. The opaque 2 px edge keeps at least 3:1 contrast
-against the main and floating surfaces in both themes. Secondary windows
-also draw this edge inside their client area. Ordinary dividers and field
-borders retain their existing colors. Standard menu-bar/context menus and
-ComboBox flyouts retain the toolkit style: Slint 1.18 exposes their color
-scheme, but no public popup border, shadow or placement properties.

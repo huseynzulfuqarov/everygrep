@@ -511,7 +511,6 @@ First version, 0.1.0, not released yet.
   too, and the global keys also work while the filter selector has the
   focus.
 - Menus built from the same table: File → Close window (`Ctrl+Shift+W`, the
-
   close button's action), View → Sort by (column and direction), Search →
   Previous filter / Next filter (`Alt+↑`/`Alt+↓`), and a Tools menu with
   Settings… (moved from File, still `Ctrl+,`) and Customize shortcuts…. The
@@ -601,13 +600,13 @@ First version, 0.1.0, not released yet.
   or View → Size all columns to fit / Fit columns to window (also
   in the header's context menu, with keys that can be set).
 - Columns can be wider than the window: the list and its headers then scroll
-  sideways together, so every shown column can be reached in a narrow
-  window; Left and Right in the list scroll it too (Ctrl to the edges). A dragged header border stays under the pointer; past the
-  minimum of the column on its right, or at the new border after the last
-  column, the columns get wider than the window, and dragging back narrows
-  them again before the right column gets room. Folder still takes the
-  spare room; the width it keeps while the columns are too wide is saved as
-  `folder-width`.
+  sideways together, so every shown column can be reached in a narrow window;
+  Left and Right in the list scroll it too (Ctrl to the edges). A dragged
+  header border stays under the pointer; past the minimum of the column on its
+  right, or at the new border after the last column, the columns get wider than
+  the window, and dragging back narrows them again before the right column gets
+  room. Folder still takes the spare room; the width it keeps while the columns
+  are too wide is saved as `folder-width`.
 - "Index file sizes and modification times" (Indexing page, on): off reads
   names only, which indexes faster; the Size column is then empty for files
   and folder totals, and an index of either kind is never loaded for the

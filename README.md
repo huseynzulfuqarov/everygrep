@@ -140,40 +140,40 @@ everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
 
 Words after the options become the first query; it runs as soon as the index is
 loaded. `everygrep-gui --help` lists the options; a mistyped option or value
-stops with an error instead of opening the window. Type to search; `↓` moves into the results. The selector next to the
-search field limits results to one kind (folders, documents, pictures, …); the
-toggles inside the field switch match case, whole words, full path,
-diacritics and regular expressions; the Search menu also has match prefix,
-match suffix, ignore punctuation and ignore whitespace, and Find duplicates
-(by contents, name or size), which puts a `duplicates:` term at the end of the
-query (or takes it out again); the modes that are on
-show in the status line. Results come in natural name order: numbers by value
-(`file2` before `file10`), case and diacritics ignored (`Çay` next to `cay`),
-`ə` after `e`, hyphens and apostrophes skipped. A right-click on the empty
-area below the rows opens a menu with Select all, Invert selection, Export
-results, Refresh, Organize columns and Fit columns to window.
-Right-click the
-column headers to show the Type, Extension, Created, Accessed and Attributes
-columns, and MD5, SHA-256 and CRC-32: hashes of the files on screen,
-computed on a thread of their own (the smallest files first, each read once
-for all hash columns shown) and kept in the hash cache; these three cannot
-be sorted by. The Same name, Same extension and Same size columns count over the
-whole index how many entries of the same kind share the name (ignoring
-case), how many files the extension and how many files (or folders) the
-size, so sorting by one brings the most common to the top. Drag a header border to change a column's width; past the minimum
-of the column on its right, or at the border after the last column, the
-columns get wider than the window, and the list scrolls sideways (with the
-headers) to show the rest (also with Left and Right in the list, Ctrl+Left
-and Ctrl+Right to its edges); Folder takes the room that is left when they fit.
-Double-click a header border to size the column on its left to fit
-the rows on screen; View → Size all columns to fit (the spare room goes to
-Folder) and Fit columns to window (every column scaled to fill the
-window) do it for all shown columns, also from the header's context menu. Created, Accessed and Attributes are not in the index: they are read
-from the file system for the rows on screen while their column is shown (on
-a helper thread, so their cells fill in a moment later on a slow drive), and
-for every result when sorting by them (the status line shows the progress).
-Created stays empty where the file system does not record a birth time;
-Accessed is coarse on most systems, which update it at most once a day
+stops with an error instead of opening the window. Type to search; `↓` moves
+into the results. The selector next to the search field limits results to one
+kind (folders, documents, pictures, …); the toggles inside the field switch
+match case, whole words, full path, diacritics and regular expressions; the
+Search menu also has match prefix, match suffix, ignore punctuation and ignore
+whitespace, and Find duplicates (by contents, name or size), which puts a
+`duplicates:` term at the end of the query (or takes it out again); the modes
+that are on show in the status line. Results come in natural name order:
+numbers by value (`file2` before `file10`), case and diacritics ignored (`Çay`
+next to `cay`), `ə` after `e`, hyphens and apostrophes skipped. A right-click
+on the empty area below the rows opens a menu with Select all, Invert
+selection, Export results, Refresh, Organize columns and Size all columns to
+fit window. Right-click the column headers to show the Type, Extension,
+Created, Accessed and Attributes columns, and MD5, SHA-256 and CRC-32: hashes
+of the files on screen, computed on a thread of their own (the smallest files
+first, each read once for all hash columns shown) and kept in the hash cache;
+these three cannot be sorted by. The Same name, Same extension and Same size columns
+count over the whole index how many entries of the same kind share the name
+(ignoring case), how many files the extension and how many files (or folders)
+the size, so sorting by one brings the most common to the top. Drag a header
+border to change a column's width; past the minimum of the column on its right,
+or at the border after the last column, the columns get wider than the window,
+and the list scrolls sideways (with the headers) to show the rest (also with
+Left and Right in the list, Ctrl+Left and Ctrl+Right to its edges); Folder
+takes the room that is left when they fit. Double-click a header border to size
+the column on its left to fit the rows on screen; View → Size all columns to
+fit (the spare room goes to Folder) and Fit columns to window (every
+column scaled to fill the window) do it for all shown columns, also from the
+header's context menu. Created, Accessed and Attributes are not in the index:
+they are read from the file system for the rows on screen while their column is
+shown (on a helper thread, so their cells fill in a moment later on a slow
+drive), and for every result when sorting by them (the status line shows the
+progress). Created stays empty where the file system does not record a birth
+time; Accessed is coarse on most systems, which update it at most once a day
 (`relatime`). Attributes are letters: `R` read-only (the owner may not write),
 `H` hidden (the name starts with a dot), `D` folder, `L` symbolic link, `X`
 executable file.
@@ -249,9 +249,8 @@ where it can). Links, folders and hard links to the source cannot be
 overwritten. A copy whose source changes while it is read is refused. A
 move across file systems keeps the whole source when the file times or
 extended attributes (ACLs included) cannot be copied, and is refused for a
-file with several hard links. Errors offer retry
-
-or skip. The worker waits for an answer while the window stays responsive.
+file with several hard links. Errors offer retry or skip. The worker waits
+for an answer while the window stays responsive.
 
 New folder (`Ctrl+Shift+N`) asks for a name, offers the first free
 "New Folder (N)" and never takes an existing name; it goes inside the
@@ -335,35 +334,35 @@ list is selected, the save dialog has a check box "Export only the N
 selected results" (not ticked at the start). The file is written to
 a temporary file and renamed into place.
 
-The menu bar (File, Edit, View, Search, Bookmarks, Tabs, History, Index, Tools,
-Help) holds the same actions,
-File → Close window (`Ctrl+Shift+W`, as the close button: hide or quit as set),
-
-the appearance choices (optional columns, sort by a column and direction,
-folder size, density, theme, selection details, the menu bar itself), the
-matching modes with their `Alt` keys, the filters and the search history.
-Index → Rebuild index now scans the folders to index again from scratch.
-Settings → Indexing has Scan now beside the rescan schedule for the same action.
-Index → Pause index updates stops applying file changes (it is the "Watch for
-changes" setting, the other way round) until it is turned off again, which
-catches up with what changed meanwhile.
-Tools → Settings… and Tools → Customize shortcuts… open the settings; Tools →
-Open the settings file opens the file itself in the desktop's application
-for it (a text editor), and what is saved there applies, after a question
-(saves of other EveryGrep windows apply without one), while "Apply changes made to the settings file outside this window" is on. Help →
+The menu bar (File, Edit, View, Search, Bookmarks, Tabs, History, Index,
+Tools, Help) holds the same actions, File → Close window (`Ctrl+Shift+W`, as
+the close button: hide or quit as set), the appearance choices (optional
+columns, sort by a column and direction, folder size, density, theme,
+selection details, the menu bar itself), the matching modes with their `Alt`
+keys, the filters and the search history. Index → Rebuild index now scans the
+folders to index again from scratch. Settings → Indexing has Scan now beside
+the rescan schedule for the same action. Index → Pause index updates stops
+applying file changes (it is the "Watch for changes" setting, the other way
+round) until it is turned off again, which catches up with what changed
+meanwhile. Tools → Settings… and Tools → Customize shortcuts… open the
+settings; Tools → Open the settings file opens the file itself in the
+desktop's application for it (a text editor), and what is saved there applies,
+after a question (saves of other EveryGrep windows apply without one), while
+"Apply changes made to the settings file outside this window" is on. Help →
 Search syntax (`F1`), Regular expressions and Command line options open the
-help window, a short reference with examples on three pages; Help →
-Keyboard shortcuts lists every key; Help → Copy troubleshooting information
-puts a short report for a bug report on the clipboard (version, system,
-desktop session, language and the numbers of the index; no paths or names); Help → Debug log
-shows the program's last 1000 notes (what failed and why, with paths; kept in
-memory only) with Copy and Save buttons, and `--debug-log` also appends them
-to `~/.cache/everygrep/debug.log` (mode 0600; a file over 4 MiB is renamed to
-`debug.log.old` at the start); Help → About shows the version and the
-license. The Edit actions show no key in the menu, because menu keys would
-take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys are in
-the table above. With the menu bar hidden, the `⋯` button next to the filter
-selector holds settings, search syntax, keyboard shortcuts, about and quit.
+help window, a short reference with examples on three pages; Help → Keyboard
+shortcuts lists every key; Help → Copy troubleshooting information puts a
+short report for a bug report on the clipboard (version, system, desktop
+session, language and the numbers of the index; no paths or names); Help →
+Debug log shows the program's last 1000 notes (what failed and why, with
+paths; kept in memory only) with Copy and Save buttons, and `--debug-log` also
+appends them to `~/.cache/everygrep/debug.log` (mode 0600; a file over 4 MiB
+is renamed to `debug.log.old` at the start); Help → About shows the version
+and the license. The Edit actions show no key in the menu, because menu keys
+would take `Ctrl+C`, `Delete` or `F2` away from the search field; their keys
+are in the table above. With the menu bar hidden, the `⋯` button next to the
+filter selector holds settings, search syntax, keyboard shortcuts, about and
+quit.
 
 The status line shows badges for active matching modes and hidden-file
 filters, a duplicate search and paused index updates.
@@ -457,20 +456,20 @@ New window commands continue to create windows.
 Session restore saves only the last window's tabs, active tab and last ten
 closed tabs in `session` beside `settings` (private mode 0600). Queries, filter
 snapshots, tab matching toggles, sort and column layout are kept. Hidden-file
-mode and the three parse policies always follow Settings. Row ids,
-selection and navigation trails stay in memory. A bare startup restores only
-when the index identity matches; an explicit search, `--new-window` or
-`--new-instance` starts as requested. Session persistence also requires history
-recording and disk storage. Turning any of these off deletes the session file;
-no session is loaded or written while disabled. Clear history deletes the saved
-session and recently closed tabs; Delete entry removes matching closed tabs.
-Queries cleared/deleted while still visible in open tabs are redacted from later
-session saves for the rest of that window's lifetime. Writes use a sibling lock and atomic replacement:
-the first change is saved immediately, changes during the next 15 seconds are
-coalesced, and exit saves the latest state. Malformed or newer files are
-preserved and reported with their path and reset instructions in the status
-line. Turning restore off and on explicitly resets the saved file. Reading is limited to 8 MiB and
-1,000 tab records.
+mode and the three parse policies always follow Settings. Row ids, selection
+and navigation trails stay in memory. A bare startup restores only when the
+index identity matches; an explicit search, `--new-window` or `--new-instance`
+starts as requested. Session persistence also requires history recording and
+disk storage. Turning any of these off deletes the session file; no session is
+loaded or written while disabled. Clear history deletes the saved session and
+recently closed tabs; Delete entry removes matching closed tabs. Queries
+cleared/deleted while still visible in open tabs are redacted from later
+session saves for the rest of that window's lifetime. Writes use a sibling lock
+and atomic replacement: the first change is saved immediately, changes during
+the next 15 seconds are coalesced, and exit saves the latest state. Malformed
+or newer files are preserved and reported with their path and reset
+instructions in the status line. Turning restore off and on explicitly resets
+the saved file. Reading is limited to 8 MiB and 1,000 tab records.
 
 ### Columns, panels and saved searches
 
@@ -487,17 +486,15 @@ screen with a budget of 8 MB and 250 ms per file and kept in the property
 cache; Settings → Search can index chosen properties in the background.
 View → Advanced sort sorts by several columns.
 
-View → Preview panel shows a preview of the selected file: thumbnails from
-the shared thumbnail cache, PNG and JPEG images, text files, and other
-formats through the system's thumbnail helpers, which run only in a sandbox
-(Settings → Window chooses the sources). File → Properties (`Alt+Enter`)
-shows the properties of an item; its hashes only when the hash cache
-already has them. View →
-
-Folders panel shows the indexed folders as a tree; choosing one searches
-inside it. View → Toolbar, View → Status bar and View → Zoom show the
-toolbar, hide the status line and size the result list; the window title
-names the search and the number of other tabs.
+View → Preview panel shows a preview of the selected file: thumbnails from the
+shared thumbnail cache, PNG and JPEG images, text files, and other formats
+through the system's thumbnail helpers, which run only in a sandbox (Settings
+→ Window chooses the sources). File → Properties (`Alt+Enter`) shows the
+properties of an item; its hashes only when the hash cache already has them.
+View → Folders panel shows the indexed folders as a tree; choosing one
+searches inside it. View → Toolbar, View → Status bar and View → Zoom show the
+toolbar, hide the status line and size the result list; the window title names
+the search and the number of other tabs.
 
 Right-click the search field for Undo, Redo, the clipboard commands and
 Insert menus that put an operator, a modifier or a function at the cursor.
@@ -506,6 +503,58 @@ the chosen items, and Copy all properties (TSV) the shown columns with a
 header line. File → Load file details reads the size and date of
 items that an index of names only has without them, without writing
 anything.
+
+Search → Filter → Save as filter saves the field text and its matching modes.
+Manage filters adds, edits, removes and reorders the entries used by the same
+selector and menu. Alt+Up/Down moves the selected entry in the manager.
+A filter is intersected with the field query using its own matching modes.
+Restore default filters asks first and keeps user filters. The private
+`saved-searches` file beside settings is updated atomically under a lock;
+invalid files are preserved and reported. Hidden-files mode and all three parse
+options are visible in the editor; new filters start with Show hidden files.
+Delete asks for confirmation. Invalid queries remain visible for editing; a
+structurally unreadable file offers a confirmed reset after saving a private copy.
+Built-in requests use an original snapshot with a notice if that built-in was
+edited or removed.
+
+Bookmarks → Save bookmark (Ctrl+D) stores the query, matching options, filter
+and sort column/direction. Manage bookmarks renames, edits, deletes and reorders
+entries (Alt+Up/Down); Open restores one search. A bookmark keeps a snapshot
+of its filter. If that filter was changed or removed, its saved version appears
+in the existing selector for this window. Opening a bookmark reveals a hidden
+sort column when necessary. After using saved query parse options, the next
+manual edit restores the policy shown in Search settings.
+
+Filters and bookmarks accept an optional global keyboard shortcut in their
+editor by pressing the key combination in the active keyboard layout; Clear
+shortcut removes it. Conflicts with another saved item or any active/default
+command key are refused. Keyboard settings also refuses keys owned by saved
+items. Item keys appear in menus and keyboard
+help; the organizer's Alt+Up/Down remains local to the organizer.
+
+Search → Advanced Search (Ctrl+Shift+F) builds the existing query syntax from
+all words, an exact phrase, any words and excluded words, in names or paths.
+It offers a location with optional subfolders, the current filter, files or
+folders, extensions, size and modified/created/accessed date ranges. Sizes use
+bytes or binary KiB/MiB/GiB; dates are local `YYYY-MM-DD` and both ends are
+inclusive. Empty ends impose no limit. Use query (or Enter in a text field)
+replaces the field and follows Search as you type; with that setting off,
+press Enter to run it. Unsupported metadata conditions are omitted.
+
+Its File contents section adds one `content:` term: a word or phrase found in
+the file (over line ends unless that is off in Settings), with its own Match
+case, Whole words and Regular expression switches (the ones above apply to
+names), and the text encoding:
+Automatic (`content:`), the code page from Settings (`content-codepage:`), UTF-8
+(`content-utf8:`), UTF-16 LE (`content-utf16le:`) or UTF-16 BE (`content-utf16be:`).
+The text is quoted, so operators and modifiers in it are text to find.
+Its Duplicates section adds one duplicate term: what to list (all copies
+`duplicates:`, extra copies `extra-copies:`, one of each `distinct:`, only
+files without a copy `unique:`) and what they share (contents, name, name
+and size, size, name without extension, extension or date modified).
+
+Advanced Search rejects extension lists combined with Folders or Files without
+an extension. Its form and the saved-item editor scroll in short work areas.
 
 Filters can bring their own columns and sort order; bookmarks keep their
 columns too. Bookmarks can be grouped in folders (one level) with
@@ -527,13 +576,11 @@ opens and saves file lists (see [File lists](#file-lists)).
 
 ### Settings
 
-Open the settings with `Ctrl+,`,
- Tools → Settings… (or the `⋯` menu when the
-menu bar is hidden), or with `--settings` (`--settings=search` opens that page; given to
-a later launch, it opens the settings in the running window). Changes apply at
-once; each page has a "Reset to defaults" button. Without a settings file
-every setting has the default shown below.
-
+Open the settings with `Ctrl+,`, Tools → Settings… (or the `⋯` menu when the
+menu bar is hidden), or with `--settings` (`--settings=search` opens that
+page; given to a later launch, it opens the settings in the running window).
+Changes apply at once; each page has a "Reset to defaults" button. Without a
+settings file every setting has the default shown below.
 
 | Page | Setting | Default |
 |---|---|---|
@@ -553,7 +600,6 @@ every setting has the default shown below.
 | | known drives, each with "Forget" and "Don't index this drive" | — |
 | | file lists: add, create, turn on or off, remove, read again (see [File lists](#file-lists)) | none |
 | | read a file list again when its file changes | on |
-
 | | hide entries of drives and file lists that are not connected (also Index → Hide offline entries) | off |
 | | "Rebuild index now" | — |
 | | index file: the folder of `index.bin` (and `hashes.bin` and `last-full-scan` next to it), "Choose folder…" moves it there at once and removes the old file once the new one is written; drive indexes stay in the cache folder; not for a window started with `--root` or `--index-file` | the cache folder |
@@ -596,6 +642,10 @@ every setting has the default shown below.
 | | details of the selected items in the status line | on |
 | | show the menu bar | on |
 | Window | closing the window: quit, or hide it and keep running | quit |
+| | open searches in tabs instead of new windows | on |
+| | switch to new tabs immediately | on |
+| | restore the last window's tabs at startup (needs search history recording and disk storage) | off |
+| | background tabs that keep their results in memory, 0 to 1000 | 10 |
 | | start EveryGrep when I log in | off |
 | | remember the shown columns and their widths | on |
 | | leave the extension unselected when renaming (off: the whole name is selected) | on |
@@ -613,25 +663,24 @@ every setting has the default shown below.
 | | file operations: rename in a dialog; ask when a pasted name exists; file undo and its number of steps; new folder inside a selected folder; drag results onto folders and what a drop does; shortcut kind and names; context search window, subfolders and whole names | off; on; on, 100; on; on, move on the same drive; symbolic link, numbered; this window, direct children, substrings |
 | Keyboard | the keys of the window's commands (see below), and how to open EveryGrep with a key | the keys listed above |
 | | match shortcuts by key position: a shortcut with `Ctrl`, `Alt` or `Super` stays on the same key whatever the keyboard layout | on |
-
 | Advanced | the settings file: "Export settings…" writes it where you choose; "Import settings…" replaces every setting with those of a chosen file (after a question; a file that sets nothing known is refused); "Reset all settings…" puts every setting back to its default (after a question); folders, rules and file details are taken only by the window over the default index, and changing them indexes again; column widths of an import apply at the next start | — |
 | | all settings: a table of every key with its value and default ("Search settings…", "Only changed settings"); choose a row to edit its value in the file's form, toggle a `true`/`false`, reset it or copy its line; a change applies and is saved at once, and under "Only changed settings" a setting changed back to its default stays listed (and chosen) until the filter changes; list keys (`root`, `exclude`, `ignore-drive`, `shortcut`) are shown but changed on their pages | — |
 | | apply changes made to the settings file outside this window (looked at every 2 seconds, after the window's own saves; applied as an import, with a note in the status line) | on |
 | | ask before applying them: a dialog asks first; Cancel keeps the window's settings, and the same change is not asked about again; saves made by another EveryGrep window apply without a question | on |
 
-On the Keyboard page, "Show commands containing:" filters the commands by
-name, menu or key (case and diacritics ignored). Choose a command to see its
-keys, each with where it works: Global (anywhere in the window), Search field
-or Result list. Add… and Edit… open a dialog: choose where the key works
-("Use shortcut in"), press the new key, and see which commands have it
-already. OK takes it from the commands with the same key in the same place;
-a global key and a key of the search field or the list may share a key (the
-focused control's key wins), which the dialog notes. Keys that would type
-into the search field (no `Ctrl`, `Alt` or `Super`), `Tab`, `Esc`, movement
-keys of the list and the search field's editing keys (`Ctrl+A`, `Ctrl+C`,
-`Ctrl+V`, `Home`, `Delete`, …) are refused with a note. Remove takes one
-key away; "Reset to defaults" gives every command its original keys.
-Movement keys, `Tab` and `Esc` cannot be changed. `--settings=shortcut` still opens this page.
+On the Keyboard page, "Show commands containing:" filters the commands by name,
+menu or key (case and diacritics ignored). Choose a command to see its keys,
+each with where it works: Global (anywhere in the window), Search field or
+Result list. Add… and Edit… open a dialog: choose where the key works ("Use
+shortcut in"), press the new key, and see which commands have it already. OK
+takes it from the commands with the same key in the same place; a global key
+and a key of the search field or the list may share a key (the focused
+control's key wins), which the dialog notes. Keys that would type into the
+search field (no `Ctrl`, `Alt` or `Super`), `Tab`, `Esc`, movement keys of the
+list and the search field's editing keys (`Ctrl+A`, `Ctrl+C`, `Ctrl+V`, `Home`,
+`Delete`, …) are refused with a note. Remove takes one key away; "Reset to
+defaults" gives every command its original keys. Movement keys, `Tab` and `Esc`
+cannot be changed. `--settings=shortcut` still opens this page.
 
 "Same as the desktop" follows the desktop's light or dark style (the
 `color-scheme` of the XDG settings portal) and recolors the window when it
@@ -640,18 +689,18 @@ as the folder size setting says), modification time and full path; with
 several, their number and the total size of the files among them. The menu
 bar is new and on by default; turning it off brings back the earlier look.
 
-Changing the folders updates the index in the background while the window
-stays usable. Added coverage is scanned and merged; removed coverage is dropped,
-with nested roots retained. Narrower include/exclude lists re-filter the saved
+Changing the folders updates the index in the background while the window stays
+usable. Added coverage is scanned and merged; removed coverage is dropped, with
+nested roots retained. Narrower include/exclude lists re-filter the saved
 entries. Removing an exact folder exclusion reads its parent and newly admitted
 tree. Broader or unproven pattern changes, changed file details, or an index
 without reliable live watches require a full scan (folders that cannot be read
 do not count; when folders are not watched, for example past the watch limit,
 the status line says why the change scans in full). After the saved index was
-loaded, file sizes and times are read again for the reused files. The status line shows progress
-and Cancel; cancellation keeps the old index and settings. The replacement is
-saved as soon as it is complete. Explicit and scheduled rescans still read all
-folders.
+loaded, file sizes and times are read again for the reused files. The status
+line shows progress and Cancel; cancellation keeps the old index and settings.
+The replacement is saved as soon as it is complete. Explicit and scheduled
+rescans still read all folders.
 
 ### Excluded folders and files
 
@@ -685,36 +734,37 @@ rules, or by an older version without them, is built again at the next start
 entries of every drive read with the old ones; a connected drive is read
 again at once.
 
-Long operations show their progress in the status line once they take
-more than 300 ms: indexing, rescanning, reading a drive, catching up,
-searching and sorting ("Indexing: 42%"). The percentage of a scan is
-estimated from the used inodes of the file systems it reads, or from the
-size of the previous index of the same folders; file systems that report
-no inodes (btrfs, FAT) give a count instead ("Indexing: 123 456 items").
-The Cancel button next to it stops the operation and keeps what was there
-before: a cancelled first index is not saved (the next start, or "Rebuild
-index now", indexes again), a cancelled rescan keeps the previous index,
-folders and rules (the settings go back to them; a newer change of the
-folders or rules cancels the older rescan without a message), a cancelled sort or search keeps the results and order shown (a content
-search shows its matches while it reads files, about once a second, and a
-cancel keeps the matches found so far; a duplicate search shows "Comparing
-files: 42%" while it reads files and its results only at the end), and
-a drive whose first reading was cancelled goes on where it stopped when it
-is plugged in again (also after it was removed while being read, or the
-program quit while it was read: quitting cancels the reading and waits up to
-5 seconds for what was read to be saved). Catching up cannot be cancelled;
-quitting during a long catch-up waits at most those 5 seconds too, and an
-index it could not save then is caught up again at the next start. Cancel has no key yet. Hidden files are always indexed.
+Long operations show their progress in the status line once they take more than
+300 ms: indexing, rescanning, reading a drive, catching up, searching and
+sorting ("Indexing: 42%"). The percentage of a scan is estimated from the used
+inodes of the file systems it reads, or from the size of the previous index of
+the same folders; file systems that report no inodes (btrfs, FAT) give a count
+instead ("Indexing: 123 456 items"). The Cancel button next to it stops the
+operation and keeps what was there before: a cancelled first index is not saved
+(the next start, or "Rebuild index now", indexes again), a cancelled rescan
+keeps the previous index, folders and rules (the settings go back to them; a
+newer change of the folders or rules cancels the older rescan without a
+message), a cancelled sort or search keeps the results and order shown (a
+content search shows its matches while it reads files, about once a second, and
+a cancel keeps the matches found so far; a duplicate search shows "Comparing
+files: 42%" while it reads files and its results only at the end), and a drive
+whose first reading was cancelled goes on where it stopped when it is plugged
+in again (also after it was removed while being read, or the program quit while
+it was read: quitting cancels the reading and waits up to 5 seconds for what
+was read to be saved). Catching up cannot be cancelled; quitting during a long
+catch-up waits at most those 5 seconds too, and an index it could not save then
+is caught up again at the next start. Cancel has no key yet. Hidden files are
+always indexed.
 
 A folder's total size is the sum of the sizes of all files below it, at any
 depth, and is kept up to date as files change. Each file counts with its own
 size: a file with several hard links counts once per link, a symbolic link
-counts with the length of its target and is never followed. Sorting by Size puts folders among the files by their
-total; with "number of items" folders sort by that number, before the files
-(after them when the order is reversed); with "nothing" they sort as empty,
-as before. Folder sizes are the one setting whose default changes the
-earlier look: until they existed the Size of a folder was empty, which
-"nothing" brings back.
+counts with the length of its target and is never followed. Sorting by Size
+puts folders among the files by their total; with "number of items" folders
+sort by that number, before the files (after them when the order is reversed);
+with "nothing" they sort as empty, as before. Folder sizes are the one setting
+whose default changes the earlier look: until they existed the Size of a folder
+was empty, which "nothing" brings back.
 
 When closing only hides the window, EveryGrep keeps the index in memory and
 keeps watching; starting `everygrep-gui` again (for example with its
@@ -723,14 +773,14 @@ tray icon is needed. `Ctrl+Q` or Quit in the `⋯` menu ends the program.
 
 "Start EveryGrep when I log in" writes the autostart entry
 `$XDG_CONFIG_HOME/autostart/az.huseynz.EveryGrep.desktop` (by default under
-`~/.config`) and removes it when turned off; the switch shows whether the
-entry exists and is not turned off inside (`Hidden=true` or
-`X-GNOME-Autostart-enabled=false`, as other tools may write). The entry runs this program by its full path with
-`--background`: when closing only hides the window, EveryGrep then loads the
-index and watches without showing a window, and the next launch shows it at
-once. When closing quits, a window without a way back would make no sense,
-so the window opens on login. `--background` does nothing when EveryGrep
-already runs.
+`~/.config`) and removes it when turned off; the switch shows whether the entry
+exists and is not turned off inside (`Hidden=true` or
+`X-GNOME-Autostart-enabled=false`, as other tools may write). The entry runs
+this program by its full path with `--background`: when closing only hides the
+window, EveryGrep then loads the index and watches without showing a window,
+and the next launch shows it at once. When closing quits, a window without a
+way back would make no sense, so the window opens on login. `--background` does
+nothing when EveryGrep already runs.
 
 Options on the command line take the place of the saved ones for that start.
 The folders on the Indexing page belong to the default index: a window
@@ -761,80 +811,77 @@ and `content-pdf` set how files are read for `content:`; `content-on-enter`
 `content-multi-line` (`false`) makes a content match end at its line end;
 `dupe-empty-files` (`true`) counts empty files in duplicate searches;
 `dupe-verify-bytes` (`true`) compares their files byte by byte as well;
-`hash-cache-max-mb` the size of the hash cache.
-`index-folder` holds the folder of the index file, `reload-changed-settings`
-(`false`) ignores changes made to the file outside the window until the next start,
+`hash-cache-max-mb` the size of the hash cache. `index-folder` holds the folder
+of the index file, `reload-changed-settings` (`false`) ignores changes made to
+the file outside the window until the next start,
 `ask-before-reloading-settings` (`false`) applies them without a question,
 `watch-changes` turns watching off (`false`), `index-file-details` (`false`)
 indexes names only, `rescan` (`never`, `hours`, `daily`) with `rescan-hours`
 and `rescan-time` (`HH:MM`) scans the folders again by themselves,
-`search-as-you-type` the
-search at every key press, and `rename-in-dialog` chooses the rename editor.
-`history-enabled` (`false`) stops recording searches, `history-days` keeps them
-that many days (`0` for ever; 90 by default), `history-sort` (`date`, `count`,
-`text`) orders the history list, and `always-search-suggestions` shows
-suggestions while searching as you type too. `open-searches-in-tabs`,
-`switch-to-new-tab` and `restore-session` hold the tab choices of the Window
-page, `tab-results-kept` (10, 0 to 1000) the background tabs that keep their
-results.
-`context-search-new-window`, `context-search-subfolders` and
-`context-search-exact-name` control context searches.
-`shortcut-kind` (`symlink` or `desktop`) and `shortcut-collision` (`number`
-or `skip`) control shortcuts. `rename-select-name-only` controls selection of
-the name without its extension when renaming,
+`search-as-you-type` the search at every key press, and `rename-in-dialog`
+chooses the rename editor. `history-enabled` (`false`) stops recording
+searches, `history-days` keeps them that many days (`0` for ever; 90 by
+default), `history-sort` (`date`, `count`, `text`) orders the history list, and
+`always-search-suggestions` shows suggestions while searching as you type too.
+`open-searches-in-tabs`, `switch-to-new-tab` and `restore-session` hold the tab
+choices of the Window page, `tab-results-kept` (10, 0 to 1000) the background
+tabs that keep their results. `context-search-new-window`,
+`context-search-subfolders` and `context-search-exact-name` control context
+searches. `shortcut-kind` (`symlink` or `desktop`) and `shortcut-collision`
+(`number` or `skip`) control shortcuts. `rename-select-name-only` controls
+selection of the name without its extension when renaming,
 `open-folder-on-path-double-click` what a double-click in the Folder column
 opens, `copy-full-path-quotes` the quotes around copied full paths,
 `type-to-jump` typing in the result list to jump to a name (on),
-`confirm-open-over` the number of items opened at once without a question, `focus-search-on-show`
-whether showing the window again focuses the search field.
-`use-exclude-list`, `include-only-files` and `exclude-files` hold the switch
-and the file pattern lists; a pattern that does not compile is reported and
-ignored. Other keys: `whole-words`,
-`match-path`, `match-diacritics`, `match-prefix`, `match-suffix`,
-`ignore-punctuation`, `ignore-whitespace`, `regex`, `select-search-on-click`,
-`deselect-on-new-search`,
-`index-removable-drives`,
-`removed-drives` (`keep`, `forget`), `ignore-drive` (a file system UUID,
-repeated per drive), `folder-size` (`total`, `items`, `none`),
-`theme` (`system`, `light`, `dark`), `density` (`comfortable`, `compact`),
-`size-format` (`auto`, `bytes`, `kb`, `mb`, `gb`), `size-units` (`jedec`
-for 1 KB = 1024 bytes, `iec` for KiB, `metric` for 1 KB = 1000 bytes),
-`language` (`system`, `en`, `az`, `tr`),
-`status-details`, `menu-bar`, `alternate-row-color`, `remember-columns`, `sort-dates-newest-first`,
-`sort-sizes-largest-first`,
-`show-extension-column`, `show-created-column`, `show-accessed-column`,
-`show-attributes-column`, `show-md5-column`, `show-sha256-column`,
-`show-crc32-column`, `show-same-name-column`,
-`show-same-extension-column`, `show-same-size-column`, `name-width`, `folder-width`, `modified-width`, `type-width`,
-`extension-width`, `created-width`, `accessed-width`, `attributes-width`,
-`md5-width`, `sha256-width`, `crc32-width`, `same-name-width`,
-`same-extension-width`, `same-size-width`.
-`shortcut` gives one command its own keys in place of the defaults, written
-by the Keyboard settings page: `shortcut = edit.copy list Ctrl+C; global
-Ctrl+Insert` (the scope `global`, `search` or `list`, then the keys), or
-`shortcut = file.export-results` for none; a line with an unknown command or
-keys that cannot be read is reported and kept as it is. Values use backslash escapes (`\\`, `\n`, `\t`, `\s` for a
-space at either end, `\xHH` for a byte that is not UTF-8). Unknown keys are kept,
-lines that cannot be read are ignored (the settings window says how many),
-and the file is replaced atomically. The search history, when kept, is in
-`search-history` in the same folder, with distinct queries, counts and last search
-dates. It is updated atomically under `search-history.lock`; the earlier `history`
-file is imported once and left untouched until history is explicitly cleared
-or disk persistence is turned off. At most 10,000 distinct searches are
-kept, dropping the oldest first. Apply confirms a changed retention period. Recording can be disabled without deleting
-existing entries; Clear now clears the saved and session histories. The search
-field’s ▼ button (`F4`) lists searches, sorted by date, count or text. While
-typing, optional prefix suggestions show at most 12 matches; use Up/Down and
-Enter to choose, or Esc to dismiss them. History → Back/Forward uses the
-session navigation trail. CSV exports prefix formula starters (`=`, `+`, `-`, `@`)
-with an apostrophe and double existing leading apostrophes; import reverses
-this convention. Blank CSV records are ignored. History → Organize search history (`Ctrl+Shift+H`)
-opens a filterable table with search text, visit count and last local date.
-Delete removes the selected search; Delete all asks before clearing the full
-history. Import/Export CSV uses the desktop file chooser; export includes all
-entries regardless of the table filter. CSV headers are
-`query,times_used,last_used_utc`, with UTC timestamps such as
-`2026-11-02T12:30:00Z`. Imports merge the greater count and later date, so
+`confirm-open-over` the number of items opened at once without a question,
+`focus-search-on-show` whether showing the window again focuses the search
+field. `use-exclude-list`, `include-only-files` and `exclude-files` hold the
+switch and the file pattern lists; a pattern that does not compile is reported
+and ignored. Other keys: `whole-words`, `match-path`, `match-diacritics`,
+`match-prefix`, `match-suffix`, `ignore-punctuation`, `ignore-whitespace`,
+`regex`, `select-search-on-click`, `deselect-on-new-search`,
+`index-removable-drives`, `removed-drives` (`keep`, `forget`), `ignore-drive`
+(a file system UUID, repeated per drive), `folder-size` (`total`, `items`,
+`none`), `theme` (`system`, `light`, `dark`), `density` (`comfortable`,
+`compact`), `size-format` (`auto`, `bytes`, `kb`, `mb`, `gb`), `size-units`
+(`jedec` for 1 KB = 1024 bytes, `iec` for KiB, `metric` for 1 KB = 1000 bytes),
+`language` (`system`, `en`, `az`, `tr`), `status-details`, `menu-bar`,
+`alternate-row-color`, `remember-columns`, `sort-dates-newest-first`,
+`sort-sizes-largest-first`, `show-extension-column`, `show-created-column`,
+`show-accessed-column`, `show-attributes-column`, `show-md5-column`,
+`show-sha256-column`, `show-crc32-column`, `show-same-name-column`,
+`show-same-extension-column`, `show-same-size-column`, `name-width`,
+`folder-width`, `modified-width`, `type-width`, `extension-width`,
+`created-width`, `accessed-width`, `attributes-width`, `md5-width`,
+`sha256-width`, `crc32-width`, `same-name-width`,
+`same-extension-width`, `same-size-width`. `shortcut` gives one
+command its own keys in place of the defaults, written by the Keyboard settings
+page: `shortcut = edit.copy list Ctrl+C; global Ctrl+Insert` (the scope
+`global`, `search` or `list`, then the keys), or `shortcut =
+file.export-results` for none; a line with an unknown command or keys that
+cannot be read is reported and kept as it is. Values use backslash escapes
+(`\\`, `\n`, `\t`, `\s` for a space at either end, `\xHH` for a byte that is
+not UTF-8). Unknown keys are kept, lines that cannot be read are ignored (the
+settings window says how many), and the file is replaced atomically. The search
+history, when kept, is in `search-history` in the same folder, with distinct
+queries, counts and last search dates. It is updated atomically under
+`search-history.lock`; the earlier `history` file is imported once and left
+untouched until history is explicitly cleared or disk persistence is turned
+off. At most 10,000 distinct searches are kept, dropping the oldest first.
+Apply confirms a changed retention period. Recording can be disabled without
+deleting existing entries; Clear now clears the saved and session histories.
+The search field’s ▼ button (`F4`) lists searches, sorted by date, count or
+text. While typing, optional prefix suggestions show at most 12 matches; use
+Up/Down and Enter to choose, or Esc to dismiss them. History → Back/Forward
+uses the session navigation trail. CSV exports prefix formula starters (`=`,
+`+`, `-`, `@`) with an apostrophe and double existing leading apostrophes;
+import reverses this convention. Blank CSV records are ignored. History →
+Organize search history (`Ctrl+Shift+H`) opens a filterable table with search
+text, visit count and last local date. Delete removes the selected search;
+Delete all asks before clearing the full history. Import/Export CSV uses the
+desktop file chooser; export includes all entries regardless of the table
+filter. CSV headers are `query,times_used,last_used_utc`, with UTC timestamps such
+as `2026-11-02T12:30:00Z`. Imports merge the greater count and later date, so
 repeated imports are safe; expired imported entries are removed immediately.
 
 ### Removable drives
@@ -917,15 +964,15 @@ A launch with other `--root` folders or another `--index-file` than the open
 window opens a window of its own, which in turn takes later launches for the
 same roots and index file. `--new-instance` always opens a separate window.
 `--new-window` does too, but it takes over the name when no window runs, so
-later launches find it. `--toggle` shows the window like a plain launch,
-except that a window already in front (the search field or the list has
-the keyboard focus) is closed the way its close button closes it: hidden
-when closing hides, otherwise the program quits.
-The windows find each other on the D-Bus session bus (name
-`az.huseynz.EveryGrep`); without a session bus every launch opens a window.
-A launch that finds the open window still shutting down, or not answering
-(its window does not take the request within 5 seconds), waits for it with a small dialog that offers to terminate it, and opens the
-window as soon as the old one has ended.
+later launches find it. `--toggle` shows the window like a plain launch, except
+that a window already in front (the search field or the list has the keyboard
+focus) is closed the way its close button closes it: hidden when closing hides,
+otherwise the program quits. The windows find each other on the D-Bus session
+bus (name `az.huseynz.EveryGrep`); without a session bus every launch opens a
+window. A launch that finds the open window still shutting down, or not
+answering (its window does not take the request within 5 seconds), waits for it
+with a small dialog that offers to terminate it, and opens the window as soon
+as the old one has ended.
 
 To open the window with a key, add a GNOME shortcut: Settings → Keyboard →
 View and Customize Shortcuts → Custom Shortcuts → `+`, name `EveryGrep`,
@@ -1077,54 +1124,3 @@ The window is built with [Slint](https://slint.dev), used under its
 royalty-free license, which asks for its attribution in an about dialog
 reachable from the top-level menu: Help → About EveryGrep (or `⋯` → About
 when the menu bar is hidden).
-
-Search → Filter → Save as filter saves the field text and its matching modes.
-Manage filters adds, edits, removes and reorders the entries used by the same
-selector and menu. Alt+Up/Down moves the selected entry in the manager.
-A filter is intersected with the field query using its own matching modes.
-Restore default filters asks first and keeps user filters. The private
-`saved-searches` file beside settings is updated atomically under a lock;
-invalid files are preserved and reported. Hidden-files mode and all three parse
-options are visible in the editor; new filters start with Show hidden files.
-Delete asks for confirmation. Invalid queries remain visible for editing; a
-structurally unreadable file offers a confirmed reset after saving a private copy.
-Built-in requests use an original snapshot with a notice if that built-in was
-edited or removed.
-
-Bookmarks → Save bookmark (Ctrl+D) stores the query, matching options, filter
-and sort column/direction. Manage bookmarks renames, edits, deletes and reorders
-entries (Alt+Up/Down); Open restores one search. A bookmark keeps a snapshot
-of its filter. If that filter was changed or removed, its saved version appears
-in the existing selector for this window. Opening a bookmark reveals a hidden
-sort column when necessary. After using saved query parse options, the next
-manual edit restores the policy shown in Search settings.
-
-Filters and bookmarks accept an optional global keyboard shortcut in their
-editor by pressing the key combination in the active keyboard layout; Clear
-shortcut removes it. Conflicts with another
-saved item or any active/default command key are refused. Keyboard settings
-also refuses keys owned by saved items. Item keys appear in menus and keyboard
-help; the organizer's Alt+Up/Down remains local to the organizer.
-
-Search → Advanced Search (Ctrl+Shift+F) builds the existing query syntax from
-all words, an exact phrase, any words and excluded words, in names or paths.
-It offers a location with optional subfolders, the current filter, files or
-folders, extensions, size and modified/created/accessed date ranges. Sizes use
-bytes or binary KiB/MiB/GiB; dates are local `YYYY-MM-DD` and both ends are
-inclusive. Empty ends impose no limit. Use query (or Enter in a text field) replaces the field and follows
-Search as you type; with that setting off, press Enter to run it. Unsupported
-metadata conditions are omitted.
-
-Its File contents section adds one `content:` term: a word or phrase found in
-the file (over line ends unless that is off in Settings), with its own Match case, Whole words and Regular
-expression switches (the ones above apply to names), and the text encoding:
-Automatic (`content:`), the code page from Settings (`content-codepage:`), UTF-8
-(`content-utf8:`), UTF-16 LE (`content-utf16le:`) or UTF-16 BE (`content-utf16be:`).
-The text is quoted, so operators and modifiers in it are text to find.
-Its Duplicates section adds one duplicate term: what to list (all copies
-`duplicates:`, extra copies `extra-copies:`, one of each `distinct:`, only
-files without a copy `unique:`) and what they share (contents, name, name
-and size, size, name without extension, extension or date modified).
-
-Advanced Search rejects extension lists combined with Folders or Files without
-an extension. Its form and the saved-item editor scroll in short work areas.
