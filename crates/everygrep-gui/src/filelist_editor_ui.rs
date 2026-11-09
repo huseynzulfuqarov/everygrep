@@ -9,9 +9,9 @@ use std::path::PathBuf;
 
 use slint::{ComponentHandle, ModelRc, StandardListViewItem, VecModel};
 
-use crate::FileListEditor;
 use crate::filelist_editor::{EditorList, SaveError};
 use crate::i18n::{fill, tr};
+use crate::{AppWindow, FileListEditor};
 
 /// What waits for the user's answer.
 #[derive(Clone)]
@@ -62,8 +62,8 @@ fn busy(on: bool) {
     }
 }
 
-/// Opens the editor, or brings it to the front.
-pub fn open() {
+/// Opens the editor over `main`, or brings it to the front.
+pub fn open(main: &slint::Weak<AppWindow>) {
     if window().is_none() {
         let w = match FileListEditor::new() {
             Ok(w) => w,
@@ -121,6 +121,9 @@ pub fn open() {
         });
         let _ = w.hide();
         let _ = w.show();
+        if let Some(main) = main.upgrade() {
+            crate::wayland_parent::keep_above(&w, &main);
+        }
     }
 }
 

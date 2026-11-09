@@ -117,6 +117,7 @@ impl State {
             // surface, which GNOME brings to the front with the focus.
             let _ = w.hide();
             let _ = w.show();
+            crate::wayland_parent::keep_above(w, &main);
         }
     }
     fn apply(&self) {

@@ -161,6 +161,7 @@ impl State {
             window.set_notice("".into());
             let _ = window.hide();
             let _ = window.show();
+            crate::wayland_parent::keep_above(window, &main);
         }
     }
 

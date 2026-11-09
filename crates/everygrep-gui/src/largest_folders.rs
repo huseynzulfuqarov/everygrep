@@ -223,6 +223,7 @@ impl State {
         main.set_largest_folders_visible(true);
         if let Some(window) = self.window.borrow().as_ref() {
             let _ = window.show();
+            crate::wayland_parent::keep_above(window, &main);
         }
         self.refresh();
     }

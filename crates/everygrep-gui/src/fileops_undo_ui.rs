@@ -259,6 +259,7 @@ fn show(main: &AppWindow, engine: &Arc<Engine>) {
             // in main.rs).
             let _ = w.hide();
             let _ = w.show();
+            crate::wayland_parent::keep_above(w, main);
         }
     });
 }

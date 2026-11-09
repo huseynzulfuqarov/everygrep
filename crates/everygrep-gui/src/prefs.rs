@@ -958,6 +958,9 @@ impl Prefs {
             // in main.rs).
             let _ = w.hide();
             let _ = w.show();
+            if let Some(main) = self.main.upgrade() {
+                crate::wayland_parent::keep_above(w, &main);
+            }
         }
     }
 
@@ -2281,6 +2284,9 @@ impl Prefs {
         // gives a new surface, which GNOME brings to the front.
         let _ = w.hide();
         let _ = w.show();
+        if let Some(main) = self.main.upgrade() {
+            crate::wayland_parent::keep_above(w, &main);
+        }
         w.invoke_focus_pages();
     }
 

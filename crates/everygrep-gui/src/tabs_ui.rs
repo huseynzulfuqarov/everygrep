@@ -921,6 +921,9 @@ impl State {
             }
         });
         let _ = w.show();
+        if let Some(main) = self.main.upgrade() {
+            crate::wayland_parent::keep_above(&w, &main);
+        }
         *self.picker.borrow_mut() = Some(w);
     }
 

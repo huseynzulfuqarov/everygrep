@@ -29,7 +29,7 @@ pub fn open(main: Weak<AppWindow>) {
                     fill_window(&w);
                 }
             });
-            let weak = w.as_weak();
+            let (weak, main) = (w.as_weak(), main.clone());
             w.on_copy(move || {
                 if let (Some(w), Some(m)) = (weak.upgrade(), main.upgrade()) {
                     fill_window(&w);
@@ -74,6 +74,9 @@ pub fn open(main: Weak<AppWindow>) {
             // Shown again for a new surface, which GNOME brings to the front.
             let _ = w.hide();
             let _ = w.show();
+            if let Some(main) = main.upgrade() {
+                crate::wayland_parent::keep_above(w, &main);
+            }
         }
     });
 }

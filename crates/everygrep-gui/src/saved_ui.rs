@@ -876,6 +876,9 @@ impl State {
             // in main.rs).
             let _ = w.hide();
             let _ = w.show();
+            if let Some(main) = self.main.upgrade() {
+                crate::wayland_parent::keep_above(w, &main);
+            }
         }
     }
 

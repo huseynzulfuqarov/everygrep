@@ -82,6 +82,7 @@ mod transfer;
 mod transfer_metadata;
 mod trashbin;
 mod typing;
+mod wayland_parent;
 mod x11clip;
 mod zoom;
 
@@ -969,7 +970,10 @@ fn connect_menus(w: &AppWindow) {
     w.on_index_paused_changed(|paused| prefs::with(|p| p.set_watch_changes(!paused)));
     w.on_hide_offline_changed(|hide| prefs::with(|p| p.set_hide_offline(hide)));
     w.on_create_file_list(|| prefs::with(|p| p.create_file_list()));
-    w.on_open_file_list_editor(filelist_editor_ui::open);
+    w.on_open_file_list_editor({
+        let weak = w.as_weak();
+        move || filelist_editor_ui::open(&weak)
+    });
     w.on_open_index_journal({
         let weak = w.as_weak();
         move || {
@@ -1244,6 +1248,8 @@ fn present(
 fn raise(w: &AppWindow, _activation_token: Option<String>) {
     let _ = w.window().hide();
     let _ = w.window().show();
+    // The new surface has lost the windows kept above the old one.
+    wayland_parent::reattach_children(w);
 }
 
 /// Items shown at most at once in the file manager by Open containing

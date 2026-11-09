@@ -139,8 +139,9 @@ pub fn open(main: slint::Weak<AppWindow>, engine: &Arc<Engine>) {
                 }
             }
         });
+        let copy_main = main.clone();
         w.on_copy_path(move |i| {
-            if let (Some(path), Some(m)) = (row_path(i), main.upgrade()) {
+            if let (Some(path), Some(m)) = (row_path(i), copy_main.upgrade()) {
                 m.invoke_copy_text(path.to_string_lossy().as_ref().into());
                 notice(tr("Copied."));
             }
@@ -189,6 +190,9 @@ pub fn open(main: slint::Weak<AppWindow>, engine: &Arc<Engine>) {
             );
             let _ = s.window.hide();
             let _ = s.window.show();
+            if let Some(main) = main.upgrade() {
+                crate::wayland_parent::keep_above(&s.window, &main);
+            }
         }
     });
     fill_window();
