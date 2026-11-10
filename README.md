@@ -56,7 +56,7 @@ no packages yet.
 - **Fits the desktop.** Light and dark themes that follow GNOME, accent
   colors, one window per index that a desktop shortcut brings forward.
 - **Translated.** English, Azerbaijani and Turkish.
-- **Private.** All data stays on this computer (see [Privacy](#privacy)).
+- **Private.** All data stays on your computer (see [Privacy](#privacy)).
 
 ## Installing
 
@@ -176,7 +176,7 @@ Adding a language is described in
 
 ## Privacy
 
-All data stays on this computer. EveryGrep makes no network connections and
+All data stays on your computer. EveryGrep makes no network connections and
 collects nothing. It stores:
 
 - the index in `~/.cache/everygrep/`, which holds names, sizes and

@@ -982,7 +982,7 @@ a scan are retried when the saved index is loaded.
 
 ## Privacy
 
-All data stays on this computer. EveryGrep makes no network connections and
+All data stays on your computer. EveryGrep makes no network connections and
 collects nothing. It stores:
 
 - the index, in `~/.cache/everygrep/index.bin` (or the folder chosen in
