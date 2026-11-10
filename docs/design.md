@@ -344,7 +344,7 @@ suggestions match the typed prefix without case sensitivity and show at most
 "Suggest earlier searches while typing" enables them. Up/Down selects a suggestion,
 Enter runs it, and Esc dismisses the list.
 History → Organize search history opens a separate window with a text filter,
-a keyboard-accessible table (search, count, local last date), deletion and CSV
+a keyboard-accessible table (search, times used, last used as a local date), deletion and CSV
 import/export through the desktop portal. Delete all asks for confirmation.
 Export includes the whole history. Import validates the whole CSV first and
 merges each exact search with the greater count and later date; repeat imports

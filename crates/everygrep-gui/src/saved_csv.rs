@@ -2,7 +2,7 @@
 //!
 //! The first row names the columns; an import finds its columns by these
 //! names (in any order, any letter case), so files edited in a spreadsheet
-//! or written by another program work as long as `Name` and `Search` are
+//! or written by another program work as long as `name` and `query` are
 //! there. Unknown columns are ignored. Switches are `0`/`1` (`true`/`false`
 //! and `yes`/`no` are accepted). Texts starting with a spreadsheet formula
 //! sign get a leading apostrophe, removed again on import.
@@ -23,72 +23,72 @@ use crate::csv;
 use crate::i18n::{fill, tr};
 use crate::saved_searches::{self, Bookmark, Kind, Layout, Library, NamedFilter, Target};
 
+/// The matching switches: what is compared, where it must match, and
+/// regular expressions.
 const TOGGLES: [&str; 9] = [
-    "Case",
-    "Whole Word",
-    "Path",
-    "Diacritics",
-    "Prefix",
-    "Suffix",
-    "Ignore Punctuation",
-    "Ignore Whitespace",
-    "Regex",
+    "match_case",
+    "diacritics",
+    "ignore_punctuation",
+    "ignore_whitespace",
+    "whole_words",
+    "prefix",
+    "suffix",
+    "full_path",
+    "regex",
 ];
 
-const FILTER_HEADER: [&str; 22] = [
-    "Name",
-    "Case",
-    "Whole Word",
-    "Path",
-    "Diacritics",
-    "Prefix",
-    "Suffix",
-    "Ignore Punctuation",
-    "Ignore Whitespace",
-    "Regex",
-    "Search",
-    "Columns",
-    "Sort",
-    "Descending",
-    "View",
-    "Macro",
-    "Key",
-    "Type",
-    "Hidden Files",
-    "And Before Or",
-    "Literal Operators",
-    "Wildcards Anywhere",
+const FILTER_HEADER: [&str; 20] = [
+    "name",
+    "query",
+    "filter",
+    "hidden_files",
+    TOGGLES[0],
+    TOGGLES[1],
+    TOGGLES[2],
+    TOGGLES[3],
+    TOGGLES[4],
+    TOGGLES[5],
+    TOGGLES[6],
+    TOGGLES[7],
+    TOGGLES[8],
+    "and_before_or",
+    "literal_operators",
+    "wildcards_anywhere",
+    "columns",
+    "sort",
+    "descending",
+    "shortcut",
 ];
 
-const BOOKMARK_HEADER: [&str; 28] = [
-    "Name",
-    "Case",
-    "Whole Word",
-    "Path",
-    "Diacritics",
-    "Prefix",
-    "Suffix",
-    "Ignore Punctuation",
-    "Ignore Whitespace",
-    "Regex",
-    "Search",
-    "Filter",
-    "Sort",
-    "Descending",
-    "Columns",
-    "View",
-    "Macro",
-    "Key",
-    "Kind",
-    "Folder",
-    "Hidden Files",
-    "And Before Or",
-    "Literal Operators",
-    "Wildcards Anywhere",
-    "Filter Search",
-    "Filter Type",
-    "Filter Hidden Files",
-    "Filter Options",
+/// The filter columns, with `filter` naming the bookmark's filter, then the
+/// row kind, its folder and the frozen filter.
+const BOOKMARK_HEADER: [&str; 26] = [
+    "name",
+    "query",
+    "filter",
+    "hidden_files",
+    TOGGLES[0],
+    TOGGLES[1],
+    TOGGLES[2],
+    TOGGLES[3],
+    TOGGLES[4],
+    TOGGLES[5],
+    TOGGLES[6],
+    TOGGLES[7],
+    TOGGLES[8],
+    "and_before_or",
+    "literal_operators",
+    "wildcards_anywhere",
+    "columns",
+    "sort",
+    "descending",
+    "shortcut",
+    "kind",
+    "folder",
+    "filter_query",
+    "filter_type",
+    "filter_hidden_files",
+    "filter_options",
 ];
 
 /// Sort columns 0–8 by name; others by number.
@@ -108,16 +108,17 @@ fn bit(on: bool) -> &'static str {
     if on { "1" } else { "0" }
 }
 
+/// The switches of `o` in the order of [`TOGGLES`].
 fn toggles(o: &QueryOptions) -> [bool; 9] {
     [
         o.case_sensitive,
-        o.whole_words,
-        o.match_path,
         o.match_diacritics,
-        o.prefix,
-        o.suffix,
         o.ignore_punctuation,
         o.ignore_whitespace,
+        o.whole_words,
+        o.prefix,
+        o.suffix,
+        o.match_path,
         o.regex,
     ]
 }
@@ -153,26 +154,24 @@ pub fn encode_filters(library: &Library) -> String {
         let search = csv::protect(&f.search);
         let columns = columns_text(f.layout.columns.as_deref());
         let o = &f.options;
-        let mut fields: Vec<&str> = vec![&name];
+        let mut fields: Vec<&str> = vec![&name, &search, o.filter.id(), o.hidden_files.id()];
         fields.extend(toggles(o).map(bit));
         fields.extend([
-            search.as_str(),
-            &columns,
-            &sort,
-            descending,
-            "",
-            "",
-            &key,
-            o.filter.id(),
-            o.hidden_files.id(),
             bit(o.and_before_or),
             bit(o.literal_operators),
             bit(o.wildcards_anywhere),
+            &columns,
+            &sort,
+            descending,
+            &key,
         ]);
         csv::record(&mut out, fields);
     }
     out
 }
+
+/// Where the row kind is in [`BOOKMARK_HEADER`]; the folder follows it.
+const BOOKMARK_KIND: usize = 20;
 
 pub fn encode_bookmarks(library: &Library) -> String {
     let mut out = String::new();
@@ -195,8 +194,8 @@ pub fn encode_bookmarks(library: &Library) -> String {
                 };
                 let mut fields = vec![""; BOOKMARK_HEADER.len()];
                 fields[0] = &name;
-                fields[18] = kind;
-                fields[19] = &folder;
+                fields[BOOKMARK_KIND] = kind;
+                fields[BOOKMARK_KIND + 1] = &folder;
                 csv::record(&mut out, fields);
                 continue;
             }
@@ -214,23 +213,18 @@ pub fn encode_bookmarks(library: &Library) -> String {
         let encoded = saved_searches::encode_options(b.filter.options);
         let filter_bits = encoded.split('\t').nth(1).unwrap_or("0").to_string();
         let o = &b.options;
-        let mut fields: Vec<&str> = vec![&name];
+        let mut fields: Vec<&str> = vec![&name, &search, &filter, o.hidden_files.id()];
         fields.extend(toggles(o).map(bit));
         fields.extend([
-            search.as_str(),
-            &filter,
-            &sort,
-            bit(b.descending),
-            &columns,
-            "",
-            "",
-            &key,
-            "bookmark",
-            &folder,
-            o.hidden_files.id(),
             bit(o.and_before_or),
             bit(o.literal_operators),
             bit(o.wildcards_anywhere),
+            &columns,
+            &sort,
+            bit(b.descending),
+            &key,
+            "bookmark",
+            &folder,
             &filter_search,
             b.filter.options.filter.id(),
             b.filter.options.hidden_files.id(),
@@ -317,20 +311,20 @@ fn options(t: &Table, row: &[String], line: usize) -> io::Result<QueryOptions> {
     for (i, name) in TOGGLES.iter().enumerate() {
         on[i] = flag(t.get(row, name), line, name)?;
     }
-    let hidden = t.get(row, "Hidden Files").trim();
+    let hidden = t.get(row, "hidden_files").trim();
     Ok(QueryOptions {
         case_sensitive: on[0],
-        whole_words: on[1],
-        match_path: on[2],
-        match_diacritics: on[3],
-        prefix: on[4],
-        suffix: on[5],
-        ignore_punctuation: on[6],
-        ignore_whitespace: on[7],
+        match_diacritics: on[1],
+        ignore_punctuation: on[2],
+        ignore_whitespace: on[3],
+        whole_words: on[4],
+        prefix: on[5],
+        suffix: on[6],
+        match_path: on[7],
         regex: on[8],
-        and_before_or: flag(t.get(row, "And Before Or"), line, "And Before Or")?,
-        literal_operators: flag(t.get(row, "Literal Operators"), line, "Literal Operators")?,
-        wildcards_anywhere: flag(t.get(row, "Wildcards Anywhere"), line, "Wildcards Anywhere")?,
+        and_before_or: flag(t.get(row, "and_before_or"), line, "and_before_or")?,
+        literal_operators: flag(t.get(row, "literal_operators"), line, "literal_operators")?,
+        wildcards_anywhere: flag(t.get(row, "wildcards_anywhere"), line, "wildcards_anywhere")?,
         hidden_files: if hidden.is_empty() {
             HiddenFiles::Show
         } else {
@@ -381,15 +375,6 @@ fn columns(text: &str, line: usize) -> io::Result<Option<Vec<String>>> {
     Ok(Some(names))
 }
 
-fn view(text: &str, line: usize) -> io::Result<()> {
-    let text = text.trim();
-    if text.is_empty() || text.eq_ignore_ascii_case("details") {
-        Ok(())
-    } else {
-        Err(row_error(line, tr("Only the Details view is available.")))
-    }
-}
-
 fn key(text: &str, line: usize) -> io::Result<Option<Chord>> {
     let text = text.trim();
     if text.is_empty() {
@@ -421,27 +406,26 @@ impl Incoming {
 }
 
 pub fn decode_filters(text: &str) -> io::Result<Incoming> {
-    let t = Table::parse(text, &["Name", "Search"])?;
+    let t = Table::parse(text, &["name", "query"])?;
     let mut incoming = Incoming::default();
     for (line, row) in &t.rows {
         let line = *line;
-        let name = csv::unprotect(t.get(row, "Name")).trim().to_string();
+        let name = csv::unprotect(t.get(row, "name")).trim().to_string();
         if name.is_empty() {
             return Err(row_error(line, tr("Enter a name.")));
         }
-        let search = csv::unprotect(t.get(row, "Search")).to_string();
+        let search = csv::unprotect(t.get(row, "query")).to_string();
         let mut options = options(&t, row, line)?;
-        let kind = t.get(row, "Type").trim();
+        let kind = t.get(row, "filter").trim();
         if !kind.is_empty() {
             options.filter =
                 Filter::from_id(kind).ok_or_else(|| row_error(line, tr("Invalid filter kind.")))?;
         }
         query_check(&search, options, line)?;
-        view(t.get(row, "View"), line)?;
         let layout = Layout {
-            columns: columns(t.get(row, "Columns"), line)?,
-            sort: sort(t.get(row, "Sort"), line)?
-                .map(|c| flag(t.get(row, "Descending"), line, "Descending").map(|d| (c, d)))
+            columns: columns(t.get(row, "columns"), line)?,
+            sort: sort(t.get(row, "sort"), line)?
+                .map(|c| flag(t.get(row, "descending"), line, "descending").map(|d| (c, d)))
                 .transpose()?,
         };
         incoming.filters.push((
@@ -452,7 +436,7 @@ pub fn decode_filters(text: &str) -> io::Result<Incoming> {
                 options,
                 layout,
             },
-            key(t.get(row, "Key"), line)?,
+            key(t.get(row, "shortcut"), line)?,
         ));
     }
     Ok(incoming)
@@ -461,13 +445,13 @@ pub fn decode_filters(text: &str) -> io::Result<Incoming> {
 /// `library` gives the frozen filter of a bookmark whose CSV row names a
 /// filter but does not spell it out.
 pub fn decode_bookmarks(text: &str, library: &Library) -> io::Result<Incoming> {
-    let t = Table::parse(text, &["Name", "Search"])?;
+    let t = Table::parse(text, &["name", "query"])?;
     let mut incoming = Incoming::default();
     for (line, row) in &t.rows {
         let line = *line;
-        let name = csv::unprotect(t.get(row, "Name")).trim().to_string();
-        let folder = csv::unprotect(t.get(row, "Folder")).trim().to_string();
-        let kind = match t.get(row, "Kind").trim().to_lowercase().as_str() {
+        let name = csv::unprotect(t.get(row, "name")).trim().to_string();
+        let folder = csv::unprotect(t.get(row, "folder")).trim().to_string();
+        let kind = match t.get(row, "kind").trim().to_lowercase().as_str() {
             "" | "bookmark" => Kind::Search,
             "folder" => Kind::Folder,
             "separator" => Kind::Separator,
@@ -485,12 +469,11 @@ pub fn decode_bookmarks(text: &str, library: &Library) -> io::Result<Incoming> {
         if name.is_empty() {
             return Err(row_error(line, tr("Enter a name.")));
         }
-        let search = csv::unprotect(t.get(row, "Search")).to_string();
+        let search = csv::unprotect(t.get(row, "query")).to_string();
         let options = options(&t, row, line)?;
-        view(t.get(row, "View"), line)?;
-        let filter_name = csv::unprotect(t.get(row, "Filter")).trim().to_string();
-        let filter_search = csv::unprotect(t.get(row, "Filter Search")).to_string();
-        let filter_type = t.get(row, "Filter Type").trim();
+        let filter_name = csv::unprotect(t.get(row, "filter")).trim().to_string();
+        let filter_search = csv::unprotect(t.get(row, "filter_query")).to_string();
+        let filter_type = t.get(row, "filter_type").trim();
         let filter = if filter_type.is_empty() && filter_search.is_empty() {
             // Only a name: the library's filter of that name, else All.
             library
@@ -500,8 +483,8 @@ pub fn decode_bookmarks(text: &str, library: &Library) -> io::Result<Incoming> {
                 .cloned()
                 .unwrap_or_else(|| Library::default().filters.remove(0))
         } else {
-            let bits = t.get(row, "Filter Options").trim();
-            let hidden = t.get(row, "Filter Hidden Files").trim();
+            let bits = t.get(row, "filter_options").trim();
+            let hidden = t.get(row, "filter_hidden_files").trim();
             let options = saved_searches::decode_options(
                 if filter_type.is_empty() {
                     "all"
@@ -524,22 +507,22 @@ pub fn decode_bookmarks(text: &str, library: &Library) -> io::Result<Incoming> {
         options.filter = filter.options.filter;
         query_check(&search, options, line)?;
         query_check(&filter.search, filter.options, line)?;
-        let descending = flag(t.get(row, "Descending"), line, "Descending")?;
+        let descending = flag(t.get(row, "descending"), line, "descending")?;
         let bookmark = Bookmark {
             id: 0,
             name,
             search,
             options,
             filter,
-            sort_column: sort(t.get(row, "Sort"), line)?.unwrap_or(0),
+            sort_column: sort(t.get(row, "sort"), line)?.unwrap_or(0),
             descending,
-            columns: columns(t.get(row, "Columns"), line)?,
+            columns: columns(t.get(row, "columns"), line)?,
             kind: Kind::Search,
             folder: 0,
         };
         incoming
             .bookmarks
-            .push((bookmark, key(t.get(row, "Key"), line)?, folder));
+            .push((bookmark, key(t.get(row, "shortcut"), line)?, folder));
     }
     Ok(incoming)
 }
@@ -754,7 +737,9 @@ mod tests {
     fn filters_round_trip_through_csv_into_an_empty_library() {
         let source = sample();
         let text = encode_filters(&source);
-        assert!(text.starts_with("Name,Case,Whole Word,Path,Diacritics,Prefix,Suffix,"));
+        assert!(text.starts_with(
+            "name,query,filter,hidden_files,match_case,diacritics,ignore_punctuation,"
+        ));
         assert!(text.contains("\"Code, \"\"mine\"\"\""));
         assert!(text.contains("'-ext:tmp"));
         let mut dest = Library::default();
@@ -809,7 +794,7 @@ mod tests {
     fn import_never_overwrites_a_different_entry_of_the_same_name() {
         let mut dest = sample();
         let before_filters = dest.filters.clone();
-        let text = "Name,Search,Key\r\n\"Code, \"\"mine\"\"\",ext:rs,Ctrl+Shift+5\r\n";
+        let text = "name,query,shortcut\r\n\"Code, \"\"mine\"\"\",ext:rs,Ctrl+Shift+5\r\n";
         let report = import(&mut dest, decode_filters(text).unwrap(), &Keymap::default()).unwrap();
         assert_eq!(report.renamed, 1);
         assert_eq!(report.keys_left_out, 1);
@@ -817,7 +802,7 @@ mod tests {
         assert_eq!(dest.filters.last().unwrap().name, "Code, \"mine\" (2)");
         let report = import(&mut dest, decode_filters(text).unwrap(), &Keymap::default()).unwrap();
         assert_eq!((report.added, report.skipped), (0, 1));
-        let text = "Name,Search\r\nTop,ext:pdf\r\n";
+        let text = "name,query\r\nTop,ext:pdf\r\n";
         let incoming = decode_bookmarks(text, &dest).unwrap();
         import(&mut dest, incoming, &Keymap::default()).unwrap();
         let names: Vec<_> = dest
@@ -833,23 +818,22 @@ mod tests {
     fn malformed_or_invalid_csv_fails_with_a_clear_reason_and_changes_nothing() {
         let cases = [
             ("", "empty"),
-            ("Name,Search\r\n\"open,x\r\n", "line 2"),
-            ("Name\r\nx\r\n", "Search"),
-            ("Name,Search,Name\r\na,b,c\r\n", "twice"),
-            ("Name,Search\r\na,b,c\r\n", "Row 2"),
-            ("Name,Search,Case\r\na,b,maybe\r\n", "Row 2"),
-            ("Name,Search\r\nok,ext:md\r\n,ext:md\r\n", "Row 3"),
-            ("Name,Search\r\nbad,regex:(\r\n", "Row 2"),
-            ("Name,Search,View\r\na,b,Thumbnails\r\n", "Details"),
-            ("Name,Search,Columns\r\na,b,nosuch\r\n", "Row 2"),
-            ("Name,Search,Sort\r\na,b,sideways\r\n", "Row 2"),
-            ("Name,Search,Key\r\na,b,Ctrl+Nope\r\n", "Row 2"),
+            ("name,query\r\n\"open,x\r\n", "line 2"),
+            ("name\r\nx\r\n", "query"),
+            ("name,query,name\r\na,b,c\r\n", "twice"),
+            ("name,query\r\na,b,c\r\n", "Row 2"),
+            ("name,query,match_case\r\na,b,maybe\r\n", "Row 2"),
+            ("name,query\r\nok,ext:md\r\n,ext:md\r\n", "Row 3"),
+            ("name,query\r\nbad,regex:(\r\n", "Row 2"),
+            ("name,query,columns\r\na,b,nosuch\r\n", "Row 2"),
+            ("name,query,sort\r\na,b,sideways\r\n", "Row 2"),
+            ("name,query,shortcut\r\na,b,Ctrl+Nope\r\n", "Row 2"),
         ];
         for (text, needle) in cases {
             let error = decode_filters(text).unwrap_err().to_string();
             assert!(error.contains(needle), "{text:?}: {error}");
         }
-        let error = decode_bookmarks("Name,Search,Kind\r\na,b,shelf\r\n", &Library::default())
+        let error = decode_bookmarks("name,query,kind\r\na,b,shelf\r\n", &Library::default())
             .unwrap_err()
             .to_string();
         assert!(error.contains("Row 2"), "{error}");
@@ -857,7 +841,7 @@ mod tests {
 
     #[test]
     fn invalid_csv_columns_explain_the_allowed_values_for_both_lists() {
-        let text = "Name,Search,Columns\nTest,image:,size;modified\n";
+        let text = "name,query,columns\nTest,image:,size;modified\n";
         let library = Library::default();
         for error in [
             decode_filters(text).unwrap_err(),
@@ -876,7 +860,7 @@ mod tests {
         }
         let all = crate::session::column_names().join(";");
         for columns in [all.as_str(), "standard", ""] {
-            let text = format!("Name,Search,Columns\nTest,image:,{columns}\n");
+            let text = format!("name,query,columns\nTest,image:,{columns}\n");
             assert!(decode_filters(&text).is_ok());
             assert!(decode_bookmarks(&text, &library).is_ok());
         }
@@ -895,12 +879,12 @@ mod tests {
                     decode_filters(text)
                 }
             };
-            let bad = "Name,Search,Columns\nFirst,image:,dimensions\nBad,image:,size;modified\n";
+            let bad = "name,query,columns\nFirst,image:,dimensions\nBad,image:,size;modified\n";
             let result =
                 decode(bad, &library).and_then(|incoming| import(&mut library, incoming, &keys));
             assert!(result.is_err());
             assert_eq!(library.text(), before);
-            let good = "Name,Search,Columns\nFirst,image:,dimensions;length\n";
+            let good = "name,query,columns\nFirst,image:,dimensions;length\n";
             let incoming = decode(good, &library).unwrap();
             let report = import(&mut library, incoming, &keys).unwrap();
             assert_eq!(report.added, 1);
@@ -915,7 +899,7 @@ mod tests {
 
     #[test]
     fn foreign_columns_in_any_order_are_read_by_name() {
-        let text = "search,REGEX,name,Extra\nfoo.*,1,Regex search,ignored\n";
+        let text = "query,REGEX,Name,Extra\nfoo.*,1,Regex search,ignored\n";
         let incoming = decode_filters(text).unwrap();
         assert_eq!(incoming.len(), 1);
         let mut dest = Library::default();

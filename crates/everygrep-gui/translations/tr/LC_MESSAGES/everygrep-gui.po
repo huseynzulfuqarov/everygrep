@@ -2420,11 +2420,8 @@ msgstr "İleri"
 msgid "Sort history by"
 msgstr "Geçmişi sırala"
 
-msgid "Last used"
-msgstr "Arama tarihi"
-
 msgid "Times used"
-msgstr "Arama sayısı"
+msgstr "Kullanım sayısı"
 
 msgid "Search text"
 msgstr "Arama metni"
@@ -2440,6 +2437,9 @@ msgstr "Arama geçmişini düzenle…"
 
 msgid "Filter history"
 msgstr "Geçmişi filtrele"
+
+msgid "Last used"
+msgstr "Son kullanım"
 
 msgid "CSV exports all searches. Import merges counts and dates without adding duplicate visits."
 msgstr "CSV tüm aramaları dışa aktarır. İçe aktarırken sayılar ve tarihler yinelenen kayıt eklenmeden birleştirilir."
@@ -5039,9 +5039,6 @@ msgstr "Yeni ayırıcı"
 
 msgid "No folder"
 msgstr "Klasörsüz"
-
-msgid "Only the Details view is available."
-msgstr "Yalnızca Ayrıntılar görünümü var."
 
 msgid "Row {} of the CSV file has a different number of fields than the header."
 msgstr "CSV dosyasının {}. satırındaki alan sayısı başlıktakinden farklı."
