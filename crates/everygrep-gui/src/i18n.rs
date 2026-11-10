@@ -9,8 +9,14 @@
 //!   the catalogs to the Slint compiler (`with_bundled_translations`), which
 //!   compiles them into the program; [`apply_to_ui`] picks the language with
 //!   `slint::select_bundled_translation`, and every `@tr` binding updates.
-//! - Texts made in Rust go through [`tr`] and [`trn`], which look them up in
-//!   the same catalogs, embedded with `include_str!` and read on first use.
+//! - Texts made in Rust go through [`tr`], [`trn`] and [`trc`], which look
+//!   them up in the same catalogs, embedded with `include_str!` and read on
+//!   first use.
+//!
+//! One English word may need two translations: "Created" is a column name
+//! (a date) and an action of the Index changes window. The second meaning
+//! gets a gettext message context (`msgctxt`) in the catalog and is looked
+//! up with [`trc`]; texts without a context are unchanged.
 //!
 //! Placeholders are `{}` (the next argument) or `{0}`, `{1}` (by position),
 //! as in Slint's `@tr`; [`fill`] puts the arguments in. A test checks that
@@ -145,6 +151,8 @@ const CATALOGS: [&str; 2] = [
 /// One message of a catalog.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Message {
+    /// The `msgctxt`; empty for a message without one.
+    pub context: String,
     pub msgid: String,
     pub plural: Option<String>,
     /// One text, or one per plural form; empty texts are untranslated.
@@ -153,15 +161,15 @@ pub struct Message {
     pub fuzzy: bool,
 }
 
-/// Reads the messages of a gettext `.po` file: `msgid`, `msgid_plural`,
-/// `msgstr` and `msgstr[n]`, each with continuation lines. Comments are
-/// skipped except for the fuzzy flag; `msgctxt` is not used by EveryGrep
-/// and refused. The header (empty `msgid`) is returned as the first
-/// message.
+/// Reads the messages of a gettext `.po` file: `msgctxt`, `msgid`,
+/// `msgid_plural`, `msgstr` and `msgstr[n]`, each with continuation lines.
+/// Comments are skipped except for the fuzzy flag. The header (empty
+/// `msgid`) is returned as the first message.
 pub fn parse_po(text: &str) -> Result<Vec<Message>, String> {
     #[derive(PartialEq)]
     enum Field {
         None,
+        Context,
         Id,
         Plural,
         Str(usize),
@@ -192,6 +200,7 @@ pub fn parse_po(text: &str) -> Result<Vec<Message>, String> {
         if line.starts_with('"') {
             let s = unquote(line).ok_or_else(|| at("bad string"))?;
             match field {
+                Field::Context => cur.context.push_str(&s),
                 Field::Id => cur.msgid.push_str(&s),
                 Field::Plural => cur.plural.get_or_insert_default().push_str(&s),
                 Field::Str(n) => cur.msgstr[n].push_str(&s),
@@ -204,11 +213,19 @@ pub fn parse_po(text: &str) -> Result<Vec<Message>, String> {
             .ok_or_else(|| at("expected a keyword"))?;
         let s = unquote(rest.trim()).ok_or_else(|| at("bad string"))?;
         match key {
-            "msgctxt" => return Err(at("msgctxt is not used")),
-            "msgid" => {
+            "msgctxt" => {
                 finish(&mut cur, &mut out, &mut started);
                 started = true;
                 cur.fuzzy = std::mem::take(&mut fuzzy_next);
+                cur.context = s;
+                field = Field::Context;
+            }
+            "msgid" => {
+                if field != Field::Context {
+                    finish(&mut cur, &mut out, &mut started);
+                    started = true;
+                    cur.fuzzy = std::mem::take(&mut fuzzy_next);
+                }
                 cur.msgid = s;
                 field = Field::Id;
             }
@@ -217,7 +234,7 @@ pub fn parse_po(text: &str) -> Result<Vec<Message>, String> {
                 field = Field::Plural;
             }
             _ if key == "msgstr" || key.starts_with("msgstr[") => {
-                if !started {
+                if !started || field == Field::Context {
                     return Err(at("msgstr without msgid"));
                 }
                 let n = match key.strip_prefix("msgstr[") {
@@ -264,8 +281,9 @@ fn unquote(s: &str) -> Option<String> {
     Some(out)
 }
 
-/// Translations by English text: one text, or one per plural form.
-type Catalog = HashMap<String, Vec<String>>;
+/// Translations by (context, English text), the context empty for most
+/// messages: one text, or one per plural form.
+type Catalog = HashMap<(String, String), Vec<String>>;
 
 fn catalogs() -> &'static [Catalog; 2] {
     static LOADED: OnceLock<[Catalog; 2]> = OnceLock::new();
@@ -277,18 +295,35 @@ fn catalogs() -> &'static [Catalog; 2] {
                 .filter(|m| {
                     !m.msgid.is_empty() && !m.fuzzy && m.msgstr.iter().all(|s| !s.is_empty())
                 })
-                .map(|m| (m.msgid, m.msgstr))
+                .map(|m| ((m.context, m.msgid), m.msgstr))
                 .collect()
         })
     })
 }
 
+/// The translation forms of `text` under `context` in `lang`.
+fn forms(lang: Lang, context: &str, text: &str) -> Option<&'static Vec<String>> {
+    let i = lang.catalog_index()?;
+    catalogs()[i].get(&(context.to_owned(), text.to_owned()))
+}
+
 /// `text` in `lang`; the English text when there is no translation.
 pub fn tr_in(lang: Lang, text: &'static str) -> &'static str {
-    lang.catalog_index()
-        .and_then(|i| catalogs()[i].get(text))
+    trc_in(lang, "", text)
+}
+
+/// `text` with the message context `context` in `lang`; the English text
+/// when there is no translation. For a word whose translation depends on
+/// where it is shown.
+pub fn trc_in(lang: Lang, context: &'static str, text: &'static str) -> &'static str {
+    forms(lang, context, text)
         .and_then(|forms| forms.first())
         .map_or(text, String::as_str)
+}
+
+/// [`trc_in`] in the current language.
+pub fn trc(context: &'static str, text: &'static str) -> &'static str {
+    trc_in(current(), context, text)
 }
 
 /// `text` in the current language.
@@ -301,7 +336,7 @@ pub fn tr(text: &'static str) -> &'static str {
 /// gettext rule `n != 1`.
 pub fn trn_in(lang: Lang, one: &'static str, many: &'static str, n: usize) -> &'static str {
     let form = usize::from(n != 1);
-    match lang.catalog_index().and_then(|i| catalogs()[i].get(one)) {
+    match forms(lang, "", one) {
         Some(forms) => forms.get(form).or(forms.last()).map_or(one, String::as_str),
         None if form == 0 => one,
         None => many,
@@ -467,8 +502,40 @@ mod tests {
         assert_eq!(m[2].msgid, "x \"q\"y");
         assert_eq!(m[2].plural.as_deref(), Some("xs"));
         assert_eq!(m[2].msgstr, ["1", "2"]);
-        assert!(parse_po("msgctxt \"c\"\nmsgid \"a\"\nmsgstr \"b\"").is_err());
         assert!(parse_po("msgstr \"b\"").is_err());
+        assert!(parse_po("msgctxt \"c\"\nmsgstr \"b\"").is_err());
+    }
+
+    #[test]
+    fn message_contexts_are_read() {
+        let text = "msgctxt \"index change\"\nmsgid \"Created\"\nmsgstr \"Yaradıldı\"\n\n\
+                    msgid \"Created\"\nmsgstr \"Yaradılma tarixi\"\n\n\
+                    #, fuzzy\nmsgctxt \"c\"\n\"d\"\nmsgid \"a\"\nmsgstr \"b\"\n";
+        let m = parse_po(text).unwrap();
+        assert_eq!(m.len(), 3);
+        assert_eq!(m[0].context, "index change");
+        assert_eq!(m[0].msgid, "Created");
+        assert_eq!(m[0].msgstr, ["Yaradıldı"]);
+        assert_eq!(m[1].context, "");
+        assert_eq!(m[1].msgid, "Created");
+        assert_eq!(m[1].msgstr, ["Yaradılma tarixi"]);
+        assert_eq!(m[2].context, "cd");
+        assert!(m[2].fuzzy);
+    }
+
+    #[test]
+    fn context_lookups_are_separate_and_fall_back_to_english() {
+        // The same English word: a column name without a context, an
+        // action of the Index changes window with one.
+        assert_eq!(tr_in(Lang::Az, "Created"), "Yaradılma tarixi");
+        assert_eq!(trc_in(Lang::Az, "index change", "Created"), "Yaradıldı");
+        assert_eq!(tr_in(Lang::Az, "Modified"), "Dəyişmə tarixi");
+        assert_eq!(trc_in(Lang::Az, "index change", "Modified"), "Dəyişdirildi");
+        assert_eq!(tr_in(Lang::Tr, "Modified"), "Değiştirme tarihi");
+        assert_eq!(trc_in(Lang::Tr, "index change", "Modified"), "Değiştirildi");
+        assert_eq!(trc_in(Lang::En, "index change", "Created"), "Created");
+        assert_eq!(trc_in(Lang::Az, "no such context", "Created"), "Created");
+        assert_eq!(trc_in(Lang::Az, "index change", "Open"), "Open");
     }
 
     #[test]
@@ -535,13 +602,21 @@ mod tests {
         panic!("unterminated string: {s}");
     }
 
-    /// (text, plural) pairs marked for translation in one source file:
-    /// `@tr("…")` and `@tr("…" | "…" % n)` in Slint, `tr("…")` and
-    /// `trn("…", "…", n)` in Rust. Calls whose first argument is not a
-    /// string literal are skipped.
-    fn marked(source: &str, slint: bool) -> Vec<(String, Option<String>)> {
+    /// A text marked for translation: (context, text, plural); the context
+    /// is empty except for `trc`.
+    type Marked = (String, String, Option<String>);
+
+    /// The texts marked for translation in one source file: `@tr("…")` and
+    /// `@tr("…" | "…" % n)` in Slint, `tr("…")`, `trn("…", "…", n)` and
+    /// `trc("…", "…")` in Rust. Calls whose first argument is not a string
+    /// literal are skipped.
+    fn marked(source: &str, slint: bool) -> Vec<Marked> {
         let mut out = Vec::new();
-        let calls: &[&str] = if slint { &["@tr("] } else { &["tr(", "trn("] };
+        let calls: &[&str] = if slint {
+            &["@tr("]
+        } else {
+            &["tr(", "trn(", "trc("]
+        };
         for call in calls {
             let mut rest = source;
             while let Some(at) = rest.find(call) {
@@ -554,7 +629,18 @@ mod tests {
                 let Some(start) = start.trim_start().strip_prefix('"') else {
                     continue;
                 };
-                let (text, after) = literal(start);
+                let (mut text, mut after) = literal(start);
+                let mut context = String::new();
+                if *call == "trc(" {
+                    context = text;
+                    let Some(rest) = after.trim_start().strip_prefix(',') else {
+                        continue;
+                    };
+                    let Some(rest) = rest.trim_start().strip_prefix('"') else {
+                        continue;
+                    };
+                    (text, after) = literal(rest);
+                }
                 let after = after.trim_start();
                 let separator = if slint { '|' } else { ',' };
                 let plural = after
@@ -564,14 +650,14 @@ mod tests {
                         let p = p.trim_start().strip_prefix('"').expect("plural text");
                         literal(p).0
                     });
-                out.push((text, plural));
+                out.push((context, text, plural));
             }
         }
         out
     }
 
     /// Every text marked for translation in the window's sources.
-    fn sources() -> BTreeSet<(String, Option<String>)> {
+    fn sources() -> BTreeSet<Marked> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut out = BTreeSet::new();
         for (dir, ext) in [("ui", "slint"), ("src", "rs")] {
@@ -606,9 +692,16 @@ mod tests {
     fn sources_are_found() {
         let s = sources();
         assert!(s.len() > 200, "only {} texts found", s.len());
-        assert!(s.contains(&("Open containing folder".to_owned(), None)));
-        assert!(s.contains(&("{} item".to_owned(), Some("{} items".to_owned()))));
-        assert!(s.contains(&("Language".to_owned(), None)));
+        let plain = |t: &str| (String::new(), t.to_owned(), None);
+        assert!(s.contains(&plain("Open containing folder")));
+        assert!(s.contains(&(
+            String::new(),
+            "{} item".to_owned(),
+            Some("{} items".to_owned())
+        )));
+        assert!(s.contains(&plain("Language")));
+        assert!(s.contains(&plain("Created")));
+        assert!(s.contains(&("index change".to_owned(), "Created".to_owned(), None)));
     }
 
     #[test]
@@ -633,7 +726,7 @@ mod tests {
             );
             let mut seen = BTreeSet::new();
             for m in &messages[1..] {
-                let key = (m.msgid.clone(), m.plural.clone());
+                let key = (m.context.clone(), m.msgid.clone(), m.plural.clone());
                 assert!(seen.insert(key.clone()), "{lang:?}: {key:?} twice");
                 assert!(!m.fuzzy, "{lang:?}: {key:?} is fuzzy");
                 assert!(sources.contains(&key), "{lang:?}: {key:?} is not used");

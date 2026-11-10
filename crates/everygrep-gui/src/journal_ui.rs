@@ -10,7 +10,7 @@ use everygrep_core::watch::ChangeKind;
 use slint::{ComponentHandle, ModelRc, StandardListViewItem, Timer, TimerMode, VecModel};
 
 use crate::engine::{Engine, JournalRow};
-use crate::i18n::{fill, tr};
+use crate::i18n::{fill, tr, trc};
 use crate::{AppWindow, JournalWindow};
 
 /// The action filter's choices, after "All".
@@ -34,13 +34,15 @@ thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
+/// The action shown in the window. "Created" and "Modified" are also column
+/// names (dates), so they carry a message context of their own.
 fn action_label(kind: ChangeKind) -> &'static str {
     match kind {
-        ChangeKind::Created => tr("Added"),
+        ChangeKind::Created => trc("index change", "Created"),
         ChangeKind::Deleted => tr("Deleted"),
         ChangeKind::Renamed => tr("Renamed"),
         ChangeKind::Moved => tr("Moved"),
-        ChangeKind::Modified => tr("Changed"),
+        ChangeKind::Modified => trc("index change", "Modified"),
     }
 }
 

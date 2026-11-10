@@ -5232,10 +5232,12 @@ msgstr "Təmizlə"
 msgid "Deleted"
 msgstr "Silindi"
 
-msgid "Added"
+msgctxt "index change"
+msgid "Created"
 msgstr "Yaradıldı"
 
-msgid "Changed"
+msgctxt "index change"
+msgid "Modified"
 msgstr "Dəyişdirildi"
 
 msgid "Export index changes"
