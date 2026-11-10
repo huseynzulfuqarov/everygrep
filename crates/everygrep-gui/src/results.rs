@@ -103,7 +103,14 @@ pub struct ResultsModel {
     /// the details kept for rows follow its changes (see
     /// [`Index::changed_since`](everygrep_core::index::Index::changed_since)).
     seen_changes: Cell<Option<(u64, u64)>>,
+    /// The last result set kept the rows as they were.
+    rows_kept: Cell<bool>,
     notify: ModelNotify,
+}
+
+/// Whether two lists hold the same items in the same order.
+fn same_list<T: PartialEq>(a: &Arc<Vec<T>>, b: &Arc<Vec<T>>) -> bool {
+    Arc::ptr_eq(a, b) || a.as_slice() == b.as_slice()
 }
 
 /// No row asked for yet (see `ResultsModel::drawn`).
@@ -338,6 +345,7 @@ impl ResultsModel {
             property_reader: RefCell::new(None),
             drawn: Cell::new(NOTHING_DRAWN),
             seen_changes: Cell::new(None),
+            rows_kept: Cell::new(false),
             notify: ModelNotify::default(),
         }
     }
@@ -372,6 +380,7 @@ impl ResultsModel {
         *self.terms.borrow_mut() = snapshot.map(|s| s.terms.clone()).unwrap_or_default();
         self.took.set(snapshot.map_or(Duration::ZERO, |s| s.took));
         self.renaming.set(None);
+        self.rows_kept.set(false);
         // Details and hashes asked for the rows shown before are read again
         // for these rows; answers still on their way are dropped.
         self.forget_details();
@@ -485,6 +494,12 @@ impl ResultsModel {
     /// a refresh after file changes); a new query clears it, or keeps the
     /// selected items it lists when clearing is off. Returns the first
     /// selected row when a selection was kept for a new query.
+    ///
+    /// A search run again for file changes that lists the same rows in the
+    /// same order (ids of one epoch always mean the same node) leaves the
+    /// list as it is: only the rows on screen are drawn again, with the
+    /// details of the entries that changed read again. See
+    /// [`rows_kept`](Self::rows_kept).
     pub fn set_result(&self, result: &SearchResult) -> Option<usize> {
         self.read_root_labels();
         *self.settled.borrow_mut() = result.settled.clone();
@@ -496,6 +511,18 @@ impl ResultsModel {
         // again because files changed leaves it.
         if !result.refresh {
             self.took.set(result.took);
+        }
+        let same = result.refresh
+            && self.epoch.get() == result.epoch
+            && *self.query.borrow() == result.query
+            && same_list(&self.ids.borrow(), &result.ids)
+            && same_list(&self.groups.borrow(), &result.groups)
+            && same_list(&self.group_ids.borrow(), &result.group_ids);
+        self.rows_kept.set(same);
+        if same {
+            self.forget_changed_details();
+            self.redraw();
+            return None;
         }
         {
             let mut selection = self.selection.borrow_mut();
@@ -529,6 +556,12 @@ impl ResultsModel {
         }
         let selection = self.selection.borrow();
         result.ids.iter().position(|&id| selection.contains(id))
+    }
+
+    /// Whether the last [`set_result`](Self::set_result) kept the rows as
+    /// they were.
+    pub fn rows_kept(&self) -> bool {
+        self.rows_kept.get()
     }
 
     /// Shows drive labels in the Name cell of drive roots, or not.

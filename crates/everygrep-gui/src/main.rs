@@ -3031,8 +3031,10 @@ fn show_results(w: &AppWindow, result: SearchResult) {
     }
     let count = result.ids.len();
     let mut kept = None;
+    let mut rows_kept = false;
     with_model(w, |m| {
         kept = m.set_result(&result);
+        rows_kept = m.rows_kept();
         // An item being renamed may have moved in the list, or be gone.
         let row = m.renaming_row();
         if row.is_none() {
@@ -3041,7 +3043,9 @@ fn show_results(w: &AppWindow, result: SearchResult) {
         w.set_rename_row(row.map_or(-1, |r| r as i32));
     });
     // Folders without these results are shown grey.
-    folders::results_changed();
+    if !rows_kept {
+        folders::results_changed();
+    }
     if count == 0 {
         w.set_current(-1);
     } else if let Some(row) = kept {

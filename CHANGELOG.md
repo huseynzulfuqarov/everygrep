@@ -167,7 +167,9 @@ First version, 0.1.0, not released yet.
   search again). Other changes only draw the rows on screen again, so a busy
   folder no longer runs the search twice a second. The search time in the
   status line is that of the last search asked for; one run again for file
-  changes leaves it.
+  changes leaves it, and when it lists the same rows in the same order the
+  list stays as it is (selection, scroll position and details read for
+  unchanged rows) and only the rows on screen are drawn again.
 - When no inotify instance can be made (for example for the index built
   again after a queue overflow, while other programs hold every instance),
   the index is shown as not watching changes and a watcher is tried again

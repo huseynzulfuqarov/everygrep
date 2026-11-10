@@ -5413,6 +5413,64 @@ mod tests {
     }
 
     #[test]
+    fn a_refresh_with_the_same_rows_keeps_the_list() {
+        let dir = Scratch::new("refresh-same-rows");
+        let root = dir.0.join("a");
+        fs::create_dir_all(&root).unwrap();
+        for name in ["one.txt", "two.txt"] {
+            fs::write(root.join(name), "").unwrap();
+        }
+        let probe = Probe::start_unwatched(vec![root.clone()], dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Unwatched);
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("txt", QueryOptions::default());
+        let first = loop {
+            let r = probe
+                .results
+                .recv_timeout(Duration::from_secs(20))
+                .expect("results");
+            if r.query == "txt" {
+                break r;
+            }
+        };
+        let model = crate::results::ResultsModel::new(probe.engine.clone());
+        let again = |ids: Vec<NodeId>, refresh: bool| SearchResult {
+            settled: None,
+            ids: Arc::new(ids),
+            groups: Arc::default(),
+            group_ids: Arc::default(),
+            terms: Arc::clone(&first.terms),
+            took: Duration::from_millis(40),
+            error: None,
+            query: first.query.clone(),
+            epoch: first.epoch,
+            generation: first.generation,
+            refresh,
+        };
+        model.set_result(&first);
+        assert!(!model.rows_kept());
+        model.select_only(1);
+        let time = model.status().time;
+
+        // The same rows in the same order, in a fresh list.
+        model.set_result(&again(first.ids.to_vec(), true));
+        assert!(model.rows_kept());
+        assert_eq!(model.status().time, time);
+        assert!(model.is_selected(1), "the selection stays");
+        // Another order is a new list.
+        let mut reversed = first.ids.to_vec();
+        reversed.reverse();
+        model.set_result(&again(reversed, true));
+        assert!(!model.rows_kept());
+        assert_eq!(model.status().time, time);
+        // So is the same list asked for by the user.
+        model.set_result(&again(first.ids.to_vec(), false));
+        assert!(!model.rows_kept());
+        assert_eq!(model.status().time, "40 ms");
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn refresh_runs_the_same_query_again() {
         let dir = Scratch::new("refresh");
         let a = dir.0.join("a");
