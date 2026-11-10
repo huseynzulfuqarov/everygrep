@@ -492,7 +492,11 @@ impl ResultsModel {
         let mut carried = false;
         *self.terms.borrow_mut() = Arc::clone(&result.terms);
         self.now_ns.set(now_ns());
-        self.took.set(result.took);
+        // The status line shows how long the user's search took; one run
+        // again because files changed leaves it.
+        if !result.refresh {
+            self.took.set(result.took);
+        }
         {
             let mut selection = self.selection.borrow_mut();
             let mut query = self.query.borrow_mut();

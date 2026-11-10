@@ -103,6 +103,10 @@ pub struct SearchResult {
     /// handed to the window later; a newer request may have come by then,
     /// whose own result follows (see [`Engine::is_current`]).
     pub generation: u64,
+    /// The same request ran again by itself because files changed; no
+    /// request of the user waits for it. The status line keeps the time
+    /// of the user's search.
+    pub refresh: bool,
 }
 
 /// Callbacks into the UI. They are called from engine threads and must hand
@@ -508,7 +512,9 @@ pub struct Engine {
     epoch: AtomicU64,
     dirty: AtomicBool,
     stop: AtomicBool,
-    searches: Mutex<Option<mpsc::Sender<u64>>>,
+    /// Requests for the search thread: the generation, and whether it only
+    /// runs the request again because files changed.
+    searches: Mutex<Option<mpsc::Sender<(u64, bool)>>>,
     hooks: Hooks,
     threads: Mutex<Vec<JoinHandle<()>>>,
     /// Removable drives: where to look (`None` turns them off), the
@@ -1653,11 +1659,17 @@ impl Engine {
             state.refresh = true;
         } else if !state.stopped {
             drop(state);
-            self.request_search();
+            self.ask_search(true);
         }
     }
 
     fn request_search(&self) -> u64 {
+        self.ask_search(false)
+    }
+
+    /// Asks the search thread for the current request; `refresh` when only
+    /// file changes ask for it (see [`SearchResult::refresh`]).
+    fn ask_search(&self, refresh: bool) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         // The running search or sort is for an older request: its results
         // would be dropped, so stop it rather than wait for it. A search
@@ -1665,17 +1677,23 @@ impl Engine {
         // `search_loop`).
         self.tasks.cancel_search();
         if let Some(tx) = self.searches.lock().expect("lock").as_ref() {
-            let _ = tx.send(generation);
+            let _ = tx.send((generation, refresh));
         }
         generation
     }
 
-    fn search_loop(&self, rx: &mpsc::Receiver<u64>) {
-        while let Ok(mut generation) = rx.recv() {
+    fn search_loop(&self, rx: &mpsc::Receiver<(u64, bool)>) {
+        // A request of the user whose results were not handed over yet
+        // (its search was cancelled for a newer one, perhaps a refresh).
+        let mut asked = false;
+        while let Ok((mut generation, mut refresh)) = rx.recv() {
             // Only the newest request matters.
-            while let Ok(newer) = rx.try_recv() {
+            while let Ok((newer, again)) = rx.try_recv() {
                 generation = newer;
+                refresh &= again;
             }
+            asked |= !refresh;
+            let refresh = !asked;
             if self.stop.load(Ordering::SeqCst) {
                 break;
             }
@@ -1706,6 +1724,7 @@ impl Engine {
                                 *self.answered.lock().expect("lock") = (generation, Some(searched));
                                 let ids = Arc::new(ids);
                                 self.note_shown(generation, epoch, &ids);
+                                asked = false;
                                 (self.hooks.on_results)(SearchResult {
                                     settled: Some(SettledSearch {
                                         state: state.clone(),
@@ -1722,6 +1741,7 @@ impl Engine {
                                     query: state.text,
                                     epoch,
                                     generation,
+                                    refresh,
                                 });
                             }
                             self.refresh_after_contents();
@@ -1807,6 +1827,7 @@ impl Engine {
                 *self.answered.lock().expect("lock") = (generation, version);
                 let ids = Arc::new(ids);
                 self.note_shown(generation, epoch, &ids);
+                asked = false;
                 (self.hooks.on_results)(SearchResult {
                     settled: version.map(|version| SettledSearch {
                         state: state.clone(),
@@ -1823,6 +1844,7 @@ impl Engine {
                     query: state.text,
                     epoch,
                     generation,
+                    refresh,
                 });
             }
         }
@@ -2111,6 +2133,7 @@ impl Engine {
             query: state.text.clone(),
             epoch,
             generation,
+            refresh: false,
         });
         true
     }
@@ -2120,7 +2143,7 @@ impl Engine {
         let mut state = self.content_state.lock().expect("lock");
         if std::mem::take(&mut state.refresh) {
             drop(state);
-            self.request_search();
+            self.ask_search(true);
         }
     }
 
@@ -4341,6 +4364,7 @@ mod tests {
             query: String::new(),
             epoch: probe.engine.epoch(),
             generation: 0,
+            refresh: false,
         };
         let model = ResultsModel::new(probe.engine.clone());
         model.set_result(&result);
@@ -5344,6 +5368,51 @@ mod tests {
     }
 
     #[test]
+    fn a_search_run_again_for_file_changes_keeps_the_time_shown() {
+        let dir = Scratch::new("refresh-time");
+        let root = dir.0.join("a");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "").unwrap();
+        let probe = Probe::start(vec![root.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        let next = |query: &str| loop {
+            let r = probe
+                .results
+                .recv_timeout(Duration::from_secs(20))
+                .expect("results");
+            if r.query == query {
+                break r;
+            }
+        };
+        while probe.results.try_recv().is_ok() {}
+        probe.engine.set_query("txt", QueryOptions::default());
+        let mut asked = next("txt");
+        assert!(!asked.refresh, "asked by the user");
+        let model = crate::results::ResultsModel::new(probe.engine.clone());
+        asked.took = Duration::from_millis(7);
+        model.set_result(&asked);
+        assert_eq!(model.status().time, "7.0 ms");
+
+        fs::write(root.join("two.txt"), "").unwrap();
+        let mut again = next("txt");
+        assert!(again.refresh, "run again for a file change");
+        assert_eq!(again.ids.len(), 2);
+        again.took = Duration::from_millis(50);
+        model.set_result(&again);
+        assert_eq!(slint::Model::row_count(&model), 2);
+        assert_eq!(model.status().time, "7.0 ms", "the user's time stays");
+
+        // View → Refresh is the user's.
+        probe.engine.refresh();
+        let mut refreshed = next("txt");
+        assert!(!refreshed.refresh);
+        refreshed.took = Duration::from_millis(12);
+        model.set_result(&refreshed);
+        assert_eq!(model.status().time, "12 ms");
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn refresh_runs_the_same_query_again() {
         let dir = Scratch::new("refresh");
         let a = dir.0.join("a");
@@ -6180,6 +6249,7 @@ mod tests {
             query: String::new(),
             epoch: e.epoch().wrapping_sub(1),
             generation: 0,
+            refresh: false,
         });
         // Enough entries go to compact the index.
         for f in 0..12_000 {
@@ -6614,6 +6684,7 @@ mod tests {
                 query: i.to_string(),
                 epoch: probe.engine.epoch(),
                 generation: 0,
+                refresh: false,
             });
             if i > 0 {
                 tabs.add(crate::tabs::Tab::default(), true);
@@ -6686,6 +6757,7 @@ mod tests {
                 query: i.to_string(),
                 epoch: probe.engine.epoch(),
                 generation: 0,
+                refresh: false,
             });
             model.select_only(i);
             snapshots.push(model.freeze());
