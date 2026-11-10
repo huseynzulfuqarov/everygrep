@@ -652,6 +652,9 @@ First version, 0.1.0, not released yet.
 - Arch Linux PKGBUILD.
 - AppStream metainfo (`data/az.huseynz.EveryGrep.metainfo.xml`), installed by
   the PKGBUILD.
+- The desktop entry no longer asks for startup notification
+  (`StartupNotify=false`): the window does not answer it, so the desktop
+  kept showing its busy pointer after the window had opened.
 - A short README, with the full description of the window, the settings
   and the command line in `docs/manual.md`.
 - `scripts/check.sh` runs on GitHub for every push to `main` and every pull

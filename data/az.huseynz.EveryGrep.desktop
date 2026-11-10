@@ -14,5 +14,5 @@ Categories=Utility;FileTools;
 Keywords=search;find;file;folder;locate;filename;
 Keywords[az]=axtar;tap;fayl;qovluq;ad;
 Keywords[tr]=ara;bul;dosya;klasör;ad;
-StartupNotify=true
+StartupNotify=false
 StartupWMClass=az.huseynz.EveryGrep
