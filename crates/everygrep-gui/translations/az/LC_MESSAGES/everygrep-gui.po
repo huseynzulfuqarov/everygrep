@@ -4646,29 +4646,20 @@ msgstr "Təkrarla"
 msgid "Paste"
 msgstr "Yapışdır"
 
-msgid "Combine"
-msgstr "Operator əlavə et"
+msgid "Insert"
+msgstr "Əlavə et"
 
-msgid "Match options"
-msgstr "Modifikator əlavə et"
+msgid "either… or"
+msgstr "ya… ya da"
 
-msgid "Conditions"
-msgstr "Funksiya əlavə et"
+msgid "not"
+msgstr "deyil"
 
-msgid "Both (space)"
-msgstr "VƏ (boşluq)"
+msgid "group"
+msgstr "qrup"
 
-msgid "Either  |"
-msgstr "VƏ YA  |"
-
-msgid "Without  !"
-msgstr "DEYİL  !"
-
-msgid "Group  < >"
-msgstr "Qrup  < >"
-
-msgid "Exact text  \" \""
-msgstr "Dırnaq  \" \""
+msgid "exact text"
+msgstr "dəqiq mətn"
 
 msgid "match case"
 msgstr "hərf registrini nəzərə al"
@@ -4691,8 +4682,8 @@ msgstr "ad bununla başlayır"
 msgid "the name ends with"
 msgstr "ad bununla bitir"
 
-msgid "whole file name"
-msgstr "tam fayl adı"
+msgid "the whole name"
+msgstr "bütün ad"
 
 msgid "ignore punctuation"
 msgstr "durğu işarələrinə baxma"

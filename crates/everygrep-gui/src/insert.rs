@@ -1,5 +1,5 @@
-//! The search field's "Insert" menu: operators, modifiers and functions of
-//! the query language (see `everygrep_core::query`) put in at the text
+//! The search field's "Insert" menu: words and operators of the query
+//! language (see `everygrep_core::query`), in sections, put in at the text
 //! cursor.
 //!
 //! A part that wraps (a group, a quote, a modifier) goes around the
@@ -30,60 +30,68 @@ const fn operator(open: &'static str) -> Part {
     }
 }
 
-/// Operators: AND (a space), OR, NOT, a group and a quote.
-pub const OPERATORS: [Part; 5] = [
-    operator(" "),
+/// Where to look: the kind of entry, its type, contents and place.
+pub const WHERE: [Part; 11] = [
+    wrap("file:", ""),
+    wrap("folder:", ""),
+    wrap("ext:", ""),
+    wrap("type:", ""),
+    wrap("attributes:", ""),
+    wrap("content:", ""),
+    wrap("path:", ""),
+    wrap("parent:", ""),
+    wrap("child:", ""),
+    wrap("depth:", ""),
+    wrap("children:", ""),
+];
+
+/// Dates, sizes and the name length.
+pub const WHEN_AND_SIZE: [Part; 8] = [
+    wrap("modified:<", ""),
+    wrap("modified:>", ""),
+    wrap("modified:today", ""),
+    wrap("created:", ""),
+    wrap("accessed:", ""),
+    wrap("size:>", ""),
+    wrap("size:<", ""),
+    wrap("len:", ""),
+];
+
+/// How a term matches: what is compared, where it must match, regex.
+pub const HOW: [Part; 10] = [
+    wrap("case:", ""),
+    wrap("nocase:", ""),
+    wrap("diacritics:", ""),
+    wrap("nopunct:", ""),
+    wrap("nospace:", ""),
+    wrap("wholeword:", ""),
+    wrap("wholename:", ""),
+    wrap("prefix:", ""),
+    wrap("suffix:", ""),
+    wrap("regex:", ""),
+];
+
+/// Combining terms: either or, not, a group and exact text. A space (both
+/// terms) needs no entry.
+pub const COMBINE: [Part; 4] = [
     operator("|"),
     wrap("!", ""),
     wrap("<", ">"),
     wrap("\"", "\""),
 ];
 
-/// Modifiers for one term.
-pub const MODIFIERS: [Part; 13] = [
-    wrap("case:", ""),
-    wrap("nocase:", ""),
-    wrap("wholeword:", ""),
-    wrap("diacritics:", ""),
-    wrap("path:", ""),
-    wrap("prefix:", ""),
-    wrap("suffix:", ""),
-    wrap("wholename:", ""),
-    wrap("nopunct:", ""),
-    wrap("nospace:", ""),
-    wrap("regex:", ""),
-    wrap("file:", ""),
-    wrap("folder:", ""),
-];
+/// Settings for the whole result list.
+pub const RESULTS: [Part; 2] = [wrap("limit:", ""), wrap("duplicates:", "")];
 
-/// Functions that test a value.
-pub const FUNCTIONS: [Part; 18] = [
-    wrap("ext:", ""),
-    wrap("size:>", ""),
-    wrap("size:<", ""),
-    wrap("modified:>", ""),
-    wrap("modified:<", ""),
-    wrap("modified:today", ""),
-    wrap("created:", ""),
-    wrap("accessed:", ""),
-    wrap("content:", ""),
-    wrap("limit:", ""),
-    wrap("duplicates:", ""),
-    wrap("type:", ""),
-    wrap("attributes:", ""),
-    wrap("parent:", ""),
-    wrap("child:", ""),
-    wrap("depth:", ""),
-    wrap("children:", ""),
-    wrap("len:", ""),
-];
-
-/// The part of a menu (0 operators, 1 modifiers, 2 functions) at `index`.
-pub fn part(menu: i32, index: i32) -> Option<Part> {
-    let list: &[Part] = match menu {
-        0 => &OPERATORS,
-        1 => &MODIFIERS,
-        2 => &FUNCTIONS,
+/// The part at `index` of a section of the menu (0 where, 1 when and size,
+/// 2 how, 3 combine, 4 results).
+pub fn part(section: i32, index: i32) -> Option<Part> {
+    let list: &[Part] = match section {
+        0 => &WHERE,
+        1 => &WHEN_AND_SIZE,
+        2 => &HOW,
+        3 => &COMBINE,
+        4 => &RESULTS,
         _ => return None,
     };
     list.get(usize::try_from(index).ok()?).copied()
@@ -165,23 +173,20 @@ mod tests {
     #[test]
     fn inserted_terms_have_boundaries_and_leave_the_caret_in_the_new_term() {
         assert_eq!(
-            insert("case:beach", 10, 10, FUNCTIONS[0]),
+            insert("case:beach", 10, 10, WHERE[2]),
             ("case:beach ext:".into(), 15)
         );
         assert_eq!(
-            insert("case:beach ", 11, 11, FUNCTIONS[0]),
+            insert("case:beach ", 11, 11, WHERE[2]),
             ("case:beach ext:".into(), 15)
         );
-        assert_eq!(insert("əx", 2, 2, FUNCTIONS[0]), ("ə ext: x".into(), 7));
-        assert_eq!(insert("<", 1, 1, MODIFIERS[0]), ("<case:".into(), 6));
-        assert_eq!(insert("case:", 5, 5, FUNCTIONS[0]), ("case:ext:".into(), 9));
-        assert_eq!(insert("x>", 1, 1, FUNCTIONS[0]), ("x ext:>".into(), 6));
-        assert_eq!(insert("a|", 2, 2, FUNCTIONS[0]), ("a|ext:".into(), 6));
+        assert_eq!(insert("əx", 2, 2, WHERE[2]), ("ə ext: x".into(), 7));
+        assert_eq!(insert("<", 1, 1, HOW[0]), ("<case:".into(), 6));
+        assert_eq!(insert("case:", 5, 5, WHERE[2]), ("case:ext:".into(), 9));
+        assert_eq!(insert("x>", 1, 1, WHERE[2]), ("x ext:>".into(), 6));
+        assert_eq!(insert("a|", 2, 2, WHERE[2]), ("a|ext:".into(), 6));
         // A selection is wrapped, retaining its existing term boundaries.
-        assert_eq!(
-            insert("beach", 0, 5, MODIFIERS[0]),
-            ("case:beach".into(), 10)
-        );
+        assert_eq!(insert("beach", 0, 5, HOW[0]), ("case:beach".into(), 10));
         assert!(Query::parse("case:beach ext:jpg", QueryOptions::default()).is_ok());
     }
 
@@ -190,7 +195,6 @@ mod tests {
         let or = operator("|");
         assert_eq!(insert("jpg", 0, 3, or), ("jpg|".into(), 4));
         assert_eq!(insert("jpg png", 3, 3, or), ("jpg| png".into(), 4));
-        assert_eq!(insert("a", 1, 1, operator(" ")), ("a ".into(), 2));
     }
 
     #[test]
@@ -203,9 +207,9 @@ mod tests {
 
     #[test]
     fn every_entry_is_known_to_the_query_language() {
-        for menu in 0..3 {
+        for section in 0..5 {
             let mut i = 0;
-            while let Some(p) = part(menu, i) {
+            while let Some(p) = part(section, i) {
                 let text = format!("{}x{}", p.open, p.close);
                 let text = if p.operator { format!("a{text}") } else { text };
                 // A value the function takes, where it needs one.
@@ -231,7 +235,7 @@ mod tests {
             }
             assert!(i > 0);
         }
-        assert_eq!(part(3, 0), None);
+        assert_eq!(part(5, 0), None);
         assert_eq!(part(0, -1), None);
     }
 }

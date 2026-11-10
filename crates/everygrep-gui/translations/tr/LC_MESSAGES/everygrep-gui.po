@@ -4646,29 +4646,20 @@ msgstr "Yinele"
 msgid "Paste"
 msgstr "Yapıştır"
 
-msgid "Combine"
-msgstr "Operatör ekle"
+msgid "Insert"
+msgstr "Ekle"
 
-msgid "Match options"
-msgstr "Değiştirici ekle"
+msgid "either… or"
+msgstr "ya… ya da"
 
-msgid "Conditions"
-msgstr "İşlev ekle"
+msgid "not"
+msgstr "değil"
 
-msgid "Both (space)"
-msgstr "VE (boşluk)"
+msgid "group"
+msgstr "grup"
 
-msgid "Either  |"
-msgstr "VEYA  |"
-
-msgid "Without  !"
-msgstr "DEĞİL  !"
-
-msgid "Group  < >"
-msgstr "Grup  < >"
-
-msgid "Exact text  \" \""
-msgstr "Tırnak  \" \""
+msgid "exact text"
+msgstr "tam metin"
 
 msgid "match case"
 msgstr "büyük/küçük harfe duyarlı"
@@ -4691,8 +4682,8 @@ msgstr "ad bununla başlar"
 msgid "the name ends with"
 msgstr "ad bununla biter"
 
-msgid "whole file name"
-msgstr "tam dosya adı"
+msgid "the whole name"
+msgstr "adın tamamı"
 
 msgid "ignore punctuation"
 msgstr "noktalama işaretlerini yok say"

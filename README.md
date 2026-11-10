@@ -130,9 +130,9 @@ The full syntax, with every modifier and edge case, is in
 
 ```sh
 everygrep-gui [--root <folder>]... [--index-file <file>] [--filter <name>]
-              [--case] [--whole-words] [--match-path] [--diacritics]
-              [--prefix] [--suffix] [--ignore-punctuation]
-              [--ignore-whitespace] [--regex]
+              [--case] [--diacritics] [--ignore-punctuation]
+              [--ignore-whitespace] [--whole-words] [--prefix] [--suffix]
+              [--match-path] [--regex]
               [--columns type,extension,created,accessed,attributes]
               [--new-instance] [--new-window] [--toggle] [--background] [--debug-log]
               [--settings[=indexing|search|appearance|window|keyboard|advanced]] [query words...]
@@ -496,8 +496,10 @@ searches inside it. View → Toolbar, View → Status bar and View → Zoom show
 toolbar, hide the status line and size the result list; the window title names
 the search and the number of other tabs.
 
-Right-click the search field for Undo, Redo, the clipboard commands and
-Insert menus that put an operator, a modifier or a function at the cursor.
+Right-click the search field for Undo, Redo, the clipboard commands and an
+Insert menu that puts a query word or an operator at the cursor, grouped by
+where to look, dates and sizes, how to match, combining terms and the
+result list.
 Edit → Copy column value copies the value of the right-clicked column for
 the chosen items, and Copy all properties (TSV) the shown columns with a
 header line. File → Load file details reads the size and date of
@@ -1004,9 +1006,9 @@ catch up after installing watches, including after a fresh scan or rescan.
 `--exclude`, `--include-files` and `--exclude-files` take the excluded
 folders and file patterns described under
 [Excluded folders and files](#excluded-folders-and-files). Other options:
-`--root`, `--index-file`, `--case`, `--whole-words`, `--match-path`,
-`--diacritics`, `--prefix`, `--suffix`, `--ignore-punctuation`,
-`--ignore-whitespace`, `--regex`, `--filter`, `--threads`, `--no-meta`;
+`--root`, `--index-file`, `--case`, `--diacritics`, `--ignore-punctuation`,
+`--ignore-whitespace`, `--whole-words`, `--prefix`, `--suffix`,
+`--match-path`, `--regex`, `--filter`, `--threads`, `--no-meta`;
 `everygrep` without arguments prints them all. The command line is English
 only. Path arguments preserve non-UTF-8 filenames; queries and textual option
 values must be valid UTF-8. `--no-meta` omits file sizes and timestamps during

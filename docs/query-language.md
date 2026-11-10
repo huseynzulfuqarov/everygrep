@@ -583,8 +583,8 @@ The matching modes can be turned on for the whole query: in the window with
 the toggles in the search field (`Alt+C`, `Alt+W`, `Alt+P`, `Alt+D`) and the
 Search menu (`Alt+B` prefix, `Alt+E` suffix, `Alt+U` ignore punctuation,
 `Alt+S` ignore whitespace, `Alt+R` regex), on the command line with
-`--case`, `--whole-words`, `--match-path`, `--diacritics`, `--prefix`,
-`--suffix`, `--ignore-punctuation`, `--ignore-whitespace` and `--regex`.
+`--case`, `--diacritics`, `--ignore-punctuation`, `--ignore-whitespace`,
+`--whole-words`, `--prefix`, `--suffix`, `--match-path` and `--regex`.
 Modifiers in the query then override them per term (except in regex mode,
 where the query is not split into terms).
 

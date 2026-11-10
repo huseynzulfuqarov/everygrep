@@ -46,13 +46,13 @@ options:
   --exclude-files <list>   leave out files matching one of these patterns
                      (lists: *.mp3;*.jpg, regex:<expression>; see README)
   --case             match case exactly
-  --whole-words      match whole words only
-  --match-path       match the full path instead of the name
   --diacritics       match diacritics exactly (by default e also finds é)
-  --prefix           terms must match at the start of the name
-  --suffix           terms must match at the end of the name
   --ignore-punctuation   leave punctuation out of names and terms
   --ignore-whitespace    leave whitespace out of names and terms
+  --whole-words      match whole words only
+  --prefix           terms must match at the start of the name
+  --suffix           terms must match at the end of the name
+  --match-path       match the full path instead of the name
   --regex            the whole query is one regular expression
   --filter <name>    only all, audio, archive, code, document, executable,
                      folder, image or video entries
