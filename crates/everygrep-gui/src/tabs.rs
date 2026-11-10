@@ -315,7 +315,7 @@ mod tests {
         use crate::saved_searches::{Bookmark, NamedFilter};
         let filter = NamedFilter {
             id: 7,
-            name: "Pictures".into(),
+            name: "Images".into(),
             search: "image:".into(),
             options: QueryOptions::default(),
             layout: Default::default(),
