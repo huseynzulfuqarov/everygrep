@@ -3182,7 +3182,7 @@ pub(crate) mod tests {
                 and_before_or: true,
                 literal_operators: true,
                 wildcards_anywhere: true,
-                filter: Filter::Picture,
+                filter: Filter::Image,
             },
             as_you_type: false,
             show_mode_badges: false,

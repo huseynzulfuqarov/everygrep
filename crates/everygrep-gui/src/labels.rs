@@ -45,7 +45,7 @@ pub fn filter(f: Filter) -> &'static str {
         Filter::Document => tr("Documents"),
         Filter::Executable => tr("Executables"),
         Filter::Folder => tr("Folders"),
-        Filter::Picture => tr("Pictures"),
+        Filter::Image => tr("Pictures"),
         Filter::Video => tr("Videos"),
     }
 }

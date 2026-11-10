@@ -1057,8 +1057,8 @@ mod tests {
             err("duplicates:name;size;ext;stem;modified;content;name;x")
                 .contains("unknown property")
         );
-        // The aliases work too.
-        assert_eq!(spec("duplicates:name"), spec("duplicates:name"));
+        // The word is matched in any case.
+        assert_eq!(spec("DUPLICATES:name"), spec("duplicates:name"));
         assert_eq!(spec("extra-copies:").mode, DupeMode::Extra);
         assert!(err("duplicates: duplicates:").contains("only one of"));
         // Without a duplicate term there is none.

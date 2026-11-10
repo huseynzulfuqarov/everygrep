@@ -478,7 +478,7 @@ mod tests {
             (
                 "",
                 QueryOptions {
-                    filter: Filter::Picture,
+                    filter: Filter::Image,
                     ..QueryOptions::default()
                 },
             ),

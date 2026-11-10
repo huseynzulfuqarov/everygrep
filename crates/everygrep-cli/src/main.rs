@@ -26,10 +26,11 @@ usage:
 
 query syntax: space = and, a|b = or, !a = not, <a b> = group, \"a b\" = literal,
 *.pdf = wildcard, case: wholeword: diacritics: path: file: folder: ext:pdf;jpg|png
-audio: archive: document: executable: image: video: code: size:>10mb size:1mb size:large
-modified:<7d modified:2026-10-25 modified:>=2026-10 modified:lastweek
-modified:2026-10-01..2026-10-25 modified:today created:today accessed:>30d prefix:
-suffix: nopunct: nospace: regex:^img_\\d+ modified:last3days modified:monday limit:100
+audio: archive: code: document: executable: image: video:
+size:>10mb size:1mb size:large modified:<7d modified:2026-10-25 modified:>=2026-10
+modified:lastweek modified:2026-10-01..2026-10-25 modified:today created:today
+accessed:>30d prefix: suffix: nopunct: nospace: regex:^img_\\d+
+modified:last3days modified:monday limit:100
 
 search and shell load the saved index; they scan and save it first when there
 is none, when roots or indexing rules differ from the saved ones, or with --rescan.
@@ -54,7 +55,7 @@ options:
   --ignore-whitespace    leave whitespace out of names and terms
   --regex            the whole query is one regular expression
   --filter <name>    only all, audio, archive, code, document, executable,
-                     folder, picture or video entries
+                     folder, image or video entries
   --threads <n>      search threads (default: number of CPUs)
   --limit <n>        print at most n results (default: 50, 0 = all)
   --no-meta          skip file sizes/times (folder times are kept for catch-up)";

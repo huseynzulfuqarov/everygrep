@@ -288,8 +288,7 @@ First version, 0.1.0, not released yet.
   and in name order on the command line.
 - Filter words in the query, the filter names with a colon: `audio:`,
   `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`,
-  `video:` and `code:`, sharing the extension lists of the filter selector
-  and combining with other terms (`image: beach`, `!video:`,
+  sharing the extension lists of the filter selector and combining with other terms (`image: beach`, `!video:`,
   `<audio:|video:>`).
 - The executable filter (and `executable:`) also finds files of no known type that
   have an execute bit, looked up on disk while searching. Entries of offline
@@ -327,7 +326,7 @@ First version, 0.1.0, not released yet.
   combinations (`duplicates:name;size`) compare those; `extra-copies:`
   lists every copy but the first of each group, `distinct:` one of each,
   `unique:` the results without a duplicate. Groups stay together in the
-  order shown.  Empty files are left out unless
+  order shown. Empty files are left out unless
   Settings → Search → Duplicates counts them; the same page can have files
   with equal hashes compared byte by byte as well. With alternate row
   colors on, the window shades every second group of copies.

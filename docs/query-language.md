@@ -367,7 +367,7 @@ than 3 days, `modified:>last3days` is in the future.
 Months and days may have one or two digits (`2026-1-5`); years have four. A
 day starts at local midnight, so days with a daylight saving change are 23 or
 25 hours long. The zone comes from `$TZ` or `/etc/localtime` (see
-`crates/everygrep-core/src/localtime.rs`). 
+`crates/everygrep-core/src/localtime.rs`).
 Invalid dates (`2026-02-30`) are errors.
 Entries whose modification time is not known (shown empty: indexed without
 file details, not readable, or a folder that could not be listed and is
@@ -513,8 +513,6 @@ order shown, and its members follow in that order.
   every second group of a `duplicates:` or `extra-copies:` list is shaded
   (instead of every second row), so the groups stand apart.
 
-  `duplicates:` and `extra-copies:` are short names of `duplicates:` and
-  `extra-copies:`.
 - Like `limit:`, the term applies to the whole query wherever it is written,
   and `limit:` applies after it. A query can have one.
 
@@ -569,11 +567,11 @@ The same filters can be written in the query, as a word with a colon:
 |---|---|
 | `audio:` | audio |
 | `archive:` | archive |
+| `code:` | code |
 | `document:` | document |
 | `executable:` | executable |
 | `image:` | image |
 | `video:` | video |
-| `code:` | code |
 
 They combine with other terms like any term: `image: beach`, `!video:`,
 `<audio:|video:> 2026`, and like `file:` they take a term after the colon:

@@ -3312,7 +3312,7 @@ mod tests {
             "type, extension,attributes",
             "img",
         ]);
-        assert_eq!(a.options.filter, Filter::Picture);
+        assert_eq!(a.options.filter, Filter::Image);
         assert!(a.options.case_sensitive && a.options.match_diacritics);
         assert!(!a.options.whole_words && !a.options.match_path);
         assert!(a.show_type && a.show_ext && a.show_attrs);
@@ -3360,7 +3360,7 @@ mod tests {
         let p = present_args(&["--filter", "image", "--case", "--columns", "type"]);
         assert_eq!(p.query, None);
         let o = p.options.expect("modes given");
-        assert_eq!(o.filter, Filter::Picture);
+        assert_eq!(o.filter, Filter::Image);
         assert!(o.case_sensitive && !o.whole_words);
         assert!(p.show_type && !p.show_ext && !p.show_created);
         let p = present_args(&["--columns", "created,attributes"]);

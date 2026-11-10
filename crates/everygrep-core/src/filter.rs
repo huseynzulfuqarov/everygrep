@@ -16,8 +16,9 @@
 //! | `image` | images, including camera raw and editor formats |
 //! | `video` | video |
 //!
-//! The same filters can be written in the query as words ([`Filter::from_query_word`]):
-//! `audio:`, `archive:`, `code:`, `document:`, `executable:`, `image:` and `video:`.
+//! The same filters can be written in the query as words, their identifiers
+//! followed by a colon ([`Filter::from_query_word`]): `audio:`, `archive:`,
+//! `code:`, `document:`, `executable:`, `image:` and `video:`.
 //!
 //! The index keeps no permission bits. For `executable`, a file whose name
 //! gives no known type is looked up on disk while searching (`lstat`, links
@@ -39,7 +40,7 @@ pub enum Filter {
     Document,
     Executable,
     Folder,
-    Picture,
+    Image,
     Video,
 }
 
@@ -53,7 +54,7 @@ impl Filter {
         Filter::Document,
         Filter::Executable,
         Filter::Folder,
-        Filter::Picture,
+        Filter::Image,
         Filter::Video,
     ];
 
@@ -67,7 +68,7 @@ impl Filter {
             Filter::Document => "document",
             Filter::Executable => "executable",
             Filter::Folder => "folder",
-            Filter::Picture => "image",
+            Filter::Image => "image",
             Filter::Video => "video",
         }
     }
@@ -80,22 +81,10 @@ impl Filter {
     }
 
     /// The filter that the query word `word` (without the `:`, ASCII case
-    /// ignored) stands for: the identifiers and the short forms `zip`,
-    /// `doc`, `exe`, `image` and `pic`.
+    /// ignored) stands for: its identifier.
     pub fn from_query_word(word: &str) -> Option<Self> {
-        const SHORT: [(&str, Filter); 5] = [
-            ("archive", Filter::Archive),
-            ("document", Filter::Document),
-            ("executable", Filter::Executable),
-            ("image", Filter::Picture),
-            ("image", Filter::Picture),
-        ];
         // `all:` and `folder:` are not filter words: `folder:` is a modifier.
-        let found = SHORT
-            .iter()
-            .find(|(w, _)| w.eq_ignore_ascii_case(word))
-            .map(|&(_, f)| f)
-            .or_else(|| Self::from_id(word))?;
+        let found = Self::from_id(word)?;
         (!matches!(found, Filter::All | Filter::Folder)).then_some(found)
     }
 
@@ -113,7 +102,7 @@ impl Filter {
             ),
             Filter::Executable => kind == K::Executable,
             Filter::Folder => kind == K::Folder,
-            Filter::Picture => kind == K::Image,
+            Filter::Image => kind == K::Image,
             Filter::Video => kind == K::Video,
         }
     }
@@ -133,22 +122,22 @@ mod tests {
         for f in Filter::ALL {
             assert_eq!(Filter::from_id(f.id()), Some(f));
         }
-        assert_eq!(Filter::from_id("Image"), Some(Filter::Picture));
+        assert_eq!(Filter::from_id("Image"), Some(Filter::Image));
         assert_eq!(Filter::from_id("images"), None);
     }
 
     #[test]
     fn query_words() {
-        assert_eq!(Filter::from_query_word("archive"), Some(Filter::Archive));
         assert_eq!(Filter::from_query_word("Archive"), Some(Filter::Archive));
-        assert_eq!(Filter::from_query_word("IMAGE"), Some(Filter::Picture));
-        assert_eq!(Filter::from_query_word("image"), Some(Filter::Picture));
+        assert_eq!(Filter::from_query_word("IMAGE"), Some(Filter::Image));
         assert_eq!(
             Filter::from_query_word("executable"),
             Some(Filter::Executable)
         );
         assert_eq!(Filter::from_query_word("document"), Some(Filter::Document));
         assert_eq!(Filter::from_query_word("audio"), Some(Filter::Audio));
+        assert_eq!(Filter::from_query_word("code"), Some(Filter::Code));
+        assert_eq!(Filter::from_query_word("video"), Some(Filter::Video));
         assert_eq!(Filter::from_query_word("all"), None);
         assert_eq!(Filter::from_query_word("folder"), None);
         assert_eq!(Filter::from_query_word("photos"), None);
@@ -173,8 +162,8 @@ mod tests {
         assert!(!passes(Filter::Executable, "notes", false));
         assert!(passes(Filter::Folder, "photos.jpg", true));
         assert!(!passes(Filter::Folder, "photos.jpg", false));
-        assert!(passes(Filter::Picture, "IMG_1.HEIC", false));
-        assert!(!passes(Filter::Picture, "pictures", true));
+        assert!(passes(Filter::Image, "IMG_1.HEIC", false));
+        assert!(!passes(Filter::Image, "pictures", true));
         assert!(passes(Filter::Video, "film.webm", false));
     }
 }

@@ -9,11 +9,11 @@
 //! *.pdf  img_??.png   wildcards match the whole name by default; * and ?
 //!                     stop at /, ** does not
 //! case:Readme         match case for this term
-//! wholeword:art              whole words only: "art" but not "party"
+//! wholeword:art       whole words only: "art" but not "party"
 //! diacritics:café     match diacritics: "café" but not "cafe"
 //! path:src/main       match against the full path instead of the name
 //! file:  folder:      only files / only folders
-//! audio: archive: document: executable: image: video: code:
+//! audio: archive: code: document: executable: image: video:
 //!                     the result filters (see crate::filter), also with a term:
 //!                     image:beach
 //! ext:pdf;jpg         extension list (files only); also ext:pdf|jpg, ext:jp*
@@ -27,10 +27,12 @@
 //!                     today, yesterday, tomorrow, thisweek, lastmonth,
 //!                     nextyear, ...); >, >=, <, <= compare whole days, weeks,
 //!                     months or years; 2026-10-01..2026-10-25 is inclusive
-//! modified:last3days        from 3 days before now up to now (also past3days,
+//! modified:last3days  from 3 days before now up to now (also past3days,
 //!                     pastweek, next2hours, prev2weeks = whole weeks)
-//! modified:monday  modified:oct  the latest such day / month; modified:mtd  modified:ytd to date
-//! created:today  accessed:>30d   creation / access time, read from disk while searching
+//! modified:monday  modified:oct
+//!                     the latest such day / month; modified:mtd  modified:ytd to date
+//! created:today  accessed:>30d
+//!                     creation / access time, read from disk while searching
 //! prefix:rep          the name starts with the term
 //! suffix:.tar.gz      the name ends with the term
 //! nopunct:foo-bar     punctuation is ignored: "foo_bar", "foobar"
@@ -1830,10 +1832,7 @@ fn word_takes_comparison(word: &str) -> bool {
         "childfolders:",
         "size:",
         "modified:",
-        "modified:",
         "created:",
-        "created:",
-        "accessed:",
         "accessed:",
     ]
     .iter()
@@ -2072,7 +2071,6 @@ impl Parser {
                         | "content-codepage"
                         | "created"
                         | "accessed"
-                        | "executable"
                         | "attributes"
                         | "attrib"
                 )
@@ -2666,9 +2664,7 @@ const CONTENT_MODIFIERS: &[&str] = &[
     "content-codepage",
 ];
 
-/// `duplicates:name;size` and its relatives (`head`; `duplicates:` and
-/// `extra-copies:` are aliases of `duplicates:` and `extra-copies:`): the
-/// properties to compare, separated by `;` or `,`; none compares the
+/// `duplicates:name;size` and its relatives (`head`): the properties to compare, separated by `;` or `,`; none compares the
 /// contents.
 fn parse_dupe(head: &str, value: &str, case: bool) -> Result<DupeSpec, ParseError> {
     let mode = match head {
@@ -3942,11 +3938,7 @@ mod tests {
         t.store.add(None, b"main.rs.bak", false, Meta::default());
         // Plain text stays a substring match by default.
         assert_eq!(t.find("main.rs"), ["main.rs", "main.rs.bak"]);
-        for q in [
-            "wholename:main.rs",
-            "wholename:main.rs",
-            "WHOLENAME:main.rs",
-        ] {
+        for q in ["wholename:main.rs", "WHOLENAME:main.rs"] {
             assert_eq!(t.find(q), ["main.rs"], "{q}");
         }
         assert!(t.find("wholename:main").is_empty());
@@ -4043,7 +4035,7 @@ mod tests {
             ..QueryOptions::default()
         };
         assert_eq!(
-            t.find_with("photo", with(Filter::Picture)),
+            t.find_with("photo", with(Filter::Image)),
             ["photo (1).png", "photo.jpg"]
         );
         assert_eq!(
@@ -4053,7 +4045,7 @@ mod tests {
         assert_eq!(t.find_with("report", with(Filter::Folder)), ["report"]);
         assert_eq!(t.find_with("", with(Filter::Code)), ["main.rs"]);
         assert_eq!(t.find_with("report|main", with(Filter::Code)), ["main.rs"]);
-        assert!(t.find_with("!photo", with(Filter::Picture)).is_empty());
+        assert!(t.find_with("!photo", with(Filter::Image)).is_empty());
         assert_eq!(t.find_with("", with(Filter::All)).len(), t.store.len());
         let q = Query::parse("", with(Filter::Video)).unwrap();
         assert!(!q.matches_all());
@@ -4171,7 +4163,7 @@ mod tests {
     }
 
     #[test]
-    fn modifier_aliases_and_values() {
+    fn modifier_values() {
         let t = Tree::new();
         assert_eq!(t.find("pdf modified:<7d"), ["Report-2026.PDF"]);
         assert_eq!(
@@ -4419,15 +4411,10 @@ mod tests {
         for (word, filter) in [
             ("audio:", Filter::Audio),
             ("archive:", Filter::Archive),
-            ("archive:", Filter::Archive),
             ("document:", Filter::Document),
-            ("document:", Filter::Document),
-            ("image:", Filter::Picture),
-            ("image:", Filter::Picture),
-            ("image:", Filter::Picture),
+            ("image:", Filter::Image),
             ("video:", Filter::Video),
             ("code:", Filter::Code),
-            ("executable:", Filter::Executable),
             ("executable:", Filter::Executable),
         ] {
             assert_eq!(t.find(word), t.find_with("", with(filter)), "{word}");
@@ -5004,7 +4991,6 @@ mod tests {
             "modified:7d",
             "modified:<7d",
             "modified:<=7d",
-            "modified:7d",
             "modified:last7days",
         ] {
             assert_eq!(find_at(&entries, now, q), ["now", "past"], "{q}");
@@ -5683,7 +5669,7 @@ mod tests {
         assert_eq!(t.find_with("^/r/Süd/n", re_path), ["notes.md"]);
         let re_filter = with(|o| {
             o.regex = true;
-            o.filter = Filter::Picture;
+            o.filter = Filter::Image;
         });
         assert_eq!(t.find_with("g", re_filter), ["IMG_0042.JPG", "img_7.png"]);
         assert!(Query::parse("(", re).is_err());

@@ -101,13 +101,13 @@ fn filter_limits_results_to_a_kind() {
             filter,
         ])
     };
-    let pictures = search("image");
+    let images = search("image");
     let folders = search("folder");
     let bad = search("images");
     fs::remove_dir_all(&dir).unwrap();
 
-    assert!(pictures.status.success());
-    let stdout = String::from_utf8(pictures.stdout).unwrap();
+    assert!(images.status.success());
+    let stdout = String::from_utf8(images.stdout).unwrap();
     assert_eq!(stdout.lines().count(), 1, "{stdout}");
     assert!(stdout.contains("Holiday-Photo.JPG"));
     let stdout = String::from_utf8(folders.stdout).unwrap();
