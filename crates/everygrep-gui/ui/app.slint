@@ -593,45 +593,56 @@ component SearchField inherits Rectangle {
                         MenuSeparator { }
                         Menu {
                             title: @tr("Insert");
-                            MenuItem { title: "file:  " + @tr("files only"); activated => { root.put(0, 0); } }
-                            MenuItem { title: "folder:  " + @tr("folders only"); activated => { root.put(0, 1); } }
-                            MenuItem { title: "ext:  " + @tr("extensions"); activated => { root.put(0, 2); } }
-                            MenuItem { title: "type:  " + @tr("file type"); activated => { root.put(0, 3); } }
-                            MenuItem { title: "attributes:  " + @tr("attributes"); activated => { root.put(0, 4); } }
-                            MenuItem { title: "content:  " + @tr("file contents"); activated => { root.put(0, 5); } }
-                            MenuItem { title: "path:  " + @tr("match the full path"); activated => { root.put(0, 6); } }
-                            MenuItem { title: "parent:  " + @tr("parent folder"); activated => { root.put(0, 7); } }
-                            MenuItem { title: "child:  " + @tr("item inside"); activated => { root.put(0, 8); } }
-                            MenuItem { title: "depth:  " + @tr("folder depth"); activated => { root.put(0, 9); } }
-                            MenuItem { title: "children:  " + @tr("items inside"); activated => { root.put(0, 10); } }
-                            MenuSeparator { }
-                            MenuItem { title: "modified:<  " + @tr("modified within"); activated => { root.put(1, 0); } }
-                            MenuItem { title: "modified:>  " + @tr("modified before"); activated => { root.put(1, 1); } }
-                            MenuItem { title: "modified:today  " + @tr("modified today"); activated => { root.put(1, 2); } }
-                            MenuItem { title: "created:  " + @tr("created"); activated => { root.put(1, 3); } }
-                            MenuItem { title: "accessed:  " + @tr("accessed"); activated => { root.put(1, 4); } }
-                            MenuItem { title: "size:>  " + @tr("larger than"); activated => { root.put(1, 5); } }
-                            MenuItem { title: "size:<  " + @tr("smaller than"); activated => { root.put(1, 6); } }
-                            MenuItem { title: "len:  " + @tr("name length"); activated => { root.put(1, 7); } }
-                            MenuSeparator { }
-                            MenuItem { title: "case:  " + @tr("match case"); activated => { root.put(2, 0); } }
-                            MenuItem { title: "nocase:  " + @tr("ignore case"); activated => { root.put(2, 1); } }
-                            MenuItem { title: "diacritics:  " + @tr("match diacritics"); activated => { root.put(2, 2); } }
-                            MenuItem { title: "nopunct:  " + @tr("ignore punctuation"); activated => { root.put(2, 3); } }
-                            MenuItem { title: "nospace:  " + @tr("ignore spaces"); activated => { root.put(2, 4); } }
-                            MenuItem { title: "wholeword:  " + @tr("whole words"); activated => { root.put(2, 5); } }
-                            MenuItem { title: "wholename:  " + @tr("the whole name"); activated => { root.put(2, 6); } }
-                            MenuItem { title: "prefix:  " + @tr("the name starts with"); activated => { root.put(2, 7); } }
-                            MenuItem { title: "suffix:  " + @tr("the name ends with"); activated => { root.put(2, 8); } }
-                            MenuItem { title: "regex:  " + @tr("regular expression"); activated => { root.put(2, 9); } }
-                            MenuSeparator { }
-                            MenuItem { title: "|  " + @tr("either… or"); activated => { root.put(3, 0); } }
-                            MenuItem { title: "!  " + @tr("not"); activated => { root.put(3, 1); } }
-                            MenuItem { title: "< >  " + @tr("group"); activated => { root.put(3, 2); } }
-                            MenuItem { title: "\" \"  " + @tr("exact text"); activated => { root.put(3, 3); } }
-                            MenuSeparator { }
-                            MenuItem { title: "limit:  " + @tr("first results only"); activated => { root.put(4, 0); } }
-                            MenuItem { title: "duplicates:  " + @tr("duplicates"); activated => { root.put(4, 1); } }
+                            Menu {
+                                title: @tr("Where");
+                                MenuItem { title: "file:  " + @tr("files only"); activated => { root.put(0, 0); } }
+                                MenuItem { title: "folder:  " + @tr("folders only"); activated => { root.put(0, 1); } }
+                                MenuItem { title: "ext:  " + @tr("extensions"); activated => { root.put(0, 2); } }
+                                MenuItem { title: "type:  " + @tr("file type"); activated => { root.put(0, 3); } }
+                                MenuItem { title: "attributes:  " + @tr("attributes"); activated => { root.put(0, 4); } }
+                                MenuItem { title: "content:  " + @tr("file contents"); activated => { root.put(0, 5); } }
+                                MenuItem { title: "path:  " + @tr("match the full path"); activated => { root.put(0, 6); } }
+                                MenuItem { title: "parent:  " + @tr("parent folder"); activated => { root.put(0, 7); } }
+                                MenuItem { title: "child:  " + @tr("item inside"); activated => { root.put(0, 8); } }
+                                MenuItem { title: "depth:  " + @tr("folder depth"); activated => { root.put(0, 9); } }
+                                MenuItem { title: "children:  " + @tr("items inside"); activated => { root.put(0, 10); } }
+                            }
+                            Menu {
+                                title: @tr("When and size");
+                                MenuItem { title: "modified:<  " + @tr("modified within"); activated => { root.put(1, 0); } }
+                                MenuItem { title: "modified:>  " + @tr("modified before"); activated => { root.put(1, 1); } }
+                                MenuItem { title: "modified:today  " + @tr("modified today"); activated => { root.put(1, 2); } }
+                                MenuItem { title: "created:  " + @tr("created"); activated => { root.put(1, 3); } }
+                                MenuItem { title: "accessed:  " + @tr("accessed"); activated => { root.put(1, 4); } }
+                                MenuItem { title: "size:>  " + @tr("larger than"); activated => { root.put(1, 5); } }
+                                MenuItem { title: "size:<  " + @tr("smaller than"); activated => { root.put(1, 6); } }
+                                MenuItem { title: "len:  " + @tr("name length"); activated => { root.put(1, 7); } }
+                            }
+                            Menu {
+                                title: @tr("How to match");
+                                MenuItem { title: "case:  " + @tr("match case"); activated => { root.put(2, 0); } }
+                                MenuItem { title: "nocase:  " + @tr("ignore case"); activated => { root.put(2, 1); } }
+                                MenuItem { title: "diacritics:  " + @tr("match diacritics"); activated => { root.put(2, 2); } }
+                                MenuItem { title: "nopunct:  " + @tr("ignore punctuation"); activated => { root.put(2, 3); } }
+                                MenuItem { title: "nospace:  " + @tr("ignore spaces"); activated => { root.put(2, 4); } }
+                                MenuItem { title: "wholeword:  " + @tr("whole words"); activated => { root.put(2, 5); } }
+                                MenuItem { title: "wholename:  " + @tr("the whole name"); activated => { root.put(2, 6); } }
+                                MenuItem { title: "prefix:  " + @tr("the name starts with"); activated => { root.put(2, 7); } }
+                                MenuItem { title: "suffix:  " + @tr("the name ends with"); activated => { root.put(2, 8); } }
+                                MenuItem { title: "regex:  " + @tr("regular expression"); activated => { root.put(2, 9); } }
+                            }
+                            Menu {
+                                title: @tr("Combine");
+                                MenuItem { title: "|  " + @tr("either… or"); activated => { root.put(3, 0); } }
+                                MenuItem { title: "!  " + @tr("not"); activated => { root.put(3, 1); } }
+                                MenuItem { title: "< >  " + @tr("group"); activated => { root.put(3, 2); } }
+                                MenuItem { title: "\" \"  " + @tr("exact text"); activated => { root.put(3, 3); } }
+                            }
+                            Menu {
+                                title: @tr("Results");
+                                MenuItem { title: "limit:  " + @tr("first results only"); activated => { root.put(4, 0); } }
+                                MenuItem { title: "duplicates:  " + @tr("duplicates"); activated => { root.put(4, 1); } }
+                            }
                         }
                     }
                 }

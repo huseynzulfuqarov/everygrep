@@ -379,8 +379,8 @@ First version, 0.1.0, not released yet.
 - Search page: a search delay while typing (0 ms by default) and hiding
   the results while the search field is empty (off by default).
 - The search field's context menu has an Insert menu with the query
-  words and operators, grouped by where to look, dates and sizes, how to
-  match, combining terms and the result list.
+  words and operators, with one submenu each for where to look, dates and
+  sizes, how to match, combining terms and the result list.
 - Copy column value and Copy all properties (TSV), with the formula guard
   of the export setting.
 - File → Load file details reads sizes and dates for an index of

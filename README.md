@@ -497,9 +497,9 @@ toolbar, hide the status line and size the result list; the window title names
 the search and the number of other tabs.
 
 Right-click the search field for Undo, Redo, the clipboard commands and an
-Insert menu that puts a query word or an operator at the cursor, grouped by
-where to look, dates and sizes, how to match, combining terms and the
-result list.
+Insert menu that puts a query word or an operator at the cursor, with one
+submenu each for where to look, dates and sizes, how to match, combining
+terms and the result list.
 Edit → Copy column value copies the value of the right-clicked column for
 the chosen items, and Copy all properties (TSV) the shown columns with a
 header line. File → Load file details reads the size and date of

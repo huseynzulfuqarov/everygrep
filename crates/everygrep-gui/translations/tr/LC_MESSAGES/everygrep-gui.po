@@ -4649,6 +4649,21 @@ msgstr "Yapıştır"
 msgid "Insert"
 msgstr "Ekle"
 
+msgid "Where"
+msgstr "Nerede"
+
+msgid "When and size"
+msgstr "Tarih ve boyut"
+
+msgid "How to match"
+msgstr "Nasıl aransın"
+
+msgid "Combine"
+msgstr "Birleştir"
+
+msgid "Results"
+msgstr "Sonuçlar"
+
 msgid "either… or"
 msgstr "ya… ya da"
 
