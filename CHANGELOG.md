@@ -376,9 +376,10 @@ First version, 0.1.0, not released yet.
   a sortable duplicate group column; metadata is kept in a property cache
   (`properties.bin`, 256 MiB by default), and chosen properties can be
   indexed in the background.
-- Preview panel with the shared thumbnail cache, PNG/JPEG images, text
-  files and sandboxed system thumbnail helpers, each source switchable; a
-  Properties dialog (`Alt+Enter`); a Folders panel; a Largest folders view.
+- Preview panel with the shared thumbnail cache, PNG/JPEG images of up to
+  70 megapixels, text files and sandboxed system thumbnail helpers, each
+  source switchable; a Properties dialog (`Alt+Enter`); a Folders panel; a
+  Largest folders view.
 - Toolbar, shown by default (Back, Forward, New tab, Rescan, Filters,
   Preview, Settings; it, each button and the Back/Forward labels can be
   turned off).

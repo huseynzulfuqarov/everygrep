@@ -45,7 +45,7 @@ no packages yet.
   while the disk is not connected.
 - **Contents and duplicates.** `content:` searches inside files; `duplicates:`
   finds files with the same contents, name or size.
-- **Keyboard first.** Every action has a key, and the keys can be changed.
+- **Keyboard first.** Every action can have a key, and the keys can be changed.
 - **File operations with undo.** Open, rename, copy, move, trash and delete
   from the result list; rename several items with a preview; undo and redo
   for the session, trash included.

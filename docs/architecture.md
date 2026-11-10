@@ -36,7 +36,7 @@ and encoding order. The GUI has one debounced preview worker, with cancellation
 and stale-answer rejection. Freedesktop PNG records are keyed by the MD5 of the
 file URI and checked against its modification time and optional size. PNG/JPEG
 decoding uses Slint's already linked image decoder on that worker, after a
-25-million-pixel header check and a 32 MiB encoded-input limit. EXIF orientation
+70-million-pixel header check and a 32 MiB encoded-input limit. EXIF orientation
 and scaling happen before transferring an RGBA buffer to the event loop.
 Generated 128/256-pixel thumbnails are published atomically with private modes
 and standard URI, MTime and Size tags; files inside the thumbnail directory are
