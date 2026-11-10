@@ -827,7 +827,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // the next launch. Without the bus name no launch could reach it, and
     // with closing set to quit hiding makes no sense, so it is shown.
     let hidden = args.background && _instance.is_some() && prefs.hide_on_close();
-    if !hidden {
+    if hidden {
+        engine.set_window_shown(false);
+    } else {
         window.show()?;
     }
     if let Some(page) = args.settings_page {
@@ -1126,6 +1128,7 @@ fn close_window(w: &AppWindow, engine: &Arc<Engine>, prefs: &Prefs, hide: bool) 
     prefs.save_columns(w);
     if hide {
         let _ = w.window().hide();
+        engine.set_window_shown(false);
         // Keep the index on disk current in case the session ends while
         // the window is hidden.
         let engine = engine.clone();
@@ -1188,7 +1191,7 @@ fn present(
         prefs.hide_on_close(),
     );
     match action {
-        PresentAction::Show => {}
+        PresentAction::Show => engine.set_window_shown(true),
         PresentAction::Hide => return close_window(w, engine, prefs, true),
         PresentAction::Quit => return close_window(w, engine, prefs, false),
     }

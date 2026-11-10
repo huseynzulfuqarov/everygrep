@@ -555,6 +555,9 @@ pub struct Engine {
     answered: Mutex<(u64, Option<u64>)>,
     /// Those results, to tell whether file changes can change them.
     shown: Mutex<Option<changes::Shown>>,
+    /// Whether the window is shown, and whether files changed while it was
+    /// hidden (it searches again when shown).
+    window: Mutex<WindowState>,
     /// Creation times or attributes read by the last sort, used by the next
     /// one while file changes are applied (see [`DetailCache`]). Only the
     /// search thread uses it.
@@ -602,6 +605,13 @@ pub struct Engine {
     last_full_scan_saved: AtomicBool,
     schedule_checked: AtomicI64,
     zone: std::sync::OnceLock<everygrep_core::localtime::Zone>,
+}
+
+/// Whether the window is hidden, and whether files changed meanwhile.
+#[derive(Debug)]
+struct WindowState {
+    hidden: bool,
+    stale: bool,
 }
 
 /// The reading of file contents for a search.
@@ -872,6 +882,10 @@ impl Engine {
             applied: Mutex::new(QueryState::default()),
             answered: Mutex::new((0, None)),
             shown: Mutex::new(None),
+            window: Mutex::new(WindowState {
+                hidden: false,
+                stale: false,
+            }),
             content_options: Mutex::new(ContentOptions::default()),
             compare_options: Mutex::new(dupe::CompareOptions::default()),
             content_cache: Mutex::new(ContentCache::new()),
@@ -1578,6 +1592,19 @@ impl Engine {
         self.request_search()
     }
 
+    /// The window was hidden (`false`) or shown again. While it is hidden,
+    /// file changes do not run the search again; the first show after
+    /// changes runs it once.
+    pub fn set_window_shown(&self, shown: bool) {
+        let mut window = self.window.lock().expect("lock");
+        window.hidden = !shown;
+        let stale = shown && std::mem::take(&mut window.stale);
+        drop(window);
+        if stale {
+            self.request_refresh();
+        }
+    }
+
     /// Changes the result order and runs the current query again. The order
     /// stays for later queries. Returns the generation of the request.
     pub fn set_sort(&self, sort: Sort) -> u64 {
@@ -1864,6 +1891,14 @@ impl Engine {
     /// query runs again when that can change its results, and otherwise
     /// the window only draws its rows again.
     fn files_changed(&self, touched: &Touched, forced: bool) {
+        {
+            let mut window = self.window.lock().expect("lock");
+            if window.hidden {
+                // Nobody looks: one search when the window is shown again.
+                window.stale = true;
+                return;
+            }
+        }
         let search = forced || {
             let state = self.applied.lock().expect("lock").clone();
             let index = self.index.read().expect("index lock");
@@ -5467,6 +5502,46 @@ mod tests {
         model.set_result(&again(first.ids.to_vec(), false));
         assert!(!model.rows_kept());
         assert_eq!(model.status().time, "40 ms");
+        probe.engine.shutdown();
+    }
+
+    #[test]
+    fn a_hidden_window_searches_once_when_shown_again() {
+        let dir = Scratch::new("hidden-window");
+        let root = dir.0.join("a");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.txt"), "").unwrap();
+        let probe = Probe::start(vec![root.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("txt"), ["one.txt"]);
+        while probe.results.try_recv().is_ok() {}
+        while probe.rows.try_recv().is_ok() {}
+        probe.engine.set_window_shown(false);
+        fs::write(root.join("two.txt"), "").unwrap();
+        fs::write(root.join("unrelated.log"), "").unwrap();
+        let root = fs::canonicalize(&root).unwrap();
+        until(&probe.engine, "the new files", |i| {
+            find(i, &root.join("two.txt")).is_some()
+                && find(i, &root.join("unrelated.log")).is_some()
+        });
+        std::thread::sleep(REFRESH_EVERY * 3);
+        assert!(probe.results.try_recv().is_err(), "no search while hidden");
+        assert!(probe.rows.try_recv().is_err(), "no rows drawn while hidden");
+        // Shown again: one search for what changed meanwhile.
+        probe.engine.set_window_shown(true);
+        let r = probe
+            .results
+            .recv_timeout(Duration::from_secs(20))
+            .expect("a search once shown");
+        assert!(r.refresh);
+        assert_eq!(r.ids.len(), 2);
+        std::thread::sleep(REFRESH_EVERY * 2);
+        assert!(probe.results.try_recv().is_err(), "only one");
+        // Shown again with nothing changed: no search.
+        probe.engine.set_window_shown(false);
+        probe.engine.set_window_shown(true);
+        std::thread::sleep(REFRESH_EVERY * 2);
+        assert!(probe.results.try_recv().is_err());
         probe.engine.shutdown();
     }
 

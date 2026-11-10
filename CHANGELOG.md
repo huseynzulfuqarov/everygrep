@@ -169,7 +169,9 @@ First version, 0.1.0, not released yet.
   status line is that of the last search asked for; one run again for file
   changes leaves it, and when it lists the same rows in the same order the
   list stays as it is (selection, scroll position and details read for
-  unchanged rows) and only the rows on screen are drawn again.
+  unchanged rows) and only the rows on screen are drawn again. While the
+  window is hidden (closing set to hide), file changes run no search; the
+  window searches once when it is shown again.
 - When no inotify instance can be made (for example for the index built
   again after a queue overflow, while other programs hold every instance),
   the index is shown as not watching changes and a watcher is tried again
