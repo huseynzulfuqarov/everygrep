@@ -96,8 +96,18 @@ pub struct ResultsModel {
     property_cache: RefCell<HashMap<NodeId, Vec<everygrep_core::property::Value>>>,
     property_pending: RefCell<HashSet<NodeId>>,
     property_reader: RefCell<Option<crate::properties::Reader>>,
+    /// The first and last row the view asked for since they were last drawn
+    /// again: the rows on screen, and perhaps a few more.
+    drawn: Cell<(usize, usize)>,
+    /// The index (its stamp) and the place in its change log up to which
+    /// the details kept for rows follow its changes (see
+    /// [`Index::changed_since`](everygrep_core::index::Index::changed_since)).
+    seen_changes: Cell<Option<(u64, u64)>>,
     notify: ModelNotify,
 }
+
+/// No row asked for yet (see `ResultsModel::drawn`).
+const NOTHING_DRAWN: (usize, usize) = (usize::MAX, 0);
 
 /// Which of the Same name, Same extension and Same size columns are shown. The
 /// counts are over the whole index (see [`everygrep_core::frequency`]);
@@ -326,6 +336,8 @@ impl ResultsModel {
             property_cache: RefCell::new(HashMap::new()),
             property_pending: RefCell::new(HashSet::new()),
             property_reader: RefCell::new(None),
+            drawn: Cell::new(NOTHING_DRAWN),
+            seen_changes: Cell::new(None),
             notify: ModelNotify::default(),
         }
     }
@@ -363,6 +375,8 @@ impl ResultsModel {
         // Details and hashes asked for the rows shown before are read again
         // for these rows; answers still on their way are dropped.
         self.forget_details();
+        self.note_changes_seen();
+        self.drawn.set(NOTHING_DRAWN);
         self.notify.reset();
     }
 
@@ -503,6 +517,8 @@ impl ResultsModel {
         *self.group_ids.borrow_mut() = Arc::clone(&result.group_ids);
         // A new result also follows file changes, so read the details again.
         self.forget_details();
+        self.note_changes_seen();
+        self.drawn.set(NOTHING_DRAWN);
         self.notify.reset();
         if !carried {
             return None;
@@ -713,6 +729,81 @@ impl ResultsModel {
     pub fn read_details_with(&self, reader: DetailReader) {
         self.forget_details();
         *self.detail_reader.borrow_mut() = Some(reader);
+    }
+
+    /// Files changed in a way that changes no row of the list, only what
+    /// rows show: the details read for the entries that changed are read
+    /// again, and the rows on screen are drawn again. Nothing for ids of
+    /// another epoch.
+    pub fn rows_changed(&self, epoch: u64) {
+        if epoch != self.epoch.get() || self.epoch.get() != self.engine.epoch() {
+            return;
+        }
+        self.now_ns.set(now_ns());
+        self.forget_changed_details();
+        self.redraw();
+    }
+
+    /// Draws the rows on screen again, without telling the view that the
+    /// list changed (which would also tell each binding that reads the
+    /// number of rows).
+    fn redraw(&self) {
+        let (first, last) = self.drawn.replace(NOTHING_DRAWN);
+        let count = self.ids.borrow().len();
+        if first > last || first >= count {
+            return;
+        }
+        for row in first..=last.min(count - 1) {
+            self.notify.row_changed(row);
+        }
+    }
+
+    /// Notes how far the index's change log goes: the details kept from
+    /// now on follow it.
+    fn note_changes_seen(&self) {
+        self.seen_changes.set(
+            self.engine
+                .index
+                .read()
+                .ok()
+                .map(|index| (index.stamp(), index.change_seq())),
+        );
+    }
+
+    /// Drops the details kept for entries that changed since the last look
+    /// at the index's change log; all of them when it cannot tell.
+    fn forget_changed_details(&self) {
+        let changed = {
+            let Ok(index) = self.engine.index.read() else {
+                return;
+            };
+            let changed = match self.seen_changes.get() {
+                Some((stamp, seq)) if stamp == index.stamp() => {
+                    index.changed_since(seq).map(<[NodeId]>::to_vec)
+                }
+                _ => None,
+            };
+            self.seen_changes
+                .set(Some((index.stamp(), index.change_seq())));
+            changed
+        };
+        let Some(changed) = changed else {
+            self.forget_details();
+            return;
+        };
+        if changed.is_empty() {
+            return;
+        }
+        let mut details = self.detail_cache.borrow_mut();
+        let mut icons = self.link_icons.borrow_mut();
+        let mut hashes = self.hash_cache.borrow_mut();
+        let mut properties = self.property_cache.borrow_mut();
+        for id in &changed {
+            details.remove(id);
+            icons.remove(id);
+            hashes.remove(id);
+            properties.remove(id);
+        }
     }
 
     /// Drops the details read and asked for: they belong to another list.
@@ -1486,6 +1577,8 @@ impl Model for ResultsModel {
 
     fn row_data(&self, row: usize) -> Option<ResultRow> {
         let id = *self.ids.borrow().get(row)?;
+        let (first, last) = self.drawn.get();
+        self.drawn.set((first.min(row), last.max(row)));
         let index = self.engine.index.read().ok()?;
         let store = index.store();
         if self.engine.epoch() != self.epoch.get()

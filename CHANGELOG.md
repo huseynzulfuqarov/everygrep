@@ -159,6 +159,13 @@ First version, 0.1.0, not released yet.
   unmounted inside the indexed folders is read again at its mount point.
   A folder's time is saved only once the events before it were applied, so
   a catch-up after an exit finds what was not applied yet.
+- File changes run the search again only when they can change its results:
+  a new or renamed entry the query accepts, a listed entry removed or
+  renamed, a folder renamed or moved, or a new size, time or attribute when
+  the query or the order looks at it (contents, duplicates, `parent:`,
+  `child:`, item counts and the Same name, extension and size orders always
+  search again). Other changes only draw the rows on screen again, so a busy
+  folder no longer runs the search twice a second.
 - When no inotify instance can be made (for example for the index built
   again after a queue overflow, while other programs hold every instance),
   the index is shown as not watching changes and a watcher is tried again

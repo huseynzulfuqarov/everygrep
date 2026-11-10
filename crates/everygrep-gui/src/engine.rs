@@ -42,7 +42,7 @@ use everygrep_core::hashcache::DEFAULT_MAX_BYTES;
 use everygrep_core::index::Index;
 use everygrep_core::persist;
 use everygrep_core::progress::{self, Progress};
-use everygrep_core::query::{HighlightTerm, Query, QueryOptions};
+use everygrep_core::query::{HighlightTerm, ParseError, Query, QueryOptions};
 use everygrep_core::rules::{IndexRules, RuleSpec};
 use everygrep_core::scan::{
     ScanOptions, Source, normalize_roots, scan_with_progress, update_with_progress,
@@ -51,11 +51,13 @@ use everygrep_core::search::{Staged, search_staged, search_with_progress};
 use everygrep_core::sort::{DetailCache, FileValues, Sort, SortKey, sort_cached};
 use everygrep_core::store::{NodeId, NodeStore};
 use everygrep_core::sync::{folders_below, resume_scan};
-use everygrep_core::watch::Watcher;
+use everygrep_core::watch::{Touched, Watcher};
 
 use crate::hashes::HashStore;
 use crate::schedule::Schedule;
 
+#[path = "engine_changes.rs"]
+mod changes;
 #[path = "engine_filelists.rs"]
 mod filelists;
 pub use filelists::{FileListSetting, ListState};
@@ -113,6 +115,10 @@ pub struct Hooks {
     pub on_busy: Box<dyn Fn() + Send + Sync>,
     /// A task was cancelled.
     pub on_stopped: Box<dyn Fn(Stopped) + Send + Sync>,
+    /// Files changed in a way that cannot change which results are listed
+    /// or their order, only what their rows show (a size, a time): the
+    /// rows on screen are drawn again, for ids of this epoch.
+    pub on_rows_changed: Box<dyn Fn(u64) + Send + Sync>,
     /// Something the user should know that is not an error of a request.
     pub on_notice: Box<dyn Fn(Notice) + Send + Sync>,
 }
@@ -525,6 +531,8 @@ pub struct Engine {
     file_lists: Mutex<filelists::Lists>,
     /// The state reported last, to report it again after a change.
     last_state: Mutex<Option<IndexState>>,
+    /// The state and number of entries reported last.
+    last_report: Mutex<Option<(IndexState, usize)>>,
     tasks: Arc<Tasks>,
     /// The folders to index and the rules the index was built with (or,
     /// after a cancelled first index, was to be built with); a cancelled
@@ -539,6 +547,8 @@ pub struct Engine {
     /// The request whose complete results were shown last, and the index
     /// version they were found in (see [`SearchResult::settled`]).
     answered: Mutex<(u64, Option<u64>)>,
+    /// Those results, to tell whether file changes can change them.
+    shown: Mutex<Option<changes::Shown>>,
     /// Creation times or attributes read by the last sort, used by the next
     /// one while file changes are applied (see [`DetailCache`]). Only the
     /// search thread uses it.
@@ -632,6 +642,19 @@ impl QueryState {
     /// Whether this request lists nothing because its search text is empty.
     fn hidden_empty(&self) -> bool {
         self.hide_when_empty && self.text.trim().is_empty()
+    }
+
+    /// The query to run, with its filter; `None` when nothing is listed
+    /// because the search text is empty.
+    fn parse(&self) -> Result<Option<Query>, ParseError> {
+        if self.hidden_empty() {
+            return Ok(None);
+        }
+        let query = Query::parse(&self.text, self.options)?;
+        match &self.filter_query {
+            Some((text, options)) => query.and(Query::parse(text, *options)?).map(Some),
+            None => Ok(Some(query)),
+        }
     }
 
     /// Leaves out of `ids` what the request does not list whatever the
@@ -836,11 +859,13 @@ impl Engine {
             mounts_changed: Arc::new(AtomicBool::new(false)),
             file_lists: Mutex::default(),
             last_state: Mutex::new(None),
+            last_report: Mutex::new(None),
             tasks: Tasks::new(on_busy),
             indexed_with: Mutex::new((Vec::new(), ScanOptions::default())),
             incomplete: AtomicBool::new(false),
             applied: Mutex::new(QueryState::default()),
             answered: Mutex::new((0, None)),
+            shown: Mutex::new(None),
             content_options: Mutex::new(ContentOptions::default()),
             compare_options: Mutex::new(dupe::CompareOptions::default()),
             content_cache: Mutex::new(ContentCache::new()),
@@ -1662,18 +1687,7 @@ impl Engine {
             let mut terms = Vec::new();
             let mut epoch = self.epoch();
             let mut version = None;
-            let parsed = if state.hidden_empty() {
-                Ok(None)
-            } else {
-                Query::parse(&state.text, state.options)
-                    .and_then(|query| match &state.filter_query {
-                        Some((text, options)) => {
-                            Query::parse(text, *options).and_then(|filter| query.and(filter))
-                        }
-                        None => Ok(query),
-                    })
-                    .map(Some)
-            };
+            let parsed = state.parse();
             let (ids, error) = match parsed {
                 // Nothing to list for an empty search.
                 Ok(None) => (Vec::new(), None),
@@ -1690,6 +1704,8 @@ impl Engine {
                             if self.is_current(generation) {
                                 *self.applied.lock().expect("lock") = state.clone();
                                 *self.answered.lock().expect("lock") = (generation, Some(searched));
+                                let ids = Arc::new(ids);
+                                self.note_shown(generation, epoch, &ids);
                                 (self.hooks.on_results)(SearchResult {
                                     settled: Some(SettledSearch {
                                         state: state.clone(),
@@ -1697,7 +1713,7 @@ impl Engine {
                                         epoch,
                                         reading,
                                     }),
-                                    ids: Arc::new(ids),
+                                    ids,
                                     groups: Arc::new(groups),
                                     group_ids: Arc::new(group_ids),
                                     terms,
@@ -1789,6 +1805,8 @@ impl Engine {
             if self.is_current(generation) {
                 *self.applied.lock().expect("lock") = state.clone();
                 *self.answered.lock().expect("lock") = (generation, version);
+                let ids = Arc::new(ids);
+                self.note_shown(generation, epoch, &ids);
                 (self.hooks.on_results)(SearchResult {
                     settled: version.map(|version| SettledSearch {
                         state: state.clone(),
@@ -1796,7 +1814,7 @@ impl Engine {
                         epoch,
                         reading,
                     }),
-                    ids: Arc::new(ids),
+                    ids,
                     groups: Arc::default(),
                     group_ids: Arc::default(),
                     terms: Arc::new(terms),
@@ -1807,6 +1825,43 @@ impl Engine {
                     generation,
                 });
             }
+        }
+    }
+
+    /// Keeps the ids of complete results handed to the window (see
+    /// [`files_changed`](Self::files_changed)).
+    fn note_shown(&self, generation: u64, epoch: u64, ids: &Arc<Vec<NodeId>>) {
+        *self.shown.lock().expect("lock") = Some(changes::Shown {
+            generation,
+            epoch,
+            ids: Arc::clone(ids),
+        });
+    }
+
+    /// Files changed (`touched`, or more than it says when `forced`): the
+    /// query runs again when that can change its results, and otherwise
+    /// the window only draws its rows again.
+    fn files_changed(&self, touched: &Touched, forced: bool) {
+        let search = forced || {
+            let state = self.applied.lock().expect("lock").clone();
+            let index = self.index.read().expect("index lock");
+            // The results of the newest request with ids of this index;
+            // a request still waiting for its results searches again.
+            let shown = self
+                .shown
+                .lock()
+                .expect("lock")
+                .clone()
+                .filter(|s| self.is_current(s.generation) && s.epoch == self.epoch());
+            match shown {
+                Some(shown) => changes::search_again(&index, &state, Some(&shown.ids), touched),
+                None => true,
+            }
+        };
+        if search {
+            self.request_refresh();
+        } else if !touched.is_empty() {
+            (self.hooks.on_rows_changed)(self.epoch());
         }
     }
 
@@ -2277,7 +2332,20 @@ impl Engine {
     fn report(&self, state: IndexState) {
         *self.last_state.lock().expect("lock") = Some(state);
         let len = self.index.read().expect("index lock").len();
+        *self.last_report.lock().expect("lock") = Some((state, len));
         (self.hooks.on_state)(state, len);
+    }
+
+    /// Reports `state` unless it and the number of entries are the ones
+    /// reported last.
+    fn report_if_changed(&self, state: IndexState) {
+        let len = self.index.read().expect("index lock").len();
+        let last = self.last_report.lock().expect("lock");
+        if *last == Some((state, len)) {
+            return;
+        }
+        drop(last);
+        self.report(state);
     }
 
     /// Reports the last state again, so the window looks at what changed.
@@ -2735,7 +2803,10 @@ impl Engine {
         let mut last_refresh = Instant::now();
         let mut last_save = Instant::now();
         let mut last_recheck = Instant::now();
+        // Changes that need a search whatever they are, and those the
+        // watcher named, which may not.
         let mut pending_refresh = false;
+        let mut touched = Touched::default();
         while !self.interrupted(true) {
             if self.mounts_changed.swap(false, Ordering::SeqCst) {
                 let (changed, drives) = self.sync_sources(Some(watcher));
@@ -2764,6 +2835,7 @@ impl Engine {
                     let mut index = self.index.write().expect("index lock");
                     #[allow(unused_mut)]
                     let mut stats = watcher.apply(&mut index, &events);
+                    touched.merge(watcher.take_touched());
                     self.record(watcher.take_changes());
                     #[cfg(test)]
                     if tests::take(&tests::OVERFLOWS, self.index_file().as_deref()) {
@@ -2774,6 +2846,8 @@ impl Engine {
                         // epoch: results of the old one are searched again.
                         watcher.compact(&mut index);
                         self.bump_epoch();
+                        // Its ids are of the old numbering.
+                        touched = Touched::default();
                         pending_refresh = true;
                     }
                     if stats.overflow && !self.rescan_after_lost.load(Ordering::SeqCst) {
@@ -2798,10 +2872,10 @@ impl Engine {
                             return false;
                         }
                         pending_refresh = true;
-                    } else if stats.added + stats.removed + stats.moved + stats.updated > 0 {
-                        pending_refresh = true;
                     }
-                    if pending_refresh {
+                    if pending_refresh
+                        || stats.added + stats.removed + stats.moved + stats.updated > 0
+                    {
                         self.dirty.store(true, Ordering::SeqCst);
                     }
                 }
@@ -2826,11 +2900,12 @@ impl Engine {
             if self.note_unwatched(Some(watcher)) {
                 self.report(IndexState::Watching);
             }
-            if pending_refresh && last_refresh.elapsed() >= REFRESH_EVERY {
-                pending_refresh = false;
+            if (pending_refresh || !touched.is_empty()) && last_refresh.elapsed() >= REFRESH_EVERY {
+                let forced = std::mem::take(&mut pending_refresh);
+                let touched = std::mem::take(&mut touched);
                 last_refresh = Instant::now();
-                self.request_refresh();
-                self.report(IndexState::Watching);
+                self.files_changed(&touched, forced);
+                self.report_if_changed(IndexState::Watching);
             }
             if self.dirty.load(Ordering::SeqCst) && last_save.elapsed() >= SAVE_EVERY {
                 self.save();
@@ -3949,6 +4024,8 @@ mod tests {
         results: mpsc::Receiver<SearchResult>,
         stopped: mpsc::Receiver<Stopped>,
         notices: mpsc::Receiver<Notice>,
+        /// The epochs of the notices that only rows changed.
+        rows: mpsc::Receiver<u64>,
         /// While set, the next task to begin when none runs is cancelled at
         /// once.
         armed: Arc<AtomicBool>,
@@ -3995,6 +4072,8 @@ mod tests {
             let (stopped_tx, stopped) = mpsc::channel();
             let (notice_tx, notices) = mpsc::channel();
             let notice_tx = Mutex::new(notice_tx);
+            let (rows_tx, rows) = mpsc::channel();
+            let rows_tx = Mutex::new(rows_tx);
             let state_tx = Mutex::new(state_tx);
             let result_tx = Mutex::new(result_tx);
             let stopped_tx = Mutex::new(stopped_tx);
@@ -4040,6 +4119,9 @@ mod tests {
                 on_notice: Box::new(move |n| {
                     let _ = notice_tx.lock().unwrap().send(n);
                 }),
+                on_rows_changed: Box::new(move |epoch| {
+                    let _ = rows_tx.lock().unwrap().send(epoch);
+                }),
             };
             let options = ScanOptions {
                 rules: folders(exclude),
@@ -4053,6 +4135,7 @@ mod tests {
                 results,
                 stopped,
                 notices,
+                rows,
                 armed,
                 hold,
                 held,
@@ -4796,6 +4879,7 @@ mod tests {
             on_busy: Box::new(|| {}),
             on_stopped: Box::new(|_| {}),
             on_notice: Box::new(|_| {}),
+            on_rows_changed: Box::new(|_| {}),
             on_state: Box::new(move |state, _| {
                 state_tx.send(state).unwrap();
                 if state == IndexState::Scanning {
@@ -5202,6 +5286,64 @@ mod tests {
     }
 
     #[test]
+    fn only_file_changes_that_can_change_the_results_search_again() {
+        let dir = Scratch::new("relevant-changes");
+        let root = dir.0.join("a");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("report.txt"), "").unwrap();
+        fs::write(root.join("sub/report.log"), "").unwrap();
+        let probe = Probe::start(vec![root.clone()], Vec::new(), dir.0.join("index.bin"));
+        probe.wait_for(IndexState::Watching);
+        assert_eq!(probe.names("report"), ["report.log", "report.txt"]);
+        let wait = Duration::from_secs(20);
+        // A change the results do not show: the rows are drawn again, and
+        // nothing is searched.
+        let rows_only = |what: &str| {
+            probe
+                .rows
+                .recv_timeout(wait)
+                .unwrap_or_else(|e| panic!("{what}: no notice that rows changed: {e}"));
+            std::thread::sleep(REFRESH_EVERY * 2);
+            assert!(probe.results.try_recv().is_err(), "{what}: searched again");
+            while probe.rows.try_recv().is_ok() {}
+        };
+        while probe.rows.try_recv().is_ok() {}
+        while probe.results.try_recv().is_ok() {}
+
+        fs::write(root.join("cache.tmp"), "new").unwrap();
+        rows_only("an unrelated new file");
+        fs::write(root.join("report.txt"), "longer").unwrap();
+        rows_only("new contents of a listed file");
+        fs::remove_file(root.join("cache.tmp")).unwrap();
+        rows_only("an unrelated file removed");
+
+        let listed = |r: SearchResult| {
+            let index = probe.engine.index.read().unwrap();
+            let mut names: Vec<String> = r
+                .ids
+                .iter()
+                .map(|&id| index.store().path(id).display().to_string())
+                .collect();
+            names.sort();
+            names
+        };
+        let root = fs::canonicalize(&root).unwrap();
+        fs::write(root.join("report-2.txt"), "").unwrap();
+        let r = probe
+            .results
+            .recv_timeout(wait)
+            .expect("a new matching file");
+        assert_eq!(r.query, "report");
+        assert_eq!(listed(r).len(), 3);
+        // Every path below a renamed folder changes.
+        fs::rename(root.join("sub"), root.join("moved")).unwrap();
+        let r = probe.results.recv_timeout(wait).expect("a renamed folder");
+        let shown = root.join("moved/report.log").display().to_string();
+        assert!(listed(r).contains(&shown));
+        probe.engine.shutdown();
+    }
+
+    #[test]
     fn refresh_runs_the_same_query_again() {
         let dir = Scratch::new("refresh");
         let a = dir.0.join("a");
@@ -5378,6 +5520,7 @@ mod tests {
                 on_busy: Box::new(|| {}),
                 on_stopped: Box::new(|_| {}),
                 on_notice: Box::new(|_| {}),
+                on_rows_changed: Box::new(|_| {}),
             },
         );
         loop {

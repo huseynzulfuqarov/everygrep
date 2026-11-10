@@ -59,6 +59,94 @@ pub struct ApplyStats {
     pub unmounted: usize,
 }
 
+/// Most nodes each list of [`Touched`] holds; one more makes it say
+/// [`many`](Touched::many) instead.
+pub const TOUCHED_MAX: usize = 1000;
+
+/// Which nodes the batches applied since the last
+/// [`Watcher::take_touched`] changed, for a reader that decides whether a
+/// search can still stand. Ids may repeat.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Touched {
+    /// Nodes added. A new folder is named alone; what is below it was added
+    /// with it.
+    pub added: Vec<NodeId>,
+    /// Files with a new name or in another folder (they keep their id).
+    pub renamed: Vec<NodeId>,
+    /// Nodes removed, with every node below a removed folder.
+    pub removed: Vec<NodeId>,
+    /// Nodes whose metadata was read again, and the folders an entry was
+    /// added to, removed from or moved in or out of (their time, size and
+    /// item count change).
+    pub updated: Vec<NodeId>,
+    /// A folder's permissions or attributes changed, which can change what
+    /// can be read below it.
+    pub subtree: bool,
+    /// More changed than the lists say: a folder was renamed or moved (the
+    /// paths below it changed), a folder was listed again, or a list grew
+    /// past [`TOUCHED_MAX`]. The lists are then incomplete.
+    pub many: bool,
+}
+
+impl Touched {
+    /// Whether nothing changed.
+    pub fn is_empty(&self) -> bool {
+        !self.many
+            && !self.subtree
+            && self.added.is_empty()
+            && self.renamed.is_empty()
+            && self.removed.is_empty()
+            && self.updated.is_empty()
+    }
+
+    /// Adds what `other` says.
+    pub fn merge(&mut self, other: Touched) {
+        self.many |= other.many;
+        self.subtree |= other.subtree;
+        for (list, more) in [
+            (&mut self.added, other.added),
+            (&mut self.renamed, other.renamed),
+            (&mut self.removed, other.removed),
+            (&mut self.updated, other.updated),
+        ] {
+            push_capped(list, &more, &mut self.many);
+        }
+    }
+
+    fn add(&mut self, id: NodeId) {
+        push_new(&mut self.added, id, &mut self.many);
+    }
+
+    fn rename(&mut self, id: NodeId) {
+        push_new(&mut self.renamed, id, &mut self.many);
+    }
+
+    fn update(&mut self, id: NodeId) {
+        push_new(&mut self.updated, id, &mut self.many);
+    }
+}
+
+/// Appends `id` to `list` as [`push_capped`] does, unless it is there
+/// already (a busy folder gets many events).
+fn push_new(list: &mut Vec<NodeId>, id: NodeId, many: &mut bool) {
+    if !*many && !list.contains(&id) {
+        push_capped(list, &[id], many);
+    }
+}
+
+/// Appends `ids` to `list` unless that makes it longer than
+/// [`TOUCHED_MAX`]; then sets `many` (and appends no more).
+fn push_capped(list: &mut Vec<NodeId>, ids: &[NodeId], many: &mut bool) {
+    if *many {
+        return;
+    }
+    if list.len() + ids.len() > TOUCHED_MAX {
+        *many = true;
+        return;
+    }
+    list.extend_from_slice(ids);
+}
+
 /// What happened to an entry, as the list of index changes shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChangeKind {
@@ -195,6 +283,9 @@ pub struct Watcher {
     moved_away: HashSet<NodeId>,
     /// The changes applied from events, when the journal is on.
     journal: Option<Vec<Change>>,
+    /// The nodes changed by events since the last
+    /// [`take_touched`](Self::take_touched).
+    touched: Touched,
 }
 
 impl Watcher {
@@ -204,6 +295,11 @@ impl Watcher {
         if on != self.journal.is_some() {
             self.journal = on.then(Vec::new);
         }
+    }
+
+    /// The nodes that the events applied since the last call changed.
+    pub fn take_touched(&mut self) -> Touched {
+        std::mem::take(&mut self.touched)
     }
 
     /// The changes noted since the last call.
@@ -249,6 +345,7 @@ impl Watcher {
             unmounted: Vec::new(),
             waiting_moves: HashMap::new(),
             journal: None,
+            touched: Touched::default(),
             incomplete: HashSet::new(),
             moved_away: HashSet::new(),
         };
@@ -500,6 +597,11 @@ impl Watcher {
     /// (such as a list of search results).
     pub fn compact(&mut self, index: &mut Index) -> Vec<Option<NodeId>> {
         self.watches.forget(&index.take_removed());
+        // Ids of the old numbering.
+        self.touched = Touched {
+            many: true,
+            ..Touched::default()
+        };
         let remap = index.compact_in_place();
         self.remap(&remap);
         remap
@@ -620,6 +722,8 @@ impl Watcher {
                             // Its attributes may be kept outside the index, and
                             // its permissions decide what can be read below it.
                             index.note_subtree_changed(dir);
+                            self.touched.update(dir);
+                            self.touched.subtree = true;
                         }
                     }
                     continue;
@@ -631,6 +735,7 @@ impl Watcher {
                     .intersects(Mask::CREATE | Mask::DELETE | Mask::MOVED_FROM | Mask::MOVED_TO)
                 {
                     touched.insert(dir);
+                    self.touched.update(dir);
                 }
                 if ev.mask.contains(Mask::MOVED_FROM) {
                     if let Some(node) = index.find_child(Some(dir), name) {
@@ -654,6 +759,12 @@ impl Watcher {
                                 && index.rename(node, Some(dir), name).is_ok() =>
                         {
                             stats.moved += 1;
+                            if index.store().is_dir(node) {
+                                // Every path below it changed.
+                                self.touched.many = true;
+                            } else {
+                                self.touched.rename(node);
+                            }
                             if self.journal.is_some() {
                                 let path = index.store().path(node);
                                 let old = moved_from.remove(&key);
@@ -702,6 +813,8 @@ impl Watcher {
                         // A folder's permissions decide what can be read
                         // below it, without events for the nodes there.
                         index.note_subtree_changed(node);
+                        self.touched.update(node);
+                        self.touched.subtree = true;
                     }
                 }
             }
@@ -744,7 +857,14 @@ impl Watcher {
                 continue;
             }
             match self.add_from_disk(index, dir, &name) {
-                Ok(added) => stats.added += added,
+                Ok(added) => {
+                    stats.added += added;
+                    if added > 0
+                        && let Some(node) = index.find_child(Some(dir), &name)
+                    {
+                        self.touched.add(node);
+                    }
+                }
                 // Gone again, unless the folder itself is gone from its
                 // indexed path: then it moved too, and the events of that
                 // move come in a later batch.
@@ -784,6 +904,9 @@ impl Watcher {
             stats.added += listed.added;
             stats.removed += listed.removed;
             stats.updated += listed.updated;
+            if listed.added + listed.removed + listed.updated > 0 {
+                self.touched.many = true;
+            }
         }
         let relist: Vec<NodeId> = self
             .incomplete
@@ -797,6 +920,9 @@ impl Watcher {
             stats.added += listed.added;
             stats.removed += listed.removed;
             stats.updated += listed.updated;
+            if listed.added + listed.removed + listed.updated > 0 {
+                self.touched.many = true;
+            }
         }
         // The times read at the end of the previous batch: every event queued
         // before them has now been read and applied. Only a watched folder
@@ -813,6 +939,7 @@ impl Watcher {
         for (dir, meta) in std::mem::take(&mut self.unsettled) {
             if keeps_time(index, &self.watches, dir) {
                 index.set_meta(dir, meta);
+                self.touched.update(dir);
             }
         }
         for dir in touched {
@@ -834,7 +961,9 @@ impl Watcher {
             })
             .collect();
         stats.unmounted = self.unmounted.len();
-        self.watches.forget(&index.take_removed());
+        let removed = index.take_removed();
+        push_capped(&mut self.touched.removed, &removed, &mut self.touched.many);
+        self.watches.forget(&removed);
         stats
     }
 
@@ -881,12 +1010,14 @@ impl Watcher {
         match self.add_from_disk(index, parent, name) {
             Ok(added) => {
                 stats.added += added;
-                if self.journal.is_some()
-                    && added > 0
+                if added > 0
                     && let Some(node) = index.find_child(Some(parent), name)
                 {
-                    let is_dir = index.store().is_dir(node);
-                    self.note(ChangeKind::Created, is_dir, index.store().path(node), None);
+                    self.touched.add(node);
+                    if self.journal.is_some() {
+                        let is_dir = index.store().is_dir(node);
+                        self.note(ChangeKind::Created, is_dir, index.store().path(node), None);
+                    }
                 }
             }
             Err(_) => missed.push((parent, name.to_vec())),
@@ -896,7 +1027,7 @@ impl Watcher {
     /// Reads the metadata of `node` again. A folder's time is only noted in
     /// `touched`, to be kept as described in the module documentation.
     fn refresh_meta(
-        &self,
+        &mut self,
         index: &mut Index,
         node: NodeId,
         stats: &mut ApplyStats,
@@ -906,9 +1037,11 @@ impl Watcher {
             index.note_changed(node);
             touched.insert(node);
             stats.updated += 1;
+            self.touched.update(node);
         } else if let Ok(m) = fs::symlink_metadata(index.store().path(node)) {
             index.set_meta(node, Meta::from_metadata(&m));
             stats.updated += 1;
+            self.touched.update(node);
         }
     }
 
@@ -1312,6 +1445,67 @@ mod tests {
         assert!(f.settle(|i| i.store().meta(id).size == 13));
         fs::remove_file(&new).unwrap();
         assert!(f.settle(|i| !has(i, &new)));
+    }
+
+    #[test]
+    fn the_changed_nodes_are_named_by_kind() {
+        let mut f = Fixture::new("touched");
+        let docs = f.root().join("docs");
+        let docs_id = node_in(&f.index, &docs);
+        let a = node_in(&f.index, &docs.join("a.txt"));
+        f.watcher.take_touched();
+        // Polls until `done` holds for what was gathered or two seconds pass.
+        let gather = |f: &mut Fixture, done: &dyn Fn(&Touched) -> bool| {
+            let mut all = Touched::default();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline && !done(&all) {
+                f.watcher
+                    .poll(&mut f.index, Some(Duration::from_millis(50)))
+                    .unwrap();
+                all.merge(f.watcher.take_touched());
+            }
+            all
+        };
+
+        fs::write(docs.join("new.txt"), b"n").unwrap();
+        let t = gather(&mut f, &|t| !t.added.is_empty());
+        let new = node_in(&f.index, &docs.join("new.txt"));
+        assert_eq!(t.added, [new]);
+        assert!(t.updated.contains(&docs_id), "its folder: {t:?}");
+        assert!(t.removed.is_empty() && t.renamed.is_empty() && !t.many);
+
+        fs::write(docs.join("a.txt"), b"longer").unwrap();
+        let t = gather(&mut f, &|t| t.updated.contains(&a));
+        assert!(t.updated.contains(&a), "{t:?}");
+        assert!(t.added.is_empty() && !t.many);
+
+        fs::rename(docs.join("new.txt"), docs.join("renamed.txt")).unwrap();
+        let t = gather(&mut f, &|t| !t.renamed.is_empty());
+        assert_eq!(t.renamed, [new]);
+        assert!(!t.many);
+
+        fs::remove_file(docs.join("renamed.txt")).unwrap();
+        let t = gather(&mut f, &|t| !t.removed.is_empty());
+        assert_eq!(t.removed, [new]);
+
+        // A folder rename changes every path below it.
+        fs::rename(&docs, f.root().join("papers")).unwrap();
+        let t = gather(&mut f, &|t| t.many);
+        assert!(t.many);
+    }
+
+    #[test]
+    fn touched_lists_stop_at_their_cap() {
+        let mut t = Touched::default();
+        for i in 0..TOUCHED_MAX as u32 {
+            t.update(NodeId(i));
+            t.update(NodeId(i));
+        }
+        assert_eq!(t.updated.len(), TOUCHED_MAX);
+        assert!(!t.many);
+        t.update(NodeId(TOUCHED_MAX as u32));
+        assert!(t.many);
+        assert!(!t.is_empty());
     }
 
     #[test]

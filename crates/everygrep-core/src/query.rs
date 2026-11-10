@@ -560,6 +560,42 @@ impl Query {
         matches!(self.root, Node::All)
     }
 
+    /// Whether the query looks at more of an entry than its name, path and
+    /// type: its size, a time, its attributes, permissions or contents. A
+    /// change of those alone can then change whether it matches.
+    pub fn reads_metadata(&self) -> bool {
+        any_pred(&self.root, &|pred| {
+            matches!(
+                pred,
+                Pred::Size { .. }
+                    | Pred::Modified { .. }
+                    | Pred::DiskTime { .. }
+                    | Pred::Attributes { .. }
+                    | Pred::Kind(Filter::Executable)
+                    | Pred::Content(..)
+            )
+        })
+    }
+
+    /// Whether the query looks at the entries around an entry (`parent:`,
+    /// `child:`, the number of items inside): a change to one entry can
+    /// then change whether another one matches.
+    pub fn reads_relatives(&self) -> bool {
+        any_pred(&self.root, &|pred| {
+            matches!(
+                pred,
+                Pred::Parent(_)
+                    | Pred::Child(_)
+                    | Pred::Number {
+                        field: NumberField::Children
+                            | NumberField::ChildFiles
+                            | NumberField::ChildFolders,
+                        ..
+                    }
+            )
+        })
+    }
+
     /// Tests one node. `content:` terms read the file now, with the
     /// default [`ContentOptions`]; searches use [`Query::stage`] instead.
     pub fn matches(&self, store: &NodeStore, id: NodeId, scratch: &mut EvalScratch) -> bool {
@@ -722,6 +758,23 @@ fn eval_name(store: &NodeStore, id: NodeId, folded: bool, relative: bool) -> &[u
             .unwrap_or(name)
     } else {
         name
+    }
+}
+
+/// Whether `test` holds for a predicate anywhere in `node`, also inside
+/// `parent:` and `child:` terms.
+fn any_pred(node: &Node, test: &dyn Fn(&Pred) -> bool) -> bool {
+    match node {
+        Node::All => false,
+        Node::And(nodes) | Node::Or(nodes) => nodes.iter().any(|n| any_pred(n, test)),
+        Node::Not(inner) => any_pred(inner, test),
+        Node::Leaf(pred) => {
+            test(pred)
+                || match pred {
+                    Pred::Parent(inner) | Pred::Child(inner) => any_pred(inner, test),
+                    _ => false,
+                }
+        }
     }
 }
 
@@ -3694,6 +3747,35 @@ mod tests {
         assert!(t.find_with("/offline/", hide).is_empty());
         assert_eq!(t.find_with("/offline/", only), ["/offline/.private/data"]);
         assert_eq!(t.find_with("", show).len(), 8, "no entry was removed");
+    }
+
+    #[test]
+    fn says_what_besides_the_name_decides_a_match() {
+        let parse = |text: &str| Query::parse(text, QueryOptions::default()).unwrap();
+        for text in [
+            "",
+            "report",
+            "path:docs\\",
+            "ext:txt",
+            "file: depth:3",
+            "*.log|*.tmp",
+        ] {
+            let q = parse(text);
+            assert!(!q.reads_metadata(), "{text}");
+            assert!(!q.reads_relatives(), "{text}");
+        }
+        for text in ["size:>1mb", "a modified:2026", "!attrib:R", "content:x"] {
+            assert!(parse(text).reads_metadata(), "{text}");
+        }
+        for text in [
+            "parent:docs",
+            "child:a.txt",
+            "children:>3",
+            "a | childfiles:0",
+        ] {
+            assert!(parse(text).reads_relatives(), "{text}");
+        }
+        assert!(parse("parent:size:>1mb").reads_metadata());
     }
 
     #[test]

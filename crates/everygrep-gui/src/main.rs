@@ -283,6 +283,17 @@ fn main() -> Result<(), slint::PlatformError> {
                 });
             }
         }),
+        on_rows_changed: Box::new({
+            let weak = weak.clone();
+            move |epoch: u64| {
+                let weak = weak.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(w) = weak.upgrade() {
+                        with_model(&w, |m| m.rows_changed(epoch));
+                    }
+                });
+            }
+        }),
     };
     let window_args = new_window_args(&args.roots, args.index_file.as_deref());
     let drives =
