@@ -110,25 +110,51 @@ fn debounced<T>(receive: &mpsc::Receiver<T>, mut latest: T, quiet: Duration) -> 
     latest
 }
 
+/// Decodes a PNG or JPEG of at most `PIXEL_CAP` pixels and scales it down.
+/// A picture without transparency (every JPEG) is scaled from its three
+/// bytes a pixel, without a four-byte copy of the whole picture first.
 fn decode(bytes: &[u8], oriented: bool) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     data::dimensions(bytes, data::PIXEL_CAP)?;
-    let image = slint::Image::load_from_data(bytes, None).ok()?.to_rgba8()?;
-    Some(scale(
-        &image,
-        if oriented {
-            data::orientation(bytes)
-        } else {
-            1
-        },
-        1024,
-    ))
+    let image = slint::Image::load_from_data(bytes, None).ok()?;
+    let orientation = if oriented {
+        data::orientation(bytes)
+    } else {
+        1
+    };
+    if let Some(opaque) = image.to_rgb8() {
+        let pixels = opaque.as_slice();
+        return Some(scale_pixels(
+            opaque.width(),
+            opaque.height(),
+            orientation,
+            1024,
+            |i| {
+                let p = pixels[i];
+                Rgba8Pixel::new(p.r, p.g, p.b, 255)
+            },
+        ));
+    }
+    Some(scale(&image.to_rgba8()?, orientation, 1024))
 }
 fn scale(
     source: &SharedPixelBuffer<Rgba8Pixel>,
     orientation: u32,
     cap: u32,
 ) -> SharedPixelBuffer<Rgba8Pixel> {
-    let (w, h) = (source.width(), source.height());
+    let pixels = source.as_slice();
+    scale_pixels(source.width(), source.height(), orientation, cap, |i| {
+        pixels[i]
+    })
+}
+/// A copy of a `w` × `h` picture, turned as its EXIF `orientation` says and
+/// at most `cap` wide and high. `pixel` gives the source pixel at an index.
+fn scale_pixels(
+    w: u32,
+    h: u32,
+    orientation: u32,
+    cap: u32,
+    pixel: impl Fn(usize) -> Rgba8Pixel,
+) -> SharedPixelBuffer<Rgba8Pixel> {
     let (ow, oh) = if orientation >= 5 { (h, w) } else { (w, h) };
     let ratio = (cap as f64 / ow.max(oh) as f64).min(1.);
     let (tw, th) = (
@@ -136,9 +162,11 @@ fn scale(
         (oh as f64 * ratio).round().max(1.) as u32,
     );
     let mut result = SharedPixelBuffer::<Rgba8Pixel>::new(tw, th);
+    let target = result.make_mut_slice();
     for y in 0..th {
         for x in 0..tw {
-            let (a, b) = (x * ow / tw, y * oh / th);
+            let a = (x as u64 * ow as u64 / tw as u64) as u32;
+            let b = (y as u64 * oh as u64 / th as u64) as u32;
             let (sx, sy) = match orientation {
                 2 => (w - 1 - a, b),
                 3 => (w - 1 - a, h - 1 - b),
@@ -149,8 +177,8 @@ fn scale(
                 8 => (w - 1 - b, a),
                 _ => (a, b),
             };
-            result.make_mut_slice()[(y * tw + x) as usize] =
-                source.as_slice()[(sy * w + sx) as usize];
+            target[y as usize * tw as usize + x as usize] =
+                pixel(sy as usize * w as usize + sx as usize);
         }
     }
     result
@@ -404,6 +432,63 @@ pub fn connect(w: &AppWindow, engine: &Arc<Engine>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A 16 × 8 JPEG, red on top and blue below.
+    const PHOTO: &[u8] = &[
+        255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 255, 219, 0, 67,
+        0, 20, 14, 15, 18, 15, 13, 20, 18, 16, 18, 23, 21, 20, 24, 30, 50, 33, 30, 28, 28, 30, 61,
+        44, 46, 36, 50, 73, 64, 76, 75, 71, 64, 70, 69, 80, 90, 115, 98, 80, 85, 109, 86, 69, 70,
+        100, 136, 101, 109, 119, 123, 129, 130, 129, 78, 96, 141, 151, 140, 125, 150, 115, 126,
+        129, 124, 255, 219, 0, 67, 1, 21, 23, 23, 30, 26, 30, 59, 33, 33, 59, 124, 83, 70, 83, 124,
+        124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124,
+        124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124,
+        124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 255, 192, 0, 17, 8, 0, 8,
+        0, 16, 3, 1, 34, 0, 2, 17, 1, 3, 17, 1, 255, 196, 0, 21, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 5, 255, 196, 0, 22, 16, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 20, 97, 255, 196, 0, 21, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 5,
+        255, 196, 0, 23, 17, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 20, 81, 255,
+        218, 0, 12, 3, 1, 0, 2, 17, 3, 17, 0, 63, 0, 131, 70, 148, 104, 47, 64, 140, 17, 107, 180,
+        255, 217,
+    ];
+    #[test]
+    fn photos_are_decoded_turned_and_scaled_down() {
+        let plain = decode(PHOTO, true).unwrap();
+        assert_eq!((plain.width(), plain.height()), (16, 8));
+        let (top, bottom) = (plain.as_slice()[0], plain.as_slice()[7 * 16]);
+        assert!(top.r > 200 && top.b < 60 && top.a == 255, "{top:?}");
+        assert!(bottom.b > 200 && bottom.r < 60, "{bottom:?}");
+        // The same photo taken with the camera turned (EXIF orientation 6):
+        // its top row is shown as the right column.
+        let mut turned = PHOTO[..2].to_vec();
+        turned.extend(b"\xff\xe1\x00\x22Exif\0\0II*\0\x08\0\0\0\x01\0");
+        turned.extend(b"\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0");
+        turned.extend(&PHOTO[2..]);
+        assert_eq!(data::orientation(&turned), 6);
+        let image = decode(&turned, true).unwrap();
+        assert_eq!((image.width(), image.height()), (8, 16));
+        let (left, right) = (image.as_slice()[0], image.as_slice()[7]);
+        assert!(left.b > 200 && left.r < 60, "{left:?}");
+        assert!(right.r > 200 && right.b < 60, "{right:?}");
+        // Without the orientation (a cached thumbnail) nothing is turned.
+        assert_eq!(decode(&turned, false).unwrap().width(), 16);
+        assert!(decode(b"not an image", true).is_none());
+    }
+    #[test]
+    fn a_50_megapixel_picture_is_scaled_to_the_preview_size() {
+        let (w, h) = (8160u32, 6120u32);
+        assert!(w as u64 * h as u64 <= data::PIXEL_CAP);
+        let at = |i: usize| Rgba8Pixel::new((i % w as usize * 255 / w as usize) as u8, 0, 0, 255);
+        let image = scale_pixels(w, h, 6, 1024, at);
+        assert_eq!((image.width(), image.height()), (768, 1024));
+        let px = image.as_slice();
+        // Turned: the source's left edge (dark) is the top row.
+        assert!(px[0].r < 2 && px[767].r < 2);
+        assert!(px[1023 * 768].r > 250);
+        let wide = scale_pixels(60000, 1000, 1, 1024, |i| {
+            Rgba8Pixel::new(0, (i % 60000 * 255 / 60000) as u8, 0, 255)
+        });
+        assert_eq!((wide.width(), wide.height()), (1024, 17));
+        assert!(wide.as_slice()[1023].g > 250);
+    }
     #[test]
     fn preview_policy_round_trips_and_rejects_invalid_flags() {
         let mut s = crate::settings::Settings::parse(

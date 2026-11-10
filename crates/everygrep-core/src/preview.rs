@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 pub const TEXT_CAP: usize = 256 * 1024;
 pub const INPUT_CAP: usize = 32 * 1024 * 1024;
 pub const OUTPUT_CAP: usize = 4 * 1024 * 1024;
-pub const PIXEL_CAP: u64 = 25_000_000;
+/// The largest image decoded in this process: a 64-megapixel photo fits
+/// (a 50-megapixel one is 8160 × 6120). The decoded picture is in memory,
+/// three or four bytes a pixel, until it is scaled down.
+pub const PIXEL_CAP: u64 = 70_000_000;
 pub const TIME_CAP: Duration = Duration::from_secs(5);
 
 pub fn name(uri: &str) -> String {
@@ -345,6 +348,10 @@ mod tests {
         big[16..20].copy_from_slice(&10000u32.to_be_bytes());
         big[20..24].copy_from_slice(&10000u32.to_be_bytes());
         assert!(dimensions(&big, PIXEL_CAP).is_none());
+        // A 50-megapixel photo is a normal one.
+        big[16..20].copy_from_slice(&8160u32.to_be_bytes());
+        big[20..24].copy_from_slice(&6120u32.to_be_bytes());
+        assert_eq!(dimensions(&big, PIXEL_CAP), Some((8160, 6120)));
         let mut optional = b"\x89PNG\r\n\x1a\n".to_vec();
         chunk(&mut optional, b"tEXt", b"Thumb::URI\0file:///a");
         chunk(&mut optional, b"tEXt", b"Thumb::MTime\x00123");
