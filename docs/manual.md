@@ -431,7 +431,7 @@ through the system's thumbnail helpers, which run only in a sandbox (Settings
 → Window chooses the sources). File → Properties (`Alt+Enter`) shows the
 properties of an item; its hashes only when the hash cache already has them.
 View → Folders panel shows the indexed folders as a tree; choosing one
-searches inside it. View → Toolbar, View → Status bar and View → Zoom show the
+searches inside it. View → Toolbar, View → Status bar and View → Zoom hide the
 toolbar, hide the status line and size the result list; the window title names
 the search and the number of other tabs.
 
@@ -574,7 +574,7 @@ settings file every setting has the default shown below.
 | | accent color: system (the desktop's accent, adjusted for contrast), blue, green, teal, purple, orange or pink | blue |
 | | result list zoom, 50 to 300 % | 100 % |
 | | show the status line (off: progress, Cancel and messages appear in a small box at the bottom right) | on |
-| | show the toolbar (Back, Forward, New tab, Rescan, Filters, Preview, Settings; each button can be turned off), labels on Back and Forward | off |
+| | show the toolbar (Back, Forward, New tab, Rescan, Filters, Preview, Settings; each button can be turned off), labels on Back and Forward | on, off |
 | | open the location and filter lists below their buttons | on |
 | | density of the result list: comfortable (28 px rows) or compact (22 px) | comfortable |
 | | alternate row color: every second row slightly darker (lighter in the dark theme); in a `duplicates:` or `extra-copies:` list every second group of copies instead | on |

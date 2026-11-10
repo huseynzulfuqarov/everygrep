@@ -366,8 +366,9 @@ First version, 0.1.0, not released yet.
 - Preview panel with the shared thumbnail cache, PNG/JPEG images, text
   files and sandboxed system thumbnail helpers, each source switchable; a
   Properties dialog (`Alt+Enter`); a Folders panel; a Largest folders view.
-- Optional toolbar (Back, Forward, New tab, Rescan, Filters, Preview,
-  Settings; each button and the Back/Forward labels can be turned off).
+- Toolbar, shown by default (Back, Forward, New tab, Rescan, Filters,
+  Preview, Settings; it, each button and the Back/Forward labels can be
+  turned off).
 - Accent colors (system, blue, green, teal, purple, orange, pink; system
   follows the desktop accent, adjusted for contrast) and four surface
   styles each for the dark and the light theme.

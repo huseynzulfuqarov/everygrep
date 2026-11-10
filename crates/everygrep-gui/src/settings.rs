@@ -654,7 +654,7 @@ impl Default for Settings {
             status_details: true,
             menu_bar: true,
             status_bar: true,
-            toolbar: false,
+            toolbar: true,
             toolbar_buttons: [true; 7],
             toolbar_navigation_labels: false,
             dropdown_below: true,
@@ -3251,7 +3251,7 @@ pub(crate) mod tests {
             status_details: false,
             menu_bar: false,
             status_bar: false,
-            toolbar: true,
+            toolbar: false,
             zoom: 125,
             drives: DriveSettings {
                 auto: false,
@@ -3278,7 +3278,7 @@ pub(crate) mod tests {
         assert!(text.contains("status-details = false\n"));
         assert!(text.contains("menu-bar = false\n"));
         assert!(text.contains("status-bar = false\n"));
-        assert!(text.contains("toolbar = true\n"));
+        assert!(text.contains("toolbar = false\n"));
         assert!(text.contains("zoom = 125\n"));
         assert_eq!(Settings::parse("zoom = 20\n").problems.len(), 1);
         assert_eq!(Settings::parse("zoom = 301\n").problems.len(), 1);
@@ -3574,6 +3574,20 @@ pub(crate) mod tests {
         let s = Settings::parse("dropdown-below = false\ndropdown-below = invalid\n");
         assert!(!s.dropdown_below);
         assert_eq!(s.problems.len(), 1);
+    }
+
+    #[test]
+    fn toolbar_defaults_on_and_turning_it_off_persists() {
+        assert!(Settings::default().toolbar);
+        assert!(Settings::parse("").toolbar);
+        let s = Settings {
+            toolbar: false,
+            ..Settings::default()
+        };
+        let text = s.to_text();
+        assert!(text.contains("toolbar = false\n"));
+        assert!(!Settings::parse(&text).toolbar);
+        assert!(Settings::parse("toolbar = true\n").toolbar);
     }
 
     #[test]
