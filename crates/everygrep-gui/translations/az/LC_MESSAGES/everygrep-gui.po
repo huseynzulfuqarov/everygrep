@@ -3583,13 +3583,13 @@ msgid "Subfolders"
 msgstr "Alt qovluqlar"
 
 msgid "Items at any depth"
-msgstr "Bütün səviyyələrdə elementlər"
+msgstr "Bütün elementlər"
 
 msgid "Files at any depth"
-msgstr "Bütün səviyyələrdə fayllar"
+msgstr "Bütün fayllar"
 
 msgid "Subfolders at any depth"
-msgstr "Bütün səviyyələrdə alt qovluqlar"
+msgstr "Bütün alt qovluqlar"
 
 msgid "Folder depth"
 msgstr "Qovluq dərinliyi"
@@ -3745,13 +3745,13 @@ msgid "Subfolders column"
 msgstr "Alt qovluqlar sütunu"
 
 msgid "Items at any depth column"
-msgstr "Bütün səviyyələrdə elementlər sütunu"
+msgstr "Bütün elementlər sütunu"
 
 msgid "Files at any depth column"
-msgstr "Bütün səviyyələrdə fayllar sütunu"
+msgstr "Bütün fayllar sütunu"
 
 msgid "Subfolders at any depth column"
-msgstr "Bütün səviyyələrdə alt qovluqlar sütunu"
+msgstr "Bütün alt qovluqlar sütunu"
 
 msgid "Folder depth column"
 msgstr "Qovluq dərinliyi sütunu"
@@ -5231,6 +5231,12 @@ msgstr "Təmizlə"
 
 msgid "Deleted"
 msgstr "Silindi"
+
+msgid "Added"
+msgstr "Yaradıldı"
+
+msgid "Changed"
+msgstr "Dəyişdirildi"
 
 msgid "Export index changes"
 msgstr "İndeks dəyişikliklərini ixrac et"

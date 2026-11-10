@@ -3583,13 +3583,13 @@ msgid "Subfolders"
 msgstr "Alt klasörler"
 
 msgid "Items at any depth"
-msgstr "Tüm düzeylerdeki öğeler"
+msgstr "Tüm öğeler"
 
 msgid "Files at any depth"
-msgstr "Tüm düzeylerdeki dosyalar"
+msgstr "Tüm dosyalar"
 
 msgid "Subfolders at any depth"
-msgstr "Tüm düzeylerdeki alt klasörler"
+msgstr "Tüm alt klasörler"
 
 msgid "Folder depth"
 msgstr "Klasör derinliği"
@@ -3745,13 +3745,13 @@ msgid "Subfolders column"
 msgstr "Alt klasörler sütunu"
 
 msgid "Items at any depth column"
-msgstr "Tüm düzeylerdeki öğeler sütunu"
+msgstr "Tüm öğeler sütunu"
 
 msgid "Files at any depth column"
-msgstr "Tüm düzeylerdeki dosyalar sütunu"
+msgstr "Tüm dosyalar sütunu"
 
 msgid "Subfolders at any depth column"
-msgstr "Tüm düzeylerdeki alt klasörler sütunu"
+msgstr "Tüm alt klasörler sütunu"
 
 msgid "Folder depth column"
 msgstr "Klasör derinliği sütunu"
@@ -5231,6 +5231,12 @@ msgstr "Temizle"
 
 msgid "Deleted"
 msgstr "Silindi"
+
+msgid "Added"
+msgstr "Oluşturuldu"
+
+msgid "Changed"
+msgstr "Değiştirildi"
 
 msgid "Export index changes"
 msgstr "Dizin değişikliklerini dışa aktar"

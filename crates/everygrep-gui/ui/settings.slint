@@ -1146,6 +1146,7 @@ export component SettingsWindow inherits Window {
                             }
                             Note { text: @tr("At most 10,000 distinct searches are kept. Apply confirms the days to keep."); }
                             HorizontalLayout {
+                                spacing: Theme.s3;
                                 Text { text: @tr("Distinct searches to keep"); color: Theme.text; vertical-alignment: center; }
                                 SpinBox { accessible-label: @tr("Distinct searches to keep"); minimum: 1; maximum: 10000; value <=> root.history-entries; edited => { root.search-changed(); } }
                             }
@@ -1313,7 +1314,9 @@ export component SettingsWindow inherits Window {
                             Heading { text: @tr("Sizes"); }
                             HorizontalLayout {
                                 spacing: Theme.s3;
-                                Text {
+                                size-format-label := Text {
+                                    // As wide as the Size units label, so the two boxes line up.
+                                    width: max(self.preferred-width, size-units-label.preferred-width);
                                     text: @tr("Size format");
                                     color: Theme.text;
                                     vertical-alignment: center;
@@ -1329,7 +1332,8 @@ export component SettingsWindow inherits Window {
                             }
                             HorizontalLayout {
                                 spacing: Theme.s3;
-                                Text {
+                                size-units-label := Text {
+                                    width: max(self.preferred-width, size-format-label.preferred-width);
                                     text: @tr("Size units");
                                     color: Theme.text;
                                     vertical-alignment: center;

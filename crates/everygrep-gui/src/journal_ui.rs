@@ -36,11 +36,11 @@ thread_local! {
 
 fn action_label(kind: ChangeKind) -> &'static str {
     match kind {
-        ChangeKind::Created => tr("Created"),
+        ChangeKind::Created => tr("Added"),
         ChangeKind::Deleted => tr("Deleted"),
         ChangeKind::Renamed => tr("Renamed"),
         ChangeKind::Moved => tr("Moved"),
-        ChangeKind::Modified => tr("Modified"),
+        ChangeKind::Modified => tr("Changed"),
     }
 }
 
