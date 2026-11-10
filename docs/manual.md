@@ -98,10 +98,10 @@ executable file.
 | `Ctrl+Space`, `Ctrl`+click | add or remove one row |
 | `Ctrl+A` | select all |
 | `Ctrl+I` | invert the selection (also from the search field) |
-| `Enter`, double-click | open (in the search field, `Enter`, also with `Ctrl`, `Shift` or `Alt`, opens only a selected row) |
-| `Ctrl+Enter`, double-click in the Folder column | open the containing folder |
-| `Shift+Enter` | open with another application, chosen in the desktop's dialog |
-| `Alt+Enter` | properties of the selected item |
+| `Enter`, double-click | open (in the search field, `Enter` opens only a selected row) |
+| `Ctrl+Enter`, double-click in the Folder column | open the containing folder (the key also from the search field, for a selected row) |
+| `Shift+Enter` | open with another application, chosen in the desktop's dialog (also from the search field, for a selected row) |
+| `Alt+Enter` | properties of the selected item (also from the search field) |
 | `Ctrl+X` / `Ctrl+C` | cut / copy the items, to paste them into a folder |
 | `Ctrl+V` | paste into the selected folder |
 | `Ctrl+Shift+C` | copy the full path (one per line) |

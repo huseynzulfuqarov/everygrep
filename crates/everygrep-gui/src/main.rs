@@ -3229,9 +3229,10 @@ mod tests {
         }
     }
 
-    /// In the search field, Enter (with any modifier, which the field
-    /// takes as Enter) and the keys of commands that act on the current
-    /// row do nothing without a selected row.
+    /// In the search field, Enter and the keys of commands that act on
+    /// the current row do nothing without a selected row. The field asks
+    /// for a command before the text input sees the key, so Enter with a
+    /// modifier runs its command instead of opening the row.
     #[test]
     fn search_field_keys_act_only_on_a_selected_row() {
         let ui = include_str!("../ui/app.slint");
@@ -3250,6 +3251,15 @@ mod tests {
             accepted[..accepted.find("down-pressed").unwrap()]
                 .contains("root.current >= 0 && root.is-selected(root.current)")
         );
+        let field = &ui[ui.find("input := TextInput {").expect("field")..];
+        let field = &field[..field.find("root.down-pressed()").expect("its keys")];
+        let keys = &field[field.find("key-pressed(event) => {").expect("keys")..];
+        assert!(
+            keys.trim_start_matches("key-pressed(event) => {")
+                .trim_start()
+                .starts_with("if (root.shortcut(event)) {")
+        );
+        assert!(ui.contains("root.history-key(event) || root.dispatch(1, event)"));
         let acts = &ui[ui.find("function acts-on-current(").expect("list")..];
         let acts = &acts[..acts.find("\n    }\n").unwrap()];
         for command in [

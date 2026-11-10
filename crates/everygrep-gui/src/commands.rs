@@ -444,7 +444,7 @@ pub struct Spec {
     pub defaults: &'static [(Scope, &'static str)],
 }
 
-use Scope::{Global, List};
+use Scope::{Global, List, Search};
 
 /// Every command, in the order of the help dialog and the keyboard settings.
 pub const COMMANDS: &[Spec] = &[
@@ -642,21 +642,21 @@ pub const COMMANDS: &[Spec] = &[
         id: "file.open-folder",
         category: Category::File,
         label: || tr("Open containing folder"),
-        defaults: &[(List, "Ctrl+Enter")],
+        defaults: &[(List, "Ctrl+Enter"), (Search, "Ctrl+Enter")],
     },
     Spec {
         cmd: Command::OpenWith,
         id: "file.open-with",
         category: Category::File,
         label: || tr("Open with…"),
-        defaults: &[(List, "Shift+Enter")],
+        defaults: &[(List, "Shift+Enter"), (Search, "Shift+Enter")],
     },
     Spec {
         cmd: Command::Properties,
         id: "file.properties",
         category: Category::File,
         label: || tr("Properties"),
-        defaults: &[(List, "Alt+Enter")],
+        defaults: &[(List, "Alt+Enter"), (Search, "Alt+Enter")],
     },
     Spec {
         cmd: Command::ReadExtended,
@@ -2483,13 +2483,15 @@ mod tests {
         let map = Keymap::default();
         let both = [Scope::Search, Scope::List, Scope::Global];
         let list = [Scope::List];
+        let rows = [Scope::Search, Scope::List];
         let table: &[(&[Scope], &str, C)] = &[
             (&list, "Ctrl+Space", C::ToggleRow),
             (&list, "Ctrl+A", C::SelectAll),
             (&both, "Ctrl+I", C::InvertSelection),
             (&list, "Enter", C::Open),
-            (&list, "Ctrl+Enter", C::OpenFolder),
-            (&list, "Shift+Enter", C::OpenWith),
+            (&rows, "Ctrl+Enter", C::OpenFolder),
+            (&rows, "Shift+Enter", C::OpenWith),
+            (&rows, "Alt+Enter", C::Properties),
             (&list, "Ctrl+X", C::Cut),
             (&list, "Ctrl+C", C::Copy),
             (&list, "Ctrl+V", C::Paste),
@@ -2535,6 +2537,10 @@ mod tests {
         }
         // List keys do nothing elsewhere.
         assert_eq!(map.resolve(Scope::Search, &chord("F2")), None);
+        // Plain Enter stays the search field's own key; with a modifier
+        // it is a command there, which the user can rebind.
+        assert_eq!(map.resolve(Scope::Search, &chord("Enter")), None);
+        assert_eq!(map.resolve(Scope::Global, &chord("Ctrl+Enter")), None);
         assert_eq!(map.resolve(Scope::Global, &chord("Ctrl+C")), None);
     }
 
