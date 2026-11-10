@@ -654,4 +654,6 @@ First version, 0.1.0, not released yet.
   the PKGBUILD.
 - A short README, with the full description of the window, the settings
   and the command line in `docs/manual.md`.
+- `scripts/check.sh` runs on GitHub for every push to `main` and every pull
+  request (`.github/workflows/check.yml`).
 

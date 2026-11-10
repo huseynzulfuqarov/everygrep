@@ -11,6 +11,8 @@ cargo run -p everygrep-cli -- search 'ext:pdf'
 
 `scripts/check.sh` runs `cargo fmt --all --check`, `cargo clippy --workspace
 --all-targets --locked -- -D warnings` and `cargo test --workspace --locked`.
+GitHub runs the same script for every push to `main` and every pull request
+(`.github/workflows/check.yml`).
 
 The single-window test needs a private session bus and is skipped by default:
 
