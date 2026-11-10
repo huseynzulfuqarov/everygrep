@@ -82,6 +82,6 @@ package() {
 
   install -Dm644 LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md \
     -t "$pkgdir/usr/share/licenses/$pkgname/"
-  install -Dm644 README.md CHANGELOG.md docs/query-language.md \
+  install -Dm644 README.md CHANGELOG.md docs/manual.md docs/query-language.md \
     -t "$pkgdir/usr/share/doc/$pkgname/"
 }

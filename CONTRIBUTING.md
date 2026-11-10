@@ -39,8 +39,9 @@ so `scripts/check.sh` does not run it.
   `perf(core): …`, `refactor: …`. Scopes are `core`, `cli`, `gui`, `query`,
   `data`.
 - Small, logical commits; every commit passes `scripts/check.sh` on its own.
-- A user-visible change updates the README (and `docs/` where it applies) in
-  the same or the next commit, and gets a line in `CHANGELOG.md`.
+- A user-visible change updates `docs/manual.md` (and the README or the
+  other files in `docs/` where it applies) in the same or the next commit,
+  and gets a line in `CHANGELOG.md`.
 - The docs describe what the code does; check each claim against the code or
   a test.
 

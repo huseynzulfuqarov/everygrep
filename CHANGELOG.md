@@ -652,4 +652,6 @@ First version, 0.1.0, not released yet.
 - Arch Linux PKGBUILD.
 - AppStream metainfo (`data/az.huseynz.EveryGrep.metainfo.xml`), installed by
   the PKGBUILD.
+- A short README, with the full description of the window, the settings
+  and the command line in `docs/manual.md`.
 
