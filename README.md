@@ -476,8 +476,8 @@ the saved file. Reading is limited to 8 MiB and 1,000 tab records.
 Besides the columns above, the header's context menu and View → Organize
 columns offer columns read from the index or the file system (full path,
 parent path, name without extension, name and path length, size on disk,
-total size, items, files and subfolders inside (also at any depth), folder depth, hard link count,
-shortcut target, owner), from file metadata (width, height, dimensions,
+total size, items, files and subfolders inside (also at any depth), folder
+depth, hard link count, shortcut target, owner), from file metadata (width, height, dimensions,
 length, bit rate, title, artist, album, year, track, genre, rating, tags,
 page count, word count, camera maker and model, date taken, GPS latitude
 and longitude), more hashes (SHA-1, SHA-384, SHA-512, xxHash) and the
