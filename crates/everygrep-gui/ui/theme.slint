@@ -23,8 +23,8 @@ export global Theme {
         ? Palette.color-scheme == ColorScheme.dark
         : scheme == ColorScheme.dark;
 
-    in-out property <int> dark-style: 0;
-    in-out property <int> light-style: 0;
+    in-out property <int> dark-style: 1;
+    in-out property <int> light-style: 1;
     // Preserve the initial desktop binding until an explicit scheme is known.
     in-out property <bool> palette-set: false;
 

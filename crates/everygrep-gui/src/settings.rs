@@ -130,8 +130,8 @@ impl ThemeChoice {
 /// App-owned dark surfaces; light colors are independent of this choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DarkStyle {
-    #[default]
     Slate,
+    #[default]
     Layered,
     Graphite,
     Classic,
@@ -153,8 +153,8 @@ impl DarkStyle {
 /// App-owned light surfaces; dark colors are independent of this choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LightStyle {
-    #[default]
     Classic,
+    #[default]
     Cool,
     Layered,
     Neutral,
@@ -644,8 +644,8 @@ impl Default for Settings {
             dates_newest_first: false,
             sizes_largest_first: false,
             theme: ThemeChoice::System,
-            dark_style: DarkStyle::Slate,
-            light_style: LightStyle::Classic,
+            dark_style: DarkStyle::Layered,
+            light_style: LightStyle::Cool,
             accent: AccentChoice::Blue,
             density: Density::Comfortable,
             alternate_rows: true,
@@ -3488,7 +3488,7 @@ pub(crate) mod tests {
 
     #[test]
     fn dark_styles_round_trip_reject_unknown_and_reset_only_appearance() {
-        assert_eq!(Settings::default().dark_style, DarkStyle::Slate);
+        assert_eq!(Settings::default().dark_style, DarkStyle::Layered);
         for style in DarkStyle::ALL {
             let mut s = Settings {
                 dark_style: style,
@@ -3499,7 +3499,7 @@ pub(crate) mod tests {
             s.reset(Page::Search);
             assert_eq!(s.dark_style, style);
             s.reset(Page::Appearance);
-            assert_eq!(s.dark_style, DarkStyle::Slate);
+            assert_eq!(s.dark_style, DarkStyle::Layered);
         }
         let s = Settings::parse("dark-style = graphite\ndark-style = unknown\n");
         assert_eq!(s.dark_style, DarkStyle::Graphite);
@@ -3508,11 +3508,11 @@ pub(crate) mod tests {
 
     #[test]
     fn light_styles_round_trip_reject_unknown_and_reset_only_appearance() {
-        assert_eq!(Settings::default().light_style, LightStyle::Classic);
+        assert_eq!(Settings::default().light_style, LightStyle::Cool);
         assert!(!Settings::default().to_text().contains("light-style"));
         assert_eq!(
             Settings::parse("light-style = unknown\n").light_style,
-            LightStyle::Classic
+            LightStyle::Cool
         );
         for style in LightStyle::ALL {
             let mut s = Settings {
@@ -3532,7 +3532,7 @@ pub(crate) mod tests {
             s.reset(Page::Search);
             assert_eq!(s.light_style, style);
             s.reset(Page::Appearance);
-            assert_eq!(s.light_style, LightStyle::Classic);
+            assert_eq!(s.light_style, LightStyle::Cool);
         }
         let s = Settings::parse("light-style = neutral\nlight-style = unknown\n");
         assert_eq!(s.light_style, LightStyle::Neutral);

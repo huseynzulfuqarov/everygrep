@@ -575,7 +575,7 @@ settings file every setting has the default shown below.
 | | hash cache of duplicate searches: largest size in MiB (0 keeps none; applies at the next save), how much is in use, "Clear hash cache" | 512 |
 | Appearance | language: same as the system, English, Azərbaycanca or Türkçe | same as the system |
 | | theme: same as the desktop, light or dark | same as the desktop |
-| | dark style: slate, layered, graphite or classic; light style: classic, cool, layered or neutral | slate, classic |
+| | dark style: slate, layered, graphite or classic; light style: classic, cool, layered or neutral | layered, cool |
 | | accent color: system (the desktop's accent, adjusted for contrast), blue, green, teal, purple, orange or pink | blue |
 | | result list zoom, 50 to 300 % | 100 % |
 | | show the status line (off: progress, Cancel and messages appear in a small box at the bottom right) | on |

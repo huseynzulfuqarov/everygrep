@@ -384,7 +384,8 @@ First version, 0.1.0, not released yet.
   turned off).
 - Accent colors (system, blue, green, teal, purple, orange, pink; system
   follows the desktop accent, adjusted for contrast) and four surface
-  styles each for the dark and the light theme.
+  styles each for the dark and the light theme (Layered and Cool by
+  default).
 - Zoom of the result list from 50 to 300 % (`Ctrl+=`, `Ctrl+-`,
   `Ctrl+Shift+0`); the status line can be hidden (messages then appear in a
   small box); the window title names the search and the other tabs.
