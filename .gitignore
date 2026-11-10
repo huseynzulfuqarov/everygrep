@@ -1,2 +1,5 @@
 /target
 *.swp
+# Local settings of coding agents; they can hold commands with secrets.
+.claude/
+.codex/
