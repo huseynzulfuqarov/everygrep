@@ -276,8 +276,8 @@ First version, 0.1.0, not released yet.
   years, months, weeks, days, hours, minutes and seconds. Their start or end keeps
   the wall clock time also on a day with a daylight saving change (it used
   to be off by an hour there).
-- Weekday and month names in dates (`modified:monday`, `modified:fri`, `modified:october`,
-  `modified:dec`: the latest such day or month).
+- Weekday and month names in dates (`modified:monday`, `modified:fri`,
+  `modified:october`, `modified:dec`: the latest such day or month).
 - An age without a comparison, `modified:7d`, means within the last 7 days, like
   `modified:<7d`; it used to be an error. Ages end now: a time in the future no
   longer matches `modified:7d` or `modified:<7d`, as with `modified:last7days`.

@@ -27,10 +27,9 @@
 //!                     today, yesterday, tomorrow, thisweek, lastmonth,
 //!                     nextyear, ...); >, >=, <, <= compare whole days, weeks,
 //!                     months or years; 2026-10-01..2026-10-25 is inclusive
-//! modified:last3days  from 3 days before now up to now (also past3days,
-//!                     pastweek, next2hours, prev2weeks = whole weeks)
+//! modified:last3days  from 3 days before now up to now (also next2hours)
 //! modified:monday  modified:oct
-//!                     the latest such day / month; modified:mtd  modified:ytd to date
+//!                     the latest such day / month
 //! created:today  accessed:>30d
 //!                     creation / access time, read from disk while searching
 //! prefix:rep          the name starts with the term
@@ -3050,7 +3049,7 @@ fn parse_dates(spec: &str, now_ns: i64, zone: &Zone) -> Result<Pred, ParseError>
 
 /// One value of a `modified:` term: a calendar period (a date, a month, a
 /// year, `today`, `lastweek`, ...) or a span that ends or starts now
-/// (`last3days`, `pastweek`, `next2hours`). Constants ignore case and may be
+/// (`last3days`, `next2hours`). Constants ignore case and may be
 /// written with `-` or `_` (`last-3-days`).
 fn parse_span(s: &str, now_ns: i64, zone: &Zone, spec: &str) -> Result<Span, ParseError> {
     let s = s.trim().to_ascii_lowercase();
@@ -3061,7 +3060,7 @@ fn parse_span(s: &str, now_ns: i64, zone: &Zone, spec: &str) -> Result<Span, Par
     if let Some(p) = parse_relative_period(&word, today) {
         return Ok(p.span(zone));
     }
-    if let Some(span) = parse_moving_span(&word, now_ns, today, zone) {
+    if let Some(span) = parse_moving_span(&word, now_ns, zone) {
         return Ok(span);
     }
     parse_period(&s, spec).map(|p| p.span(zone))
@@ -3144,8 +3143,8 @@ const MONTHS: [[&str; 2]; 12] = [
     ["december", "dec"],
 ];
 
-/// `today`, `yesterday`, `tomorrow`, and `this`/`current`, `last`/`previous`/
-/// `prev` or `next`/`coming` with `week`, `month` or `year` (`lastweek`).
+/// `today`, `yesterday`, `tomorrow`, and `this`, `last` or `next` with
+/// `week`, `month` or `year` (`lastweek`).
 /// A weekday name (`monday`, `mon`) is the latest such day up to today, a
 /// month name (`october`, `oct`) the latest such month up to the current
 /// one. `word` is lowercase, without `-` and `_`.
@@ -3177,15 +3176,7 @@ fn parse_relative_period(word: &str, today: i64) -> Option<Period> {
             unit: Unit::Month,
         });
     }
-    const STEPS: [(&str, i64); 7] = [
-        ("this", 0),
-        ("current", 0),
-        ("last", -1),
-        ("previous", -1),
-        ("prev", -1),
-        ("next", 1),
-        ("coming", 1),
-    ];
+    const STEPS: [(&str, i64); 3] = [("this", 0), ("last", -1), ("next", 1)];
     STEPS.iter().find_map(|&(prefix, step)| {
         let unit = calendar_unit(word.strip_prefix(prefix)?)?;
         Some(calendar_period(unit, step, today))
@@ -3238,57 +3229,21 @@ fn split_count(word: &str) -> Option<(Option<i64>, &str)> {
 /// Spans that are not one calendar period. `word` is lowercase, without
 /// `-` and `_`.
 ///
-/// - `last<n><unit>` and `past[n]<unit>`: from `n` units before now up to
-///   now (`past` alone is one unit: `pastweek` = the last 7 days).
-/// - `next<n><unit>` and `coming<n><unit>`: from now up to `n` units ahead.
-/// - `prev[n]<week|month|year>` and `previous…`: the `n` whole calendar
-///   weeks, months or years before the current one.
-/// - `mtd` and `ytd`: from the start of the month or year up to now.
+/// - `last<n><unit>`: from `n` units before now up to now.
+/// - `next<n><unit>`: from now up to `n` units ahead.
 ///
 /// Units are years, months, weeks, days, hours, minutes (`mins`) and
 /// seconds (`secs`), singular or plural. Days, weeks, months and years keep
 /// the local wall clock time (`last1month` on 31 March starts on the last
 /// day of February at the same time).
-fn parse_moving_span(word: &str, now_ns: i64, today: i64, zone: &Zone) -> Option<Span> {
-    let to_date = match word {
-        "mtd" => Some(Unit::Month),
-        "ytd" => Some(Unit::Year),
-        _ => None,
+fn parse_moving_span(word: &str, now_ns: i64, zone: &Zone) -> Option<Span> {
+    let (direction, rest) = if let Some(rest) = word.strip_prefix("last") {
+        (-1, rest)
+    } else {
+        (1, word.strip_prefix("next")?)
     };
-    if let Some(unit) = to_date {
-        return Some(Span {
-            start: calendar_period(unit, 0, today).start_ns(zone),
-            end: now_ns,
-        });
-    }
-    for prefix in ["previous", "prev"] {
-        if let Some(rest) = word.strip_prefix(prefix) {
-            let (n, unit) = split_count(rest)?;
-            let unit = calendar_unit(unit.strip_suffix('s').unwrap_or(unit))?;
-            let first = calendar_period(unit, -n?, today);
-            let current = calendar_period(unit, 0, today);
-            return Some(Span {
-                start: first.start_ns(zone),
-                end: current.start_ns(zone).saturating_sub(1),
-            });
-        }
-    }
-    // (prefix, direction, whether the count may be left out)
-    const MOVING: [(&str, i64, bool); 4] = [
-        ("last", -1, false),
-        ("past", -1, true),
-        ("next", 1, false),
-        ("coming", 1, false),
-    ];
-    let (direction, rest, optional) = MOVING.iter().find_map(|&(prefix, dir, optional)| {
-        word.strip_prefix(prefix).map(|rest| (dir, rest, optional))
-    })?;
     let (n, unit) = split_count(rest)?;
-    let n = match n {
-        Some(n) => n,
-        None if optional => 1,
-        None => return None,
-    };
+    let n = n?;
     let other = shift(now_ns, direction * n, parse_step(unit)?, zone);
     Some(if direction < 0 {
         Span {
@@ -4602,7 +4557,7 @@ mod tests {
         let root = store.add(None, b"/d", true, Meta::default());
         for (name, mtime_ns) in [
             ("w-mon", at(2026, 10, 19, 0, 30, 2)),
-            ("w-prev-sun", at(2026, 10, 18, 23, 0, 2)),
+            ("w-prior-sun", at(2026, 10, 18, 23, 0, 2)),
             ("w-last-mon", at(2026, 10, 12, 0, 0, 2)),
             ("w-older", at(2026, 10, 11, 23, 0, 2)),
             ("tomorrow", at(2026, 10, 26, 10, 0, 1)),
@@ -4634,15 +4589,11 @@ mod tests {
         assert_eq!(find("modified:tomorrow"), ["tomorrow"]);
         assert_eq!(find("modified:thisweek"), ["w-mon"]);
         assert_eq!(find("modified:this-week"), ["w-mon"]);
-        assert_eq!(find("modified:currentweek"), ["w-mon"]);
-        assert_eq!(find("modified:lastweek"), ["w-last-mon", "w-prev-sun"]);
-        assert_eq!(find("modified:previous-week"), find("modified:lastweek"));
-        assert_eq!(find("modified:prevweek"), find("modified:lastweek"));
+        assert_eq!(find("modified:lastweek"), ["w-last-mon", "w-prior-sun"]);
         assert_eq!(find("modified:nextweek"), ["nw", "tomorrow"]);
-        assert_eq!(find("modified:coming-week"), ["nw", "tomorrow"]);
         assert_eq!(
             find("modified:thismonth"),
-            ["tomorrow", "w-last-mon", "w-mon", "w-older", "w-prev-sun"]
+            ["tomorrow", "w-last-mon", "w-mon", "w-older", "w-prior-sun"]
         );
         assert_eq!(find("modified:LastMonth"), ["sep"]);
         assert_eq!(find("modified:nextmonth"), ["nw", "nw2"]);
@@ -4657,7 +4608,7 @@ mod tests {
                 "tomorrow",
                 "w-last-mon",
                 "w-mon",
-                "w-prev-sun",
+                "w-prior-sun",
                 "y2027"
             ]
         );
@@ -4728,7 +4679,7 @@ mod tests {
     }
 
     #[test]
-    fn last_past_next_and_previous_spans() {
+    fn last_and_next_spans() {
         // Sunday 2026-10-25 12:00 local, the day the clocks went back.
         let now = at(2026, 10, 25, 12, 0, 1);
         let entries = [
@@ -4775,20 +4726,15 @@ mod tests {
         );
         assert_eq!(find("modified:last2months").len(), 8);
         assert_eq!(find("modified:last1year").len(), 9);
-        assert_eq!(find("modified:pastweek"), find("modified:last1week"));
-        assert_eq!(find("modified:past-week"), ["d1", "d2", "d5", "h2", "m10"]);
-        assert_eq!(find("modified:pastday"), ["d1", "h2", "m10"]);
-        assert_eq!(find("modified:past2days"), ["d1", "d2", "h2", "m10"]);
-        assert_eq!(find("modified:pasthour"), ["m10"]);
-        assert_eq!(find("modified:pastyears"), find("modified:last1year"));
+        assert_eq!(
+            find("modified:last-1-week"),
+            ["d1", "d2", "d5", "h2", "m10"]
+        );
+        assert_eq!(find("modified:last2days"), ["d1", "d2", "h2", "m10"]);
+        assert_eq!(find("modified:last1hour"), ["m10"]);
         assert_eq!(find("modified:next1hour"), ["soon"]);
-        assert_eq!(find("modified:coming-2-hours"), ["soon"]);
+        assert_eq!(find("modified:next-2-hours"), ["soon"]);
         assert_eq!(find("modified:next1day"), ["future", "soon"]);
-        // Previous whole calendar weeks, months and years.
-        assert_eq!(find("modified:prev2weeks"), ["pw"]);
-        assert_eq!(find("modified:previous-2-months"), ["mo"]);
-        assert_eq!(find("modified:prev1year"), ["y"]);
-        assert_eq!(find("modified:prev1week"), find("modified:lastweek"));
         // Comparisons use the whole span; it ends now.
         assert_eq!(find("modified:>last2hours"), ["future", "soon"]);
         assert_eq!(
@@ -4808,12 +4754,11 @@ mod tests {
             "modified:lastdays",
             "modified:last0days",
             "modified:last2000000days",
-            "modified:past3fortnights",
-            "modified:prev3days",
-            "modified:prevdays",
+            "modified:last3fortnights",
+            "modified:lastweeks",
             "modified:next",
             "modified:next-hours",
-            "modified:coming3",
+            "modified:next3",
         ] {
             let zone = Zone::from_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
             let q = Query::parse_with(bad, QueryOptions::default(), now, Some(zone));
@@ -4838,7 +4783,6 @@ mod tests {
             ("after", at(2026, 10, 25, 12, 30, 1)),
         ];
         assert_eq!(find_at(&entries, autumn, "modified:last1day"), ["after"]);
-        assert_eq!(find_at(&entries, autumn, "modified:past1day"), ["after"]);
         // Forward: the span ends at the same wall clock time on the change day.
         let saturday = at(2026, 3, 28, 12, 0, 1);
         let entries = [
@@ -4908,11 +4852,6 @@ mod tests {
         assert_eq!(find("modified:december"), ["dec-2025"]);
         assert_eq!(find("modified:Dec"), ["dec-2025"]);
         assert!(find("modified:may").is_empty());
-        // Month and year to date end now.
-        assert_eq!(find("modified:mtd").len(), 7);
-        assert!(!find("modified:mtd").contains(&"later-today".to_owned()));
-        assert_eq!(find("modified:ytd").len(), 8);
-        assert!(find("modified:ytd").contains(&"jan".to_owned()));
         for bad in ["modified:mondays", "modified:septembre", "modified:wtd"] {
             let zone = Zone::from_posix_tz("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
             let q = Query::parse_with(bad, QueryOptions::default(), now, Some(zone));
@@ -4929,7 +4868,7 @@ mod tests {
             ("out", at(2026, 2, 28, 8, 59, 1)),
         ];
         assert_eq!(find_at(&entries, now, "modified:last1month"), ["in"]);
-        assert_eq!(find_at(&entries, now, "modified:past-month"), ["in"]);
+        assert_eq!(find_at(&entries, now, "modified:last-1-month"), ["in"]);
     }
 
     #[test]

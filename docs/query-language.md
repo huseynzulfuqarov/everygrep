@@ -341,8 +341,7 @@ Calendar dates, in the local time zone:
 | `modified:<=2026-10` | up to the end of October 2026 |
 | `modified:2026-10-01..2026-10-25` | from the start of the first to the end of the last, inclusive |
 
-The words may be written with `-` or `_` (`last-week`); they
-work with the comparisons and ranges like dates (`modified:>=lastmonth`,
+The words may be written with `-` or `_` (`last-week`); they work with the comparisons and ranges like dates (`modified:>=lastmonth`,
 `modified:lastweek..thisweek`). A week starts on Monday.
 
 Spans that end or start now, with a count `n` (1 to 1 000 000):
@@ -353,8 +352,10 @@ Spans that end or start now, with a count `n` (1 to 1 000 000):
 | `modified:next2hours` | from now up to 2 hours ahead |
 
 Units are `years`, `months`, `weeks`, `days`, `hours`, `minutes` (`mins`) and
-`seconds` (`secs`), singular or plural. `lastweek` without a count is the previous calendar week, while
-`last1week` is the 7 days up to now. Days, weeks, months and years keep the
+`seconds` (`secs`), singular or plural. `lastweek` without a count is the
+previous calendar week, while `last1week` is the 7 days up to now. Whole
+calendar weeks, months or years before the current one are a range of dates
+(`modified:2026-08..2026-09`). Days, weeks, months and years keep the
 local wall clock time, so `last1day` on the day the clocks go back is 25 hours
 long, also when the change falls on the day the span starts, and a day that
 does not exist in the month is the month's last day (`last1month` on 31 March
