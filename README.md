@@ -151,8 +151,8 @@ that are on show in the status line. Results come in natural name order:
 numbers by value (`file2` before `file10`), case and diacritics ignored (`Çay`
 next to `cay`), `ə` after `e`, hyphens and apostrophes skipped. A right-click
 on the empty area below the rows opens a menu with Select all, Invert
-selection, Export results, Refresh, Organize columns and Size all columns to
-fit window. Right-click the column headers to show the Type, Extension,
+selection, Export results, Refresh, Organize columns and Fit columns to
+window. Right-click the column headers to show the Type, Extension,
 Created, Accessed and Attributes columns, and MD5, SHA-256 and CRC-32: hashes
 of the files on screen, computed on a thread of their own (the smallest files
 first, each read once for all hash columns shown) and kept in the hash cache;
@@ -571,7 +571,7 @@ View → Largest folders lists folders by total size, and Search → Search a
 list of names… finds the names of a pasted list or a text file (both in
 [docs/query-language.md](docs/query-language.md)). Index → Index changes…
 lists the last 10 000 changes applied from file events, with filters and
-CSV export (when the journal is on). Index → File list editor… makes,
+CSV export (when the list is kept). Index → File list editor… makes,
 opens and saves file lists (see [File lists](#file-lists)).
 
 ### Settings

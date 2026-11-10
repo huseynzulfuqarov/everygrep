@@ -1506,11 +1506,11 @@ msgstr "Məcburi bağla"
 
 #: src/labels.rs
 msgid "The previous EveryGrep window is still closing"
-msgstr "EveryGrep hələ bağlanır"
+msgstr "Əvvəlki EveryGrep pəncərəsi hələ bağlanır"
 
 #: src/labels.rs
 msgid "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance."
-msgstr "Bu bir neçə saniyə çəkə bilər. Bağlanan kimi EveryGrep açılacaq; işləyən nüsxəni məcburi bağlaya da bilərsiniz."
+msgstr "Bu adətən bir neçə saniyə çəkir. Bağlanan kimi EveryGrep açılacaq; işləyən nüsxəni məcburi bağlaya da bilərsiniz."
 
 #: src/labels.rs
 msgid "The open EveryGrep window does not answer"
@@ -1526,7 +1526,7 @@ msgstr "EveryGrep-in bağlanması gözlənilir…"
 
 #: src/labels.rs
 msgid "The previous EveryGrep window did not close in time"
-msgstr "EveryGrep-in bağlanmasını gözləmə vaxtı bitdi"
+msgstr "Əvvəlki EveryGrep pəncərəsi vaxtında bağlanmadı"
 
 #: src/labels.rs
 msgid "Try again in a moment, or end it in System Monitor."
@@ -1730,7 +1730,7 @@ msgstr "Ölçü formatı"
 
 #: ui/settings.slint
 msgid "Size units"
-msgstr "Ölçü standartı"
+msgstr "Ölçü vahidləri"
 
 #: ui/settings.slint
 msgid "For the Size column and the status line. Automatic shows bytes below one kilobyte, then the largest unit that fits. Size searches (size:) always count 1 KB as 1024 bytes."
@@ -1816,7 +1816,7 @@ msgstr "Bütün sütunları məzmuna uyğunlaşdır"
 
 #: src/commands.rs
 msgid "Fit columns to window"
-msgstr "Bütün sütunları pəncərəyə uyğunlaşdır"
+msgstr "Sütunları pəncərəyə uyğunlaşdır"
 
 msgid "Show active matching modes in the status line"
 msgstr "Aktiv uyğunlaşdırma rejimlərini status sətrində göstər"
@@ -1941,7 +1941,7 @@ msgid "Include subfolders in context searches"
 msgstr "Kontekst axtarışlarına alt qovluqları daxil et"
 
 msgid "Search for the exact name from the result menu"
-msgstr "Kontekst axtarışlarında tam fayl adını uyğunlaşdır"
+msgstr "Nəticə menyusundan dəqiq adı axtar"
 
 msgid "Cannot open a search window: {}"
 msgstr "Axtarış pəncərəsi açıla bilmədi: {}"
@@ -2086,27 +2086,27 @@ msgstr "CRC-32 sütunu"
 
 #: ui/app.slint
 msgid "Same name"
-msgstr "Ad tezliyi"
+msgstr "Eyni ad"
 
 #: ui/app.slint
 msgid "Same extension"
-msgstr "Genişlənmə tezliyi"
+msgstr "Eyni genişlənmə"
 
 #: ui/app.slint
 msgid "Same size"
-msgstr "Ölçü tezliyi"
+msgstr "Eyni ölçü"
 
 #: src/commands.rs
 msgid "Same name column"
-msgstr "Ad tezliyi sütunu"
+msgstr "Eyni ad sütunu"
 
 #: src/commands.rs
 msgid "Same extension column"
-msgstr "Genişlənmə tezliyi sütunu"
+msgstr "Eyni genişlənmə sütunu"
 
 #: src/commands.rs
 msgid "Same size column"
-msgstr "Ölçü tezliyi sütunu"
+msgstr "Eyni ölçü sütunu"
 
 #: ui/app.slint
 msgid "Index"
@@ -2328,11 +2328,11 @@ msgstr "Bütün ayarlar"
 
 #: ui/settings.slint
 msgid "Search settings"
-msgstr "Tərkibində bu olan ayarları göstər"
+msgstr "Ayarlarda axtar"
 
 #: ui/settings.slint
 msgid "Search settings…"
-msgstr "Tərkibində bu olan ayarları göstər…"
+msgstr "Ayarlarda axtar…"
 
 #: ui/settings.slint
 msgid "Only changed settings"
@@ -2400,10 +2400,10 @@ msgid "The configuration folder is unavailable."
 msgstr "Konfiqurasiya qovluğu əlçatan deyil."
 
 msgid "Suggest earlier searches while typing"
-msgstr "Axtarış təkliflərini həmişə göstər"
+msgstr "Yazarkən əvvəlki axtarışları təklif et"
 
 msgid "Off: suggestions appear only when Search as you type is off."
-msgstr "Yazarkən axtarış söndürülübsə, təkliflər həmişə göstərilir."
+msgstr "Söndürüləndə təkliflər yalnız \"Yazdıqca axtar\" söndürülübsə görünür."
 
 msgid "Show search history"
 msgstr "Axtarış tarixçəsini göstər"
@@ -3241,10 +3241,10 @@ msgid "Search this day"
 msgstr "Bu günü axtar"
 
 msgid "Search for this name"
-msgstr "Fayl adını axtar"
+msgstr "Bu adı axtar"
 
 msgid "Search for this exact name"
-msgstr "Tam fayl adını axtar"
+msgstr "Məhz bu adı axtar"
 
 msgid "Search name without extension"
 msgstr "Uzantısız adı axtar"
@@ -3574,22 +3574,22 @@ msgid "Size on disk"
 msgstr "Diskdə ölçü"
 
 msgid "Items"
-msgstr "Birbaşa element sayı"
+msgstr "Elementlər"
 
 msgid "Files inside"
-msgstr "Birbaşa fayl sayı"
+msgstr "İçindəki fayllar"
 
 msgid "Subfolders"
-msgstr "Birbaşa qovluq sayı"
+msgstr "Alt qovluqlar"
 
 msgid "Items at any depth"
-msgstr "Bütün alt element sayı"
+msgstr "Bütün səviyyələrdə elementlər"
 
 msgid "Files at any depth"
-msgstr "Bütün alt fayl sayı"
+msgstr "Bütün səviyyələrdə fayllar"
 
 msgid "Subfolders at any depth"
-msgstr "Bütün alt qovluq sayı"
+msgstr "Bütün səviyyələrdə alt qovluqlar"
 
 msgid "Folder depth"
 msgstr "Qovluq dərinliyi"
@@ -3736,22 +3736,22 @@ msgid "Total size column"
 msgstr "Ümumi ölçü sütunu"
 
 msgid "Items column"
-msgstr "Birbaşa element sayı sütunu"
+msgstr "Elementlər sütunu"
 
 msgid "Files inside column"
-msgstr "Birbaşa fayl sayı sütunu"
+msgstr "İçindəki fayllar sütunu"
 
 msgid "Subfolders column"
-msgstr "Birbaşa qovluq sayı sütunu"
+msgstr "Alt qovluqlar sütunu"
 
 msgid "Items at any depth column"
-msgstr "Bütün alt element sayı sütunu"
+msgstr "Bütün səviyyələrdə elementlər sütunu"
 
 msgid "Files at any depth column"
-msgstr "Bütün alt fayl sayı sütunu"
+msgstr "Bütün səviyyələrdə fayllar sütunu"
 
 msgid "Subfolders at any depth column"
-msgstr "Bütün alt qovluq sayı sütunu"
+msgstr "Bütün səviyyələrdə alt qovluqlar sütunu"
 
 msgid "Folder depth column"
 msgstr "Qovluq dərinliyi sütunu"
@@ -4552,13 +4552,13 @@ msgid "Duplicate group column"
 msgstr "Dublikat qrupu sütunu"
 
 msgid "Unique"
-msgstr "UNİKAL"
+msgstr "Unikal"
 
 msgid "Distinct"
-msgstr "FƏRQLİ"
+msgstr "Fərqli"
 
 msgid "Paused"
-msgstr "FASİLƏ"
+msgstr "Fasilə"
 
 msgid "Exact file type category and extension, as shown in the Type column"
 msgstr "Növ sütununda göstərilən dəqiq fayl növü kateqoriyası və uzantısı"
@@ -4809,7 +4809,7 @@ msgid "Rescan"
 msgstr "Yenidən skan et"
 
 msgid "Load file details"
-msgstr "Genişləndirilmiş məlumatı oxu"
+msgstr "Fayl məlumatlarını yüklə"
 
 msgid "Reading extended information: {}%"
 msgstr "Genişləndirilmiş məlumat oxunur: {}%"
@@ -4834,7 +4834,7 @@ msgid "Read missing sizes and dates of the rows on screen"
 msgstr "Ekrandakı sətirlərin çatışmayan ölçü və tarixlərini oxu"
 
 msgid "When the index holds names only, the rows shown read their size and date from disk, as Load file details does for the selected items. Off: only that command reads them."
-msgstr "İndeksdə yalnız adlar olanda görünən sətirlər ölçü və tarixlərini diskdən oxuyur, seçilmiş elementlər üçün \"Genişləndirilmiş məlumatı oxu\" etdiyi kimi. Söndürüləndə onları yalnız bu əmr oxuyur."
+msgstr "İndeksdə yalnız adlar olanda görünən sətirlər ölçü və tarixlərini diskdən oxuyur, seçilmiş elementlər üçün \"Fayl məlumatlarını yüklə\" etdiyi kimi. Söndürüləndə onları yalnız bu əmr oxuyur."
 
 msgid "Match shortcuts by key position"
 msgstr "Qısayolları düymənin yerinə görə tut"
@@ -5227,7 +5227,7 @@ msgid "Deleted"
 msgstr "Silindi"
 
 msgid "Export index changes"
-msgstr "İndeks jurnalını ixrac et"
+msgstr "İndeks dəyişikliklərini ixrac et"
 
 msgid "Export…"
 msgstr "İxrac et…"
@@ -5236,13 +5236,13 @@ msgid "Folders and files"
 msgstr "Qovluqlar və fayllar"
 
 msgid "Index changes"
-msgstr "İndeks jurnalı"
+msgstr "İndeks dəyişiklikləri"
 
 msgid "Index changes…"
-msgstr "İndeks jurnalı…"
+msgstr "İndeks dəyişiklikləri…"
 
 msgid "Keep a list of index changes (in memory, last 10 000)"
-msgstr "İndeks jurnalı saxla (yaddaşda, son 10 000 dəyişiklik)"
+msgstr "İndeks dəyişikliklərinin siyahısını saxla (yaddaşda, son 10 000)"
 
 msgid "Moved"
 msgstr "Köçürüldü"
@@ -5257,7 +5257,7 @@ msgid "Renamed"
 msgstr "Adı dəyişdi"
 
 msgid "The list is never written to disk; only Export saves it. Changes found by a catch-up or a new scan are not listed one by one."
-msgstr "Jurnal heç vaxt diskə yazılmır; yalnız İxrac onu saxlayır. Yoxlama və ya yeni skan zamanı tapılan dəyişikliklər bir-bir göstərilmir."
+msgstr "Siyahı heç vaxt diskə yazılmır; yalnız İxrac onu saxlayır. Yoxlama və ya yeni skan zamanı tapılan dəyişikliklər bir-bir göstərilmir."
 
 msgid "This entry is no longer there."
 msgstr "Bu qeyd artıq yoxdur."
@@ -5402,7 +5402,7 @@ msgid "Counts"
 msgstr "Saylar"
 
 msgid "Counts and duplicates"
-msgstr "Tezlik və təkrarlar"
+msgstr "Saylar və təkrarlar"
 
 msgid "Media details"
 msgstr "Media məlumatları"

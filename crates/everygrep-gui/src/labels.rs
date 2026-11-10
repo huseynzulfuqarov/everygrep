@@ -1364,7 +1364,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_and_paused_badges_follow_query_aliases_filters_and_options() {
+    fn duplicate_and_paused_badges_follow_query_words_filters_and_options() {
         let o = QueryOptions::default();
         for (query, badge) in [
             ("duplicates:name", "Duplicates"),

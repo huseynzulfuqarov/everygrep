@@ -1506,11 +1506,11 @@ msgstr "Sonlandır"
 
 #: src/labels.rs
 msgid "The previous EveryGrep window is still closing"
-msgstr "EveryGrep hâlâ kapanıyor"
+msgstr "Önceki EveryGrep penceresi hâlâ kapanıyor"
 
 #: src/labels.rs
 msgid "This usually takes a few seconds. EveryGrep opens once it has closed; you can also terminate the existing instance."
-msgstr "Bu birkaç saniye sürebilir. Kapanır kapanmaz EveryGrep açılır; çalışan örneği sonlandırabilirsiniz de."
+msgstr "Bu genellikle birkaç saniye sürer. Kapanır kapanmaz EveryGrep açılır; çalışan örneği sonlandırabilirsiniz de."
 
 #: src/labels.rs
 msgid "The open EveryGrep window does not answer"
@@ -1526,7 +1526,7 @@ msgstr "EveryGrep'in kapanması bekleniyor…"
 
 #: src/labels.rs
 msgid "The previous EveryGrep window did not close in time"
-msgstr "EveryGrep'in kapanması beklenirken süre doldu"
+msgstr "Önceki EveryGrep penceresi zamanında kapanmadı"
 
 #: src/labels.rs
 msgid "Try again in a moment, or end it in System Monitor."
@@ -1730,7 +1730,7 @@ msgstr "Boyut biçimi"
 
 #: ui/settings.slint
 msgid "Size units"
-msgstr "Boyut standardı"
+msgstr "Boyut birimleri"
 
 #: ui/settings.slint
 msgid "For the Size column and the status line. Automatic shows bytes below one kilobyte, then the largest unit that fits. Size searches (size:) always count 1 KB as 1024 bytes."
@@ -1816,7 +1816,7 @@ msgstr "Tüm sütunları içeriğe sığdır"
 
 #: src/commands.rs
 msgid "Fit columns to window"
-msgstr "Tüm sütunları pencereye sığdır"
+msgstr "Sütunları pencereye sığdır"
 
 msgid "Show active matching modes in the status line"
 msgstr "Etkin eşleştirme kiplerini durum satırında göster"
@@ -1941,7 +1941,7 @@ msgid "Include subfolders in context searches"
 msgstr "Bağlam aramalarına alt klasörleri dahil et"
 
 msgid "Search for the exact name from the result menu"
-msgstr "Bağlam aramalarında dosya adının tamamını eşleştir"
+msgstr "Sonuç menüsünden tam adı ara"
 
 msgid "Cannot open a search window: {}"
 msgstr "Arama penceresi açılamıyor: {}"
@@ -2086,27 +2086,27 @@ msgstr "CRC-32 sütunu"
 
 #: ui/app.slint
 msgid "Same name"
-msgstr "Ad sıklığı"
+msgstr "Aynı ad"
 
 #: ui/app.slint
 msgid "Same extension"
-msgstr "Uzantı sıklığı"
+msgstr "Aynı uzantı"
 
 #: ui/app.slint
 msgid "Same size"
-msgstr "Boyut sıklığı"
+msgstr "Aynı boyut"
 
 #: src/commands.rs
 msgid "Same name column"
-msgstr "Ad sıklığı sütunu"
+msgstr "Aynı ad sütunu"
 
 #: src/commands.rs
 msgid "Same extension column"
-msgstr "Uzantı sıklığı sütunu"
+msgstr "Aynı uzantı sütunu"
 
 #: src/commands.rs
 msgid "Same size column"
-msgstr "Boyut sıklığı sütunu"
+msgstr "Aynı boyut sütunu"
 
 #: ui/app.slint
 msgid "Index"
@@ -2328,11 +2328,11 @@ msgstr "Tüm ayarlar"
 
 #: ui/settings.slint
 msgid "Search settings"
-msgstr "Şunu içeren ayarları göster"
+msgstr "Ayarlarda ara"
 
 #: ui/settings.slint
 msgid "Search settings…"
-msgstr "Şunu içeren ayarları göster…"
+msgstr "Ayarlarda ara…"
 
 #: ui/settings.slint
 msgid "Only changed settings"
@@ -2400,10 +2400,10 @@ msgid "The configuration folder is unavailable."
 msgstr "Yapılandırma klasörüne erişilemiyor."
 
 msgid "Suggest earlier searches while typing"
-msgstr "Arama önerilerini her zaman göster"
+msgstr "Yazarken önceki aramaları öner"
 
 msgid "Off: suggestions appear only when Search as you type is off."
-msgstr "Yazarken arama kapalıysa öneriler her zaman gösterilir."
+msgstr "Kapalıyken öneriler yalnızca \"Yazarken ara\" kapalıysa görünür."
 
 msgid "Show search history"
 msgstr "Arama geçmişini göster"
@@ -3241,10 +3241,10 @@ msgid "Search this day"
 msgstr "Bu günü ara"
 
 msgid "Search for this name"
-msgstr "Dosya adını ara"
+msgstr "Bu adı ara"
 
 msgid "Search for this exact name"
-msgstr "Tam dosya adını ara"
+msgstr "Tam olarak bu adı ara"
 
 msgid "Search name without extension"
 msgstr "Uzantısız adı ara"
@@ -3574,22 +3574,22 @@ msgid "Size on disk"
 msgstr "Diskte boyut"
 
 msgid "Items"
-msgstr "Doğrudan öğe sayısı"
+msgstr "Öğeler"
 
 msgid "Files inside"
-msgstr "Doğrudan dosya sayısı"
+msgstr "İçindeki dosyalar"
 
 msgid "Subfolders"
-msgstr "Doğrudan klasör sayısı"
+msgstr "Alt klasörler"
 
 msgid "Items at any depth"
-msgstr "Tüm alt öğe sayısı"
+msgstr "Tüm düzeylerdeki öğeler"
 
 msgid "Files at any depth"
-msgstr "Tüm alt dosya sayısı"
+msgstr "Tüm düzeylerdeki dosyalar"
 
 msgid "Subfolders at any depth"
-msgstr "Tüm alt klasör sayısı"
+msgstr "Tüm düzeylerdeki alt klasörler"
 
 msgid "Folder depth"
 msgstr "Klasör derinliği"
@@ -3736,22 +3736,22 @@ msgid "Total size column"
 msgstr "Toplam boyut sütunu"
 
 msgid "Items column"
-msgstr "Doğrudan öğe sayısı sütunu"
+msgstr "Öğeler sütunu"
 
 msgid "Files inside column"
-msgstr "Doğrudan dosya sayısı sütunu"
+msgstr "İçindeki dosyalar sütunu"
 
 msgid "Subfolders column"
-msgstr "Doğrudan klasör sayısı sütunu"
+msgstr "Alt klasörler sütunu"
 
 msgid "Items at any depth column"
-msgstr "Tüm alt öğe sayısı sütunu"
+msgstr "Tüm düzeylerdeki öğeler sütunu"
 
 msgid "Files at any depth column"
-msgstr "Tüm alt dosya sayısı sütunu"
+msgstr "Tüm düzeylerdeki dosyalar sütunu"
 
 msgid "Subfolders at any depth column"
-msgstr "Tüm alt klasör sayısı sütunu"
+msgstr "Tüm düzeylerdeki alt klasörler sütunu"
 
 msgid "Folder depth column"
 msgstr "Klasör derinliği sütunu"
@@ -4552,13 +4552,13 @@ msgid "Duplicate group column"
 msgstr "Yinelenen grubu sütunu"
 
 msgid "Unique"
-msgstr "BENZERSİZ"
+msgstr "Benzersiz"
 
 msgid "Distinct"
-msgstr "FARKLI"
+msgstr "Farklı"
 
 msgid "Paused"
-msgstr "DURAKLATILDI"
+msgstr "Duraklatıldı"
 
 msgid "Exact file type category and extension, as shown in the Type column"
 msgstr "Tür sütununda gösterilen tam dosya türü kategorisi ve uzantısı"
@@ -4809,7 +4809,7 @@ msgid "Rescan"
 msgstr "Yeniden tara"
 
 msgid "Load file details"
-msgstr "Genişletilmiş bilgiyi oku"
+msgstr "Dosya ayrıntılarını yükle"
 
 msgid "Reading extended information: {}%"
 msgstr "Genişletilmiş bilgi okunuyor: {}%"
@@ -4834,7 +4834,7 @@ msgid "Read missing sizes and dates of the rows on screen"
 msgstr "Ekrandaki satırların eksik boyut ve tarihlerini oku"
 
 msgid "When the index holds names only, the rows shown read their size and date from disk, as Load file details does for the selected items. Off: only that command reads them."
-msgstr "Dizin yalnızca adları tuttuğunda görünen satırlar boyut ve tarihlerini diskten okur; \"Genişletilmiş bilgiyi oku\" komutunun seçili öğeler için yaptığı gibi. Kapalıyken onları yalnızca bu komut okur."
+msgstr "Dizin yalnızca adları tuttuğunda görünen satırlar boyut ve tarihlerini diskten okur; \"Dosya ayrıntılarını yükle\" komutunun seçili öğeler için yaptığı gibi. Kapalıyken onları yalnızca bu komut okur."
 
 msgid "Match shortcuts by key position"
 msgstr "Kısayolları tuşun konumuna göre eşleştir"
@@ -5227,7 +5227,7 @@ msgid "Deleted"
 msgstr "Silindi"
 
 msgid "Export index changes"
-msgstr "Dizin günlüğünü dışa aktar"
+msgstr "Dizin değişikliklerini dışa aktar"
 
 msgid "Export…"
 msgstr "Dışa aktar…"
@@ -5236,13 +5236,13 @@ msgid "Folders and files"
 msgstr "Klasörler ve dosyalar"
 
 msgid "Index changes"
-msgstr "Dizin günlüğü"
+msgstr "Dizin değişiklikleri"
 
 msgid "Index changes…"
-msgstr "Dizin günlüğü…"
+msgstr "Dizin değişiklikleri…"
 
 msgid "Keep a list of index changes (in memory, last 10 000)"
-msgstr "Dizin günlüğü tut (bellekte, son 10 000 değişiklik)"
+msgstr "Dizin değişikliklerinin listesini tut (bellekte, son 10 000)"
 
 msgid "Moved"
 msgstr "Taşındı"
@@ -5257,7 +5257,7 @@ msgid "Renamed"
 msgstr "Yeniden adlandırıldı"
 
 msgid "The list is never written to disk; only Export saves it. Changes found by a catch-up or a new scan are not listed one by one."
-msgstr "Günlük asla diske yazılmaz; yalnızca Dışa aktar onu kaydeder. Bir yakalama veya yeni tarama sırasında bulunan değişiklikler tek tek listelenmez."
+msgstr "Liste asla diske yazılmaz; yalnızca Dışa aktar onu kaydeder. Bir yakalama veya yeni tarama sırasında bulunan değişiklikler tek tek listelenmez."
 
 msgid "This entry is no longer there."
 msgstr "Bu kayıt artık yok."
@@ -5402,7 +5402,7 @@ msgid "Counts"
 msgstr "Sayılar"
 
 msgid "Counts and duplicates"
-msgstr "Sıklık ve yinelenenler"
+msgstr "Sayılar ve yinelenenler"
 
 msgid "Media details"
 msgstr "Medya ayrıntıları"

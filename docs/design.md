@@ -51,7 +51,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   and ignore whitespace, filters, previous and next filter), Bookmarks (save,
   manage and open searches), Tabs (open, close and switch tabs), History (back,
   forward, search history), Index (rebuild, pause updates, file lists and
-  journal), Tools (settings, keyboard shortcuts settings, open the settings
+  index changes), Tools (settings, keyboard shortcuts settings, open the settings
   file), Help (search syntax, regular expressions, command line options, copy
   troubleshooting information, debug log, keyboard shortcuts, about). Only
   features that exist get an entry. Every entry runs the same command as its
@@ -123,7 +123,7 @@ screen; when a change conflicts with them, the rules win or are changed first.
   can be set) size every shown column. Fitting measures the cells of the rows
   on screen and the header label. Since Folder always takes the room the other
   columns leave, it is fitted by giving Name the rest, and "to fit" leaves the
-  spare room to Folder, while "to fit window" widens or narrows every column by
+  spare room to Folder, while "Fit columns to window" widens or narrows every column by
   the same factor so that together they fill the window. The first click on a
   header sorts ascending; two settings (Window page, off by default) make it
   sort the date columns newest first and Size largest first. A second click
