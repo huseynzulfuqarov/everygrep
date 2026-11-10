@@ -262,7 +262,8 @@ First version, 0.1.0, not released yet.
   (`case:file:README`, `prefix:folder:src`); they used to be dropped.
 - Filters for audio, archives, code, documents, executables, folders,
   images and videos, from the name. The kinds know more extensions (for
-  example `.au`, `.chm`, `.mht`, `.vsd`, `.jxr`, `.wmf`, `.m2t`, `.vob`).
+  example `.au`, `.mod`, `.xm`, `.r00`–`.r99`, `.chm`, `.mht`, `.cbz`,
+  `.fb2`, `.vsd`, `.jxr`, `.wmf`, `.m2t`, `.vob`, `.squashfs`).
   **Behaviour change:** `.desktop`, `.bat`, `.cmd` and `.ps1` are now
   executables instead of code.
 - Prefix and suffix modes (`prefix:`, `suffix:`) that anchor a term at the

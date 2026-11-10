@@ -169,7 +169,9 @@ fn by_extension(ext: &[u8]) -> Option<FileKind> {
         // Word processing and e-books
         "doc" | "docx" | "docm" | "dot" | "dotx" | "dotm" | "odt" | "ott" | "fodt" | "rtf"
         | "wpd" | "wps" | "pages" | "abw" | "epub" | "mobi" | "azw3" | "djvu" | "xps" | "oxps"
-        | "chm" | "mht" | "mhtml" | "vsd" => FileKind::Document,
+        | "chm" | "mht" | "mhtml" | "vsd" | "cbr" | "cbz" | "fb2" | "odg" | "ps" => {
+            FileKind::Document
+        }
 
         "pdf" => FileKind::Pdf,
 
@@ -183,26 +185,28 @@ fn by_extension(ext: &[u8]) -> Option<FileKind> {
         | "heic" | "heif" | "jxl" | "tif" | "tiff" | "svg" | "svgz" | "ico" | "icns" | "xcf"
         | "psd" | "kra" | "ora" | "raw" | "cr2" | "cr3" | "nef" | "arw" | "dng" | "orf" | "rw2"
         | "tga" | "qoi" | "exr" | "hdr" | "pbm" | "pgm" | "ppm" | "pnm" | "xpm" | "eps" | "ai"
-        | "avifs" | "cur" | "dds" | "hif" | "jxr" | "pcx" | "psb" | "wmf" => FileKind::Image,
+        | "avifs" | "cur" | "dds" | "hif" | "jxr" | "pcx" | "psb" | "wmf" | "emf" | "j2k"
+        | "jp2" | "pef" | "raf" | "srw" => FileKind::Image,
 
         "mp3" | "flac" | "ogg" | "oga" | "opus" | "wav" | "wave" | "aac" | "m4a" | "m4b"
         | "wma" | "aiff" | "aif" | "alac" | "ape" | "wv" | "mid" | "midi" | "mka" | "spx"
         | "ac3" | "dts" | "amr" | "mpc" | "weba" | "m3u" | "m3u8" | "pls" | "cue" | "aifc"
-        | "au" | "mp2" | "ra" | "snd" => FileKind::Audio,
+        | "au" | "mp2" | "ra" | "snd" | "caf" | "dff" | "dsf" | "it" | "mod" | "s3m" | "xm" => {
+            FileKind::Audio
+        }
 
         "mp4" | "m4v" | "mkv" | "webm" | "avi" | "mov" | "wmv" | "flv" | "mpg" | "mpeg"
         | "m2ts" | "mts" | "3gp" | "3g2" | "ogv" | "vob" | "rmvb" | "f4v" | "asf" | "divx"
-        | "qt" | "3gpp" | "m2t" | "m2v" | "mpe" | "ogm" | "rm" => FileKind::Video,
+        | "qt" | "3gpp" | "m2t" | "m2v" | "mpe" | "ogm" | "rm" | "mxf" => FileKind::Video,
 
         "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "tbz" | "tbz2" | "xz" | "txz"
         | "zst" | "tzst" | "lz" | "lz4" | "lzma" | "z" | "cab" | "arj" | "lzh" | "cpio" | "ar"
         | "deb" | "rpm" | "apk" | "jar" | "war" | "whl" | "crate" | "gem" | "xpi" | "snap"
         | "flatpak" => FileKind::Archive,
-        // Parts of a split RAR archive.
+        // Parts of a split RAR archive: .r00 to .r99.
         r if r.len() == 3
             && r.starts_with('r')
-            && r[1..].parse::<u8>().is_ok_and(|n| n <= 29)
-            && r.as_bytes()[1].is_ascii_digit() =>
+            && r.as_bytes()[1..].iter().all(u8::is_ascii_digit) =>
         {
             FileKind::Archive
         }
@@ -229,7 +233,7 @@ fn by_extension(ext: &[u8]) -> Option<FileKind> {
         }
 
         "iso" | "img" | "dmg" | "vhd" | "vhdx" | "vmdk" | "qcow" | "qcow2" | "vdi" | "toast"
-        | "nrg" | "mdf" | "ima" => FileKind::DiskImage,
+        | "nrg" | "mdf" | "ima" | "sfs" | "squashfs" => FileKind::DiskImage,
 
         _ => return None,
     };
@@ -339,6 +343,54 @@ mod tests {
     fn very_long_suffix_is_not_an_extension() {
         assert_eq!(k("archive.abcdefghijklmnopq"), FileKind::File);
         assert_eq!(k("archive.abcdefghijklm"), FileKind::File);
+    }
+
+    /// Extensions with more than one common meaning keep the one listed
+    /// here; split RAR parts are archives from .r00 to .r99.
+    #[test]
+    fn linux_conflicts() {
+        let cases = [
+            // TypeScript, not an MPEG transport stream.
+            ("a.ts", FileKind::Code),
+            // AVCHD video, not a TypeScript module.
+            ("a.mts", FileKind::Video),
+            // Packages.
+            ("a.rpm", FileKind::Archive),
+            ("a.deb", FileKind::Archive),
+            // SSH public keys are not documents.
+            ("id_ed25519.pub", FileKind::File),
+            // A Word template, a Keynote file.
+            ("a.dot", FileKind::Document),
+            ("a.key", FileKind::Presentation),
+            // Tracker modules; Go module files by their whole name.
+            ("song.mod", FileKind::Audio),
+            ("go.mod", FileKind::Code),
+            ("go.sum", FileKind::Code),
+            ("a.dts", FileKind::Audio),
+            ("a.md", FileKind::Text),
+            ("a.m", FileKind::Code),
+            ("a.pl", FileKind::Code),
+            ("a.raw", FileKind::Image),
+            ("a.img", FileKind::DiskImage),
+            ("a.bin", FileKind::Executable),
+            ("a.cue", FileKind::Audio),
+            ("a.m3u8", FileKind::Audio),
+            ("a.pls", FileKind::Audio),
+            ("a.s", FileKind::Code),
+            ("a.v", FileKind::Code),
+            ("a.eps", FileKind::Image),
+            ("a.ai", FileKind::Image),
+            // Split RAR parts, two digits only.
+            ("a.r00", FileKind::Archive),
+            ("a.r42", FileKind::Archive),
+            ("a.r99", FileKind::Archive),
+            ("a.r1", FileKind::File),
+            ("a.r100", FileKind::File),
+            ("a.rxx", FileKind::File),
+        ];
+        for (name, kind) in cases {
+            assert_eq!(k(name), kind, "{name}");
+        }
     }
 
     #[test]
