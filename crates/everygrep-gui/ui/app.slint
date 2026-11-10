@@ -2053,7 +2053,10 @@ export component AppWindow inherits Window {
     in property <int> preview-kind: 1;
     callback preview-changed();
     callback preview-selection-changed();
-    changed current => { root.preview-selection-changed(); }
+    changed current => {
+        root.preview-selection-changed();
+        root.check-current-row();
+    }
     in-out property <bool> folders-visible;
     in-out property <float> folders-width: 220;
     in-out property <bool> folders-recursive: true;
@@ -3748,7 +3751,7 @@ export component AppWindow inherits Window {
             return root.current >= 0;
         }
         if (c == Command.export-results || c == Command.select-all || c == Command.invert-selection || c == Command.clean-duplicates) {
-            return root.results.length > 0;
+            return root.has-results;
         }
         if (c == Command.restore-removed-column) {
             return root.last-removed-column >= 4;
@@ -4453,10 +4456,22 @@ export component AppWindow inherits Window {
     }
 
     property <int> page: max(1, floor(list.visible-height / Theme.row-height) - 1);
+    // What the menus need to know of the results, as plain values set when
+    // they change. A menu whose items read the result list is built again,
+    // with new item ids, whenever the list says it changed, and a click on
+    // the open menu then finds no item (Slint 1.18). Setting an equal value
+    // changes nothing, so the menus are built again only on a real change.
+    in property <bool> has-results;
     // The current row is on a drive that is not connected: file actions
     // are off for it.
-    property <bool> current-offline: root.current >= 0 && root.current < root.results.length
-        && root.results[root.current].offline;
+    property <bool> current-offline;
+    // The current row is in a group of duplicates.
+    property <bool> current-in-group;
+    public function check-current-row() {
+        let on-row = root.current >= 0 && root.current < root.results.length;
+        root.current-offline = on-row && root.results[root.current].offline;
+        root.current-in-group = on-row && root.results[root.current].group > 0;
+    }
 
     // Keys pressed while the focus is on a control without keys of its own
     // (the filter selector, a button) run the global commands. It never
@@ -6168,7 +6183,7 @@ export component AppWindow inherits Window {
                     enabled: root.can-run(Command.bulk-rename);
                     activated => { root.run(Command.bulk-rename); }
                 }
-                if root.results[root.current].group > 0: MenuItem {
+                if root.current-in-group: MenuItem {
                     title: @tr("Clean up duplicates…");
                     enabled: root.can-run(Command.clean-duplicates);
                     activated => { root.run(Command.clean-duplicates); }

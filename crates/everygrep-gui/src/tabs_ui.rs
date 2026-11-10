@@ -734,6 +734,7 @@ impl State {
         } else {
             tab.current.clamp(0, self.model.row_count() as i32 - 1)
         });
+        crate::sync_result_flags(w);
         w.set_results_scroll_y(tab.scroll_y);
         // After the tab's columns, so the table has its width; kept within
         // the room the table has now (the window may have changed since).

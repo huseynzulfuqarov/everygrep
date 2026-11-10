@@ -520,7 +520,9 @@ First version, 0.1.0, not released yet.
   "Select one folder to paste into." are no longer drawn in red; only
   failures are.
 - Menu bar with keyboard shortcuts and about dialogs; `⋯` menu when it is
-  hidden.
+  hidden. A click on an open menu is no longer lost when file changes
+  refresh the results: the menus are built again only when an item really
+  turns on or off.
 - One table of the window's commands drives its keys and the keyboard
   shortcuts dialog. `Ctrl+N` opens a new window with the menu bar hidden
   too, and the global keys also work while the filter selector has the

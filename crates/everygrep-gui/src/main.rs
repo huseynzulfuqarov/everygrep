@@ -3057,6 +3057,7 @@ fn show_results(w: &AppWindow, result: SearchResult) {
     } else if w.get_current() < 0 || w.get_current() as usize >= count {
         w.set_current(0);
     }
+    sync_result_flags(w);
     let error = current_search_error(result.error.as_deref(), w.get_search_pending());
     w.set_message_details(error.unwrap_or_default().into());
     w.set_message_error(error.is_some());
@@ -3065,6 +3066,15 @@ fn show_results(w: &AppWindow, result: SearchResult) {
         None => "".into(),
     });
     refresh_status(w);
+}
+
+/// Tells the window what its menus need to know of the results (see
+/// `has-results` in the window), after the list or its rows changed.
+pub(crate) fn sync_result_flags(w: &AppWindow) {
+    let mut any = false;
+    with_model(w, |m| any = m.row_count() > 0);
+    w.set_has_results(any);
+    w.invoke_check_current_row();
 }
 
 fn refresh_status(w: &AppWindow) {
@@ -3217,6 +3227,25 @@ mod tests {
                 "{command}"
             );
         }
+    }
+
+    /// Menu items never read the result list: a change of the list would
+    /// build the menus again with new item ids, and a click on an open menu
+    /// would find no item.
+    #[test]
+    fn menu_items_do_not_read_the_result_list() {
+        let ui = include_str!("../ui/app.slint");
+        let start = ui.find("function can-run(").expect("can-run");
+        let end = start + ui[start..].find("\n    }\n").expect("its end");
+        assert!(!ui[start..end].contains("root.results"), "can-run");
+        assert!(ui[start..end].contains("root.current-offline"));
+        for line in ui.lines().filter(|l| l.contains("MenuItem")) {
+            assert!(!line.contains("root.results"), "{line}");
+        }
+        let current = ui
+            .find("property <bool> current-offline;")
+            .expect("a plain value");
+        assert!(ui[current..].contains("public function check-current-row()"));
     }
 
     /// Left and Right in the result list scroll it sideways, within the
