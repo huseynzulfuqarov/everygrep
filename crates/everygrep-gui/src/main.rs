@@ -3229,6 +3229,39 @@ mod tests {
         }
     }
 
+    /// In the search field, Enter (with any modifier, which the field
+    /// takes as Enter) and the keys of commands that act on the current
+    /// row do nothing without a selected row.
+    #[test]
+    fn search_field_keys_act_only_on_a_selected_row() {
+        let ui = include_str!("../ui/app.slint");
+        let dispatch = &ui[ui.find("function dispatch(scope: int").expect("dispatch")..];
+        let dispatch = &dispatch[..dispatch.find("\n    }\n").expect("its end")];
+        let guard = dispatch
+            .find("scope == 1 && root.acts-on-current(c)")
+            .expect("guard");
+        let run = dispatch.find("root.run(c)").expect("run");
+        assert!(guard < run);
+        assert!(dispatch[guard..run].contains("root.is-selected(root.current)"));
+        let accepted = &ui[ui
+            .find("accepted => {\n                        root.history-open")
+            .expect("Enter")..];
+        assert!(
+            accepted[..accepted.find("down-pressed").unwrap()]
+                .contains("root.current >= 0 && root.is-selected(root.current)")
+        );
+        let acts = &ui[ui.find("function acts-on-current(").expect("list")..];
+        let acts = &acts[..acts.find("\n    }\n").unwrap()];
+        for command in [
+            "needs-online(c)",
+            "Command.properties",
+            "Command.copy-full-path",
+            "Command.context-menu",
+        ] {
+            assert!(acts.contains(command), "{command}");
+        }
+    }
+
     /// Menu items never read the result list: a change of the list would
     /// build the menus again with new item ids, and a click on an open menu
     /// would find no item.

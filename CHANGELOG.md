@@ -497,6 +497,10 @@ First version, 0.1.0, not released yet.
 - "Search as you type" setting: off, changes of the search text and the
   matching options wait for Enter (the status line says so), and Enter
   opens the current row once the results are up to date.
+- In the search field, Enter (also with `Ctrl`, `Shift` or `Alt`) and keys
+  set for commands that act on the current row do nothing until a row is
+  selected: a new search puts the current row on the first result without
+  selecting it, and it is not shown while the field has the focus.
 - Setting to select the whole name, extension included, when renaming
   (by default only the part before the extension is selected).
 - "Start EveryGrep when I log in" setting: an XDG autostart entry that

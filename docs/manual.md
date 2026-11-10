@@ -98,7 +98,7 @@ executable file.
 | `Ctrl+Space`, `Ctrl`+click | add or remove one row |
 | `Ctrl+A` | select all |
 | `Ctrl+I` | invert the selection (also from the search field) |
-| `Enter`, double-click | open (in the search field, `Enter` opens only a selected row) |
+| `Enter`, double-click | open (in the search field, `Enter`, also with `Ctrl`, `Shift` or `Alt`, opens only a selected row) |
 | `Ctrl+Enter`, double-click in the Folder column | open the containing folder |
 | `Shift+Enter` | open with another application, chosen in the desktop's dialog |
 | `Alt+Enter` | properties of the selected item |
@@ -135,6 +135,11 @@ executable file.
 
 Right-click a row, or press `Menu` or `Shift+F10`, for a context menu with the
 same actions. The index follows these changes by itself.
+
+While the search field has the focus, the current row is not shown, and a new
+search puts it on the first result without selecting it. There a key that acts
+on the current row (one given to the search field or to the whole window on the
+Keyboard page) does nothing until a row is selected, as `Enter` does.
 
 ## Copy, move and paste
 

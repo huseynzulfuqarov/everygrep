@@ -3725,6 +3725,17 @@ export component AppWindow inherits Window {
             || c == Command.rename || c == Command.create-shortcut || c == Command.new-folder || c == Command.bulk-rename || c == Command.copy-to-folder || c == Command.move-to-folder || c == Command.trash || c == Command.delete-permanently;
     }
 
+    // Commands that act on the current row (or the selection it is in).
+    function acts-on-current(c: Command) -> bool {
+        return root.needs-online(c) || c == Command.properties || c == Command.search-property-value
+            || c == Command.read-extended || c == Command.copy-column-value || c == Command.copy-properties
+            || c == Command.copy-name || c == Command.copy-path || c == Command.copy-full-path
+            || c == Command.copy-path-quoted || c == Command.copy-full-path-quoted
+            || c == Command.search-in-program || c == Command.search-containing-folder
+            || c == Command.search-filename || c == Command.search-exact-name || c == Command.search-stem || c == Command.search-whole-stem
+            || c == Command.toggle-row || c == Command.context-menu;
+    }
+
     // Whether a command can run now; menu items are enabled by it.
     function can-run(c: Command) -> bool {
         if (root.properties-open || root.export-open || root.confirm-open || root.fileops-rename-open || root.bulk-open || root.dupes-open || root.fileops-conflict-open) {
@@ -4321,6 +4332,14 @@ export component AppWindow inherits Window {
         if (c == Command.none) {
             if (root.export-open || root.confirm-open || root.fileops-rename-open || root.bulk-open || root.dupes-open || root.fileops-conflict-open) { return false; }
             return root.saved-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta);
+        }
+        // The current row is not shown while the search field has the
+        // focus, and a new search puts it on the first result without
+        // selecting it: there a key acts only on a selected row, as Enter
+        // does (see `accepted` of the search field).
+        if (scope == 1 && root.acts-on-current(c)
+                && !(root.current >= 0 && root.is-selected(root.current))) {
+            return true;
         }
         if (root.can-run(c) || (!root.export-open && !root.confirm-open && !root.fileops-rename-open && !root.bulk-open && !root.dupes-open && !root.fileops-conflict-open && ((root.current >= 0 && root.needs-online(c)) || c == Command.undo-file || c == Command.redo-file))) {
             root.run(c);
