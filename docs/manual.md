@@ -98,7 +98,7 @@ executable file.
 | `Ctrl+Space`, `Ctrl`+click | add or remove one row |
 | `Ctrl+A` | select all |
 | `Ctrl+I` | invert the selection (also from the search field) |
-| `Enter`, double-click | open |
+| `Enter`, double-click | open (in the search field, `Enter` opens only a selected row) |
 | `Ctrl+Enter`, double-click in the Folder column | open the containing folder |
 | `Shift+Enter` | open with another application, chosen in the desktop's dialog |
 | `Alt+Enter` | properties of the selected item |

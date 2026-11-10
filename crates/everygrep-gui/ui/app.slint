@@ -4543,7 +4543,11 @@ export component AppWindow inherits Window {
                         // the displayed rows before any activation.
                         if (!root.search-now()) {
                             root.history-record();
-                            if (root.current >= 0) {
+                            // A new search puts the current row on the
+                            // first result without selecting it, and it
+                            // is not shown while this field has the
+                            // focus: Enter opens only a selected row.
+                            if (root.current >= 0 && root.is-selected(root.current)) {
                                 root.activate(root.current);
                             }
                         }
